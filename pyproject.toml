@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "renga-flow"
+version = "0.1.0"
+description = "Modular training framework derived from diffusion-pipe; TOML-driven, registry-based components."
+readme = "REPORTE_EJECUTIVO.md"
+requires-python = ">=3.10"
+dependencies = [
+    "toml>=0.10.2",
+    "torch>=2.0",
+    "deepspeed>=0.12.0",
+    "diffusers>=0.25.0",
+    "peft>=0.10.0",
+    "safetensors>=0.4.0",
+    "datasets>=2.14.0",
+    "multiprocess>=0.70.0",
+    "tqdm>=4.65.0",
+    "Pillow>=9.0.0",
+    "imageio>=2.31.0",
+    "numpy>=1.24.0",
+]
+
+[project.optional-dependencies]
+lycoris = ["lycoris-lora"]
+cosmos_predict2 = [
+    "transformers>=4.51.0",
+    "accelerate>=0.30.0",
+    "torchvision>=0.15.0",
+    "einops>=0.7.0",
+]
+optim = [
+    "bitsandbytes",
+    "pytorch-optimizer",
+    "optimi",
+    "torchao",
+    "optimum-quanto",
+    "transformers>=4.0",
+]
+dev = ["pytest>=7.0"]
+
+[project.scripts]
+renga-flow = "renga_flow.main:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["renga_flow*"]
+
+[tool.setuptools.package-data]
+renga_flow.model.cosmos_predict2 = ["assets/**/*"]

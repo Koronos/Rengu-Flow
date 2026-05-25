@@ -1,0 +1,679 @@
+"""Entry point for Renga Flow. Load config, validate; run training loop when not dry-run."""
+
+import argparse
+import glob
+import os
+import shutil
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+from renga_flow.config import (
+    load_config,
+    load_dataset_config,
+    load_eval_dataset_config,
+    set_config_defaults,
+    validate_config,
+)
+from renga_flow.config.validation import ConfigValidationError
+
+
+def _parse_args():
+    parser = argparse.ArgumentParser(description="Renga Flow: TOML-driven training (Phase 1).")
+    parser.add_argument("--config", required=True, help="Path to TOML configuration file.")
+    parser.add_argument("--local_rank", type=int, default=-1, help="Local rank from distributed launcher.")
+    parser.add_argument("--resume_from_checkpoint", nargs="?", const=True, default=None)
+    parser.add_argument("--reset_dataloader", action="store_true")
+    parser.add_argument("--reset_optimizer", action="store_true")
+    parser.add_argument("--reset_optimizer_params", action="store_true")
+    parser.add_argument("--regenerate_cache", action="store_true")
+    parser.add_argument("--cache_only", action="store_true", help="Cache then exit (no-op in Phase 1 minimal).")
+    parser.add_argument("--trust_cache", action="store_true")
+    parser.add_argument("--i_know_what_i_am_doing", action="store_true")
+    parser.add_argument("--master_port", type=int, default=29500)
+    parser.add_argument("--dump_dataset", type=Path, default=None)
+    parser.add_argument("--validate-only", action="store_true", help="Load config, apply defaults, validate, then exit (no dataset load, no training).")
+    try:
+        import deepspeed
+        parser = deepspeed.add_config_arguments(parser)
+    except ImportError:
+        pass
+    return parser.parse_args()
+
+
+def _distributed_init(args):
+    world_size = int(os.environ.get("WORLD_SIZE", "1"))
+    rank = int(os.environ.get("RANK", "0"))
+    local_rank = args.local_rank
+    os.environ.setdefault("MASTER_ADDR", os.environ.get("MASTER_ADDR", "localhost"))
+    os.environ["MASTER_PORT"] = str(args.master_port)
+    return world_size, rank, local_rank
+
+
+def _get_most_recent_run_dir(output_dir: str) -> str:
+    """Return the most recent run directory under output_dir (by name order)."""
+    dirs = sorted(glob.glob(os.path.join(output_dir, "*")))
+    if not dirs:
+        raise ValueError(f"No run directories found under {output_dir}")
+    return dirs[-1]
+
+
+def _run_training(args, config):
+    import torch
+    import deepspeed
+    from deepspeed import comm as dist
+    from torch.utils.tensorboard import SummaryWriter
+
+    from renga_flow.registry import get_model
+    from renga_flow.optim import apply_warmup, resolve_optimizer_class, resolve_scheduler
+    from renga_flow.utils import ManualPipelineModule, get_data_iterator_for_step, is_main_process
+    from renga_flow.utils.saver import Saver
+    from renga_flow.utils.eval import evaluate
+    from renga_flow.utils.common import AUTOCAST_DTYPE, empty_cuda_cache
+    from renga_flow.utils.training_metrics import log_training_step
+    from renga_flow.data import (
+        Dataset,
+        DatasetManager,
+        PipelineDataLoader,
+        SyntheticSDXLDataset,
+        validate_dataset_config_for_real_data,
+    )
+
+    torch.multiprocessing.set_sharing_strategy("file_system")
+    world_size, rank, local_rank = _distributed_init(args)
+    deepspeed.init_distributed()
+    if torch.cuda.is_available():
+        device_rank = local_rank if local_rank >= 0 else (dist.get_rank() if dist is not None else 0)
+        torch.cuda.set_device(device_rank)
+
+    import renga_flow.utils.common as common_module
+    model_dtype = config["model"].get("dtype")
+    if hasattr(torch, "float16") and isinstance(model_dtype, torch.dtype):
+        common_module.AUTOCAST_DTYPE = model_dtype
+
+    model = get_model(config)
+    model.load_diffusion_model()
+
+    train_data = None
+    eval_data_map = {}
+    dataset_config = config.get("_dataset_config_loaded")
+    use_real_dataset = (
+        dataset_config is not None
+        and config.get("synthetic_num_batches") is None
+    )
+    if use_real_dataset:
+        validate_dataset_config_for_real_data(dataset_config)
+        train_data = Dataset(
+            dataset_config,
+            model,
+            skip_dataset_validation=args.i_know_what_i_am_doing,
+        )
+        dataset_manager = DatasetManager(
+            model,
+            regenerate_cache=args.regenerate_cache,
+            trust_cache=args.trust_cache,
+            caching_batch_size=config.get("caching_batch_size", 1),
+        )
+        dataset_manager.register(train_data)
+        for i, eval_entry in enumerate(config.get("eval_datasets", [])):
+            name, eval_dataset_config = load_eval_dataset_config(eval_entry)
+            eval_data = Dataset(
+                eval_dataset_config,
+                model,
+                skip_dataset_validation=args.i_know_what_i_am_doing,
+            )
+            eval_data_map[name] = eval_data
+            dataset_manager.register(eval_data)
+        dataset_manager.cache()
+        if args.cache_only:
+            if is_main_process():
+                print("renga_flow: cache complete (--cache_only). Exiting.")
+            return
+
+    is_adapter = bool(config.get("adapter"))
+    if adapter_config := config.get("adapter"):
+        model.configure_adapter(adapter_config)
+        if adapter_config.get("init_from_existing"):
+            model.load_adapter_weights(adapter_config["init_from_existing"])
+    else:
+        if config["model"].get("freeze_text_encoders", False):
+            model.freeze_text_encoders()
+
+    # Block swapping (when used) only works with adapters; full-model training must not enable it.
+    if config.get("blocks_to_swap", 0):
+        if not config.get("adapter"):
+            raise ValueError(
+                "Block swapping only works when training adapters (LoRA/LoKr). "
+                "Omit blocks_to_swap for full-model training."
+            )
+        if config.get("pipeline_stages", 1) == 1:
+            # Prevent DeepSpeed from moving blocks to GPU; we manage placement ourselves.
+            def _noop_to(self, *args, **kwargs):
+                pass
+            import deepspeed.pipe as ds_pipe
+            ds_pipe.PipelineModule.to = _noop_to
+        model.enable_block_swap(config["blocks_to_swap"])
+
+    layers = model.to_layers()
+    num_stages = config.get("pipeline_stages", 1)
+    partition_method = config.get("partition_method", "parameters")
+    partition_split = config.get("partition_split")
+    if partition_split is None and num_stages > 1:
+        partition_split = [len(layers) // num_stages] * (num_stages - 1)
+    elif partition_split is None:
+        partition_split = []
+
+    activation_checkpointing = config.get("activation_checkpointing", False)
+    extra_kw = {}
+    if activation_checkpointing:
+        extra_kw["activation_checkpoint_interval"] = 1
+        extra_kw["checkpointable_layers"] = model.checkpointable_layers
+        if activation_checkpointing == "unsloth":
+            from renga_flow.utils.unsloth_utils import unsloth_checkpoint
+            extra_kw["activation_checkpoint_func"] = unsloth_checkpoint
+        else:
+            from functools import partial
+            extra_kw["activation_checkpoint_func"] = partial(
+                torch.utils.checkpoint.checkpoint,
+                use_reentrant=config.get("reentrant_activation_checkpointing", False),
+            )
+
+    pipeline_model = ManualPipelineModule(
+        layers=layers,
+        num_stages=num_stages,
+        partition_method=partition_method,
+        manual_partition_split=partition_split if partition_method == "manual" else None,
+        loss_fn=model.get_loss_fn(),
+        **extra_kw,
+    )
+    parameters_to_train = [p for p in pipeline_model.parameters() if p.requires_grad]
+
+    micro_batch = config.get("micro_batch_size_per_gpu", 1)
+    if isinstance(micro_batch, dict):
+        micro_batch = list(micro_batch.values())[0]
+    gradient_accumulation_steps = config.get("gradient_accumulation_steps", 1)
+    world_size_for_opt = int(os.environ.get("WORLD_SIZE", "1"))
+    global_batch_size_for_opt = micro_batch * gradient_accumulation_steps * world_size_for_opt
+
+    gradient_release = config["optimizer"].get("gradient_release", False)
+    ds_config = {
+        "train_micro_batch_size_per_gpu": micro_batch,
+        "gradient_accumulation_steps": gradient_accumulation_steps,
+        "gradient_clipping": 0.0 if gradient_release else config.get("gradient_clipping", 1.0),
+        "steps_per_print": config.get("steps_per_print", 1),
+    }
+
+    def get_optimizer(model_parameters):
+        import inspect
+
+        from renga_flow.optim.param_groups import (
+            adjust_beta2_half_life,
+            split_genericoptim_param_groups,
+            split_weight_decay_param_groups,
+        )
+        from renga_flow.vendor.diffusion_pipe_optimizers.gradient_release import (
+            GradientReleaseOptimizerWrapper,
+        )
+
+        if len(model_parameters) == 0:
+            from collections import defaultdict
+            class DummyOptimizer(torch.optim.Optimizer):
+                def __init__(self):
+                    self.state = defaultdict(dict)
+                    self.param_groups = []
+                def step(self, closure=None): pass
+                def zero_grad(self, set_to_none=True): pass
+            return DummyOptimizer()
+
+        optim_cfg_raw = config["optimizer"]
+        optim_type = optim_cfg_raw["type"]
+        optim_type_lower = optim_type.lower()
+        optim_config = adjust_beta2_half_life(
+            {k: v for k, v in optim_cfg_raw.items() if k not in ("type", "gradient_release")},
+            global_batch_size_for_opt,
+        )
+        if "beta2_half_life" in optim_cfg_raw and is_main_process():
+            print(f"Computed beta2 = {optim_config['betas'][1]}")
+
+        opt_args: list = []
+        kwargs = dict(optim_config)
+        klass = resolve_optimizer_class(optim_type)
+
+        if optim_type_lower == "offload":
+            opt_args.append(torch.optim.AdamW)
+            kwargs["fused"] = True
+
+        if gradient_release:
+            def _report_progress(self, step):
+                lr = self.get_lr()
+                mom = self.get_mom()
+                deepspeed.utils.logging.log_dist(
+                    f"step={step}, skipped={self.skipped_steps}, lr={lr[0]}, mom={mom[0]}",
+                    ranks=[0],
+                )
+            deepspeed.runtime.engine.DeepSpeedEngine._report_progress = _report_progress
+
+            def _exec_reduce_grads(self):
+                assert self.mpu.get_data_parallel_world_size() == 1, (
+                    "When using gradient_release, data parallel world size must be 1. "
+                    "Use pipeline_stages = num_gpus."
+                )
+                return
+
+            deepspeed.runtime.pipe.engine.PipelineEngine._INSTRUCTION_MAP[
+                deepspeed.runtime.pipe.schedule.ReduceGrads
+            ] = _exec_reduce_grads
+
+            def add_(self, *args, **kwargs):
+                self.data.add_(*args, **kwargs)
+
+            for p in model_parameters:
+                p.add_ = add_.__get__(p)
+
+            if "foreach" in inspect.signature(klass).parameters:
+                kwargs["foreach"] = False
+
+            gas = ds_config["gradient_accumulation_steps"]
+            if "betas" in kwargs:
+                kwargs["betas"] = [b ** (1 / gas) for b in kwargs["betas"]]
+            if "momentum" in kwargs:
+                kwargs["momentum"] = kwargs["momentum"] ** (1 / gas)
+
+            optimizer_dict = {}
+            for pg in model.get_param_groups(model_parameters):
+                param_kwargs = kwargs.copy()
+                if isinstance(pg, dict):
+                    for p in pg["params"]:
+                        param_kwargs["lr"] = pg.get("lr", param_kwargs.get("lr"))
+                        optimizer_dict[p] = klass([p], **param_kwargs)
+                else:
+                    optimizer_dict[pg] = klass([pg], **param_kwargs)
+
+            def optimizer_hook(p):
+                optimizer_dict[p].step()
+                optimizer_dict[p].zero_grad()
+
+            for p in model_parameters:
+                p.register_post_accumulate_grad_hook(optimizer_hook)
+
+            return GradientReleaseOptimizerWrapper(list(optimizer_dict.values()))
+
+        if optim_type_lower == "genericoptim":
+            kwargs["compile"] = config.get("compile", False)
+            kwargs["mpu"] = pipeline_model.mpu()
+            param_groups = split_genericoptim_param_groups(
+                model.get_param_groups(model_parameters),
+                kwargs,
+            )
+        else:
+            param_groups = model.get_param_groups(model_parameters)
+
+        param_groups = split_weight_decay_param_groups(param_groups, optim_type_lower)
+        return klass(param_groups, *opt_args, **kwargs)
+
+    model_engine, optimizer, _, _ = deepspeed.initialize(
+        args=args,
+        model=pipeline_model,
+        config=ds_config,
+    )
+    model_engine._support_torch_style_backward = True
+    model_engine._configure_optimizer(get_optimizer, parameters_to_train)
+    optimizer = model_engine.optimizer
+    if hasattr(model_engine, "communication_data_type"):
+        model_engine.communication_data_type = (
+            config["adapter"]["dtype"] if config.get("adapter") else config["model"]["dtype"]
+        )
+
+    gradient_accumulation_steps = config.get("gradient_accumulation_steps", 1)
+    micro_batch_dict = config.get("micro_batch_size_per_gpu", 1)
+    if not isinstance(micro_batch_dict, dict):
+        micro_batch_dict = {None: micro_batch_dict}
+    image_micro_batch_dict = config.get("image_micro_batch_size_per_gpu", micro_batch_dict)
+    if not isinstance(image_micro_batch_dict, dict):
+        image_micro_batch_dict = {None: image_micro_batch_dict}
+
+    if train_data is not None:
+        train_data.post_init(
+            model_engine.grid.get_data_parallel_rank(),
+            model_engine.grid.get_data_parallel_world_size(),
+            micro_batch_dict,
+            gradient_accumulation_steps,
+            image_micro_batch_dict,
+        )
+        for eval_data in eval_data_map.values():
+            eval_data.post_init(
+                model_engine.grid.get_data_parallel_rank(),
+                model_engine.grid.get_data_parallel_world_size(),
+                micro_batch_dict,
+                gradient_accumulation_steps,
+                image_micro_batch_dict,
+            )
+    else:
+        num_batches = config.get("synthetic_num_batches", 50)
+        train_data = SyntheticSDXLDataset(
+            num_batches=num_batches,
+            micro_batch_size=micro_batch,
+            latent_channels=4,
+            latent_height=64,
+            latent_width=64,
+        )
+
+    train_dataloader = PipelineDataLoader(
+        train_data,
+        model_engine,
+        gradient_accumulation_steps,
+        model,
+        num_dataloader_workers=0,
+    )
+    eval_gradient_accumulation_steps = config.get("eval_gradient_accumulation_steps", 1)
+    eval_dataloaders = {
+        name: PipelineDataLoader(
+            eval_data,
+            model_engine,
+            eval_gradient_accumulation_steps,
+            model,
+            num_dataloader_workers=0,
+        )
+        for name, eval_data in eval_data_map.items()
+    }
+    steps_per_epoch = max(1, len(train_dataloader) // gradient_accumulation_steps)
+    epochs = config.get("epochs", 1)
+    total_steps = epochs * steps_per_epoch
+    lr_scheduler = resolve_scheduler(
+        config.get("lr_scheduler", "constant"),
+        optimizer,
+        config,
+        total_steps,
+        steps_per_epoch,
+    )
+    lr_scheduler = apply_warmup(optimizer, lr_scheduler, config.get("warmup_steps", 0))
+    model_engine.lr_scheduler = lr_scheduler
+
+    # Establish run_dir on rank 0 and broadcast (compatible with diffusion-pipe multi-GPU)
+    output_dir = config["output_dir"]
+    resume_from_checkpoint = (
+        args.resume_from_checkpoint if args.resume_from_checkpoint is not None else config.get("resume_from_checkpoint", False)
+    )
+    run_dir_container = [None]
+    if is_main_process():
+        os.makedirs(output_dir, exist_ok=True)
+        if resume_from_checkpoint is True:
+            run_dir_container[0] = _get_most_recent_run_dir(output_dir)
+        elif isinstance(resume_from_checkpoint, str):
+            run_dir_container[0] = os.path.join(output_dir, resume_from_checkpoint)
+            if not os.path.exists(run_dir_container[0]):
+                raise ValueError(f"Checkpoint directory {run_dir_container[0]} does not exist")
+        else:
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H-%M-%S")
+            run_name = config.get("run_name")
+            folder_name = f"{timestamp}_{run_name}" if run_name else timestamp
+            run_dir_container[0] = os.path.join(output_dir, folder_name)
+    if dist is not None and hasattr(torch.distributed, "broadcast_object_list"):
+        torch.distributed.broadcast_object_list(
+            run_dir_container, src=0, group=dist.get_world_group()
+        )
+    run_dir = run_dir_container[0]
+    if run_dir is None:
+        raise RuntimeError("run_dir was not set on rank 0")
+    os.makedirs(run_dir, exist_ok=True)
+    if not resume_from_checkpoint and is_main_process():
+        shutil.copy(args.config, run_dir)
+        if config.get("dataset") and os.path.isfile(config["dataset"]):
+            shutil.copy(config["dataset"], run_dir)
+    dist.barrier()
+
+    if is_main_process():
+        print(f"Training: steps_per_epoch={steps_per_epoch}, total_steps={total_steps}")
+        print(f"Run dir: {run_dir}")
+
+    global_batch_size = micro_batch * gradient_accumulation_steps
+    if hasattr(dist, "get_world_size"):
+        global_batch_size *= dist.get_world_size()
+    if config.get("eval_every_n_examples") is not None:
+        config["eval_every_n_steps"] = config["eval_every_n_examples"] // global_batch_size
+        if is_main_process():
+            print(f"Computed eval_every_n_steps = {config['eval_every_n_steps']}")
+    if config.get("save_every_n_examples") is not None:
+        config["save_every_n_steps"] = config["save_every_n_examples"] // global_batch_size
+        if is_main_process():
+            print(f"Computed save_every_n_steps = {config['save_every_n_steps']}")
+    saver = Saver(args, config, is_adapter, run_dir, model, train_dataloader, model_engine, pipeline_model)
+    tb_writer = SummaryWriter(log_dir=run_dir) if is_main_process() else None
+    wandb_enable = config.get("monitoring", {}).get("enable_wandb", False)
+    if wandb_enable and is_main_process():
+        try:
+            import wandb
+            mon = config.get("monitoring", {})
+            if mon.get("wandb_api_key"):
+                wandb.login(key=mon["wandb_api_key"])
+            wandb.init(
+                project=mon.get("wandb_tracker_name", "renga-flow"),
+                name=mon.get("wandb_run_name", run_dir),
+                config=config,
+                dir=run_dir,
+            )
+        except ImportError:
+            wandb_enable = False
+    disable_block_swap_for_eval = config.get("disable_block_swap_for_eval", False)
+    x_axis_examples = config.get("x_axis_examples", False)
+    eval_every_n_steps = config.get("eval_every_n_steps")
+    eval_every_n_epochs = config.get("eval_every_n_epochs")
+    eval_before_first_step = config.get("eval_before_first_step", True)
+    from renga_flow.utils.preview import get_preview_config, previews_configured, run_previews, should_run_previews
+
+    preview_before_first_step = get_preview_config(config).get("preview_before_first_step", False)
+    disable_block_swap_for_preview = config.get(
+        "disable_block_swap_for_preview", disable_block_swap_for_eval
+    )
+
+    step = 1
+    examples = global_batch_size
+    epoch = train_dataloader.epoch
+    max_steps = config.get("max_steps")
+    logging_steps = config.get("logging_steps", 1)
+    final_model_name = None
+    checkpointed = False
+    saved = False
+    epoch_loss = 0.0
+    num_steps = 0
+
+    if resume_from_checkpoint:
+        load_lr = "force_constant_lr" not in config and not args.reset_optimizer and not args.reset_optimizer_params
+        load_optimizer = not args.reset_optimizer
+        param_groups = getattr(optimizer, "param_groups", None)
+        if param_groups is not None:
+            param_groups = param_groups.copy()
+        load_path, client_state = model_engine.load_checkpoint(
+            run_dir,
+            load_module_strict=False,
+            load_lr_scheduler_states=load_lr,
+            load_optimizer_states=load_optimizer,
+        )
+        if args.reset_optimizer_params and param_groups is not None:
+            optimizer.param_groups = param_groups
+        dist.barrier()
+        if load_path is None:
+            if is_main_process():
+                print("Resume requested but no checkpoint found; starting from step 1.")
+        else:
+            if args.reset_dataloader:
+                train_dataloader.epoch = client_state["custom_loader"]["epoch"]
+            else:
+                train_dataloader.load_state_dict(client_state["custom_loader"])
+            step = client_state["step"] + 1
+            examples = client_state.get("examples", (step - 1) * global_batch_size) + global_batch_size
+            epoch = train_dataloader.epoch
+            if is_main_process():
+                print(f"Resuming from checkpoint at epoch {epoch}, step {step}")
+
+    if eval_before_first_step and not resume_from_checkpoint and eval_dataloaders:
+        empty_cuda_cache()
+        if hasattr(optimizer, "train") and callable(optimizer.train):
+            optimizer.train()
+        evaluate(
+            model,
+            model_engine,
+            eval_dataloaders,
+            tb_writer,
+            0,
+            eval_gradient_accumulation_steps,
+            disable_block_swap_for_eval,
+            optimizer=optimizer,
+            wandb_enable=wandb_enable,
+        )
+
+    if (
+        preview_before_first_step
+        and not resume_from_checkpoint
+        and previews_configured(config)
+    ):
+        run_previews(
+            model,
+            config,
+            tb_writer,
+            0,
+            disable_block_swap=disable_block_swap_for_preview,
+            optimizer=optimizer,
+            wandb_enable=wandb_enable,
+        )
+
+    while True:
+        model_engine.reset_activation_shape()
+        iterator = get_data_iterator_for_step(train_dataloader, model_engine)
+        loss = model_engine.train_batch(iterator).item()
+        train_dataloader.sync_epoch()
+        epoch_loss += loss
+        num_steps += 1
+
+        new_epoch, checkpointed_ep, saved_ep = saver.process_epoch(epoch, step, examples)
+        if checkpointed_ep:
+            checkpointed = True
+        if saved_ep:
+            saved = True
+        finished_epoch = new_epoch is not None and new_epoch != epoch
+        if new_epoch is None:
+            final_model_name = f"epoch{epoch}"
+            break
+        if new_epoch != epoch:
+            epoch = new_epoch
+
+        x_axis = examples if x_axis_examples else step
+        if is_main_process() and step % logging_steps == 0:
+            print(f"step={step} loss={loss:.6f}")
+        log_training_step(
+            tb_writer=tb_writer,
+            wandb_enable=wandb_enable,
+            optimizer=optimizer,
+            loss=loss,
+            x_axis=x_axis,
+            step=step,
+            logging_steps=logging_steps,
+            is_main=is_main_process(),
+        )
+
+        if (eval_every_n_steps and step % eval_every_n_steps == 0) or (
+            finished_epoch and eval_every_n_epochs and epoch % eval_every_n_epochs == 0
+        ):
+            evaluate(
+                model,
+                model_engine,
+                eval_dataloaders,
+                tb_writer,
+                x_axis,
+                eval_gradient_accumulation_steps,
+                disable_block_swap_for_eval,
+                optimizer=optimizer,
+                wandb_enable=wandb_enable,
+            )
+
+        if finished_epoch:
+            if is_main_process() and num_steps > 0:
+                avg_epoch_loss = epoch_loss / num_steps
+                if tb_writer is not None:
+                    tb_writer.add_scalar("train/epoch_loss", avg_epoch_loss, epoch)
+                if wandb_enable:
+                    try:
+                        import wandb
+                        wandb.log({"train/epoch_loss": avg_epoch_loss, "epoch": epoch})
+                    except ImportError:
+                        pass
+            epoch_loss = 0.0
+            num_steps = 0
+
+        step_checkpointed, step_saved, step_signals = saver.process_step(step, examples)
+        if step_checkpointed:
+            checkpointed = True
+        if step_saved:
+            saved = True
+
+        preview_x_axis = examples if x_axis_examples else step
+        if should_run_previews(
+            config,
+            step,
+            epoch,
+            finished_epoch=finished_epoch,
+            forced=step_signals.should_preview,
+        ):
+            run_previews(
+                model,
+                config,
+                tb_writer,
+                preview_x_axis,
+                disable_block_swap=disable_block_swap_for_preview,
+                optimizer=optimizer,
+                wandb_enable=wandb_enable,
+            )
+
+        if max_steps is not None and step >= max_steps:
+            final_model_name = f"step{step}"
+            if is_main_process():
+                print(f"Reached max_steps={max_steps}")
+            break
+        if epoch > epochs:
+            final_model_name = f"epoch{epoch}"
+            if is_main_process():
+                print(f"Reached epochs={epochs}")
+            break
+        step += 1
+        examples += global_batch_size
+
+    if not checkpointed:
+        saver.save_checkpoint(step, examples)
+    if not saved and final_model_name:
+        saver.save_model(final_model_name)
+
+    if is_main_process():
+        print("Training complete.")
+
+
+def main():
+    args = _parse_args()
+    config = load_config(args.config)
+    set_config_defaults(config)
+
+    if not args.validate_only:
+        dataset_config = load_dataset_config(config)
+        if dataset_config is not None:
+            config["_dataset_config_loaded"] = dataset_config
+
+    try:
+        validate_config(config)
+    except ConfigValidationError as e:
+        raise SystemExit(f"Config validation failed: {e}") from e
+
+    if args.validate_only:
+        return
+
+    if args.cache_only and not config.get("_dataset_config_loaded"):
+        print("renga_flow: --cache_only requires a dataset config; exiting.")
+        return
+
+    if args.dump_dataset:
+        print("renga_flow: --dump_dataset not implemented in Phase 1; exiting.")
+        return
+
+    _run_training(args, config)
+
+
+if __name__ == "__main__":
+    main()

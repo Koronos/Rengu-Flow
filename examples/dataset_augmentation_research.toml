@@ -1,0 +1,59 @@
+# Example dataset TOML fragment illustrating PLANNED augmentation configuration.
+# Renga Flow may ignore these keys until augmentation is implemented.
+# See docs/user/dataset-augmentation.md and docs/developer/dataset-augmentation.md.
+#
+# Prefer named strategies + parameters (readable). Numeric strategy IDs are optional legacy.
+
+resolutions = [1024]
+frame_buckets = [1]
+enable_ar_bucket = true
+min_ar = 0.5
+max_ar = 2.0
+num_ar_buckets = 12
+
+[dataset.augmentation]
+enabled = false
+# Safe default when unsure: preset = "easy"
+preset = "none"
+
+[[directory]]
+path = "/path/to/landscape_photos"
+num_repeats = 1
+augmentation = { enabled = true, preset = "realism_general", seed_mode = "deterministic_per_image" }
+
+# Mixed B&W + colour in one folder (manga or digital anime):
+# [[directory]]
+# path = "/path/to/manga_mixed_bw_color"
+# num_repeats = 1
+# augmentation = { enabled = true, preset = "manga_mixed", seed_mode = "deterministic_per_image" }
+
+[[directory]]
+path = "/path/to/manga_bw"
+num_repeats = 1
+augmentation = { enabled = true, preset = "manga_bw", seed_mode = "deterministic_per_image" }
+
+# Advanced: override preset by name — disable flip, tighten colour, cap rotation (nested tables):
+# [[directory]]
+# path = "/path/to/expert_run"
+# num_repeats = 1
+#
+# [directory.augmentation]
+# enabled = true
+# preset = "photo_safe"
+# seed_mode = "deterministic_per_image"
+#
+# [directory.augmentation.strategies.horizontal_flip]
+# enabled = false
+#
+# [directory.augmentation.strategies.color_jitter]
+# brightness = 0.04
+# contrast = 0.04
+# saturation = 0.03
+# hue = 0.01
+#
+# [directory.augmentation.strategies.small_rotation]
+# enabled = true
+# max_degrees = 2.0
+
+# Optional compact allow-list using strategy name strings (intersect with preset):
+# enable_strategies = ["color_jitter", "gamma", "temperature_tint"]

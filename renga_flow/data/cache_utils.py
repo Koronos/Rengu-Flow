@@ -1,0 +1,127 @@
+"""Cache helpers: _map_and_cache, bucket_suffix, dedup_and_sort (from diffusion-pipe)."""
+
+from __future__ import annotations
+
+import hashlib
+import os
+from pathlib import Path
+
+import numpy as np
+import torch
+from datasets.fingerprint import Hasher
+from tqdm import tqdm
+
+try:
+    import multiprocess as mp
+except ImportError:
+    import multiprocessing as mp  # type: ignore[no-redef]
+
+from renga_flow.utils.cache import Cache
+
+NUM_PROC = min(8, os.cpu_count() or 1)
+ROUND_DECIMAL_DIGITS = 3
+
+
+def bucket_suffix(key: tuple) -> str:
+    """Format a bucket key as a path-safe suffix."""
+    if len(key) == 2:
+        return f"{key[0]:.{ROUND_DECIMAL_DIGITS}f}_{key[1]}"
+    if len(key) == 3:
+        return f"{key[0]}x{key[1]}x{key[2]}"
+    if len(key) == 4:
+        return f"{key[0]:.{ROUND_DECIMAL_DIGITS}f}x{key[1]}x{key[2]}x{key[3]}"
+    raise RuntimeError(f"Unexpected bucket key: {key}")
+
+
+def dedup_and_sort(values: list[float]) -> np.ndarray:
+    """Deduplicate and sort values; round to ROUND_DECIMAL_DIGITS."""
+    values = set(round(x, ROUND_DECIMAL_DIGITS) for x in values)
+    values = list(values)
+    values.sort()
+    return np.array(values)
+
+
+def seed_from_hash(item) -> int:
+    """Deterministic seed from a path or bucket key (stable across processes)."""
+    return int(hashlib.md5(str(item).encode()).hexdigest(), 16) % int(1e9)
+
+
+def _map_and_cache(
+    dataset,
+    map_fn,
+    cache_dir: str | Path,
+    cache_file_prefix: str = "",
+    new_fingerprint_args: list | None = None,
+    regenerate_cache: bool = False,
+    caching_batch_size: int = 1,
+):
+    """Map over dataset with map_fn(example, rank), persist results in Cache.
+
+    Uses HuggingFace dataset fingerprint + new_fingerprint_args for cache key.
+    If map_fn is None, loads existing cache only (trust_cache path).
+    """
+    new_fingerprint_args = new_fingerprint_args or []
+    new_fingerprint_args.append(dataset._fingerprint)
+    new_fingerprint = Hasher.hash(new_fingerprint_args)
+    cache_dir = Path(cache_dir)
+    if cache_file_prefix:
+        cache_dir = cache_dir / cache_file_prefix.strip("_")
+
+    cache = Cache(cache_dir, new_fingerprint, shard_size_gb=10)
+
+    if map_fn is None:
+        assert new_fingerprint == cache.fingerprint
+        return cache
+
+    if regenerate_cache:
+        cache.clear()
+
+    cache_size = len(cache)
+    dataset_size = len(dataset)
+    assert cache_size <= dataset_size
+    if cache_size == dataset_size:
+        return cache
+    dataset = dataset.select(range(cache_size, dataset_size), keep_in_memory=True)
+
+    manager = mp.Manager()
+    id_queue = manager.Queue()
+
+    def init(queue):
+        global rank
+        rank = queue.get()
+
+    for i in range(NUM_PROC):
+        id_queue.put(i)
+
+    pool = mp.Pool(NUM_PROC, init, (id_queue,))
+
+    def wrapper(example):
+        global rank
+        return map_fn(example, rank)
+
+    def recursive_clone_tensors(obj):
+        if torch.is_tensor(obj):
+            return obj.clone()
+        if isinstance(obj, dict):
+            return {k: recursive_clone_tensors(v) for k, v in obj.items()}
+        if isinstance(obj, (list, tuple)):
+            return [recursive_clone_tensors(x) for x in obj]
+        return obj
+
+    def unbatch_iter(batch):
+        length = len(next(iter(batch.values())))
+        for i in range(length):
+            result = {key: batch[key][i] for key in batch}
+            yield recursive_clone_tensors(result)
+
+    completed_batches = cache_size // caching_batch_size
+    total_batches = dataset_size // caching_batch_size
+
+    map_iter = pool.imap(wrapper, dataset.iter(batch_size=caching_batch_size))
+    for batch in tqdm(map_iter, initial=completed_batches, total=total_batches):
+        for example in unbatch_iter(batch):
+            cache.add(example)
+
+    pool.close()
+    cache.finalize_current_shard()
+    return cache

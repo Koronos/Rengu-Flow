@@ -1,0 +1,29 @@
+# Minimal Cosmos Predict2 LoRA training (Anima-style: llm_path + Qwen VAE).
+# Alias: type = "anima" is equivalent to type = "cosmos_predict2" with llm_path set.
+
+output_dir = 'output'
+dataset = 'examples/minimal_cosmos_predict2_dataset.toml'
+
+epochs = 1
+micro_batch_size_per_gpu = 1
+pipeline_stages = 1
+gradient_accumulation_steps = 1
+activation_checkpointing = true
+save_every_n_epochs = 1
+caching_batch_size = 1
+
+[model]
+type = 'cosmos_predict2'
+dtype = 'bfloat16'
+transformer_path = 'path/to/anima-preview.safetensors'
+vae_path = 'path/to/qwen_image_vae.safetensors'
+llm_path = 'path/to/qwen_3_06b_base.safetensors'
+llm_adapter_lr = 0
+
+[adapter]
+type = 'lora'
+rank = 16
+
+[optimizer]
+type = 'adamw'
+lr = 1e-4

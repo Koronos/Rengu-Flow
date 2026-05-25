@@ -1,0 +1,32 @@
+# Minimal SDXL LoKr training. Run:
+#   deepspeed --num_gpus=1 -m renga_flow.main --config examples/minimal_config_lokr_sdxl.toml
+# Optional: pip install renga-flow[lycoris] to use LyCORIS backend for LoKr.
+
+dataset = "examples/minimal_dataset.toml"
+
+[model]
+type = "sdxl"
+dtype = "bfloat16"
+checkpoint_path = "path/to/sdxl.safetensors"
+
+[adapter]
+type = "lokr"
+rank = 16
+# dim = 16        # alias for rank (Kohya-style)
+# alpha = 16      # default: same as rank (scale 1.0). Increase for stronger effect, decrease for weaker.
+
+[optimizer]
+type = "adamw"
+lr = 1.0e-4
+
+lr_scheduler = "cosine"
+[lr_scheduler_args]
+lr_min = 0.0
+
+epochs = 1
+gradient_accumulation_steps = 1
+micro_batch_size_per_gpu = 1
+synthetic_num_batches = 50
+logging_steps = 1
+save_every_n_epochs = 1
+output_dir = "output"

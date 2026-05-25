@@ -1,0 +1,104 @@
+"""Set default values on config dict (aligned with diffusion-pipe set_config_defaults)."""
+
+from __future__ import annotations
+
+from typing import Any
+
+try:
+    import torch
+    _ = torch.float32  # ensure dtype attrs are loadable (e.g. avoid broken torch installs)
+    _TORCH_AVAILABLE = True
+except Exception:
+    _TORCH_AVAILABLE = False
+
+# Dtype names as in TOML -> torch.dtype when torch is available; else keep as string.
+if _TORCH_AVAILABLE:
+    DTYPE_MAP = {
+        "float32": torch.float32,
+        "float16": torch.float16,
+        "bfloat16": torch.bfloat16,
+        "float8": torch.float8_e4m3fn,
+        "float8_e4m3fn": torch.float8_e4m3fn,
+        "float8_e5m2": torch.float8_e5m2,
+    }
+else:
+    DTYPE_MAP = {k: k for k in ("float32", "float16", "bfloat16", "float8", "float8_e4m3fn", "float8_e5m2")}
+
+
+def set_config_defaults(config: dict[str, Any]) -> None:
+    """Apply default values to config in place.
+
+    Replicates the logic of diffusion-pipe train.set_config_defaults so that
+    the same TOML files remain valid. Requires config to have 'model' (with 'dtype')
+    and optionally 'adapter'. For Phase 0 we set a default for save_every_n_epochs
+    so that configs without any save_* still validate when Saver is added later.
+    """
+    # Avoid forcing save_* in Phase 0 (no training); set one default so config is valid later.
+    config.setdefault("save_every_n_epochs", 1)
+    config.setdefault("output_dir", "output")
+    config.setdefault("pipeline_stages", 1)
+    config.setdefault("activation_checkpointing", False)
+    config.setdefault("reentrant_activation_checkpointing", False)
+    if config["activation_checkpointing"] == "unsloth":
+        config["reentrant_activation_checkpointing"] = True
+    config.setdefault("warmup_steps", 0)
+    if "save_dtype" in config:
+        config["save_dtype"] = DTYPE_MAP[config["save_dtype"]]
+
+    model_config = config["model"]
+    model_dtype_str = model_config["dtype"]
+    model_config["dtype"] = DTYPE_MAP[model_dtype_str]
+    if transformer_dtype := model_config.get("transformer_dtype", None):
+        model_config["transformer_dtype"] = DTYPE_MAP[transformer_dtype]
+    if diffusion_model_dtype := model_config.get("diffusion_model_dtype", None):
+        model_config["diffusion_model_dtype"] = DTYPE_MAP[diffusion_model_dtype]
+    model_config.setdefault("guidance", 1.0)
+    if str(model_config.get("type", "")).lower() in ("cosmos_predict2", "anima"):
+        model_config.setdefault("cache_text_embeddings", True)
+
+    if "adapter" in config:
+        adapter_config = config["adapter"]
+        # Normalize dim -> rank (Kohya-style alias) so rest of code uses only "rank"
+        if "rank" not in adapter_config and "dim" in adapter_config:
+            adapter_config["rank"] = adapter_config["dim"]
+        adapter_type = adapter_config["type"]
+        if adapter_type == "lora":
+            adapter_config.setdefault("alpha", adapter_config["rank"])
+            adapter_config.setdefault("dropout", 0.0)
+            adapter_config.setdefault("dtype", model_dtype_str)
+            adapter_config["dtype"] = DTYPE_MAP[adapter_config["dtype"]]
+        elif adapter_type == "lokr":
+            adapter_config.setdefault("alpha", adapter_config["rank"])
+            adapter_config.setdefault("factor", -1)
+            adapter_config.setdefault("decompose_both", False)
+            adapter_config.setdefault("full_matrix", False)
+            adapter_config.setdefault("dtype", model_dtype_str)
+            adapter_config["dtype"] = DTYPE_MAP[adapter_config["dtype"]]
+        else:
+            raise NotImplementedError(f"Adapter type {adapter_type} is not implemented")
+
+    config.setdefault("epochs", 1)
+    config.setdefault("gradient_accumulation_steps", 1)
+    config.setdefault("micro_batch_size_per_gpu", 1)
+    config.setdefault("partition_method", "parameters")
+    config.setdefault("partition_split", None)
+    config.setdefault("lr_scheduler", "constant")
+    config.setdefault("lr_scheduler_args", {})
+    config.setdefault("logging_steps", 1)
+    config.setdefault("eval_datasets", [])
+    config.setdefault("caching_batch_size", 1)
+    config.setdefault("eval_gradient_accumulation_steps", 1)
+    config.setdefault("eval_every_n_steps", None)
+    config.setdefault("eval_every_n_epochs", None)
+    config.setdefault("eval_every_n_examples", None)
+    config.setdefault("eval_before_first_step", True)
+    config.setdefault("disable_block_swap_for_eval", False)
+    config.setdefault("compile", False)
+    config.setdefault("x_axis_examples", False)
+    config.setdefault("steps_per_print", 1)
+    config.setdefault("monitoring", {})
+    mon = config["monitoring"]
+    mon.setdefault("enable_wandb", False)
+    mon.setdefault("wandb_api_key", None)
+    mon.setdefault("wandb_tracker_name", "renga-flow")
+    mon.setdefault("wandb_run_name", None)

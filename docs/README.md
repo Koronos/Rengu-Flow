@@ -1,0 +1,27 @@
+# Renga Flow documentation
+
+- **[User guide](user/)** — For anyone using the framework (training, controlling runs, signal files).
+  - [Training SDXL LoRA and LoKr](user/training-sdxl-lora-lokr.md) — Config, saving, and running adapter training.
+  - [Training Cosmos Predict2 / Anima](user/training-cosmos-predict2-lora-lokr-finetune.md) — LoRA, LoKr, and full finetune for Cosmos Predict2 DiT checkpoints.
+  - [Full-model finetuning (SDXL)](user/full-model-training-sdxl.md) — Training the full model (no adapter), optional UNet-only with `freeze_text_encoders`.
+  - [Dataset configuration](user/dataset-config.md) — Dataset TOML, resolutions, directories, and eval datasets.
+  - [Dataset augmentation](user/dataset-augmentation.md) — Planned diversity presets, cache interaction, references (Kohya, OneTrainer).
+  - [Optimizer and scheduler](user/optimizer-and-scheduler.md) — Choosing optimizer and LR scheduler in TOML, built-in names, qualified path, runtime tokens, warmup.
+  - [Training loop, evaluation, and logging](user/training-loop-and-eval.md) — Eval datasets, TensorBoard/WandB, resume from checkpoint, activation checkpointing.
+  - [Checkpoints, model export, and retention](user/checkpoint-and-save.md) — Resume checkpoints vs inference export, `max_checkpoints_to_keep`, scheduled saves.
+  - [Training previews](user/previews.md) — Sample images during training, TensorBoard IMAGES tab, schedules and `preview` signal.
+  - [Signal files](user/signal-files.md) — Control runs with `save`, `save_quit`, `export_model`, `export_model_quit`, and `preview`.
+- **[Developer guide](developer/)** — For contributors and anyone extending the framework (APIs, adding signals, internals). In developer specs, **`[TODO]`** marks functions or features **not yet implemented** in `renga_flow/` (grep specs with `[TODO]` for a backlog).
+  - [Testing](developer/testing.md) — How to run tests, layout, fixtures, and dataset/data loading tests.
+  - [Dataset and cache](developer/dataset-and-cache.md) — Dataset config contract, code locations, and Phase 2 plan.
+  - [Dataset augmentation](developer/dataset-augmentation.md) — String strategy names, parameters, presets, merge rules, cache/seed modes, implementation hook.
+  - [Training loop and evaluation](developer/training-loop-and-eval.md) — Loop flow, evaluate() contract, TensorBoard/WandB, Saver and signal files, isolate_rng, PipelineDataLoader.reset().
+  - [Training step skip on OOM (spec)](developer/training-step-skip-on-oom.md) — Reference behavior from ai-toolkit (not in diffusion-pipe); porting notes for renga-flow.
+  - [Checkpoints, model export, and retention](developer/checkpoint-and-save.md) — Saver, pruning, export signal naming.
+  - [Training previews](developer/previews.md) — `preview` module, SDXL pipeline call, loop integration.
+  - [Model pipeline contract (implementation status)](developer/model-pipeline-contract.md) — `ModelPipelineProtocol` methods; **`[TODO]`** vs implemented on SDXL.
+  - [Cosmos Predict2 pipeline](developer/cosmos-predict2-pipeline.md) — Layout, cache hooks, adapters, param groups.
+  - [Dependencies and upstream](developer/dependencies-and-upstream.md) — diffusion-pipe submodules vs in-repo incorporation.
+  - [Networks](developer/networks.md) — Adapter modules (lora_sdxl, lokr_sdxl), contract, and how to add new networks or models.
+  - [Adding optimizers and schedulers](developer/adding-optimizers-and-schedulers.md) — Registry locations, resolution order, how to register custom optimizer or scheduler.
+  - [Full-model training](developer/full-model-training.md) — How full-model mode is chosen, save path, freeze_text_encoders, and future dataset/VAE note.

@@ -1,0 +1,9 @@
+# Minimal dataset config (referenced by minimal_config.toml).
+# Schema aligned with diffusion-pipe: [[directory]] with path and num_repeats.
+
+resolutions = [1024]
+frame_buckets = [1]
+
+[[directory]]
+path = "/path/to/your/images"
+num_repeats = 1

@@ -1,0 +1,25 @@
+# Minimal TOML for Renga Flow Phase 1 (SDXL, torch optimizer/scheduler).
+# Run: deepspeed --num_gpus=1 renga_flow/main.py --config examples/minimal_config.toml
+# Or dry-run: python -m renga_flow.main --config examples/minimal_config.toml (exits after validation if no training deps).
+
+dataset = "examples/minimal_dataset.toml"
+
+[model]
+type = "sdxl"
+dtype = "bfloat16"
+checkpoint_path = "path/to/sdxl.safetensors"
+
+[optimizer]
+type = "adamw"
+lr = 1.0e-4
+
+lr_scheduler = "cosine"
+
+[lr_scheduler_args]
+lr_min = 0.0
+
+epochs = 1
+gradient_accumulation_steps = 1
+micro_batch_size_per_gpu = 1
+synthetic_num_batches = 50
+logging_steps = 1

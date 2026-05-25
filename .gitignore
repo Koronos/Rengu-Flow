@@ -1,0 +1,54 @@
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+
+# Packaging / install artifacts
+*.egg-info/
+.eggs/
+dist/
+build/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Secrets and local env
+.env
+.env.*
+
+# Training runs and exports (output_dir default)
+output/
+
+# Dataset caches (per-directory under dataset paths)
+**/cache/
+
+# Logs and experiment trackers
+*.log
+wandb/
+runs/
+tensorboard/
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+
+# DeepSpeed / torch artifacts in cwd
+.zero/
+*.pt.tmp
+
+# Large local checkpoints (keep examples as path placeholders only)
+*.safetensors
+*.ckpt
+*.pth
+!examples/**

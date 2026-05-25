@@ -1,0 +1,52 @@
+# Example: training with evaluation and WandB monitoring.
+# Run: deepspeed --num_gpus=1 -m renga_flow.main --config examples/config_with_eval_and_monitoring.toml
+#
+# Requires a real dataset (remove synthetic_num_batches and set dataset path).
+# Eval runs every 100 steps and at end of each epoch; TensorBoard logs go to run_dir.
+
+dataset = "examples/minimal_dataset.toml"
+
+[model]
+type = "sdxl"
+dtype = "bfloat16"
+checkpoint_path = "path/to/sdxl.safetensors"
+
+[adapter]
+type = "lora"
+rank = 16
+
+[optimizer]
+type = "adamw"
+lr = 1.0e-4
+
+lr_scheduler = "cosine"
+[lr_scheduler_args]
+lr_min = 0.0
+
+epochs = 2
+gradient_accumulation_steps = 1
+micro_batch_size_per_gpu = 1
+# synthetic_num_batches = 50   # use only when no real dataset
+logging_steps = 10
+save_every_n_epochs = 1
+# checkpoint_every_n_epochs = 1
+# max_checkpoints_to_keep = 3
+output_dir = "output"
+
+# Evaluation: run on one or more eval dataset TOMLs
+eval_datasets = ["examples/minimal_dataset.toml"]
+eval_every_n_steps = 100
+eval_every_n_epochs = 1
+eval_before_first_step = true
+eval_gradient_accumulation_steps = 1
+# disable_block_swap_for_eval = false   # set true for full-GPU eval when using block swap
+
+# Optional: WandB (install wandb; set WANDB_API_KEY or monitoring.wandb_api_key)
+[monitoring]
+enable_wandb = false
+# wandb_tracker_name = "renga-flow"
+# wandb_run_name = "sdxl-lora-eval-example"
+
+# Resume from latest or specific run:
+# --resume_from_checkpoint
+# --resume_from_checkpoint 20250218_12-00-00_myrun
