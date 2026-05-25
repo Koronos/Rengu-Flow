@@ -9,7 +9,10 @@ from torch import nn
 import torch.nn.functional as F
 
 from renga_flow.model.base import make_contiguous
+from renga_flow.model.cosmos_predict2.text import compute_text_embeddings, tokenize
 from renga_flow.utils.common import AUTOCAST_DTYPE, is_main_process
+
+__all__ = ["NoopOffloader", "tokenize", "compute_text_embeddings", "InitialLayer", "LLMAdapterLayer", "TransformerLayer", "FinalLayer"]
 
 
 class NoopOffloader:
@@ -20,25 +23,6 @@ class NoopOffloader:
 
     def submit_move_blocks_forward(self, block_idx):
         pass
-
-
-def tokenize(tokenizer, prompts):
-    return tokenizer(
-        prompts,
-        return_tensors="pt",
-        truncation=True,
-        padding="max_length",
-        max_length=512,
-    )
-
-
-def compute_text_embeddings(text_encoder, input_ids, attn_mask, is_generic_llm=False):
-    input_ids = input_ids.to(text_encoder.device)
-    attn_mask = attn_mask.to(text_encoder.device)
-    outputs = text_encoder(input_ids=input_ids, attention_mask=attn_mask)
-    encoded_text = outputs.last_hidden_state
-    encoded_text[~attn_mask.bool()] = 0
-    return encoded_text
 
 
 class InitialLayer(nn.Module):
@@ -63,9 +47,7 @@ class InitialLayer(nn.Module):
         else:
             with torch.no_grad():
                 input_ids, attn_mask, t5_input_ids, t5_attn_mask = prompt_embeds_or_batch_encoding
-                crossattn_emb = compute_text_embeddings(
-                    self.text_encoder, input_ids, attn_mask, is_generic_llm=self.is_generic_llm
-                )
+                crossattn_emb = compute_text_embeddings(self.text_encoder, input_ids, attn_mask)
 
         padding_mask = torch.zeros(
             x_B_C_T_H_W.shape[0], 1, x_B_C_T_H_W.shape[3], x_B_C_T_H_W.shape[4],

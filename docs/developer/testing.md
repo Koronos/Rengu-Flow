@@ -57,6 +57,21 @@ Tests are designed to run in a few seconds. They do **not** use GPU, real checkp
 | `test_dataset_options.py` | `seed_from_hash`, `online_captions` |
 | `test_gradient_release.py` | `GradientReleaseOptimizerWrapper` |
 | `test_optim_resolver.py` | Vendor optimizers (skip if `optimum` missing) |
+| `test_config_cosmos_predict2.py` | Cosmos Predict2 / anima config validation |
+| `test_cosmos_predict2_param_groups.py` | `llm_adapter_lr=0` freezes adapter params |
+| `test_cosmos_predict2_assets.py` | Bundled tokenizer assets via `importlib.resources` |
+| `test_preprocess_media.py` | Media bucket rounding helpers |
+
+### Manual GPU smoke (Cosmos Predict2 / Anima)
+
+Not run in CI. With `.[cosmos_predict2]` installed and real checkpoint paths:
+
+```bash
+deepspeed --num_gpus=1 -m renga_flow.main --config my.toml --cache_only
+deepspeed --num_gpus=1 -m renga_flow.main --config my.toml
+```
+
+Repeat for `examples/minimal_config_cosmos_predict2_{lora,lokr,finetune}.toml`. Success: cache on disk, training loop runs, run dir contains `adapter_model.safetensors` (LoRA/LoKr) or `model.safetensors` (finetune).
 
 ```bash
 pytest -k "param_groups or training_metrics or loss_utils or dataset_options or gradient_release"

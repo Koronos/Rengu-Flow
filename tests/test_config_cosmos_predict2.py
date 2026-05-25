@@ -53,3 +53,17 @@ def test_validate_cosmos_with_t5_path_passes():
     del cfg["model"]["llm_path"]
     cfg["model"]["t5_path"] = "t5.safetensors"
     validate_config(cfg)
+
+
+def test_cosmos_dataset_validation_requires_frame_bucket_one(monkeypatch):
+    from renga_flow.model.cosmos_predict2.pipeline import CosmosPredict2Pipeline
+
+    monkeypatch.setattr(
+        CosmosPredict2Pipeline,
+        "__init__",
+        lambda self, config: setattr(self, "config", config),
+    )
+    pipe = CosmosPredict2Pipeline({"model": {}})
+    with pytest.raises(ConfigValidationError, match="frame_buckets"):
+        pipe.model_specific_dataset_config_validation({"frame_buckets": [4, 8]})
+    pipe.model_specific_dataset_config_validation({"frame_buckets": [1, 4]})

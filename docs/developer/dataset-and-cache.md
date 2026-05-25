@@ -76,15 +76,27 @@ Contract for the object passed to the orchestrator as the training dataset:
 
 See [Testing](testing.md) for more detail.
 
-## Model hooks for cache (SDXL)
+## Model hooks for cache
 
-Required by `DatasetManager.cache()` / `_cache_fn`. Status on **`renga_flow.model.sdxl.SDXLPipeline`**:
+Required by `DatasetManager.cache()` / `_cache_fn`.
+
+### Cosmos Predict2 (`renga_flow.model.cosmos_predict2.CosmosPredict2Pipeline`)
+
+| Method | Status |
+|--------|--------|
+| `get_preprocess_media_file_fn` | Implemented — `PreprocessMediaFile` |
+| `get_call_vae_fn` | Implemented — Wan VAE latents |
+| `get_call_text_encoder_fn` | Implemented — Qwen3 + T5 token ids |
+| `get_text_encoders` | Implemented when `cache_text_embeddings` (default true) |
+| `model_specific_dataset_config_validation` | Requires `1` in `frame_buckets` for image training |
+
+### SDXL (`renga_flow.model.sdxl.SDXLPipeline`)
 
 | Method | Status |
 |--------|--------|
 | `get_call_vae_fn` | Implemented |
-| **`[TODO]` `get_preprocess_media_file_fn`** | Raises `NotImplementedError` — blocks metadata/latent cache for real directories |
-| **`[TODO]` `get_call_text_encoder_fn`** | Raises `NotImplementedError` — blocks text-embedding cache |
-| **`[TODO]` `get_text_encoders`** (full TE list for cache) | Returns `[]` today; needs real encoders for TE cache |
+| **`[TODO]` `get_preprocess_media_file_fn`** | Raises `NotImplementedError` |
+| **`[TODO]` `get_call_text_encoder_fn`** | Raises `NotImplementedError` |
+| **`[TODO]` `get_text_encoders`** | Returns `[]` |
 
-Until the **`[TODO]`** hooks are implemented, real-data training still falls back to **`SyntheticSDXLDataset`** when no dataset TOML is used, or fails when `DatasetManager.cache()` calls the missing preprocess path.
+Until SDXL **`[TODO]`** hooks are implemented, SDXL real-data cache still fails on the missing preprocess path. Cosmos Predict2 supports full cache + train for image datasets with `frame_buckets = [1]`.

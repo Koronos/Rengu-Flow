@@ -19,7 +19,7 @@ Reference: `renga_flow/model/base.py`, implementations `renga_flow/model/sdxl.py
 | `get_call_text_encoder_fn` | **`[TODO]`** | Implemented |
 | `prepare_inputs` | Implemented | Implemented |
 | `to_layers` | Implemented | Implemented |
-| `model_specific_dataset_config_validation` | Default no-op | Default no-op |
+| `model_specific_dataset_config_validation` | Default no-op | Implemented (`frame_buckets` must include `1`) |
 | `get_param_groups` | Implemented | Implemented (+ `llm_adapter_lr`) |
 | `get_loss_fn` | Implemented | Implemented |
 | `enable_block_swap` | **`[TODO]`** | Not supported (austere) |

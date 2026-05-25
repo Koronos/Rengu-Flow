@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from renga_flow.config.validation import ConfigValidationError
+
 try:
     import torch
     _ = torch.float32  # ensure dtype attrs are loadable (e.g. avoid broken torch installs)
@@ -62,13 +64,17 @@ def set_config_defaults(config: dict[str, Any]) -> None:
         if "rank" not in adapter_config and "dim" in adapter_config:
             adapter_config["rank"] = adapter_config["dim"]
         adapter_type = adapter_config["type"]
+        if adapter_type in ("lora", "lokr"):
+            if "alpha" in adapter_config:
+                raise ConfigValidationError(
+                    "Remove alpha from [adapter]; renga-flow sets alpha=rank for Comfy-compatible saves."
+                )
+            adapter_config["alpha"] = adapter_config["rank"]
         if adapter_type == "lora":
-            adapter_config.setdefault("alpha", adapter_config["rank"])
             adapter_config.setdefault("dropout", 0.0)
             adapter_config.setdefault("dtype", model_dtype_str)
             adapter_config["dtype"] = DTYPE_MAP[adapter_config["dtype"]]
         elif adapter_type == "lokr":
-            adapter_config.setdefault("alpha", adapter_config["rank"])
             adapter_config.setdefault("factor", -1)
             adapter_config.setdefault("decompose_both", False)
             adapter_config.setdefault("full_matrix", False)

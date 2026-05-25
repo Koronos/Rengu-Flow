@@ -4,6 +4,7 @@ import pytest
 import torch
 
 from renga_flow.config.defaults import set_config_defaults
+from renga_flow.config.validation import ConfigValidationError
 
 
 def test_set_config_defaults_top_level_and_model_dtype(minimal_config_copy):
@@ -47,6 +48,12 @@ def test_set_config_defaults_adapter_lokr(minimal_config_copy, adapter_init, exp
     assert adapter["decompose_both"] is False
     assert adapter["full_matrix"] is False
     assert "dtype" in adapter
+
+
+def test_set_config_defaults_rejects_explicit_alpha(minimal_config_copy):
+    minimal_config_copy["adapter"] = {"type": "lora", "rank": 8, "alpha": 16}
+    with pytest.raises(ConfigValidationError, match="alpha"):
+        set_config_defaults(minimal_config_copy)
 
 
 def test_set_config_defaults_adapter_unknown_raises(minimal_config_copy):

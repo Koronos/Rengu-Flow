@@ -1,5 +1,7 @@
 # Minimal Cosmos Predict2 LoRA training (Anima-style: llm_path + Qwen VAE).
 # Alias: type = "anima" is equivalent to type = "cosmos_predict2" with llm_path set.
+# Uncomment to use the diffusion-pipe-compatible type name:
+# type = 'anima'
 
 output_dir = 'output'
 dataset = 'examples/minimal_cosmos_predict2_dataset.toml'

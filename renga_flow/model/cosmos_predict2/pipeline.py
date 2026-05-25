@@ -3,18 +3,16 @@
 from __future__ import annotations
 
 import math
-import os
 from pathlib import Path
 
 import safetensors
 import torch
 from torch import nn
 import torch.nn.functional as F
-import transformers
 from accelerate import init_empty_weights
 from accelerate.utils import set_module_tensor_to_device
-from transformers import AutoModelForCausalLM, AutoTokenizer, T5EncoderModel, T5TokenizerFast
 
+from renga_flow.config.validation import ConfigValidationError
 from renga_flow.data.preprocess_media import PreprocessMediaFile
 from renga_flow.model.base import BasePipeline, make_contiguous
 from renga_flow.model.cosmos_predict2.config import get_dit_config
@@ -28,7 +26,7 @@ from renga_flow.model.cosmos_predict2.layers import (
     compute_text_embeddings,
     tokenize,
 )
-from renga_flow.model.cosmos_predict2.paths import qwen3_config_dir, t5_config_dir
+from renga_flow.model.cosmos_predict2.text import compute_text_embeddings, load_text_stack, tokenize
 from renga_flow.model.cosmos_predict2.vae import WanVAE, vae_encode
 from renga_flow.model.loss_utils import compute_diffusion_loss_per_element
 from renga_flow import networks as networks_module
@@ -36,7 +34,6 @@ from renga_flow.registry.models import register_model, register_model_alias
 from renga_flow.utils.common import (
     AUTOCAST_DTYPE,
     is_main_process,
-    iterate_safetensors,
     load_state_dict,
 )
 
@@ -74,48 +71,13 @@ class CosmosPredict2Pipeline(BasePipeline):
         self.vae.std = self.vae.std.to("cuda")
         self.vae.scale = [self.vae.mean, 1.0 / self.vae.std]
 
-        self.is_generic_llm = False
-        t5_dir = t5_config_dir()
-        self.t5_tokenizer = T5TokenizerFast(
-            vocab_file=os.path.join(t5_dir, "spiece.model"),
-            tokenizer_file=os.path.join(t5_dir, "tokenizer.json"),
-        )
-
-        if "t5_path" in self.model_config:
-            self.tokenizer = self.t5_tokenizer
-            t5_state_dict = load_state_dict(self.model_config["t5_path"])
-            self.text_encoder = T5EncoderModel.from_pretrained(
-                None,
-                config=os.path.join(t5_dir, "config.json"),
-                state_dict=t5_state_dict,
-                torch_dtype="auto",
-                local_files_only=True,
-            )
-            self.is_generic_llm = False
-        elif "llm_path" in self.model_config:
-            llm_path = self.model_config["llm_path"]
-            if os.path.isdir(llm_path):
-                self.tokenizer = AutoTokenizer.from_pretrained(llm_path, local_files_only=True)
-                text_encoder = AutoModelForCausalLM.from_pretrained(
-                    llm_path, dtype=dtype, local_files_only=True
-                )
-            else:
-                qwen_dir = qwen3_config_dir()
-                self.tokenizer = AutoTokenizer.from_pretrained(qwen_dir, local_files_only=True)
-                llm_config = transformers.Qwen3Config.from_pretrained(qwen_dir, local_files_only=True)
-                with init_empty_weights():
-                    text_encoder = transformers.Qwen3ForCausalLM(llm_config)
-                for key, tensor in iterate_safetensors(llm_path):
-                    set_module_tensor_to_device(text_encoder, key, device="cpu", dtype=dtype, value=tensor)
-            self.text_encoder = text_encoder.model
-            if self.tokenizer.pad_token is None:
-                self.tokenizer.pad_token = self.tokenizer.eos_token
-            self.text_encoder.config.use_cache = False
-            self.is_generic_llm = True
-            self.name = "anima"
-        else:
-            raise RuntimeError("model config must contain llm_path or t5_path")
-
+        (
+            self.tokenizer,
+            self.t5_tokenizer,
+            self.text_encoder,
+            self.is_generic_llm,
+            self.name,
+        ) = load_text_stack(self.model_config)
         self.text_encoder.requires_grad_(False)
         self.transformer = None
 
@@ -177,6 +139,16 @@ class CosmosPredict2Pipeline(BasePipeline):
         self.transformer.train()
         for name, p in self.transformer.named_parameters():
             p.original_name = name
+            if "adapter" not in self.config:
+                p.requires_grad_(True)
+
+    def model_specific_dataset_config_validation(self, dataset_config):
+        frame_buckets = dataset_config.get("frame_buckets")
+        if frame_buckets is not None and 1 not in frame_buckets:
+            raise ConfigValidationError(
+                "cosmos_predict2 image training requires frame_buckets to include 1 "
+                f"(got {frame_buckets})."
+            )
 
     def get_vae(self):
         return self.vae.model

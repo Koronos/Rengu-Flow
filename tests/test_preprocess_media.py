@@ -15,3 +15,11 @@ def test_preprocess_media_rounding_defaults():
     assert fn.round_height == 16
     assert fn.round_width == 16
     assert fn.round_frames == 4
+
+
+def test_preprocess_frames_round_down_minus_one_pattern():
+    """Matches SizeBucketDataset frame rounding: (n-1) rounded down to multiple + 1."""
+    target = 5
+    rounded = round_down_to_multiple(target - 1, 4) + 1
+    assert rounded == 5
+    assert round_down_to_multiple(6 - 1, 4) + 1 == 5

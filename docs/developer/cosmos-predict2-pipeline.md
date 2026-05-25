@@ -8,8 +8,9 @@
 | `dit.py` | `MiniTrainDIT` (from diffusion-pipe `cosmos_predict2_modeling.py`) |
 | `llm_adapter.py` | LLM adapter blocks |
 | `wan_vae.py` | Wan VAE encode/decode |
+| `text.py` | Qwen3/T5 load, `tokenize`, `compute_text_embeddings` |
 | `layers.py` | DeepSpeed pipeline layers (`InitialLayer`, `TransformerLayer`, …) |
-| `config.py` | `get_dit_config` from checkpoint keys |
+| `config.py` | `get_dit_config` from checkpoint keys (max 1024) |
 | `paths.py` | Bundled tokenizer assets via `importlib.resources` |
 | `renga_flow/networks/adapter_dit.py` | LoRA (PEFT) and LoKr save/load (Comfy prefix) |
 | `renga_flow/data/preprocess_media.py` | `PreprocessMediaFile` for dataset cache |
@@ -39,6 +40,26 @@ Implemented (not `[TODO]`):
 
 When `[adapter]` is absent, `load_diffusion_model` leaves base DiT parameters trainable (`original_name` set for saver). Text encoder stays frozen in `__init__`.
 
+## Dependencies and upstream sources
+
+Full submodule matrix: [dependencies-and-upstream.md](dependencies-and-upstream.md). Installing renga-flow does **not** require `git submodule update` or a local diffusion-pipe clone.
+
+| diffusion-pipe (train Anima) | renga-flow module |
+|------------------------------|-------------------|
+| `models/cosmos_predict2_modeling.py` | `dit.py` |
+| `models/llm_adapter.py` | `llm_adapter.py` |
+| `models/wan/vae2_1.py` | `wan_vae.py` + `vae.py` |
+| `CosmosPredict2Pipeline.__init__` (TE) | `text.py` + `pipeline.py` |
+| `PreprocessMediaFile` | `data/preprocess_media.py` |
+| `configure_adapter` / LoKr save | `networks/adapter_dit.py` |
+| `configs/qwen3_06b`, `t5_old` | `assets/` + `package-data` |
+
+Licenses: `NOTICE.md` in the package (NVIDIA Apache-2.0, Wan VAE header in `wan_vae.py`).
+
+ComfyUI uses the same `diffusion_model.*` / `net.*` weight layout for inference; it is **not** a training dependency.
+
+Reference commits in diffusion-pipe (traceability only): Anima support, high-res `max_img` 1024 (`b0aa4f1`). Local uncommitted diffs on `base.py` / `cosmos_predict2.py` (LoKr DiT + save) are ported to `adapter_dit`.
+
 ## Reference
 
-Behavior is aligned with diffusion-pipe `models/cosmos_predict2.py` and local diffs on `base.py` (LoKr DiT). See [dependencies-and-upstream.md](dependencies-and-upstream.md).
+Behavior is aligned with diffusion-pipe `models/cosmos_predict2.py` and local diffs on `base.py` (LoKr DiT).

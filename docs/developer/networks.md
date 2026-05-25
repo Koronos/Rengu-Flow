@@ -8,10 +8,11 @@ This document describes the **networks** package: where adapter logic lives, how
   - **`factorization.py`**: Integer factorization for LoKr (Kronecker) decomposition. No external dependency; used by the vendored LoKr path.
   - **`lora_sdxl.py`**: LoRA for SDXL. Functions: `configure(...)`, `save(...)`, `load(pipeline, adapter_path)`. Fuse is done via diffusers `fuse_lora()` or PEFT `merge_and_unload()` in the pipeline.
   - **`lokr_sdxl.py`**: LoKr for SDXL. Same API as lora_sdxl, plus `fuse(pipeline)` and `infer_lokr_config_from_state(state)`. Uses **LyCORIS** (`lycoris-lora`) when installed, else a **vendored** implementation (same math as diffusion-pipe/Comfy). Only the vendored path supports `fuse`.
+  - **`adapter_dit.py`**: LoRA / LoKr for Cosmos Predict2 DiT (`configure`, `save`, `load_weights`). LoKr reuses `lokr_sdxl._apply_lokr_vendored`; save adds `.alpha` and `diffusion_model.*` prefix (diffusion-pipe local diff).
 
 The SDXL pipeline in `renga_flow/model/sdxl.py` delegates to these modules: it does not implement LoRA/LoKr itself. It calls `networks.lora_sdxl` or `networks.lokr_sdxl` based on `config['adapter']['type']`.
 
-**Config normalization (dim / alpha):** Before the adapter is configured, `renga_flow/config/defaults.py` normalizes the adapter config: if the user sets `dim` but not `rank`, it sets `adapter_config["rank"] = adapter_config["dim"]` (Kohya-style alias). It also sets a default `alpha` to `rank` when not provided, so the effective scale is `alpha/rank` (1.0 by default). The network modules (`lora_sdxl`, `lokr_sdxl`) always read `rank` and `alpha` from `adapter_config` in their `configure()`; they do not read `dim` (that is only for config/TOML). LoRA passes `alpha` as `lora_alpha` to PEFT’s `LoraConfig`; LoKr uses `alpha/rank` as the per-module scale (`_lokr_scale`).
+**Config normalization (dim / alpha):** Before the adapter is configured, `renga_flow/config/defaults.py` normalizes the adapter config: if the user sets `dim` but not `rank`, it sets `adapter_config["rank"] = adapter_config["dim"]` (Kohya-style alias). For LoRA and LoKr it **forces** `alpha = rank` and **rejects** an explicit `alpha` in TOML (Comfy-compatible saves, same rule as diffusion-pipe `train.py`). The network modules (`lora_sdxl`, `lokr_sdxl`) always read `rank` and `alpha` from `adapter_config` in their `configure()`; they do not read `dim` (that is only for config/TOML). LoRA passes `alpha` as `lora_alpha` to PEFT’s `LoraConfig`; LoKr uses `alpha/rank` as the per-module scale (`_lokr_scale`).
 
 ## Contract
 
