@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "renga-flow"
 version = "0.1.0"
 description = "Modular training framework derived from diffusion-pipe; TOML-driven, registry-based components."
-readme = "REPORTE_EJECUTIVO.md"
+readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "toml>=0.10.2",
@@ -49,4 +49,4 @@ where = ["."]
 include = ["renga_flow*"]
 
 [tool.setuptools.package-data]
-renga_flow.model.cosmos_predict2 = ["assets/**/*"]
+"renga_flow.model.cosmos_predict2" = ["assets/**/*"]
