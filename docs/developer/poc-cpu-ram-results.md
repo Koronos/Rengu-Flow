@@ -14,31 +14,33 @@ python scripts/poc_cpu_ram_optimizations.py --json tmp/poc_cpu_ram_results.json
 | No | Saves a few MB, or needs GPU proof, or hurts CPU (e.g. numpy iteration) |
 | Opt-in TOML | Large win only for some datasets (tag-heavy captions, mmap cache format) |
 
-## Verdict table (representative run)
+## Verdict table (2026-05-26 run, `tmp/poc_cpu_ram_results.json`)
 
 | Idea | Verdict | Default | POC metrics (summary) |
 |------|---------|---------|------------------------|
-| mmap + bf16 cache layout | **Adopt** (implement v2) | **No** until format ships | ~49% faster read vs pickle; ~51% less disk |
-| Batch read one handle / shard | **Adopt** | **Yes** (code) | ~13% faster micro-batch; `Cache.get_many` + `get_items_batch` |
+| mmap + bf16 cache layout | **Adopt** (v2 shipped) | **`cache_format = "v2"`** | ~46% faster read vs pickle; ~51% less disk |
+| Batch read one handle / shard | **Adopt** | **Yes** (code) | ~11% faster micro-batch; `Cache.get_many` + `get_items_batch` |
 | TE dedup by caption hash | Opt-in | **No** | 0% on smoke_cc0; ~95% TE entries saved on synthetic tag-heavy set |
 | cache_dir on NVMe | Docs | — | User placement |
-| Page-cache warm pass | Skip | **No** | Inconclusive without cold cache drop |
-| NumPy iteration indices | **Skip** | **No** | ~85% **slower** than list of tuples |
-| CUDA pin_memory + non_blocking | Skip | **No** | No gain in isolated transfer micro-bench |
-| bf16 on disk (legacy pickle) | Opt-in | **No** | ~2× disk per tensor; read slightly slower; use with mmap v2 |
-| TE zstd/zlib | Skip | **No** | ~1.08× compress on dense TE; not worth CPU |
+| Page-cache warm pass | Skip | **No** | Warm not faster without `drop_caches` (sudo); cold 7.2 ms vs warm 8.4 ms |
+| NumPy iteration indices | **Skip** | **No** | ~**87% slower** than list of tuples |
+| CUDA pin_memory + non_blocking | Opt-in | **No** | ~17% in isolated H2D micro-bench; needs train overlap proof |
+| bf16 on disk (legacy pickle) | Opt-in | **No** | ~2× disk; v2 already uses bf16 stacks |
+| TE zstd/zlib | Skip | **No** | ~1.08× compress (zlib fallback; zstd not installed) |
 | trust_cache incremental | Done | — | Already in CLI |
+
+**GPU A/B (dataloader):** run `scripts/smoke_perf_ab.sh sdxl [prefetch|workers2]` after cache v2 TE padding fix (variable `prompt_embeds` lengths).
 
 ## Implemented from POC
 
 - **`Cache.get_many`** — groups reads by shard ([`renga_flow/utils/cache.py`](../../renga_flow/utils/cache.py)).
 - **`SizeBucketDataset.get_items_batch`** + **`ConcatenatedBatchedDataset`** fast path when a micro-batch hits one bucket.
+- **Cache v2** — [`renga_flow/utils/cache_v2.py`](../../renga_flow/utils/cache_v2.py), wired via `cache_format` in `_map_and_cache` / `DatasetManager`.
 
 ## Not implemented (backlog)
 
-1. **Cache format v2** — mmap bf16 (or safetensors pack per bucket): largest win; new fingerprint.
-2. **`cache_dedup_text_embeddings`** — opt-in for tag-heavy datasets.
-3. **`cache_storage_dtype = bfloat16`** — tied to format v2.
+1. **`cache_dedup_text_embeddings`** — opt-in for tag-heavy datasets.
+2. **Safetensors pack per bucket** — alternative to stacked `.bin` if needed later.
 
 ## Current training defaults (unchanged unless noted)
 
@@ -48,4 +50,5 @@ python scripts/poc_cpu_ram_optimizations.py --json tmp/poc_cpu_ram_results.json
 | `dataloader_num_workers` | `0` | Safe everywhere; tune per host |
 | `cache_keep_in_memory` | `false` | Less RAM on large cache resume |
 | `cache_num_proc` | `min(8, cpus)` | Good cache-build throughput |
-| Disk-saving compression / bf16 cache | off | Wait for v2; avoid slower pickle+bf16 |
+| `cache_format` | `v2` | mmap bf16 stacks; use `v1` only for legacy dirs |
+| Disk-saving compression (pickle) | off | v2 already stores floats as bf16 |

@@ -16,7 +16,7 @@ try:
 except ImportError:
     import multiprocessing as mp  # type: ignore[no-redef]
 
-from renga_flow.utils.cache import Cache
+from renga_flow.utils.cache_factory import CACHE_FORMAT_V2, open_disk_cache
 
 NUM_PROC = min(8, os.cpu_count() or 1)
 ROUND_DECIMAL_DIGITS = 3
@@ -63,6 +63,7 @@ def _map_and_cache(
     caching_batch_size: int = 1,
     num_proc: int | None = None,
     keep_in_memory: bool = False,
+    cache_format: str = CACHE_FORMAT_V2,
 ):
     """Map over dataset with map_fn(example, rank), persist results in Cache.
 
@@ -71,12 +72,13 @@ def _map_and_cache(
     """
     new_fingerprint_args = new_fingerprint_args or []
     new_fingerprint_args.append(dataset._fingerprint)
+    new_fingerprint_args.append(f"cache_format={cache_format}")
     new_fingerprint = Hasher.hash(new_fingerprint_args)
     cache_dir = Path(cache_dir)
     if cache_file_prefix:
         cache_dir = cache_dir / cache_file_prefix.strip("_")
 
-    cache = Cache(cache_dir, new_fingerprint, shard_size_gb=10)
+    cache = open_disk_cache(cache_dir, new_fingerprint, cache_format=cache_format)
 
     if map_fn is None:
         assert new_fingerprint == cache.fingerprint

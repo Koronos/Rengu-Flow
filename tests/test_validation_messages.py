@@ -23,3 +23,15 @@ def test_collect_multiple_missing_sections() -> None:
     issues = collect_validation_errors({})
     assert len(issues) >= 3
     assert format_validation_issues(issues).startswith("Fix the following:")
+
+
+def test_invalid_cache_format() -> None:
+    issues = collect_validation_errors(
+        {
+            "dataset": "d.toml",
+            "model": {"type": "sdxl", "dtype": "bfloat16"},
+            "optimizer": {"type": "adamw", "lr": 1e-4},
+            "cache_format": "pickle",
+        }
+    )
+    assert any("cache_format" in e for e in issues)

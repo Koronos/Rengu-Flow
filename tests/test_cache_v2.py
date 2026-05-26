@@ -1,0 +1,150 @@
+"""Unit tests for cache format v2 (mmap tensor stacks + SQLite metadata)."""
+
+from __future__ import annotations
+
+import json
+
+import pytest
+import torch
+
+from renga_flow.utils.cache_factory import (
+    CACHE_FORMAT_V1,
+    CACHE_FORMAT_V2,
+    detect_cache_format,
+    open_disk_cache,
+)
+from renga_flow.utils.cache_v2 import MANIFEST_NAME, CacheV2
+
+
+def _latents_item(*, mask=None, scale: float = 1.0) -> dict:
+    return {
+        "latents": torch.randn(4, 2, 3, 3, dtype=torch.bfloat16) * scale,
+        "mask": mask,
+        "caption": "a photo",
+        "image_spec": ("img.png", None),
+    }
+
+
+def test_cache_v2_roundtrip_bf16_and_meta(tmp_path):
+    cache = CacheV2(tmp_path / "latents", "fp-test")
+    items = [_latents_item(mask=None), _latents_item(mask=torch.ones(2, 3))]
+    for it in items:
+        cache.add(it)
+    cache.finalize_current_shard()
+
+    assert len(cache) == 2
+    for i, expected in enumerate(items):
+        got = cache[i]
+        assert got["caption"] == expected["caption"]
+        assert tuple(got["image_spec"]) == expected["image_spec"]
+        if expected["mask"] is None:
+            assert got["mask"] is None
+        else:
+            assert torch.equal(got["mask"], expected["mask"])
+        assert got["latents"].shape == expected["latents"].shape
+        assert got["latents"].dtype == expected["latents"].dtype
+        assert torch.allclose(got["latents"].float(), expected["latents"].float())
+
+
+def test_cache_v2_get_many(tmp_path):
+    cache = CacheV2(tmp_path / "latents", "fp-many")
+    for _ in range(4):
+        cache.add(_latents_item())
+    cache.finalize_current_shard()
+    batch = cache.get_many([3, 1, 0])
+    assert len(batch) == 3
+    assert batch[0]["caption"] == "a photo"
+
+
+def test_cache_v2_resume_after_finalize(tmp_path):
+    cache_dir = tmp_path / "latents"
+    c1 = CacheV2(cache_dir, "fp-resume")
+    c1.add(_latents_item(scale=1.0))
+    c1.add(_latents_item(scale=2.0))
+    c1.finalize_current_shard()
+
+    c2 = CacheV2(cache_dir, "fp-resume")
+    assert len(c2) == 2
+    item3 = _latents_item(scale=3.0)
+    c2.add(item3)
+    c2.finalize_current_shard()
+    assert len(c2) == 3
+    assert torch.allclose(c2[2]["latents"].float(), item3["latents"].float())
+
+
+def test_cache_v2_fingerprint_mismatch_clears(tmp_path):
+    cache_dir = tmp_path / "latents"
+    c1 = CacheV2(cache_dir, "fp-a")
+    c1.add(_latents_item())
+    c1.finalize_current_shard()
+    assert (cache_dir / MANIFEST_NAME).is_file()
+
+    c2 = CacheV2(cache_dir, "fp-b")
+    assert len(c2) == 0
+    manifest = json.loads((cache_dir / MANIFEST_NAME).read_text(encoding="utf-8"))
+    assert manifest["fingerprint"] == "fp-b"
+    assert manifest["count"] == 0
+
+
+def test_cache_v2_shape_mismatch_raises(tmp_path):
+    cache = CacheV2(tmp_path / "latents", "fp-shape")
+    cache.add(_latents_item())
+    bad = _latents_item()
+    bad["latents"] = torch.randn(8, 2, 3, 3, dtype=torch.bfloat16)
+    with pytest.raises(ValueError, match="incompatible"):
+        cache.add(bad)
+
+
+def test_cache_v2_int64_tensor(tmp_path):
+    cache = CacheV2(tmp_path / "te", "fp-int")
+    item = {
+        "prompt_embeds": torch.randn(8, 4, dtype=torch.float32),
+        "attn_mask": torch.ones(8, dtype=torch.int64),
+        "caption": "x",
+    }
+    cache.add(item)
+    cache.finalize_current_shard()
+    got = cache[0]
+    assert got["attn_mask"].dtype == torch.int64
+    assert torch.equal(got["attn_mask"], item["attn_mask"])
+
+
+def test_cache_v2_variable_dim0_prompt_embeds(tmp_path):
+    cache = CacheV2(tmp_path / "te", "fp-var")
+    shapes = [(7, 768), (8, 768), (6, 768), (8, 768)]
+    for i, shape in enumerate(shapes):
+        cache.add(
+            {
+                "prompt_embeds": torch.randn(*shape, dtype=torch.float32),
+                "caption": f"c{i}",
+            }
+        )
+    cache.finalize_current_shard()
+    for i, shape in enumerate(shapes):
+        got = cache[i]["prompt_embeds"]
+        assert tuple(got.shape) == shape
+    assert cache.tensor_specs["prompt_embeds"]["shape"] == [8, 768]
+
+
+def test_detect_cache_format_and_open_factory(tmp_path):
+    v2_dir = tmp_path / "v2"
+    v2_dir.mkdir()
+    c = CacheV2(v2_dir, "fp")
+    c.add(_latents_item())
+    c.finalize_current_shard()
+    assert detect_cache_format(v2_dir) == CACHE_FORMAT_V2
+
+    v1_dir = tmp_path / "v1"
+    v1_dir.mkdir()
+    from renga_flow.utils.cache import Cache
+
+    v1 = Cache(v1_dir, "fp1", shard_size_gb=0.001)
+    v1.add(_latents_item())
+    v1.finalize_current_shard()
+    assert detect_cache_format(v1_dir) == CACHE_FORMAT_V1
+
+    opened = open_disk_cache(v2_dir, "fp", cache_format=CACHE_FORMAT_V1)
+    assert isinstance(opened, CacheV2)
+
+    opened_v1 = open_disk_cache(v1_dir, "fp1", cache_format=CACHE_FORMAT_V2)
+    assert isinstance(opened_v1, Cache)

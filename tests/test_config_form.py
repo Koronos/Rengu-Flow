@@ -73,6 +73,17 @@ def test_schema_field_help() -> None:
     assert "dataset-config" in dataset.get("doc_path", "")
 
 
+def test_schema_cache_format_field() -> None:
+    schema = get_schema()
+    training = next(s for s in schema["sections"] if s["id"] == "training")
+    cache_fmt = next(f for f in training["fields"] if f["path"] == "cache_format")
+    assert cache_fmt["type"] == "select"
+    assert cache_fmt["options"] == ["v2", "v1"]
+    assert cache_fmt.get("default") == "v2"
+    assert cache_fmt.get("help")
+    assert "training-loop-and-eval" in cache_fmt.get("doc_path", "")
+
+
 def test_schema_cosmos_model_paths_help() -> None:
     """Cosmos weight paths use plain-language help (not empty or label-only)."""
     schema = get_schema()

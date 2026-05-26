@@ -79,6 +79,10 @@ def collect_validation_errors(config: dict[str, Any]) -> list[str]:
                 "optimizer.gradient_release requires pipeline_stages = 1 (single-GPU pipeline)."
             )
 
+    cache_format = config.get("cache_format")
+    if cache_format is not None and cache_format not in ("v1", "v2"):
+        issues.append("cache_format must be `v1` or `v2`.")
+
     adapter = config.get("adapter")
     if adapter is not None:
         if not isinstance(adapter, dict):

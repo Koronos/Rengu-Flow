@@ -106,7 +106,7 @@ Before training, the framework runs a **cache** step: it encodes images to laten
 | **`--regenerate_cache`** | Ignore existing cache and recompute. | After changing captions, images, or model. |
 | **`--trust_cache`** | Use existing cache metadata and iteration order without recomputing. | Faster startup when data and model are unchanged. |
 
-Cache is stored under each directory’s `cache/<model_name>/` (e.g. `path/cache/sdxl/`).
+Cache is stored under each directory’s `cache/<model_name>/` (e.g. `path/cache/sdxl/`). The main training TOML **`cache_format`** (default **`v2`**) selects the on-disk layout; see [Training loop — cache and dataloader](training-loop-and-eval.md#deepspeed-pipeline-and-debug-options). After changing format or captions/images, use **`--regenerate_cache`**.
 
 ## Synthetic vs real data
 

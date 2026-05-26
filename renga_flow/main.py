@@ -53,7 +53,8 @@ def _distributed_init(args):
     rank = int(os.environ.get("RANK", "0"))
     local_rank = args.local_rank
     os.environ.setdefault("MASTER_ADDR", os.environ.get("MASTER_ADDR", "localhost"))
-    os.environ["MASTER_PORT"] = str(args.master_port)
+    # Keep MASTER_PORT from deepspeed.launcher when already set.
+    os.environ.setdefault("MASTER_PORT", str(args.master_port))
     return world_size, rank, local_rank
 
 
@@ -130,6 +131,7 @@ def _run_training(args, config):
             caching_batch_size=config.get("caching_batch_size", 1),
             cache_num_proc=config.get("cache_num_proc"),
             cache_keep_in_memory=config.get("cache_keep_in_memory", False),
+            cache_format=config.get("cache_format", "v2"),
         )
         dataset_manager.register(train_data)
         for i, eval_entry in enumerate(config.get("eval_datasets", [])):

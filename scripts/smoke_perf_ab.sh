@@ -17,6 +17,10 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${REPO_ROOT}"
+# shellcheck disable=SC1091
+source "${REPO_ROOT}/scripts/lib/smoke_common.sh"
+setup_smoke_gpu_env
+select_master_port_if_unset
 
 MODEL="${1:-}"
 shift || true
@@ -44,9 +48,6 @@ source_env_and_paths() {
     exit 1
   fi
   export PATH="${VENV}/bin:${PATH}"
-  export NCCL_P2P_DISABLE="${NCCL_P2P_DISABLE:-1}"
-  export NCCL_IB_DISABLE="${NCCL_IB_DISABLE:-1}"
-  export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
   if [[ "${MODEL}" == "sdxl" ]]; then
     [[ -f "${RENGA_SDXL_CHECKPOINT_PATH:-}" ]] || {
       echo "Set RENGA_SDXL_CHECKPOINT_PATH in .env" >&2
@@ -118,7 +119,7 @@ run_train_only() {
   local log="${REPO_ROOT}/tmp/smoke_ab_${MODEL}_$(date +%Y%m%d_%H%M%S).log"
   mkdir -p "${REPO_ROOT}/tmp"
   echo "Train-only -> ${log}"
-  "${DEEPSPEED}" --num_gpus=1 --module renga_flow.main \
+  "${DEEPSPEED}" --num_gpus=1 --master_port="${MASTER_PORT}" --module renga_flow.main \
     --config "${config}" --trust_cache 2>&1 | tee "${log}"
 }
 
@@ -131,7 +132,7 @@ done
 
 purge_smoke_data
 echo "=== Shared cache_only ==="
-"${DEEPSPEED}" --num_gpus=1 --module renga_flow.main --config "${BASE_CONFIG}" --cache_only
+"${DEEPSPEED}" --num_gpus=1 --master_port="${MASTER_PORT}" --module renga_flow.main --config "${BASE_CONFIG}" --cache_only
 
 declare -A RESULTS
 for label in "${LABELS[@]}"; do

@@ -36,7 +36,7 @@ def test_map_and_cache_passes_keep_in_memory_false(mock_manager, mock_pool):
     subset.__len__ = MagicMock(return_value=2)
     ds.select.return_value = subset
 
-    with patch("renga_flow.data.cache_utils.Cache", return_value=cache):
+    with patch("renga_flow.data.cache_utils.open_disk_cache", return_value=cache):
         with patch("renga_flow.data.cache_utils.Hasher.hash", return_value="new_fp"):
             _map_and_cache(
                 ds,

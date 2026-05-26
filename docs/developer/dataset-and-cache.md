@@ -29,8 +29,10 @@ Caption lists are flattened for text-embedding cache (one embedding per (image, 
 
 ## Cache
 
-- **`renga_flow.utils.cache.Cache`** — Disk cache with fingerprint and sharding (SQLite + binary shards). Used by `_map_and_cache`.
-- **`renga_flow.data.cache_utils._map_and_cache`** — Maps over a HuggingFace `datasets.Dataset` with a `map_fn(example, rank)`, persists results in `Cache`. Fingerprint from dataset `_fingerprint` + optional `new_fingerprint_args`. If `map_fn is None`, loads existing cache only (used after worker cache run). Config: `cache_num_proc` (pool size, default `min(8, cpu_count)`), `cache_keep_in_memory` (default `false` for resume slices).
+- **`cache_format`** (main TOML, default **`v2`**) — On-disk layout for latent and text-embedding caches. Set **`v1`** to keep legacy pickle shards. There is **no automatic migration** from v1: change format or fingerprint → regenerate cache (`--regenerate_cache` or delete `latents/` / `text_embeddings_*` under the bucket).
+- **`renga_flow.utils.cache_v2.CacheV2`** — Default format: `manifest.json` (fingerprint, tensor specs), `tensors/{key}.bin` (stacked payloads; float tensors stored as **bf16**), `meta.db` (per-index JSON for non-tensor fields and optional null tensors). Opened via **`renga_flow.utils.cache_factory.open_disk_cache`** (auto-detects existing v1 vs v2).
+- **`renga_flow.utils.cache.Cache`** — Legacy v1: SQLite + pickle shards (`metadata.db`, `shard_*.bin`).
+- **`renga_flow.data.cache_utils._map_and_cache`** — Maps over a HuggingFace `datasets.Dataset` with a `map_fn(example, rank)`, persists results via `open_disk_cache`. Fingerprint from dataset `_fingerprint` + optional `new_fingerprint_args` + `cache_format=…`. If `map_fn is None`, loads existing cache only (used after worker cache run). Config: `cache_num_proc` (pool size, default `min(8, cpu_count)`), `cache_keep_in_memory` (default `false` for resume slices).
 - **`PipelineDataLoader` prefetch** — `dataloader_prefetch=true` uses a background thread when `dataloader_num_workers=0`; `prepare_inputs` stays on the main process. See `dataloader_num_workers`, `dataloader_pin_memory`, `dataloader_prefetch_factor` in the main TOML.
 - **`renga_flow.data.manager.DatasetManager`** — Holds model (VAE, text encoders), registers datasets, and runs **`cache()`**: spawns a worker process that runs `_cache_fn` (metadata → latents → text embeddings); main processes handle GPU work via a queue. After cache, VAE/TE can be unloaded; then all ranks load datasets from cache (`cache_metadata(trust_cache=True)`, `cache_latents(None, trust_cache=True)`, `cache_text_embeddings(None, i)`).
 
@@ -59,7 +61,7 @@ Contract for the object passed to the orchestrator as the training dataset:
 |------|----------|
 | Config loading | `renga_flow.config.loader`: `load_config`, `load_dataset_config`, `load_eval_dataset_config` |
 | Dataset config validation | `renga_flow.data.dataset_config`: `validate_dataset_config_for_real_data`, `DatasetConfigError` |
-| Cache (disk) | `renga_flow.utils.cache`: `Cache` |
+| Cache (disk) | `renga_flow.utils.cache`: `Cache` (v1); `renga_flow.utils.cache_v2`: `CacheV2`; `renga_flow.utils.cache_factory`: `open_disk_cache`, `detect_cache_format` |
 | Map and cache helpers | `renga_flow.data.cache_utils`: `_map_and_cache`, `bucket_suffix`, `dedup_and_sort` |
 | Dataset hierarchy | `renga_flow.data.dataset`: `Dataset`, `DirectoryDataset`, `SizeBucketDataset`, `ConcatenatedBatchedDataset`, `ARBucketDataset`, `TextEmbeddingDataset`, `_cache_text_embeddings`, caption helpers |
 | Cache orchestration | `renga_flow.data.manager`: `_cache_fn`, `DatasetManager` |
@@ -76,7 +78,8 @@ See the full table in [Testing — Dataset and data loading tests](testing.md#da
 - **`tests/test_dataset_captions.py`** — `.txt` (one caption per line), `captions.json` (list or string), multi-caption `iteration_order`, `online_captions`.
 - **`tests/test_dump_dataset.py`**, **`tests/test_smoke_cc0_dataset.py`** — `dump_dataset` and the versioned CC0 fixture.
 - **`tests/test_sdxl_cache_hooks.py`**, **`tests/test_sdxl_cached_prepare_inputs.py`** — SDXL cache hooks and cached training path (mocked).
-- **`tests/test_cache.py`** — disk `Cache` fingerprint and shards.
+- **`tests/test_cache.py`** — disk `Cache` fingerprint and shards (v1).
+- **`tests/test_cache_v2.py`** — v2 round-trip, resume, fingerprint, factory detect.
 
 ## Model hooks for cache
 

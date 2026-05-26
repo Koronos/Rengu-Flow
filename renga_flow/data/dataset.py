@@ -107,6 +107,7 @@ def _cache_text_embeddings(
     caching_batch_size: int,
     cache_num_proc: int | None = None,
     cache_keep_in_memory: bool = False,
+    cache_format: str = "v2",
 ):
     """Flatten captions to one row per (image, caption), then map_and_cache."""
     from renga_flow.data.cache_utils import _map_and_cache
@@ -138,6 +139,7 @@ def _cache_text_embeddings(
         caching_batch_size=caching_batch_size,
         num_proc=cache_num_proc,
         keep_in_memory=cache_keep_in_memory,
+        cache_format=cache_format,
     )
     assert len(te_dataset) == len(flattened)
     return TextEmbeddingDataset(te_dataset, flattened)
@@ -185,6 +187,7 @@ class SizeBucketDataset:
         caching_batch_size: int = 1,
         cache_num_proc: int | None = None,
         cache_keep_in_memory: bool = False,
+        cache_format: str = "v2",
     ) -> None:
         iteration_order_cache_dir = self.cache_dir / "iteration_order"
         if map_fn is None:
@@ -197,6 +200,7 @@ class SizeBucketDataset:
                 caching_batch_size=caching_batch_size,
                 num_proc=cache_num_proc,
                 keep_in_memory=cache_keep_in_memory,
+                cache_format=cache_format,
             )
             self.iteration_order = datasets.load_from_disk(
                 str(iteration_order_cache_dir)
@@ -213,6 +217,7 @@ class SizeBucketDataset:
             caching_batch_size=caching_batch_size,
             num_proc=cache_num_proc,
             keep_in_memory=cache_keep_in_memory,
+            cache_format=cache_format,
         )
         assert len(self.latent_dataset) == len(self.metadata_dataset)
 
@@ -287,6 +292,7 @@ class SizeBucketDataset:
         caching_batch_size: int = 1,
         cache_num_proc: int | None = None,
         cache_keep_in_memory: bool = False,
+        cache_format: str = "v2",
     ) -> None:
         print(f"caching text embeddings: {self.size_bucket}")
         te_dataset = _cache_text_embeddings(
@@ -298,6 +304,7 @@ class SizeBucketDataset:
             caching_batch_size,
             cache_num_proc=cache_num_proc,
             cache_keep_in_memory=cache_keep_in_memory,
+            cache_format=cache_format,
         )
         self.text_embedding_datasets.append(te_dataset)
 
@@ -480,6 +487,7 @@ class ARBucketDataset:
         caching_batch_size: int = 1,
         cache_num_proc: int | None = None,
         cache_keep_in_memory: bool = False,
+        cache_format: str = "v2",
     ) -> None:
         print(f"caching latents: {self.ar_frames}")
         for res in self.resolutions:
@@ -516,6 +524,7 @@ class ARBucketDataset:
                 caching_batch_size=caching_batch_size,
                 cache_num_proc=cache_num_proc,
                 cache_keep_in_memory=cache_keep_in_memory,
+                cache_format=cache_format,
             )
 
     def cache_text_embeddings(
@@ -526,6 +535,7 @@ class ARBucketDataset:
         caching_batch_size: int = 1,
         cache_num_proc: int | None = None,
         cache_keep_in_memory: bool = False,
+        cache_format: str = "v2",
     ) -> None:
         print(f"caching text embeddings: {self.ar_frames}")
         te_dataset = _cache_text_embeddings(
@@ -537,6 +547,7 @@ class ARBucketDataset:
             caching_batch_size,
             cache_num_proc=cache_num_proc,
             cache_keep_in_memory=cache_keep_in_memory,
+            cache_format=cache_format,
         )
         for sb in self.size_buckets:
             sb.add_text_embedding_dataset(te_dataset)
@@ -720,8 +731,6 @@ class DirectoryDataset:
         trust_cache: bool = False,
         cache_num_proc: int | None = None,
     ) -> None:
-        metadata_num_proc = resolve_cache_num_proc(cache_num_proc)
-
         def check_grouped():
             if not self.grouping_keys_json_file.exists():
                 return False, None
@@ -749,7 +758,9 @@ class DirectoryDataset:
                 "Grouped metadata is not cached. Computing ungrouped metadata and grouping."
             )
             unique_keys = self._group_metadata_and_save_to_disk(
-                regenerate_cache=regenerate_cache, trust_cache=trust_cache
+                regenerate_cache=regenerate_cache,
+                trust_cache=trust_cache,
+                cache_num_proc=cache_num_proc,
             )
         else:
             print("Found grouped metadata cache. Directly loading it.")
@@ -789,9 +800,12 @@ class DirectoryDataset:
         self,
         regenerate_cache: bool = False,
         trust_cache: bool = False,
+        cache_num_proc: int | None = None,
     ) -> list:
         metadata_dataset = self._get_ungrouped_metadata(
-            regenerate_cache=regenerate_cache, trust_cache=trust_cache
+            regenerate_cache=regenerate_cache,
+            trust_cache=trust_cache,
+            cache_num_proc=cache_num_proc,
         )
         grouped = defaultdict(lambda: defaultdict(list))
         unique_keys = set()
@@ -818,7 +832,9 @@ class DirectoryDataset:
         self,
         regenerate_cache: bool = False,
         trust_cache: bool = False,
+        cache_num_proc: int | None = None,
     ):
+        metadata_num_proc = resolve_cache_num_proc(cache_num_proc)
         metadata_cache_1 = self.cache_dir / "metadata/metadata_intermediate"
         metadata_cache_2 = self.cache_dir / "metadata/metadata.arrow"
 
@@ -1130,6 +1146,7 @@ class DirectoryDataset:
         caching_batch_size: int = 1,
         cache_num_proc: int | None = None,
         cache_keep_in_memory: bool = False,
+        cache_format: str = "v2",
     ) -> None:
         print(f"caching latents: {self.path}")
         datasets_list = (
@@ -1145,6 +1162,7 @@ class DirectoryDataset:
                 caching_batch_size=caching_batch_size,
                 cache_num_proc=cache_num_proc,
                 cache_keep_in_memory=cache_keep_in_memory,
+                cache_format=cache_format,
             )
 
     def cache_text_embeddings(
@@ -1155,6 +1173,7 @@ class DirectoryDataset:
         caching_batch_size: int = 1,
         cache_num_proc: int | None = None,
         cache_keep_in_memory: bool = False,
+        cache_format: str = "v2",
     ) -> None:
         print(f"caching text embeddings: {self.path}")
         datasets_list = (
@@ -1169,6 +1188,7 @@ class DirectoryDataset:
                 caching_batch_size=caching_batch_size,
                 cache_num_proc=cache_num_proc,
                 cache_keep_in_memory=cache_keep_in_memory,
+                cache_format=cache_format,
             )
         empty_ds = datasets.Dataset.from_dict(
             {
@@ -1185,6 +1205,7 @@ class DirectoryDataset:
             regenerate_cache=regenerate_cache,
             num_proc=cache_num_proc,
             keep_in_memory=cache_keep_in_memory,
+            cache_format=cache_format,
         )
         for sb in self.get_size_bucket_datasets():
             sb.uncond_text_embeddings.append(uncond_ds)
@@ -1331,6 +1352,7 @@ class Dataset:
         caching_batch_size: int = 1,
         cache_num_proc: int | None = None,
         cache_keep_in_memory: bool = False,
+        cache_format: str = "v2",
     ) -> None:
         for ds in self.directory_datasets:
             ds.cache_latents(
@@ -1340,6 +1362,7 @@ class Dataset:
                 caching_batch_size=caching_batch_size,
                 cache_num_proc=cache_num_proc,
                 cache_keep_in_memory=cache_keep_in_memory,
+                cache_format=cache_format,
             )
 
     def cache_text_embeddings(
@@ -1350,6 +1373,7 @@ class Dataset:
         caching_batch_size: int = 1,
         cache_num_proc: int | None = None,
         cache_keep_in_memory: bool = False,
+        cache_format: str = "v2",
     ) -> None:
         for ds in self.directory_datasets:
             ds.cache_text_embeddings(
@@ -1358,4 +1382,5 @@ class Dataset:
                 caching_batch_size=caching_batch_size,
                 cache_num_proc=cache_num_proc,
                 cache_keep_in_memory=cache_keep_in_memory,
+                cache_format=cache_format,
             )

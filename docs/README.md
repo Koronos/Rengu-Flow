@@ -14,7 +14,9 @@
   - [Web UI](user/web-ui.md) — Optional local UI: `./start-ui.sh`, configs, jobs, signals, progress.
 - **[Developer guide](developer/)** — For contributors and anyone extending the framework (APIs, adding signals, internals). In developer specs, **`[TODO]`** marks functions or features **not yet implemented** in `renga_flow/` (grep specs with `[TODO]` for a backlog).
   - [Testing](developer/testing.md) — How to run tests, layout, fixtures, and dataset/data loading tests.
-  - [Dataset and cache](developer/dataset-and-cache.md) — Dataset config contract, code locations, and Phase 2 plan.
+  - [Dataset and cache](developer/dataset-and-cache.md) — Dataset config contract, code locations, cache v1/v2.
+  - [CPU/RAM and disk cache performance](developer/performance-cpu-ram.md) — `cache_format`, dataloader/cache tuning, smoke A/B.
+  - [POC CPU/RAM results](developer/poc-cpu-ram-results.md) — Benchmark verdicts and default policy for cache/dataloader flags.
   - [Dataset augmentation](developer/dataset-augmentation.md) — String strategy names, parameters, presets, merge rules, cache/seed modes, implementation hook.
   - [Training loop and evaluation](developer/training-loop-and-eval.md) — Loop flow, evaluate() contract, TensorBoard/WandB, Saver and signal files, isolate_rng, PipelineDataLoader.reset().
   - [Training step skip on OOM](developer/training-step-skip-on-oom.md) — ai-toolkit-style skip (implemented for single-GPU); config and tests.

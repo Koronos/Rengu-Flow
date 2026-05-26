@@ -31,6 +31,7 @@ def _cache_fn(
     caching_batch_size: int,
     cache_num_proc: int | None,
     cache_keep_in_memory: bool,
+    cache_format: str,
 ) -> None:
     """Worker process: run cache_metadata, cache_latents, cache_text_embeddings; send GPU work via queue."""
     torch.set_num_threads(1)
@@ -121,6 +122,7 @@ def _cache_fn(
             caching_batch_size=caching_batch_size,
             cache_num_proc=cache_num_proc,
             cache_keep_in_memory=cache_keep_in_memory,
+            cache_format=cache_format,
         )
 
     for text_encoder_idx in range(num_text_encoders):
@@ -150,6 +152,7 @@ def _cache_fn(
                 caching_batch_size=caching_batch_size,
                 cache_num_proc=cache_num_proc,
                 cache_keep_in_memory=cache_keep_in_memory,
+                cache_format=cache_format,
             )
 
     queue.put(None)
@@ -166,6 +169,7 @@ class DatasetManager:
         caching_batch_size: int = 1,
         cache_num_proc: int | None = None,
         cache_keep_in_memory: bool = False,
+        cache_format: str = "v2",
     ) -> None:
         self.model = model
         self.vae = model.get_vae()
@@ -182,6 +186,7 @@ class DatasetManager:
         self.regenerate_cache = regenerate_cache
         self.trust_cache = trust_cache
         self.caching_batch_size = caching_batch_size
+        self.cache_format = cache_format
         self.cache_num_proc = cache_num_proc
         self.cache_keep_in_memory = cache_keep_in_memory
         self.datasets = []
@@ -217,6 +222,7 @@ class DatasetManager:
                     self.caching_batch_size,
                     self.cache_num_proc,
                     self.cache_keep_in_memory,
+                    self.cache_format,
                 ),
             )
             proc.start()

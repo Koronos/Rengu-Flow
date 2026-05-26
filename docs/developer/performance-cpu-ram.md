@@ -12,7 +12,7 @@ Developer notes for data loading and cache tuning. User-facing option tables liv
 | Train DataLoader workers | `max_data_loader_n_workers` | standard | config (0 on Win/macOS) | cache threads | `dataloader_num_workers` (default 0) |
 | Prefetch / pin | ecosystem | — | no `pin_memory` ([issue #758](https://github.com/ostris/ai-toolkit/issues/758)) | pinned offload buffers | `dataloader_prefetch`, `dataloader_pin_memory` |
 | Cache build parallelism | pool | `write_batch_size` | mixins | threaded cache ([issue #181](https://github.com/Nerogar/OneTrainer/issues/181)) | `cache_num_proc` + GPU queue |
-| Disk compression | — | `compress_disk_cache` | manual cleanup | change cache dir | shards `torch.save` (Fase 2: mmap/safetensors TBD) |
+| Disk cache layout | — | `compress_disk_cache` | manual cleanup | change cache dir | `cache_format` **`v2`** (mmap bf16 stacks); **`v1`** = pickle shards |
 
 ## Code locations
 
@@ -20,7 +20,7 @@ Developer notes for data loading and cache tuning. User-facing option tables liv
 |-----------|------|
 | Train loader + prefetch thread | `renga_flow/data/loader.py` |
 | Cache map/pool | `renga_flow/data/cache_utils.py` |
-| Disk shards | `renga_flow/utils/cache.py` |
+| Disk cache v1 / v2 | `renga_flow/utils/cache.py`, `cache_v2.py`, `cache_factory.py` |
 | Bench CSV / A/B helpers | `renga_flow/utils/bench.py` |
 | Defaults | `renga_flow/config/defaults.py` |
 
