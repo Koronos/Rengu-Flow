@@ -21,7 +21,11 @@ from renga_flow.control.status_file import write_status_file
 
 def _parse_args():
     parser = argparse.ArgumentParser(description="Renga Flow: TOML-driven training (Phase 1).")
-    parser.add_argument("--config", required=True, help="Path to TOML configuration file.")
+    parser.add_argument(
+        "--config",
+        required=False,
+        help="Path to TOML configuration file (not required with --dump_dataset).",
+    )
     parser.add_argument("--local_rank", type=int, default=-1, help="Local rank from distributed launcher.")
     parser.add_argument("--resume_from_checkpoint", nargs="?", const=True, default=None)
     parser.add_argument("--reset_dataloader", action="store_true")
@@ -745,6 +749,14 @@ def _run_training(args, config):
 
 def main():
     args = _parse_args()
+    if args.dump_dataset is not None:
+        from renga_flow.data.dump_dataset import dump_dataset
+
+        dump_dataset(args.dump_dataset)
+        return
+    if args.config is None:
+        raise SystemExit("renga_flow: --config is required (unless using --dump_dataset).")
+
     config = load_config(args.config)
     set_config_defaults(config)
 
@@ -763,12 +775,6 @@ def main():
 
     if args.cache_only and not config.get("_dataset_config_loaded"):
         print("renga_flow: --cache_only requires a dataset config; exiting.")
-        return
-
-    if args.dump_dataset:
-        from renga_flow.data.dump_dataset import dump_dataset
-
-        dump_dataset(args.dump_dataset)
         return
 
     _run_training(args, config)
