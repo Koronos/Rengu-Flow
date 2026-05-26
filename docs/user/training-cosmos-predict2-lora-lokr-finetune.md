@@ -96,6 +96,49 @@ deepspeed --num_gpus=1 -m renga_flow.main --config my.toml --cache_only
 
 With `cache_text_embeddings = true` (default), text embeddings are cached once; VAE latents are cached per resolution bucket.
 
+## Performance and VRAM (Anima / Cosmos)
+
+Guidance for **real runs (typically ≥1000 steps)** on **LoKR**, **RTX 4080 (16 GB)**, pinned stack ([`requirements-pinned.txt`](../requirements-pinned.txt)). Benchmark detail (including 30-step previews): [`docs/training-tuning-journal.md`](../training-tuning-journal.md).
+
+Short tuning smokes (30 steps) are only **previews** for CI and quick regressions. They mix in `torch.compile` warmup and are **not** representative of per-step time on long jobs — ignore smoke averages for `compile`; judge steady-state iter time after warmup on your own run.
+
+### Recommended for long training
+
+| Setting | Recommendation |
+|---------|----------------|
+| **`cache_text_embeddings = true`** | Run `--cache_only` once; training should not re-encode captions every step. |
+| **`activation_checkpointing = true`** | Required for typical VRAM on 16 GB; `false` caused **OOM** in tuning (~16 GB peak). |
+| **`reentrant_activation_checkpointing = true`** | Default for `cosmos_predict2` when AC is on ([`defaults.py`](../../renga_flow/config/defaults.py)); modest steady-state gain vs `false`. |
+| **`compile = true`** | Enables **`pipeline_model.compile()`** (diffusion-pipe parity). After Inductor warmup, steady steps were ~**0.51 s** vs ~**0.68–0.70 s** without compile on the same LoKR setup — worthwhile when the run is long enough to amortize slower early steps. Optional: `compile_mode = "reduce-overhead"`. |
+| **`micro_batch_size_per_gpu`** | Set from VRAM; use **`gradient_accumulation_steps`** for effective batch without OOM. |
+
+### Do not use (Cosmos)
+
+| Setting | Why |
+|---------|-----|
+| **`activation_checkpointing = false`** | OOM on ~16 GB adapter training. |
+| **`blocks_to_swap` > 0** | **Not implemented** for `cosmos_predict2` — startup error. Use AC instead. |
+
+### Optional / low impact
+
+| Setting | Notes |
+|---------|--------|
+| **`activation_checkpointing = "unsloth"`** | Alternative VRAM tradeoff if standard AC is tight. |
+| **`optimizer.type = 'adamw8bitkahan'`** | Needs bitsandbytes + CUDA on `LD_LIBRARY_PATH`; little benefit observed vs `adamw` on Anima LoKR. |
+| **`optimizer.gradient_release = true`** | Only with `pipeline_stages = 1`. |
+| **`genericoptim` + `compile`** | Slower than `adamw` + `compile` in previews — stick to `adamw` unless you need GenericOptim. |
+
+### Example TOML (throughput-minded LoKR, long runs)
+
+```toml
+activation_checkpointing = true
+reentrant_activation_checkpointing = true
+compile = true
+# compile_mode = "reduce-overhead"   # optional
+micro_batch_size_per_gpu = 1
+gradient_accumulation_steps = 1
+```
+
 ## Validate config
 
 ```bash
@@ -110,4 +153,4 @@ python -m renga_flow.main --config my.toml --validate-only
 4. Train 1 epoch with LoRA; confirm `adapter_model.safetensors` under the run directory.
 5. Optional: repeat with LoKr and full finetune.
 
-Out of scope for this austere path: block swap, training previews, augmentation presets, OOM skip, ComfyUI submodule.
+Out of scope for this austere path: **Cosmos block swap** (not implemented), training previews, augmentation presets, OOM skip, ComfyUI submodule.

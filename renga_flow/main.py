@@ -95,6 +95,10 @@ def _run_training(args, config):
     if torch.cuda.is_available():
         device_rank = local_rank if local_rank >= 0 else (dist.get_rank() if dist is not None else 0)
         torch.cuda.set_device(device_rank)
+    if os.environ.get("RENGA_TUNING_TF32_APPLY") == "1":
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+        torch.backends.cudnn.benchmark = True
 
     model = get_model(config)
     model.load_diffusion_model()
@@ -191,6 +195,15 @@ def _run_training(args, config):
         loss_fn=model.get_loss_fn(),
         **extra_kw,
     )
+    if config.get("compile"):
+        compile_kwargs = {}
+        if compile_mode := config.get("compile_mode"):
+            compile_kwargs["mode"] = compile_mode
+        if config.get("compile_dynamic") is True:
+            compile_kwargs["dynamic"] = True
+        if is_main_process():
+            print(f"pipeline_model.compile({compile_kwargs or 'defaults'})")
+        pipeline_model.compile(**compile_kwargs)
     parameters_to_train = [p for p in pipeline_model.parameters() if p.requires_grad]
 
     micro_batch = config.get("micro_batch_size_per_gpu", 1)

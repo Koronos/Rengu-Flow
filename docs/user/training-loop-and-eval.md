@@ -145,9 +145,9 @@ Saves VRAM by recomputing activations in the backward pass. Configure in the mai
 | Key | Description | Values | Default |
 |-----|-------------|--------|---------|
 | **`activation_checkpointing`** | Enable and choose implementation. | `false`, `true`, or `"unsloth"`. | `false` |
-| **`reentrant_activation_checkpointing`** | When `activation_checkpointing = true`, use reentrant PyTorch checkpoint. | `true` or `false`. | `false` |
+| **`reentrant_activation_checkpointing`** | When `activation_checkpointing = true`, use reentrant PyTorch checkpoint. | `true` or `false`. | `false` (`true` auto-default for `cosmos_predict2` when AC is on — see [Cosmos/Anima guide](training-cosmos-predict2-lora-lokr-finetune.md#performance-and-vram-anima--cosmos)) |
 
-- **`true`** — PyTorch `torch.utils.checkpoint.checkpoint`. Use `reentrant_activation_checkpointing = true` if you hit errors with block swap or certain layers.
+- **`true`** — PyTorch `torch.utils.checkpoint.checkpoint`. Use `reentrant_activation_checkpointing = true` if you hit errors with block swap or certain layers. For **Cosmos/Anima**, keeping it `true` is recommended (~3% faster in LoKR tuning vs `false`).
 - **`"unsloth"`** — Unsloth-style checkpoint that offloads activations to CPU (saves more VRAM; requires `deepspeed` and the unsloth-style helper in the codebase).
 
 Example:

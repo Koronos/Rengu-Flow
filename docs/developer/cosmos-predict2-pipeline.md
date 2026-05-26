@@ -50,7 +50,16 @@ Parsed in **`renga_flow.config.defaults.set_config_defaults`**. Implemented in *
 | `transformer_dtype` | Optional; defaults to `dtype`. Dtype for most `transformer_path` weights in `load_diffusion_model` (not embedders/norms). |
 | `diffusion_model_dtype` | Optional; **not read** by `CosmosPredict2Pipeline` today (reserved / upstream parity). |
 
-User-facing summary: **`docs/user/training-cosmos-predict2-lora-lokr-finetune.md`** (Precision section).
+User-facing summary: **`docs/user/training-cosmos-predict2-lora-lokr-finetune.md`** (Precision and **Performance and VRAM** sections).
+
+### Tuning notes (Anima LoKR)
+
+Benchmark journal: [`docs/training-tuning-journal.md`](../training-tuning-journal.md). Highlights for operators:
+
+- **`pipeline_model.compile()`** is wired in `main.py` when `compile = true` (diffusion-pipe parity). Short smokes penalize compile in the mean; on long runs steady iter was ~0.51 s vs ~0.68–0.70 s without compile — see user doc **Performance and VRAM**.
+- **`reentrant_activation_checkpointing`** defaults to `true` for `cosmos_predict2` when AC is on and `blocks_to_swap` is unset (`defaults.py`).
+- **`enable_block_swap`** is not overridden in this package — non-zero `blocks_to_swap` fails with `NotImplementedError`.
+- Text embeddings: prefer **`cache_text_embeddings`** + `--cache_only` so training does not repeat Qwen3 forward passes.
 
 ## Dependencies and upstream sources
 

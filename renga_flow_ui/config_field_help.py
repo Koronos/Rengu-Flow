@@ -97,7 +97,11 @@ FIELD_HELP: dict[str, dict[str, str]] = {
     },
     "model.cache_text_embeddings": {
         "summary": "Cache captions as embeddings once (faster training, more disk).",
-        "detail": "Recommended for Cosmos/Anima: text is encoded during --cache_only so epochs skip re-tokenizing every image.",
+        "detail": (
+            "Strongly recommended for Cosmos/Anima: run --cache_only so training skips Qwen3 forward passes. "
+            "Disabling only makes sense for debugging; it does not save meaningful VRAM once latents are cached."
+        ),
+        "doc": "docs/user/training-cosmos-predict2-lora-lokr-finetune.md",
     },
     "_has_adapter": {
         "summary": "Train LoRA/LoKr instead of full-model finetune.",
@@ -196,13 +200,15 @@ FIELD_HELP: dict[str, dict[str, str]] = {
     },
     "activation_checkpointing": {
         "summary": "Trade compute for VRAM (true, false, or unsloth).",
+        "doc": "docs/user/training-cosmos-predict2-lora-lokr-finetune.md",
     },
     "blocks_to_swap": {
-        "summary": "Move part of the main model to CPU to free VRAM (adapter training).",
-        "detail": "Higher values use less GPU memory but slow each step. Typical for LoRA/LoKr on large Cosmos models.",
+        "summary": "SDXL: offload UNet blocks to CPU (not on Cosmos yet).",
+        "doc": "docs/user/training-cosmos-predict2-lora-lokr-finetune.md",
     },
     "compile": {
-        "summary": "Enable torch.compile on supported modules.",
+        "summary": "torch.compile — recommended for long Cosmos/Anima runs.",
+        "doc": "docs/user/training-cosmos-predict2-lora-lokr-finetune.md",
     },
     "checkpoint_every_n_epochs": {
         "summary": "Write DeepSpeed checkpoints every N epochs.",
@@ -392,8 +398,12 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "doc": "docs/user/training-loop-and-eval.md",
     },
     "reentrant_activation_checkpointing": {
-        "summary": "Use reentrant PyTorch checkpoint implementation.",
-        "doc": "docs/user/training-loop-and-eval.md",
+        "summary": "Reentrant PyTorch checkpoint (recommended for Cosmos with AC on).",
+        "detail": (
+            "When activation_checkpointing is true, cosmos_predict2 defaults this to true. "
+            "Anima LoKR smokes: ~3% faster than false, stable over long runs."
+        ),
+        "doc": "docs/user/training-cosmos-predict2-lora-lokr-finetune.md",
     },
     "x_axis_examples": {
         "summary": "TensorBoard/WandB x-axis uses example count instead of step.",
@@ -418,11 +428,19 @@ FIELD_HELP: dict[str, dict[str, str]] = {
     },
     "micro_batch_size_per_gpu": {
         "summary": "Samples per GPU per forward/backward micro-step.",
-        "doc": "docs/user/training-loop-and-eval.md",
+        "detail": (
+            "Anima/Cosmos LoKR on 16 GB: 1 is the practical default; higher micro-batch raised VRAM "
+            "and slowed per-step time in tuning — prefer grad accumulation for effective batch size."
+        ),
+        "doc": "docs/user/training-cosmos-predict2-lora-lokr-finetune.md",
     },
     "gradient_accumulation_steps": {
         "summary": "Micro-steps to accumulate before optimizer step.",
-        "doc": "docs/user/training-loop-and-eval.md",
+        "detail": (
+            "Increases effective batch without raising micro_batch VRAM, but each optimizer step does more work "
+            "(e.g. 2× accum ≈ ~2× wall time per step in Anima smokes)."
+        ),
+        "doc": "docs/user/training-cosmos-predict2-lora-lokr-finetune.md",
     },
     "gradient_clipping": {
         "summary": "Max gradient norm (0 disables).",
@@ -438,16 +456,27 @@ FIELD_HELP: dict[str, dict[str, str]] = {
     },
     "activation_checkpointing": {
         "summary": "Trade compute for VRAM (true, false, or unsloth).",
-        "doc": "docs/user/training-loop-and-eval.md",
+        "detail": (
+            "Cosmos/Anima: keep true on ~16 GB GPUs — false caused OOM in LoKR tuning. "
+            "With true, reentrant_activation_checkpointing defaults to true for cosmos_predict2 (~3% faster in smokes)."
+        ),
+        "doc": "docs/user/training-cosmos-predict2-lora-lokr-finetune.md",
     },
     "blocks_to_swap": {
-        "summary": "Move part of the main model to CPU to free VRAM (adapter training).",
-        "detail": "Higher values use less GPU memory but slow each step. Typical for LoRA/LoKr on large Cosmos models.",
-        "doc": "docs/user/training-sdxl-lora-lokr.md",
+        "summary": "SDXL: offload UNet blocks to CPU (adapter training only).",
+        "detail": (
+            "Works on SDXL LoRA/LoKr. Not implemented for cosmos_predict2 — leave 0 or training will error. "
+            "On Anima, use activation_checkpointing (and optional unsloth) instead."
+        ),
+        "doc": "docs/user/training-cosmos-predict2-lora-lokr-finetune.md",
     },
     "compile": {
-        "summary": "Enable torch.compile on supported modules.",
-        "doc": "docs/user/training-loop-and-eval.md",
+        "summary": "torch.compile on the DeepSpeed pipeline (recommended for long runs).",
+        "detail": (
+            "Cosmos/Anima (≥1000 steps): after warmup, steady steps were ~0.51s vs ~0.68–0.70s without compile. "
+            "Early steps are slower while graphs build; short test runs are not representative."
+        ),
+        "doc": "docs/user/training-cosmos-predict2-lora-lokr-finetune.md",
     },
     "checkpoint_every_n_epochs": {
         "summary": "Write DeepSpeed checkpoints every N epochs.",
