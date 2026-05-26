@@ -1,0 +1,98 @@
+html,
+body,
+#app {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  color-scheme: dark;
+  background-color: var(--el-bg-color);
+  color: var(--el-text-color-primary);
+  font-family: "Helvetica Neue", Helvetica, "PingFang SC", "Hiragino Sans GB",
+    "Microsoft YaHei", Arial, sans-serif;
+}
+
+html.dark {
+  --el-bg-color: #141414;
+  --el-bg-color-page: #0a0a0a;
+  --el-bg-color-overlay: #1d1e1f;
+}
+
+.app-shell {
+  height: 100vh;
+  overflow: hidden;
+  background: var(--el-bg-color);
+}
+
+.app-aside {
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--el-border-color);
+  background: var(--el-bg-color);
+}
+
+.app-brand {
+  padding: 16px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  border-bottom: 1px solid var(--el-border-color);
+}
+
+.app-menu {
+  border-right: none;
+  flex: 1;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px 0 12px;
+  min-height: 56px;
+  height: auto;
+  flex-wrap: nowrap;
+  background: var(--el-bg-color);
+  border-bottom: 1px solid var(--el-border-color);
+}
+
+.app-main {
+  padding: 12px;
+  overflow: auto;
+  background: var(--el-bg-color-page);
+}
+
+.page-title {
+  margin: 0 0 12px;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.log-pre {
+  margin: 0;
+  max-height: 50vh;
+  overflow: auto;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--el-fill-color-darker);
+  color: var(--el-text-color-primary);
+  padding: 12px;
+  border-radius: var(--el-border-radius-base);
+  border: 1px solid var(--el-border-color);
+}
+
+.toml-editor {
+  width: 100%;
+  font-family: ui-monospace, monospace;
+  font-size: 13px;
+}
+
+@media (max-width: 767px) {
+  .app-main {
+    padding: 8px;
+  }
+
+  .hide-mobile {
+    display: none !important;
+  }
+}

@@ -12,6 +12,7 @@ caching_batch_size = 1
 [model]
 type = 'cosmos_predict2'
 dtype = 'bfloat16'
+# Main image model | image VAE | text encoder (Qwen3)
 transformer_path = 'path/to/anima-preview.safetensors'
 vae_path = 'path/to/qwen_image_vae.safetensors'
 llm_path = 'path/to/qwen_3_06b_base.safetensors'

@@ -117,6 +117,27 @@ Checkpoint restores model, optimizer, LR scheduler, and dataloader state (epoch 
 - **`--reset_optimizer`** — Do not restore optimizer state (e.g. to change optimizer).
 - **`--reset_optimizer_params`** — Restore optimizer state but reset param groups (e.g. learning rate) from config.
 
+## DeepSpeed pipeline and debug options
+
+| Key | Description | Values | Default |
+|-----|-------------|--------|---------|
+| **`pipeline_stages`** | Number of pipeline-parallel stages (usually matches GPU count). | Positive integer. | `1` |
+| **`partition_method`** | How transformer layers are assigned to stages. | `parameters` (balance by param count), `uniform`, or `manual`. | `parameters` |
+| **`partition_split`** | Layer indices for manual partitioning. | JSON list of integers. | Omitted (required when `partition_method = manual`). |
+| **`steps_per_print`** | How often DeepSpeed prints step timing to the console. | Positive integer. | `1` |
+| **`synthetic_num_batches`** | Train on in-memory fake SDXL batches (no real dataset). | Positive integer or omit. | Omitted (use real data). |
+| **`caching_batch_size`** | Batch size during the dataset cache phase (latents + text embeddings). | Positive integer. | `1` |
+| **`image_micro_batch_size_per_gpu`** | Micro-batch for image-only steps when mixing modalities. | Integer or dict, or omit to use `micro_batch_size_per_gpu`. | Same as `micro_batch_size_per_gpu` |
+
+Example (4-GPU pipeline):
+
+```toml
+pipeline_stages = 4
+partition_method = "parameters"
+micro_batch_size_per_gpu = 1
+gradient_accumulation_steps = 4
+```
+
 ## Activation checkpointing
 
 Saves VRAM by recomputing activations in the backward pass. Configure in the main TOML:

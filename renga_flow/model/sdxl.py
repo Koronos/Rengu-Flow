@@ -13,7 +13,7 @@ from safetensors.torch import save_file
 
 from renga_flow.model.base import BasePipeline, make_contiguous
 from renga_flow.registry.models import register_model
-from renga_flow.utils.common import AUTOCAST_DTYPE, is_main_process
+from renga_flow.utils.common import cuda_autocast, is_main_process
 
 # Optional: import network adapters (lora_sdxl always; lokr_sdxl may use LyCORIS or vendored)
 from renga_flow import networks as networks_module
@@ -586,28 +586,28 @@ class InitialLayer(nn.Module):
     def unet(self):
         return self.diffusers_pipeline.unet
 
-    @torch.autocast("cuda", dtype=AUTOCAST_DTYPE)
     def forward(self, inputs):
-        for tensor in inputs:
-            if torch.is_floating_point(tensor):
-                tensor.requires_grad_(True)
-        sample, timestep, input_ids, input_ids_2, add_time_ids = inputs
-        default_overall_up_factor = 2 ** self.unet.num_upsamplers
-        forward_upsample_size = any(dim % default_overall_up_factor != 0 for dim in sample.shape[-2:])
-        forward_upsample_size = torch.tensor(forward_upsample_size).to(sample.device)
-        encoder_hidden_states, pooled_prompt_embeds = self.get_text_conditioning(input_ids, input_ids_2)
-        add_time_ids = add_time_ids.to(pooled_prompt_embeds.dtype)
-        added_cond_kwargs = {"text_embeds": pooled_prompt_embeds, "time_ids": add_time_ids}
-        t_emb = self.unet.get_time_embed(sample=sample, timestep=timestep)
-        emb = self.unet.time_embedding(t_emb, None)
-        aug_emb = self.unet.get_aug_embed(emb=emb, encoder_hidden_states=encoder_hidden_states, added_cond_kwargs=added_cond_kwargs)
-        emb = emb + aug_emb if aug_emb is not None else emb
-        if self.time_embed_act is not None:
-            emb = self.time_embed_act(emb)
-        encoder_hidden_states = self.unet.process_encoder_hidden_states(encoder_hidden_states=encoder_hidden_states, added_cond_kwargs=added_cond_kwargs)
-        sample = self.conv_in(sample)
-        down_block_res_samples = (sample,)
-        return make_contiguous(sample, timestep, emb, encoder_hidden_states, *down_block_res_samples, forward_upsample_size)
+        with cuda_autocast():
+            for tensor in inputs:
+                if torch.is_floating_point(tensor):
+                    tensor.requires_grad_(True)
+            sample, timestep, input_ids, input_ids_2, add_time_ids = inputs
+            default_overall_up_factor = 2 ** self.unet.num_upsamplers
+            forward_upsample_size = any(dim % default_overall_up_factor != 0 for dim in sample.shape[-2:])
+            forward_upsample_size = torch.tensor(forward_upsample_size).to(sample.device)
+            encoder_hidden_states, pooled_prompt_embeds = self.get_text_conditioning(input_ids, input_ids_2)
+            add_time_ids = add_time_ids.to(pooled_prompt_embeds.dtype)
+            added_cond_kwargs = {"text_embeds": pooled_prompt_embeds, "time_ids": add_time_ids}
+            t_emb = self.unet.get_time_embed(sample=sample, timestep=timestep)
+            emb = self.unet.time_embedding(t_emb, None)
+            aug_emb = self.unet.get_aug_embed(emb=emb, encoder_hidden_states=encoder_hidden_states, added_cond_kwargs=added_cond_kwargs)
+            emb = emb + aug_emb if aug_emb is not None else emb
+            if self.time_embed_act is not None:
+                emb = self.time_embed_act(emb)
+            encoder_hidden_states = self.unet.process_encoder_hidden_states(encoder_hidden_states=encoder_hidden_states, added_cond_kwargs=added_cond_kwargs)
+            sample = self.conv_in(sample)
+            down_block_res_samples = (sample,)
+            return make_contiguous(sample, timestep, emb, encoder_hidden_states, *down_block_res_samples, forward_upsample_size)
 
     def get_text_conditioning(self, input_ids, input_ids_2):
         prompt_embeds = self.get_prompt_embeds(input_ids, self.tokenizer, self.text_encoder)
@@ -645,14 +645,14 @@ class DownBlockInnerLayer(nn.Module):
         self.attn = attn
         self.append_residual_hidden_states = append_residual_hidden_states
 
-    @torch.autocast("cuda", dtype=AUTOCAST_DTYPE)
     def forward(self, inputs):
-        hidden_states, timesteps, emb, encoder_hidden_states, *res_hidden_states, forward_upsample_size = inputs
-        hidden_states = self.resnet(hidden_states, emb)
-        if self.attn is not None:
-            hidden_states = self.attn(hidden_states, encoder_hidden_states=encoder_hidden_states, return_dict=False)[0]
-        res_hidden_states += (hidden_states,)
-        return make_contiguous(hidden_states, timesteps, emb, encoder_hidden_states, *res_hidden_states, forward_upsample_size)
+        with cuda_autocast():
+            hidden_states, timesteps, emb, encoder_hidden_states, *res_hidden_states, forward_upsample_size = inputs
+            hidden_states = self.resnet(hidden_states, emb)
+            if self.attn is not None:
+                hidden_states = self.attn(hidden_states, encoder_hidden_states=encoder_hidden_states, return_dict=False)[0]
+            res_hidden_states += (hidden_states,)
+            return make_contiguous(hidden_states, timesteps, emb, encoder_hidden_states, *res_hidden_states, forward_upsample_size)
 
 
 class MidBlockInnerLayer(nn.Module):
@@ -661,13 +661,13 @@ class MidBlockInnerLayer(nn.Module):
         self.resnet = resnet
         self.attn = attn
 
-    @torch.autocast("cuda", dtype=AUTOCAST_DTYPE)
     def forward(self, inputs):
-        hidden_states, timesteps, emb, encoder_hidden_states, *res_hidden_states, forward_upsample_size = inputs
-        hidden_states = self.resnet(hidden_states, emb)
-        if self.attn is not None:
-            hidden_states = self.attn(hidden_states, encoder_hidden_states=encoder_hidden_states, return_dict=False)[0]
-        return make_contiguous(hidden_states, timesteps, emb, encoder_hidden_states, *res_hidden_states, forward_upsample_size)
+        with cuda_autocast():
+            hidden_states, timesteps, emb, encoder_hidden_states, *res_hidden_states, forward_upsample_size = inputs
+            hidden_states = self.resnet(hidden_states, emb)
+            if self.attn is not None:
+                hidden_states = self.attn(hidden_states, encoder_hidden_states=encoder_hidden_states, return_dict=False)[0]
+            return make_contiguous(hidden_states, timesteps, emb, encoder_hidden_states, *res_hidden_states, forward_upsample_size)
 
 
 class UpBlockInnerLayer(nn.Module):
@@ -676,16 +676,16 @@ class UpBlockInnerLayer(nn.Module):
         self.resnet = resnet
         self.attn = attn
 
-    @torch.autocast("cuda", dtype=AUTOCAST_DTYPE)
     def forward(self, inputs):
-        hidden_states, timesteps, emb, encoder_hidden_states, *res_hidden_states, forward_upsample_size = inputs
-        res_tmp = res_hidden_states[-1]
-        res_hidden_states = res_hidden_states[:-1]
-        hidden_states = torch.cat([hidden_states, res_tmp], dim=1)
-        hidden_states = self.resnet(hidden_states, emb)
-        if self.attn is not None:
-            hidden_states = self.attn(hidden_states, encoder_hidden_states=encoder_hidden_states, return_dict=False)[0]
-        return make_contiguous(hidden_states, timesteps, emb, encoder_hidden_states, *res_hidden_states, forward_upsample_size)
+        with cuda_autocast():
+            hidden_states, timesteps, emb, encoder_hidden_states, *res_hidden_states, forward_upsample_size = inputs
+            res_tmp = res_hidden_states[-1]
+            res_hidden_states = res_hidden_states[:-1]
+            hidden_states = torch.cat([hidden_states, res_tmp], dim=1)
+            hidden_states = self.resnet(hidden_states, emb)
+            if self.attn is not None:
+                hidden_states = self.attn(hidden_states, encoder_hidden_states=encoder_hidden_states, return_dict=False)[0]
+            return make_contiguous(hidden_states, timesteps, emb, encoder_hidden_states, *res_hidden_states, forward_upsample_size)
 
 
 class DownsamplerLayer(nn.Module):
@@ -693,13 +693,13 @@ class DownsamplerLayer(nn.Module):
         super().__init__()
         self.downsamplers = downsamplers
 
-    @torch.autocast("cuda", dtype=AUTOCAST_DTYPE)
     def forward(self, inputs):
-        hidden_states, timesteps, emb, encoder_hidden_states, *res_hidden_states, forward_upsample_size = inputs
-        for downsampler in self.downsamplers:
-            hidden_states = downsampler(hidden_states)
-        res_hidden_states += (hidden_states,)
-        return make_contiguous(hidden_states, timesteps, emb, encoder_hidden_states, *res_hidden_states, forward_upsample_size)
+        with cuda_autocast():
+            hidden_states, timesteps, emb, encoder_hidden_states, *res_hidden_states, forward_upsample_size = inputs
+            for downsampler in self.downsamplers:
+                hidden_states = downsampler(hidden_states)
+            res_hidden_states += (hidden_states,)
+            return make_contiguous(hidden_states, timesteps, emb, encoder_hidden_states, *res_hidden_states, forward_upsample_size)
 
 
 class UpsamplerLayer(nn.Module):
@@ -708,13 +708,13 @@ class UpsamplerLayer(nn.Module):
         self.upsamplers = upsamplers
         self.is_final_block = is_final_block
 
-    @torch.autocast("cuda", dtype=AUTOCAST_DTYPE)
     def forward(self, inputs):
-        hidden_states, timesteps, emb, encoder_hidden_states, *res_hidden_states, forward_upsample_size = inputs
-        upsample_size = res_hidden_states[-1].shape[2:] if not self.is_final_block and forward_upsample_size else None
-        for upsampler in self.upsamplers:
-            hidden_states = upsampler(hidden_states, upsample_size)
-        return make_contiguous(hidden_states, timesteps, emb, encoder_hidden_states, *res_hidden_states, forward_upsample_size)
+        with cuda_autocast():
+            hidden_states, timesteps, emb, encoder_hidden_states, *res_hidden_states, forward_upsample_size = inputs
+            upsample_size = res_hidden_states[-1].shape[2:] if not self.is_final_block and forward_upsample_size else None
+            for upsampler in self.upsamplers:
+                hidden_states = upsampler(hidden_states, upsample_size)
+            return make_contiguous(hidden_states, timesteps, emb, encoder_hidden_states, *res_hidden_states, forward_upsample_size)
 
 
 class UnetDownBlockLayer(nn.Module):
@@ -722,15 +722,15 @@ class UnetDownBlockLayer(nn.Module):
         super().__init__()
         self.block = block
 
-    @torch.autocast("cuda", dtype=AUTOCAST_DTYPE)
     def forward(self, inputs):
-        sample, timesteps, emb, encoder_hidden_states, *down_block_res_samples, forward_upsample_size = inputs
-        if getattr(self.block, "has_cross_attention", False):
-            sample, res_samples = self.block(hidden_states=sample, temb=emb, encoder_hidden_states=encoder_hidden_states)
-        else:
-            sample, res_samples = self.block(hidden_states=sample, temb=emb)
-        down_block_res_samples += res_samples
-        return make_contiguous(sample, timesteps, emb, encoder_hidden_states, *down_block_res_samples, forward_upsample_size)
+        with cuda_autocast():
+            sample, timesteps, emb, encoder_hidden_states, *down_block_res_samples, forward_upsample_size = inputs
+            if getattr(self.block, "has_cross_attention", False):
+                sample, res_samples = self.block(hidden_states=sample, temb=emb, encoder_hidden_states=encoder_hidden_states)
+            else:
+                sample, res_samples = self.block(hidden_states=sample, temb=emb)
+            down_block_res_samples += res_samples
+            return make_contiguous(sample, timesteps, emb, encoder_hidden_states, *down_block_res_samples, forward_upsample_size)
 
     def to_layers(self):
         layers = []
@@ -748,14 +748,14 @@ class UnetMidBlockLayer(nn.Module):
         super().__init__()
         self.block = block
 
-    @torch.autocast("cuda", dtype=AUTOCAST_DTYPE)
     def forward(self, inputs):
-        sample, timesteps, emb, encoder_hidden_states, *down_block_res_samples, forward_upsample_size = inputs
-        if getattr(self.block, "has_cross_attention", False):
-            sample = self.block(sample, emb, encoder_hidden_states=encoder_hidden_states)
-        else:
-            sample = self.block(sample, emb)
-        return make_contiguous(sample, timesteps, emb, encoder_hidden_states, *down_block_res_samples, forward_upsample_size)
+        with cuda_autocast():
+            sample, timesteps, emb, encoder_hidden_states, *down_block_res_samples, forward_upsample_size = inputs
+            if getattr(self.block, "has_cross_attention", False):
+                sample = self.block(sample, emb, encoder_hidden_states=encoder_hidden_states)
+            else:
+                sample = self.block(sample, emb)
+            return make_contiguous(sample, timesteps, emb, encoder_hidden_states, *down_block_res_samples, forward_upsample_size)
 
     def to_layers(self):
         layers = []
@@ -773,17 +773,17 @@ class UnetUpBlockLayer(nn.Module):
         self.block = block
         self.is_final_block = is_final_block
 
-    @torch.autocast("cuda", dtype=AUTOCAST_DTYPE)
     def forward(self, inputs):
-        sample, timesteps, emb, encoder_hidden_states, *down_block_res_samples, forward_upsample_size = inputs
-        res_samples = down_block_res_samples[-len(self.block.resnets) :]
-        down_block_res_samples = down_block_res_samples[: -len(self.block.resnets)]
-        upsample_size = down_block_res_samples[-1].shape[2:] if not self.is_final_block and forward_upsample_size else None
-        if getattr(self.block, "has_cross_attention", False):
-            sample = self.block(hidden_states=sample, temb=emb, res_hidden_states_tuple=res_samples, encoder_hidden_states=encoder_hidden_states, upsample_size=upsample_size)
-        else:
-            sample = self.block(hidden_states=sample, temb=emb, res_hidden_states_tuple=res_samples, upsample_size=upsample_size)
-        return make_contiguous(sample, timesteps, emb, encoder_hidden_states, *down_block_res_samples, forward_upsample_size)
+        with cuda_autocast():
+            sample, timesteps, emb, encoder_hidden_states, *down_block_res_samples, forward_upsample_size = inputs
+            res_samples = down_block_res_samples[-len(self.block.resnets) :]
+            down_block_res_samples = down_block_res_samples[: -len(self.block.resnets)]
+            upsample_size = down_block_res_samples[-1].shape[2:] if not self.is_final_block and forward_upsample_size else None
+            if getattr(self.block, "has_cross_attention", False):
+                sample = self.block(hidden_states=sample, temb=emb, res_hidden_states_tuple=res_samples, encoder_hidden_states=encoder_hidden_states, upsample_size=upsample_size)
+            else:
+                sample = self.block(hidden_states=sample, temb=emb, res_hidden_states_tuple=res_samples, upsample_size=upsample_size)
+            return make_contiguous(sample, timesteps, emb, encoder_hidden_states, *down_block_res_samples, forward_upsample_size)
 
     def to_layers(self):
         layers = []
@@ -804,10 +804,10 @@ class FinalLayer(nn.Module):
         self.conv_act = unet.conv_act
         self.conv_out = unet.conv_out
 
-    @torch.autocast("cuda", dtype=AUTOCAST_DTYPE)
     def forward(self, inputs):
-        sample, timesteps, emb, encoder_hidden_states, *down_block_res_samples, forward_upsample_size = inputs
-        if self.conv_norm_out:
-            sample = self.conv_norm_out(sample)
-            sample = self.conv_act(sample)
-        return self.conv_out(sample), timesteps
+        with cuda_autocast():
+            sample, timesteps, emb, encoder_hidden_states, *down_block_res_samples, forward_upsample_size = inputs
+            if self.conv_norm_out:
+                sample = self.conv_norm_out(sample)
+                sample = self.conv_act(sample)
+            return self.conv_out(sample), timesteps

@@ -57,10 +57,48 @@ Tests are designed to run in a few seconds. They do **not** use GPU, real checkp
 | `test_dataset_options.py` | `seed_from_hash`, `online_captions` |
 | `test_gradient_release.py` | `GradientReleaseOptimizerWrapper` |
 | `test_optim_resolver.py` | Vendor optimizers (skip if `optimum` missing) |
-| `test_config_cosmos_predict2.py` | Cosmos Predict2 / anima config validation |
+| `test_config_cosmos_predict2.py` | Cosmos Predict2 config validation |
 | `test_cosmos_predict2_param_groups.py` | `llm_adapter_lr=0` freezes adapter params |
 | `test_cosmos_predict2_assets.py` | Bundled tokenizer assets via `importlib.resources` |
 | `test_preprocess_media.py` | Media bucket rounding helpers |
+| `test_config_form.py` | UI schema registries, TOML round-trip, **`test_all_config_fields_have_help`** |
+| `test_dataset_field_help.py` | All dataset schema fields have `help` text |
+| `test_datasets_store.py` | Dataset library CRUD and `compose_datasets` |
+| `test_dataset_scan.py` | Folder image count / preview aggregation |
+| `test_system_stats.py` | Host metrics collector and `nvidia-smi` line parse |
+| `test_job_queue.py` | Pending queue ordering and updates |
+| `test_docs_reader.py` | Safe markdown path resolution |
+| `test_registry_probe.py` | Optimizer/scheduler import probe |
+
+### Web UI (control plane)
+
+Run the UI-focused suite (no browser, no GPU):
+
+```bash
+pytest tests/test_ui_api.py tests/test_configs_store.py tests/test_config_form.py \
+  tests/test_dataset_form.py tests/test_dataset_field_help.py tests/test_datasets_store.py \
+  tests/test_dataset_scan.py tests/test_job_queue.py tests/test_ui_job_queue.py \
+  tests/test_renga_flow_ui.py tests/test_docs_reader.py tests/test_system_stats.py \
+  tests/test_registry_probe.py -q
+```
+
+| Test file | Focus |
+|-----------|--------|
+| `tests/conftest.py` | `ui_data_tmp`, `ui_client`, auth fixtures |
+| `tests/test_ui_api.py` | FastAPI routes: configs, datasets, jobs, schema, docs, stats |
+| `tests/test_configs_store.py` | Staging paths, validation, `_safe_id` |
+| `tests/test_config_form.py` | TOML ↔ form, schema help, registries |
+| `tests/test_dataset_form.py` | Dataset TOML ↔ form, directory rows |
+| `tests/test_ui_job_queue.py` | Queue reorder, delete pending, `try_start_next` |
+| `tests/test_job_queue.py` | Enqueue + edit pending (baseline) |
+| `tests/test_datasets_store.py` | Dataset library CRUD + compose |
+| `tests/test_dataset_scan.py` | Folder scan / preview aggregation |
+| `tests/test_system_stats.py` | Host metrics collector |
+| `tests/test_docs_reader.py` | Markdown path safety |
+| `tests/test_registry_probe.py` | Optimizer/scheduler import probe |
+| `tests/test_renga_flow_ui.py` | Config store CRUD smoke |
+
+Requires `pip install -e ".[ui,dev]"` (FastAPI TestClient + httpx).
 
 ### Manual GPU smoke (Cosmos Predict2 / Anima)
 

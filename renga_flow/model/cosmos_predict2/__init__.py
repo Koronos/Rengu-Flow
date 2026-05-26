@@ -1,4 +1,4 @@
-"""Cosmos Predict2 / Anima (llm_path) training pipeline."""
+"""Cosmos Predict2 training pipeline (Qwen VAE + Qwen3 or T5 text stack)."""
 
 from renga_flow.model.cosmos_predict2.pipeline import CosmosPredict2Pipeline
 

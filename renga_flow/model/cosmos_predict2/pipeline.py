@@ -23,19 +23,12 @@ from renga_flow.model.cosmos_predict2.layers import (
     LLMAdapterLayer,
     NoopOffloader,
     TransformerLayer,
-    compute_text_embeddings,
-    tokenize,
 )
 from renga_flow.model.cosmos_predict2.text import compute_text_embeddings, load_text_stack, tokenize
 from renga_flow.model.cosmos_predict2.vae import WanVAE, vae_encode
-from renga_flow.model.loss_utils import compute_diffusion_loss_per_element
-from renga_flow import networks as networks_module
+from renga_flow.networks import adapter_dit
 from renga_flow.registry.models import register_model, register_model_alias
-from renga_flow.utils.common import (
-    AUTOCAST_DTYPE,
-    is_main_process,
-    load_state_dict,
-)
+from renga_flow.utils.common import is_main_process, load_state_dict
 
 KEEP_IN_HIGH_PRECISION = ["x_embedder", "t_embedder", "t_embedding_norm", "final_layer"]
 
@@ -116,7 +109,11 @@ class CosmosPredict2Pipeline(BasePipeline):
                     continue
                 dtype_to_use = (
                     dtype
-                    if (any(kw in name for kw in KEEP_IN_HIGH_PRECISION) or p.ndim == 1)
+                    if (
+                        any(kw in name for kw in KEEP_IN_HIGH_PRECISION)
+                        or "llm_adapter" in name
+                        or p.ndim == 1
+                    )
                     else transformer_dtype
                 )
                 set_module_tensor_to_device(
@@ -128,7 +125,11 @@ class CosmosPredict2Pipeline(BasePipeline):
             for name, p in llm_adapter.named_parameters():
                 dtype_to_use = (
                     dtype
-                    if (any(kw in name for kw in KEEP_IN_HIGH_PRECISION) or p.ndim == 1)
+                    if (
+                        any(kw in name for kw in KEEP_IN_HIGH_PRECISION)
+                        or "llm_adapter" in name
+                        or p.ndim == 1
+                    )
                     else transformer_dtype
                 )
                 set_module_tensor_to_device(
@@ -159,7 +160,7 @@ class CosmosPredict2Pipeline(BasePipeline):
         return []
 
     def configure_adapter(self, adapter_config):
-        self.peft_config, self.adapter_type = networks_module.adapter_dit.configure(
+        self.peft_config, self.adapter_type = adapter_dit.configure(
             self.transformer, adapter_config
         )
         self.adapter_config = adapter_config
@@ -169,12 +170,12 @@ class CosmosPredict2Pipeline(BasePipeline):
                 p.data = p.data.to(adapter_config["dtype"])
 
     def save_adapter(self, save_dir, state_dict):
-        networks_module.adapter_dit.save(
+        adapter_dit.save(
             save_dir, state_dict, self.adapter_config, getattr(self, "peft_config", None)
         )
 
     def load_adapter_weights(self, adapter_path):
-        networks_module.adapter_dit.load_weights(self.transformer, adapter_path)
+        adapter_dit.load_weights(self.transformer, adapter_path)
 
     def load_and_fuse_adapter(self, path):
         raise NotImplementedError("load_and_fuse_adapter is not implemented for cosmos_predict2")
@@ -336,14 +337,14 @@ class CosmosPredict2Pipeline(BasePipeline):
         return param_groups
 
     def get_loss_fn(self):
-        config = self.config
-
         def loss_fn(output, label):
             target, mask = label
             with torch.autocast("cuda", enabled=False):
                 output = output.to(torch.float32)
                 target = target.to(output.device, torch.float32)
-                loss = compute_diffusion_loss_per_element(output, target, config)
+                from renga_flow.model.loss_utils import compute_diffusion_loss_per_element
+
+                loss = compute_diffusion_loss_per_element(output, target, self.config)
                 if mask is not None and mask.numel() > 0:
                     mask = mask.to(output.device, torch.float32)
                     loss *= mask
@@ -357,3 +358,4 @@ class CosmosPredict2Pipeline(BasePipeline):
 
 
 register_model_alias("anima", "cosmos_predict2")
+

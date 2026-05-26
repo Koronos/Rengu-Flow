@@ -73,6 +73,7 @@ def test_set_config_defaults_eval_and_monitoring(minimal_config_copy):
     assert "monitoring" in minimal_config_copy
     mon = minimal_config_copy["monitoring"]
     assert mon.get("enable_wandb") is False
+    assert mon.get("enable_status_file") is False
     assert "wandb_tracker_name" in mon
     assert mon.get("wandb_tracker_name") == "renga-flow"
     assert "wandb_run_name" in mon

@@ -35,6 +35,7 @@ def _need_to_checkpoint(config, epoch=None):
         now = time.time()
         if _last_checkpoint_time is None:
             _last_checkpoint_time = now
+            result = [False]
         elif (now - _last_checkpoint_time) / 60 > config["checkpoint_every_n_minutes"]:
             _last_checkpoint_time = now
             result = [True]

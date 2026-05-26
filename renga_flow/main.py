@@ -16,6 +16,7 @@ from renga_flow.config import (
     validate_config,
 )
 from renga_flow.config.validation import ConfigValidationError
+from renga_flow.control.status_file import write_status_file
 
 
 def _parse_args():
@@ -51,11 +52,11 @@ def _distributed_init(args):
 
 
 def _get_most_recent_run_dir(output_dir: str) -> str:
-    """Return the most recent run directory under output_dir (by name order)."""
-    dirs = sorted(glob.glob(os.path.join(output_dir, "*")))
+    """Return the most recently modified run directory under output_dir."""
+    dirs = [d for d in glob.glob(os.path.join(output_dir, "*")) if os.path.isdir(d)]
     if not dirs:
         raise ValueError(f"No run directories found under {output_dir}")
-    return dirs[-1]
+    return max(dirs, key=os.path.getmtime)
 
 
 def _run_training(args, config):
@@ -64,13 +65,22 @@ def _run_training(args, config):
     from deepspeed import comm as dist
     from torch.utils.tensorboard import SummaryWriter
 
+    from renga_flow.utils.common import empty_cuda_cache
+    import time
+
+    from renga_flow.utils.bench import bench_enabled, bench_init, bench_record, bench_summarize
+    from renga_flow.utils.training_metrics import log_training_step
+    import renga_flow.utils.common as common_module
+
+    model_dtype = config["model"].get("dtype")
+    if hasattr(torch, "float16") and isinstance(model_dtype, torch.dtype):
+        common_module.AUTOCAST_DTYPE = model_dtype
+
     from renga_flow.registry import get_model
     from renga_flow.optim import apply_warmup, resolve_optimizer_class, resolve_scheduler
     from renga_flow.utils import ManualPipelineModule, get_data_iterator_for_step, is_main_process
     from renga_flow.utils.saver import Saver
     from renga_flow.utils.eval import evaluate
-    from renga_flow.utils.common import AUTOCAST_DTYPE, empty_cuda_cache
-    from renga_flow.utils.training_metrics import log_training_step
     from renga_flow.data import (
         Dataset,
         DatasetManager,
@@ -85,11 +95,6 @@ def _run_training(args, config):
     if torch.cuda.is_available():
         device_rank = local_rank if local_rank >= 0 else (dist.get_rank() if dist is not None else 0)
         torch.cuda.set_device(device_rank)
-
-    import renga_flow.utils.common as common_module
-    model_dtype = config["model"].get("dtype")
-    if hasattr(torch, "float16") and isinstance(model_dtype, torch.dtype):
-        common_module.AUTOCAST_DTYPE = model_dtype
 
     model = get_model(config)
     model.load_diffusion_model()
@@ -400,7 +405,10 @@ def _run_training(args, config):
         if resume_from_checkpoint is True:
             run_dir_container[0] = _get_most_recent_run_dir(output_dir)
         elif isinstance(resume_from_checkpoint, str):
-            run_dir_container[0] = os.path.join(output_dir, resume_from_checkpoint)
+            if os.path.isabs(resume_from_checkpoint) and os.path.isdir(resume_from_checkpoint):
+                run_dir_container[0] = resume_from_checkpoint
+            else:
+                run_dir_container[0] = os.path.join(output_dir, resume_from_checkpoint)
             if not os.path.exists(run_dir_container[0]):
                 raise ValueError(f"Checkpoint directory {run_dir_container[0]} does not exist")
         else:
@@ -416,7 +424,7 @@ def _run_training(args, config):
     if run_dir is None:
         raise RuntimeError("run_dir was not set on rank 0")
     os.makedirs(run_dir, exist_ok=True)
-    if not resume_from_checkpoint and is_main_process():
+    if is_main_process() and not resume_from_checkpoint:
         shutil.copy(args.config, run_dir)
         if config.get("dataset") and os.path.isfile(config["dataset"]):
             shutil.copy(config["dataset"], run_dir)
@@ -476,6 +484,12 @@ def _run_training(args, config):
     saved = False
     epoch_loss = 0.0
     num_steps = 0
+    bench_csv = (
+        bench_init(run_dir)
+        if bench_enabled(config) and is_main_process()
+        else None
+    )
+    per_step_batch = micro_batch * gradient_accumulation_steps
 
     if resume_from_checkpoint:
         load_lr = "force_constant_lr" not in config and not args.reset_optimizer and not args.reset_optimizer_params
@@ -540,7 +554,17 @@ def _run_training(args, config):
     while True:
         model_engine.reset_activation_shape()
         iterator = get_data_iterator_for_step(train_dataloader, model_engine)
+        t0 = time.perf_counter()
         loss = model_engine.train_batch(iterator).item()
+        iter_sec = time.perf_counter() - t0
+        if bench_enabled(config) and is_main_process():
+            bench_record(
+                bench_csv,
+                step=step,
+                loss=loss,
+                iter_sec=iter_sec,
+                batch_size=per_step_batch,
+            )
         train_dataloader.sync_epoch()
         epoch_loss += loss
         num_steps += 1
@@ -570,6 +594,18 @@ def _run_training(args, config):
             logging_steps=logging_steps,
             is_main=is_main_process(),
         )
+        if (
+            is_main_process()
+            and step % logging_steps == 0
+            and config.get("monitoring", {}).get("enable_status_file", False)
+        ):
+            write_status_file(
+                run_dir,
+                step=step,
+                examples=examples,
+                epoch=epoch,
+                loss=loss,
+            )
 
         if (eval_every_n_steps and step % eval_every_n_steps == 0) or (
             finished_epoch and eval_every_n_epochs and epoch % eval_every_n_epochs == 0
@@ -643,6 +679,12 @@ def _run_training(args, config):
         saver.save_model(final_model_name)
 
     if is_main_process():
+        if bench_enabled(config):
+            bench_summarize(
+                bench_csv,
+                config.get("run_name", "bench"),
+                run_dir,
+            )
         print("Training complete.")
 
 

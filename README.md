@@ -20,7 +20,7 @@ A **TOML-driven training framework** for diffusion models. You define a config f
 | Model | Adapters | Description |
 |-------|----------|-------------|
 | **SDXL** (`sdxl`) | LoRA, LoKr | Stable Diffusion XL; train LoRA or LoKr on the transformer. |
-| **Cosmos Predict2** (`cosmos_predict2`, alias `anima`) | LoRA, LoKr, full finetune | Cosmos Predict2 DiT + Qwen VAE + Qwen3/T5 (Anima-style checkpoints). |
+| **Cosmos Predict2** (`cosmos_predict2`) | LoRA, LoKr, full finetune | Cosmos Predict2 DiT + Qwen VAE + Qwen3/T5 (checkpoints often branded as Anima). |
 
 Set `[model] type = "sdxl"` or `type = "cosmos_predict2"` and `[adapter] type = "lora"` or `type = "lokr"`. Omit `[adapter]` for full-model finetune. See [SDXL training](docs/user/training-sdxl-lora-lokr.md) or [Cosmos Predict2 / Anima](docs/user/training-cosmos-predict2-lora-lokr-finetune.md). Optional deps: `pip install -e ".[cosmos_predict2]"` for the latter.
 
@@ -63,6 +63,17 @@ python -m renga_flow.main --config my_train.toml
 ```
 
 The script will load and validate the config then exit.
+
+## Web UI (optional)
+
+Local control panel for configs, jobs, logs, and signal files:
+
+```bash
+./start-ui.sh          # Linux / Git Bash — keep the terminal open
+start-ui.bat           # Windows CMD — double-click or run from cmd
+```
+
+See [Web UI user guide](docs/user/web-ui.md). Training without the UI is unchanged (`pip install -e .` only).
 
 ## Documentation
 

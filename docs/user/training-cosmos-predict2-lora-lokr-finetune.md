@@ -1,9 +1,8 @@
 # Training Cosmos Predict2 (Anima checkpoints)
 
-This guide covers **austere end-to-end training** for checkpoints marketed as **Anima**: the architecture is **Cosmos Predict2 DiT** with **Qwen image VAE** and **Qwen3 + T5** text conditioning (`llm_path` in config). In TOML you can use either:
+This guide covers **austere end-to-end training** for checkpoints marketed as **Anima** (branding only): the architecture is **Cosmos Predict2 DiT** with **Qwen image VAE** and **Qwen3 + T5** text conditioning (`llm_path` in config). In TOML always use:
 
-- `type = "cosmos_predict2"` (canonical), or
-- `type = "anima"` (alias — same pipeline when `llm_path` is set).
+- `type = "cosmos_predict2"`
 
 Install the optional extra:
 
@@ -11,18 +10,42 @@ Install the optional extra:
 pip install -e ".[cosmos_predict2]"
 ```
 
-## Paths
+## Model files (which `.safetensors` is which?)
 
-Under `[model]` you need:
+Cosmos / Anima training needs **three separate weight files** on disk (plus optional extras). They are **not interchangeable** — each path must point at the right download.
 
-| Key | Purpose |
-|-----|---------|
-| `transformer_path` | DiT weights (e.g. Anima preview `.safetensors`) |
-| `vae_path` | Qwen image VAE weights |
-| `llm_path` | Qwen3 0.6B (directory or single `.safetensors`) |
-| `t5_path` | Alternative: T5-only text stack (no Qwen3) |
+| Config key | What you are pointing at | Typical example |
+|------------|--------------------------|-----------------|
+| **`transformer_path`** | **Main image model** — the large checkpoint you LoRA/finetune | `anima-preview.safetensors` |
+| **`vae_path`** | **Image VAE** — converts pixels ↔ latents for the dataset cache | `qwen_image_vae.safetensors` |
+| **`llm_path`** | **Text encoder (Qwen3)** — turns captions into conditioning | `qwen_3_06b_base.safetensors` or a folder |
+| **`t5_path`** | **Text encoder (T5)** — older setups only; use **instead of** `llm_path`, not as a fourth duplicate | One `.safetensors` when your bundle is T5-based |
+| **`llm_adapter_path`** | Optional small adapter on the text stack | Leave empty unless your pack includes it |
 
-Tokenizer configs ship inside the package (`assets/qwen3_06b`, `assets/t5_old`).
+In the web UI these appear as **Main model**, **Image VAE**, and **Text encoder — Qwen3** (or T5). The TOML keys stay `transformer_path`, `vae_path`, etc.
+
+### Precision (`dtype` vs optional overrides)
+
+| Key | Scope | When to set |
+|-----|--------|-------------|
+| **`dtype`** | **Required.** VAE, text encoder (Qwen3/T5), adapters, and “stable” DiT layers (embedders, norms, 1D params). Bulk DiT blocks too if `transformer_dtype` is omitted. | Always — usually `bfloat16`. |
+| **`transformer_dtype`** | Only how **`transformer_path`** weights are loaded into the DiT (most transformer blocks). Defaults to `dtype`. | Rarely — VRAM or load issues with the main checkpoint. |
+| **`diffusion_model_dtype`** | Intended for forward-pass math vs storage dtype. | **Leave unset** — parsed in config but **not used** by training yet. |
+| **`cache_text_embeddings`** | Caption cache during `--cache_only`. | Keep `true` (default). |
+
+Tokenizer configs ship inside the package (`assets/qwen3_06b`, `assets/t5_old`) — you do not path those in TOML.
+
+### Minimal `[model]` example
+
+```toml
+[model]
+type = "cosmos_predict2"
+dtype = "bfloat16"
+transformer_path = "path/to/anima-preview.safetensors"
+vae_path = "path/to/qwen_image_vae.safetensors"
+llm_path = "path/to/qwen_3_06b_base.safetensors"
+cache_text_embeddings = true
+```
 
 ## Modes
 

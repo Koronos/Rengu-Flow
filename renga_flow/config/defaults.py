@@ -55,8 +55,10 @@ def set_config_defaults(config: dict[str, Any]) -> None:
     if diffusion_model_dtype := model_config.get("diffusion_model_dtype", None):
         model_config["diffusion_model_dtype"] = DTYPE_MAP[diffusion_model_dtype]
     model_config.setdefault("guidance", 1.0)
-    if str(model_config.get("type", "")).lower() in ("cosmos_predict2", "anima"):
+    if str(model_config.get("type", "")).lower() == "cosmos_predict2":
         model_config.setdefault("cache_text_embeddings", True)
+        if config.get("activation_checkpointing") and not config.get("blocks_to_swap"):
+            config.setdefault("reentrant_activation_checkpointing", True)
 
     if "adapter" in config:
         adapter_config = config["adapter"]
@@ -105,6 +107,7 @@ def set_config_defaults(config: dict[str, Any]) -> None:
     config.setdefault("monitoring", {})
     mon = config["monitoring"]
     mon.setdefault("enable_wandb", False)
+    mon.setdefault("enable_status_file", False)
     mon.setdefault("wandb_api_key", None)
     mon.setdefault("wandb_tracker_name", "renga-flow")
     mon.setdefault("wandb_run_name", None)

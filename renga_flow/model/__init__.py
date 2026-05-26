@@ -2,12 +2,6 @@
 
 from renga_flow.model.base import BasePipeline, ModelPipelineProtocol, make_contiguous
 
-# Register built-in models so get_model() can resolve them.
-from renga_flow.model import sdxl  # noqa: F401
-from renga_flow.model import cosmos_predict2  # noqa: F401
-from renga_flow.model.sdxl import SDXLPipeline
-from renga_flow.model.cosmos_predict2 import CosmosPredict2Pipeline
-
 __all__ = [
     "BasePipeline",
     "ModelPipelineProtocol",
@@ -15,3 +9,15 @@ __all__ = [
     "SDXLPipeline",
     "CosmosPredict2Pipeline",
 ]
+
+
+def __getattr__(name: str):
+    if name == "SDXLPipeline":
+        from renga_flow.model.sdxl import SDXLPipeline
+
+        return SDXLPipeline
+    if name == "CosmosPredict2Pipeline":
+        from renga_flow.model.cosmos_predict2 import CosmosPredict2Pipeline
+
+        return CosmosPredict2Pipeline
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

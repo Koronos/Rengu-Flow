@@ -35,6 +35,56 @@ Code entry: **`renga_flow/main.py`** — `_run_training(args, config)`.
 
 **Loader reset:** Between quantiles, `PipelineDataLoader.reset()` is used so the same eval dataloader can be reused: it sets `epoch=1`, `num_batches_pulled=0`, `next_micro_batch=None`, and reinitializes the internal batch iterator. Implemented in **`renga_flow/data/loader.py`**.
 
+**Block swap during eval:** When `blocks_to_swap > 0`, `evaluate()` calls `model.prepare_block_swap_inference(disable_block_swap)` where `disable_block_swap` comes from top-level config `disable_block_swap_for_eval` (default `false`). Same pattern for previews via `disable_block_swap_for_preview` in **`renga_flow.utils.preview.run_previews`**.
+
+User-facing option tables: **`docs/user/training-loop-and-eval.md`** (Evaluation and Logging sections).
+
+## DeepSpeed pipeline and training data modes
+
+**Pipeline construction** (`renga_flow/main.py` after `model.to_layers()`):
+
+| Config key | Code location | Notes |
+|------------|---------------|--------|
+| `pipeline_stages` | `num_stages` → `ManualPipelineModule(..., num_stages=...)` | Default `1`. Should match GPU count for pipeline parallel. |
+| `partition_method` | `ManualPipelineModule(..., partition_method=...)` | Passed to DeepSpeed `PipelineModule._partition_layers`. Values: `parameters`, `uniform`, `manual`. Default from `set_config_defaults`: `parameters`. |
+| `partition_split` | `manual_partition_split=` when `partition_method == "manual"` | List of layer indices (length `pipeline_stages - 1`). If omitted and `num_stages > 1`, defaults to even split: `[len(layers) // num_stages] * (num_stages - 1)`. |
+| `activation_checkpointing` | `activation_checkpoint_interval`, `checkpointable_layers`, `activation_checkpoint_func` | `true` → PyTorch checkpoint; `"unsloth"` → `unsloth_checkpoint`; `reentrant_activation_checkpointing` passed to `checkpoint(..., use_reentrant=...)`. |
+| `steps_per_print` | `ds_config["steps_per_print"]` | DeepSpeed console interval. Default `1` in defaults. |
+| `micro_batch_size_per_gpu` | `train_micro_batch_size_per_gpu` in DeepSpeed config | If value is a dict, first value is used for DS init (image-specific dict handled later for dataloaders). |
+| `gradient_accumulation_steps` | `ds_config` + dataloader `post_init` | |
+| `gradient_clipping` | Set to `0.0` when `optimizer.gradient_release` is true | |
+
+**`ManualPipelineModule`** (`renga_flow/utils/pipeline.py`): subclasses `deepspeed.pipe.PipelineModule`. When `partition_method.lower() == "manual"`, uses `manual_partition_split` to set stage boundaries and prints per-stage layer names on rank 0; otherwise delegates to DeepSpeed’s built-in methods.
+
+**Real vs synthetic training data:**
+
+| Condition | Behavior |
+|-----------|----------|
+| `dataset` set, `synthetic_num_batches` omitted | Load dataset TOML, `Dataset` + `DatasetManager.cache()`, train on cached latents/embeddings. |
+| `synthetic_num_batches` set | Skip real data path; use **`SyntheticSDXLDataset`** (`renga_flow/data/synthetic.py`) with `num_batches` from config (default `50` in code if key present without value handling — see `main.py`). Dataset TOML still copied into run dir but not used for training iterators. |
+| No `dataset` | Depends on validation; typical examples always set `dataset`. |
+
+**`caching_batch_size`:** Passed to `DatasetManager(..., caching_batch_size=...)` and into worker `_cache_fn` / `_map_and_cache` (`renga_flow/data/cache_utils.py`: `pool.imap(..., batch_size=caching_batch_size)`). Default `1` in `set_config_defaults`.
+
+**`image_micro_batch_size_per_gpu`:** After DeepSpeed init, `train_data.post_init(..., per_device_batch_size_image=...)` receives either the top-level int or a dict keyed by modality (`main.py` normalizes non-dict to `{None: value}`). Used when mixing image and video buckets.
+
+**Examples axis:** `x_axis_examples` in config selects whether `log_training_step` and eval/preview logging use `examples` or `step` as the TensorBoard/WandB x-coordinate (`training_metrics.py` / loop in `main.py`).
+
+## WandB initialization
+
+On rank 0, if `monitoring.enable_wandb`:
+
+```python
+wandb.login(key=mon["wandb_api_key"])  # optional
+wandb.init(project=mon.get("wandb_tracker_name", "renga-flow"), name=mon.get("wandb_run_name", run_dir), ...)
+```
+
+Failure to import or init WandB sets `wandb_enable = False` for the rest of the run. Keys are under `config["monitoring"]`; see user doc for env var `WANDB_API_KEY` alternative.
+
+## Status file (UI)
+
+When `monitoring.enable_status_file` is true, rank 0 calls **`renga_flow.control.status_file.write_status_file`** every `logging_steps` with `step`, `examples`, `epoch`, `loss`. Consumed by the web UI; see **`docs/developer/web-ui.md`**.
+
 ## Where metrics are written
 
 - **TensorBoard:** `SummaryWriter(log_dir=run_dir)` (main process only). Training step logging via **`renga_flow.utils.training_metrics.log_training_step`**: `train/loss`, `train/grad_norm`, `train/prodigy_d` (Prodigy), `train/automagic_avg_lr` and histogram `train/automagic_lrs` (Automagic / GenericOptim). Epoch: `train/epoch_loss`. Eval: `{name}/loss_quantile_{q}`, `{name}/loss`, `eval/eval_time_sec`. X-axis is `examples` if `x_axis_examples` else `step`.

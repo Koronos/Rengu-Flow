@@ -1,7 +1,4 @@
-# Minimal Cosmos Predict2 LoRA training (Anima-style: llm_path + Qwen VAE).
-# Alias: type = "anima" is equivalent to type = "cosmos_predict2" with llm_path set.
-# Uncomment to use the diffusion-pipe-compatible type name:
-# type = 'anima'
+# Minimal Cosmos Predict2 LoRA training (Qwen3 text encoder + Qwen image VAE).
 
 output_dir = 'output'
 dataset = 'examples/minimal_cosmos_predict2_dataset.toml'
@@ -17,6 +14,7 @@ caching_batch_size = 1
 [model]
 type = 'cosmos_predict2'
 dtype = 'bfloat16'
+# Main image model | image VAE | text encoder (Qwen3) — three separate .safetensors files
 transformer_path = 'path/to/anima-preview.safetensors'
 vae_path = 'path/to/qwen_image_vae.safetensors'
 llm_path = 'path/to/qwen_3_06b_base.safetensors'

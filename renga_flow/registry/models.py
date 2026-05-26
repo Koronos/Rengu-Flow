@@ -5,9 +5,12 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from renga_flow.model.base import ModelPipelineProtocol
+from renga_flow.registry.model_capabilities import ensure_default_capability
 
 # type -> callable(config: dict) -> ModelPipelineProtocol
 model_registry: dict[str, Callable[[dict[str, Any]], ModelPipelineProtocol]] = {}
+# Canonical types only (@register_model); aliases via register_model_alias are excluded.
+canonical_model_types: set[str] = set()
 
 
 def register_model(name: str) -> Callable[[type], type]:
@@ -17,7 +20,10 @@ def register_model(name: str) -> Callable[[type], type]:
         def factory(config: dict[str, Any]) -> ModelPipelineProtocol:
             return cls(config)  # type: ignore[return-value]
 
-        model_registry[name.lower()] = factory
+        key = name.lower()
+        model_registry[key] = factory
+        canonical_model_types.add(key)
+        ensure_default_capability(key)
         return cls
 
     return decorator
@@ -50,3 +56,12 @@ def register_model_alias(alias: str, canonical: str) -> None:
     if key not in model_registry:
         raise KeyError(f"Canonical model '{canonical}' is not registered")
     model_registry[alias.lower()] = model_registry[key]
+
+
+def _register_builtin_models() -> None:
+    """Import pipeline modules so @register_model decorators run (avoids circular import)."""
+    import renga_flow.model.sdxl  # noqa: F401
+    import renga_flow.model.cosmos_predict2  # noqa: F401
+
+
+_register_builtin_models()

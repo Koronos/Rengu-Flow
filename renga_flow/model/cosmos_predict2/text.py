@@ -78,4 +78,4 @@ def load_text_stack(model_config):
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     text_encoder.config.use_cache = False
-    return tokenizer, t5_tokenizer, text_encoder, True, "anima"
+    return tokenizer, t5_tokenizer, text_encoder, True, pipeline_name

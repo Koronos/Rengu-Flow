@@ -15,7 +15,7 @@
 | `renga_flow/networks/adapter_dit.py` | LoRA (PEFT) and LoKr save/load (Comfy prefix) |
 | `renga_flow/data/preprocess_media.py` | `PreprocessMediaFile` for dataset cache |
 
-Registry: `register_model("cosmos_predict2")`, alias `anima` → same factory.
+Registry: `register_model("cosmos_predict2")` only (Anima is a checkpoint branding name in user docs, not a `type` value).
 
 ## Cache hooks
 
@@ -39,6 +39,18 @@ Implemented (not `[TODO]`):
 ## Full finetune
 
 When `[adapter]` is absent, `load_diffusion_model` leaves base DiT parameters trainable (`original_name` set for saver). Text encoder stays frozen in `__init__`.
+
+## Dtype overrides (`[model]`)
+
+Parsed in **`renga_flow.config.defaults.set_config_defaults`**. Implemented in **`pipeline.py`** as follows:
+
+| Key | Role |
+|-----|------|
+| `dtype` | Required. VAE, `load_text_stack`, adapter dtype, and DiT layers in `KEEP_IN_HIGH_PRECISION` / 1D / `llm_adapter` at load time. |
+| `transformer_dtype` | Optional; defaults to `dtype`. Dtype for most `transformer_path` weights in `load_diffusion_model` (not embedders/norms). |
+| `diffusion_model_dtype` | Optional; **not read** by `CosmosPredict2Pipeline` today (reserved / upstream parity). |
+
+User-facing summary: **`docs/user/training-cosmos-predict2-lora-lokr-finetune.md`** (Precision section).
 
 ## Dependencies and upstream sources
 

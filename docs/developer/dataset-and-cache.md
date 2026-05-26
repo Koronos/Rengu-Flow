@@ -15,7 +15,7 @@ User-facing summary: [Dataset augmentation (user)](../user/dataset-augmentation.
 The main config references a dataset via the `dataset` key (path to a TOML file). That TOML must contain:
 
 - **`directory`** — List of directory configs (from TOML `[[directory]]`). Each entry: **`path`** and **`num_repeats`** (required); optional: `directory_caption`, `mask_path`, `control_path`, `default_mask_file`, `resolutions`, `frame_buckets`, `enable_ar_bucket`, `ar_buckets`, `size_buckets`, `cache_shuffle_num`, `cache_shuffle_delimiter`, `shuffle_tags`. See [user dataset-config](../user/dataset-config.md) for what each option does and allowed values.
-- **Global options** in the same TOML: `resolutions`, `frame_buckets`, `enable_ar_bucket`, `min_ar`, `max_ar`, `num_ar_buckets`, `ar_buckets`, `size_buckets`, `shuffle_tags`, `cache_shuffle_num`, `cache_shuffle_delimiter`, `subsample_ratio`. Full descriptions and values are in the user doc.
+- **Global options** in the same TOML: `resolutions`, `frame_buckets`, `enable_ar_bucket`, `min_ar`, `max_ar`, `num_ar_buckets`, `ar_buckets`, `size_buckets`, `shuffle_tags`, `cache_shuffle_num`, `cache_shuffle_delimiter`, `shuffle_metadata`, `online_captions`, `subsample_ratio`. Full descriptions and values are in the user doc.
 
 Validation for real data: `renga_flow.data.dataset_config.validate_dataset_config_for_real_data(dataset_config)` ensures `directory` is present and non-empty and each entry has `path` and `num_repeats` &gt; 0.
 
@@ -65,6 +65,7 @@ Contract for the object passed to the orchestrator as the training dataset:
 | Data loader | `renga_flow.data.loader`: `PipelineDataLoader`, `split_batch` |
 | Synthetic dataset | `renga_flow.data.synthetic`: `SyntheticSDXLDataset` |
 | Main flow | `renga_flow.main`: loads dataset config; if real data: `Dataset`, `DatasetManager`, `cache()`, `--cache_only` exit; after DeepSpeed init: `train_data.post_init(...)` or synthetic, then `PipelineDataLoader`; CLI: `--cache_only`, `--regenerate_cache`, `--trust_cache`, **`[TODO]` `--dump_dataset`** |
+| UI dataset library | `renga_flow_ui.datasets_store`, `library_db`, `dataset_scan`, `dataset_schema` — TOML in SQLite (`jobs.db`), compose `[[directory]]`, folder scan preview; see **`docs/developer/web-ui.md`** |
 
 ## Tests
 

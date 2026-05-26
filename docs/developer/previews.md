@@ -27,7 +27,10 @@ X-axis for `add_image` matches scalars: `examples` when `x_axis_examples`, else 
 
 ## Block swap and optimizer
 
-Same pattern as **`evaluate()`**: `prepare_block_swap_inference`, `empty_cuda_cache`, optional `optimizer.eval()`, then restore training mode and `prepare_block_swap_training`.
+Same pattern as **`evaluate()`**: `prepare_block_swap_inference(disable_block_swap)`, `empty_cuda_cache`, optional `optimizer.eval()`, then restore training mode and `prepare_block_swap_training`.
+
+- Eval uses top-level **`disable_block_swap_for_eval`** (passed from `main.py` into `evaluate()`).
+- Previews use **`disable_block_swap_for_preview`** (passed into `run_previews()`). When omitted, behavior matches eval’s default in the preview module.
 
 ## TensorBoard
 

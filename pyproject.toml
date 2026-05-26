@@ -39,14 +39,24 @@ optim = [
     "optimum-quanto",
     "transformers>=4.0",
 ]
-dev = ["pytest>=7.0"]
+dev = [
+    "pytest>=7.0",
+    "httpx>=0.27.0",
+]
+ui = [
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.27.0",
+    "tensorboard>=2.14.0",
+    "psutil>=5.9.0",
+]
 
 [project.scripts]
 renga-flow = "renga_flow.main:main"
+renga-flow-ui = "renga_flow_ui.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["renga_flow*"]
+include = ["renga_flow*", "renga_flow_ui*"]
 
 [tool.setuptools.package-data]
 "renga_flow.model.cosmos_predict2" = ["assets/**/*"]

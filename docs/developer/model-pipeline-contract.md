@@ -27,6 +27,6 @@ Reference: `renga_flow/model/base.py`, implementations `renga_flow/model/sdxl.py
 | `prepare_block_swap_inference` | No-op (base) | No-op |
 | `freeze_text_encoders` | Implemented | No-op (frozen in `__init__`) |
 
-Register new models via `renga_flow.registry.models.register_model`. Built-in: `sdxl`, `cosmos_predict2` (alias `anima`).
+Register new models via `renga_flow.registry.models.register_model`. Built-in: `sdxl`, `cosmos_predict2`.
 
 See also [Dataset and cache — model hooks](dataset-and-cache.md#model-hooks-for-cache-sdxl).

@@ -1209,7 +1209,7 @@ class Dataset:
             cumulative[idx] += 1
         self.iteration_order = iteration_order
         if subsample_ratio := self.dataset_config.get("subsample_ratio"):
-            new_len = int(len(self) * subsample_ratio)
+            new_len = max(1, int(len(self.iteration_order) * subsample_ratio))
             self.iteration_order = self.iteration_order[:new_len]
         self.post_init_called = True
 

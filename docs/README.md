@@ -11,6 +11,7 @@
   - [Checkpoints, model export, and retention](user/checkpoint-and-save.md) — Resume checkpoints vs inference export, `max_checkpoints_to_keep`, scheduled saves.
   - [Training previews](user/previews.md) — Sample images during training, TensorBoard IMAGES tab, schedules and `preview` signal.
   - [Signal files](user/signal-files.md) — Control runs with `save`, `save_quit`, `export_model`, `export_model_quit`, and `preview`.
+  - [Web UI](user/web-ui.md) — Optional local UI: `./start-ui.sh`, configs, jobs, signals, progress.
 - **[Developer guide](developer/)** — For contributors and anyone extending the framework (APIs, adding signals, internals). In developer specs, **`[TODO]`** marks functions or features **not yet implemented** in `renga_flow/` (grep specs with `[TODO]` for a backlog).
   - [Testing](developer/testing.md) — How to run tests, layout, fixtures, and dataset/data loading tests.
   - [Dataset and cache](developer/dataset-and-cache.md) — Dataset config contract, code locations, and Phase 2 plan.
@@ -24,4 +25,5 @@
   - [Dependencies and upstream](developer/dependencies-and-upstream.md) — diffusion-pipe submodules vs in-repo incorporation.
   - [Networks](developer/networks.md) — Adapter modules (lora_sdxl, lokr_sdxl), contract, and how to add new networks or models.
   - [Adding optimizers and schedulers](developer/adding-optimizers-and-schedulers.md) — Registry locations, resolution order, how to register custom optimizer or scheduler.
+  - [Web UI](developer/web-ui.md) — Control server layout, API, config/dataset libraries, field help, job queue, host metrics, staging, signals bridge, status file hook.
   - [Full-model training](developer/full-model-training.md) — How full-model mode is chosen, save path, freeze_text_encoders, and future dataset/VAE note.

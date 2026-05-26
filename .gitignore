@@ -23,6 +23,12 @@ env/
 .env
 .env.*
 
+# Web UI local state (configs library, jobs.db, staging, logs)
+.renga-flow-ui/
+
+# Local scratch (datasets, smoke configs, run output)
+tmp/
+
 # Training runs and exports (output_dir default)
 output/
 

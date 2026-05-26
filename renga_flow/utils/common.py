@@ -1,6 +1,7 @@
 """Common utilities (distributed rank, main process). Used by models and training loop."""
 
 import gc
+from contextlib import contextmanager
 
 try:
     import torch
@@ -14,7 +15,7 @@ try:
         if dist.is_initialized():
             return dist.get_rank()
         return 0
-except Exception:
+except ImportError:
 
     def get_rank() -> int:
         return 0
@@ -31,8 +32,22 @@ def empty_cuda_cache() -> None:
         torch.cuda.empty_cache()
 
 
-# For SDXL autocast; None = use default (no override).
+# Training model dtype for cuda_autocast(); None = no autocast override.
 AUTOCAST_DTYPE = None
+
+
+@contextmanager
+def cuda_autocast():
+    """CUDA autocast using AUTOCAST_DTYPE resolved at call time.
+
+    Module-level @torch.autocast(..., dtype=AUTOCAST_DTYPE) decorators bind None when
+    pipeline layers are imported before training sets the model dtype.
+    """
+    if torch is None or AUTOCAST_DTYPE is None:
+        yield
+    else:
+        with torch.autocast("cuda", dtype=AUTOCAST_DTYPE):
+            yield
 
 
 def round_to_nearest_multiple(x: float, multiple: int) -> float:

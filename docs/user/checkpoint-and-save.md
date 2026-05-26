@@ -15,6 +15,8 @@ Training produces two kinds of artifacts in the **run directory** (under `output
 | **`save_every_n_epochs`** | Export model weights every N epochs. | Positive integer. | `1` (set by framework defaults). |
 | **`save_every_n_steps`** | Export model weights every N training steps. | Positive integer. | Omitted. |
 | **`save_every_n_examples`** | Same as `save_every_n_steps`, but counted in total examples seen; converted using global batch size. | Positive integer. | Omitted. |
+| **`save_dtype`** | Cast exported weights to this dtype. | `bfloat16`, `float16`, `float32`, etc. | Model dtype. |
+| **`save_full_model`** | Export full trainable backbone (`model.safetensors`) instead of adapter-only files. | `true` or `false`. | `false` (adapter export when `[adapter]` is set). |
 
 Example:
 

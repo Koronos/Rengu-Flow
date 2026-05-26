@@ -1,4 +1,4 @@
-"""Validation for cosmos_predict2 / anima model configs."""
+"""Validation for cosmos_predict2 model configs."""
 
 import pytest
 
@@ -25,11 +25,10 @@ def test_validate_cosmos_predict2_minimal_passes():
     validate_config(_cosmos_config())
 
 
-def test_validate_anima_requires_llm_path():
+def test_validate_rejects_anima_model_type():
     cfg = _cosmos_config()
     cfg["model"]["type"] = "anima"
-    del cfg["model"]["llm_path"]
-    with pytest.raises(ConfigValidationError, match="llm_path"):
+    with pytest.raises(ConfigValidationError, match="Unknown model type"):
         validate_config(cfg)
 
 

@@ -5,7 +5,7 @@ This guide explains how to train SDXL with **LoRA** or **LoKr** (LyCORIS) adapte
 ## What you need
 
 - A TOML config file with `[model]` (type `sdxl`), `[optimizer]`, and `dataset`.
-- An SDXL checkpoint path in `model.checkpoint_path`.
+- An SDXL **base model** path in `model.checkpoint_path` — usually one large `.safetensors` file (not a LoRA).
 - For LoKr, you can optionally install the LyCORIS backend:  
   `pip install renga-flow[lycoris]`  
   If you do not install it, LoKr still works using the built-in (vendored) implementation.

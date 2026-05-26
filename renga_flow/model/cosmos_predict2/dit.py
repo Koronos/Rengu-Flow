@@ -1089,7 +1089,6 @@ class Block(nn.Module):
         )
         result_B_T_H_W_D = rearrange(
             self.self_attn(
-                # normalized_x_B_T_HW_D,
                 rearrange(normalized_x_B_T_H_W_D, "b t h w d -> b (t h w) d"),
                 None,
                 rope_emb=rope_emb_L_1_1_D,
