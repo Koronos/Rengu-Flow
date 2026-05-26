@@ -62,6 +62,35 @@ def bench_record(
     )
 
 
+def bench_mean_iter_sec_after_warmup(
+    csv_path: Path | str | None,
+    *,
+    min_step: int = 6,
+) -> float | None:
+    """Mean iter_sec for steps >= min_step (skip compile/warmup). Used by smoke A/B scripts."""
+    if csv_path is None:
+        return None
+    path = Path(csv_path)
+    if not path.is_file():
+        return None
+    rows = list(csv.DictReader(path.open()))
+    warm = [float(r["iter_sec"]) for r in rows if int(r["step"]) >= min_step]
+    if not warm:
+        return None
+    return sum(warm) / len(warm)
+
+
+def find_latest_bench_csv(output_dir: Path | str = "output") -> Path | None:
+    """Newest bench_steps.csv under output_dir (by mtime)."""
+    root = Path(output_dir)
+    if not root.is_dir():
+        return None
+    candidates = list(root.glob("*/bench_steps.csv"))
+    if not candidates:
+        return None
+    return max(candidates, key=lambda p: p.stat().st_mtime)
+
+
 def bench_summarize(csv_path: Path | None, label: str, run_dir: str) -> dict[str, float]:
     """Return summary stats and append one line to bench_summary.txt in run_dir."""
     out: dict[str, float] = {}

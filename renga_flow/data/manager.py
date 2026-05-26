@@ -29,13 +29,17 @@ def _cache_fn(
     regenerate_cache: bool,
     trust_cache: bool,
     caching_batch_size: int,
+    cache_num_proc: int | None,
+    cache_keep_in_memory: bool,
 ) -> None:
     """Worker process: run cache_metadata, cache_latents, cache_text_embeddings; send GPU work via queue."""
     torch.set_num_threads(1)
 
     for ds in datasets_list:
         ds.cache_metadata(
-            regenerate_cache=regenerate_cache, trust_cache=trust_cache
+            regenerate_cache=regenerate_cache,
+            trust_cache=trust_cache,
+            cache_num_proc=cache_num_proc,
         )
 
     pipes = {}
@@ -115,6 +119,8 @@ def _cache_fn(
             regenerate_cache=regenerate_cache,
             trust_cache=trust_cache,
             caching_batch_size=caching_batch_size,
+            cache_num_proc=cache_num_proc,
+            cache_keep_in_memory=cache_keep_in_memory,
         )
 
     for text_encoder_idx in range(num_text_encoders):
@@ -142,6 +148,8 @@ def _cache_fn(
                 text_encoder_idx + 1,
                 regenerate_cache=regenerate_cache,
                 caching_batch_size=caching_batch_size,
+                cache_num_proc=cache_num_proc,
+                cache_keep_in_memory=cache_keep_in_memory,
             )
 
     queue.put(None)
@@ -156,6 +164,8 @@ class DatasetManager:
         regenerate_cache: bool = False,
         trust_cache: bool = False,
         caching_batch_size: int = 1,
+        cache_num_proc: int | None = None,
+        cache_keep_in_memory: bool = False,
     ) -> None:
         self.model = model
         self.vae = model.get_vae()
@@ -172,6 +182,8 @@ class DatasetManager:
         self.regenerate_cache = regenerate_cache
         self.trust_cache = trust_cache
         self.caching_batch_size = caching_batch_size
+        self.cache_num_proc = cache_num_proc
+        self.cache_keep_in_memory = cache_keep_in_memory
         self.datasets = []
 
     def register(self, dataset) -> None:
@@ -203,6 +215,8 @@ class DatasetManager:
                     self.regenerate_cache,
                     self.trust_cache,
                     self.caching_batch_size,
+                    self.cache_num_proc,
+                    self.cache_keep_in_memory,
                 ),
             )
             proc.start()

@@ -128,6 +128,8 @@ def _run_training(args, config):
             regenerate_cache=args.regenerate_cache,
             trust_cache=args.trust_cache,
             caching_batch_size=config.get("caching_batch_size", 1),
+            cache_num_proc=config.get("cache_num_proc"),
+            cache_keep_in_memory=config.get("cache_keep_in_memory", False),
         )
         dataset_manager.register(train_data)
         for i, eval_entry in enumerate(config.get("eval_datasets", [])):
@@ -382,12 +384,19 @@ def _run_training(args, config):
             latent_width=64,
         )
 
+    _loader_kwargs = dict(
+        num_dataloader_workers=config.get("dataloader_num_workers", 0),
+        dataloader_prefetch=config.get("dataloader_prefetch", False),
+        pin_memory=config.get("dataloader_pin_memory", False),
+        prefetch_factor=config.get("dataloader_prefetch_factor", 2),
+        persistent_workers=config.get("dataloader_persistent_workers", True),
+    )
     train_dataloader = PipelineDataLoader(
         train_data,
         model_engine,
         gradient_accumulation_steps,
         model,
-        num_dataloader_workers=0,
+        **_loader_kwargs,
     )
     eval_gradient_accumulation_steps = config.get("eval_gradient_accumulation_steps", 1)
     eval_dataloaders = {
@@ -396,7 +405,7 @@ def _run_training(args, config):
             model_engine,
             eval_gradient_accumulation_steps,
             model,
-            num_dataloader_workers=0,
+            **_loader_kwargs,
         )
         for name, eval_data in eval_data_map.items()
     }

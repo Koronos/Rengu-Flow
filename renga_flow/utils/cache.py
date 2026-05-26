@@ -27,10 +27,7 @@ class Cache:
     def __len__(self) -> int:
         return len(self.items)
 
-    def __getitem__(self, idx: int):
-        if not isinstance(idx, int):
-            raise TypeError("Cache index must be int")
-        shard_id, shard_index = self.items[idx]
+    def _read_at(self, shard_id: int, shard_index: int):
         offset, size = self.shard_metadata[shard_id][shard_index]
         if shard_id not in self.open_files:
             self.open_files[shard_id] = open(  # noqa: SIM115
@@ -41,6 +38,40 @@ class Cache:
         byte_string = f.read(size)
         buffer = io.BytesIO(byte_string)
         return torch.load(buffer, map_location="cpu", weights_only=False)
+
+    def __getitem__(self, idx: int):
+        if not isinstance(idx, int):
+            raise TypeError("Cache index must be int")
+        shard_id, shard_index = self.items[idx]
+        return self._read_at(shard_id, shard_index)
+
+    def get_many(self, indices: list[int]) -> list:
+        """Read multiple items reusing one file handle per shard (micro-batch load)."""
+        if not indices:
+            return []
+        if len(indices) == 1:
+            return [self[indices[0]]]
+        by_shard: dict[int, list[tuple[int, int]]] = defaultdict(list)
+        for out_pos, idx in enumerate(indices):
+            if not isinstance(idx, int):
+                raise TypeError("Cache index must be int")
+            shard_id, shard_index = self.items[idx]
+            by_shard[shard_id].append((out_pos, shard_index))
+        results: list = [None] * len(indices)
+        for shard_id, group in by_shard.items():
+            if shard_id not in self.open_files:
+                self.open_files[shard_id] = open(  # noqa: SIM115
+                    self.path / f"shard_{shard_id}.bin", "rb"
+                )
+            f = self.open_files[shard_id]
+            for out_pos, shard_index in group:
+                offset, size = self.shard_metadata[shard_id][shard_index]
+                f.seek(offset)
+                buffer = io.BytesIO(f.read(size))
+                results[out_pos] = torch.load(
+                    buffer, map_location="cpu", weights_only=False
+                )
+        return results
 
     def init(self) -> None:
         print("[CACHE] Initializing")

@@ -127,7 +127,20 @@ Checkpoint restores model, optimizer, LR scheduler, and dataloader state (epoch 
 | **`steps_per_print`** | How often DeepSpeed prints step timing to the console. | Positive integer. | `1` |
 | **`synthetic_num_batches`** | Train on in-memory fake SDXL batches (no real dataset). | Positive integer or omit. | Omitted (use real data). |
 | **`caching_batch_size`** | Batch size during the dataset cache phase (latents + text embeddings). | Positive integer. | `1` |
+| **`cache_num_proc`** | CPU worker processes for metadata map and latent/embedding cache (`pool.imap`). | Positive integer. | `min(8, CPU count)` |
+| **`cache_keep_in_memory`** | Keep the HuggingFace dataset slice in RAM while resuming cache. | `true` / `false`. | `false` (lower RAM; OS page cache still helps train reads) |
+| **`dataloader_num_workers`** | PyTorch DataLoader workers for training (load cached latents from disk). | Non-negative integer. | `0` |
+| **`dataloader_prefetch`** | Background thread loads the next raw batch while the GPU trains (only when `dataloader_num_workers = 0`). | `true` / `false`. | `false` |
+| **`dataloader_pin_memory`** | Page-locked CPU memory for faster host→GPU copies when using CUDA. | `true` / `false`. | `false` |
+| **`dataloader_prefetch_factor`** | Batches prefetched per worker when `dataloader_num_workers > 0`. | Positive integer. | `2` |
+| **`dataloader_persistent_workers`** | Keep DataLoader worker processes alive between epochs. | `true` / `false`. | `true` |
 | **`image_micro_batch_size_per_gpu`** | Micro-batch for image-only steps when mixing modalities. | Integer or dict, or omit to use `micro_batch_size_per_gpu`. | Same as `micro_batch_size_per_gpu` |
+
+**Disk hygiene:** Dataset cache lives under each `[[directory]].path/cache/<model>/`. GPU smokes via [`scripts/run_model_smoke.sh`](../../scripts/run_model_smoke.sh) delete `output/` and `tests/fixtures/smoke_cc0/images/cache/` by default. Set `KEEP_SMOKE_ARTIFACTS=1` to keep them for inspection. Remove a production cache manually with `rm -rf <dataset_path>/cache/<model_name>`.
+
+**Already tuned for speed/VRAM (see also [Cosmos performance](training-cosmos-predict2-lora-lokr-finetune.md#performance-and-vram-anima--cosmos)):** run `--cache_only` once before long jobs; `compile=true` for long runs; `cache_text_embeddings=true`; `RENGA_TUNING_TF32_APPLY=1` when supported; keep dataset cache on SSD; use `--trust_cache` to resume without re-encoding.
+
+**Compare dataloader flags (GPU):** `scripts/smoke_perf_ab.sh sdxl [prefetch|workers2]` — developer details in [performance-cpu-ram](../developer/performance-cpu-ram.md).
 
 Example (4-GPU pipeline):
 

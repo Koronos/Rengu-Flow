@@ -37,6 +37,15 @@ def test_cache_default_shard_size_gb(tmp_path):
     assert cache.shard_size_gb == 10.0
 
 
+def test_cache_get_many_matches_single_reads(tmp_path):
+    cache = Cache(tmp_path, "fp1", shard_size_gb=0.001)
+    for i in range(5):
+        cache.add({"v": torch.tensor([float(i)])})
+    cache.finalize_current_shard()
+    batch = cache.get_many([0, 2, 4, 1])
+    assert [b["v"].item() for b in batch] == [0.0, 2.0, 4.0, 1.0]
+
+
 def test_cache_clear(tmp_path):
     """clear() removes db and shards and re-inits."""
     cache = Cache(tmp_path, "fp1", shard_size_gb=0.001)

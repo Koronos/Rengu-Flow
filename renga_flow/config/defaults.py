@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from renga_flow.config.validation import ConfigValidationError
@@ -95,6 +96,13 @@ def set_config_defaults(config: dict[str, Any]) -> None:
     config.setdefault("logging_steps", 1)
     config.setdefault("eval_datasets", [])
     config.setdefault("caching_batch_size", 1)
+    config.setdefault("cache_num_proc", min(8, os.cpu_count() or 1))
+    config.setdefault("cache_keep_in_memory", False)
+    config.setdefault("dataloader_num_workers", 0)
+    config.setdefault("dataloader_prefetch", False)
+    config.setdefault("dataloader_pin_memory", False)
+    config.setdefault("dataloader_prefetch_factor", 2)
+    config.setdefault("dataloader_persistent_workers", True)
     config.setdefault("eval_gradient_accumulation_steps", 1)
     config.setdefault("eval_every_n_steps", None)
     config.setdefault("eval_every_n_epochs", None)

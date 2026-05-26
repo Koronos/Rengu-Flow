@@ -19,10 +19,10 @@ from PIL import Image
 from tqdm import tqdm
 
 from renga_flow.data.cache_utils import (
-    NUM_PROC,
     _map_and_cache,
     bucket_suffix,
     dedup_and_sort,
+    resolve_cache_num_proc,
     seed_from_hash,
 )
 from renga_flow.utils.common import is_main_process, round_to_nearest_multiple
@@ -105,6 +105,8 @@ def _cache_text_embeddings(
     cache_dir,
     regenerate_cache: bool,
     caching_batch_size: int,
+    cache_num_proc: int | None = None,
+    cache_keep_in_memory: bool = False,
 ):
     """Flatten captions to one row per (image, caption), then map_and_cache."""
     from renga_flow.data.cache_utils import _map_and_cache
@@ -123,7 +125,7 @@ def _cache_text_embeddings(
     flattened = metadata_dataset.map(
         flatten_captions,
         batched=True,
-        keep_in_memory=True,
+        keep_in_memory=cache_keep_in_memory,
         remove_columns=metadata_dataset.column_names,
     )
     te_dataset = _map_and_cache(
@@ -134,6 +136,8 @@ def _cache_text_embeddings(
         new_fingerprint_args=[i],
         regenerate_cache=regenerate_cache,
         caching_batch_size=caching_batch_size,
+        num_proc=cache_num_proc,
+        keep_in_memory=cache_keep_in_memory,
     )
     assert len(te_dataset) == len(flattened)
     return TextEmbeddingDataset(te_dataset, flattened)
@@ -179,6 +183,8 @@ class SizeBucketDataset:
         regenerate_cache: bool = False,
         trust_cache: bool = False,
         caching_batch_size: int = 1,
+        cache_num_proc: int | None = None,
+        cache_keep_in_memory: bool = False,
     ) -> None:
         iteration_order_cache_dir = self.cache_dir / "iteration_order"
         if map_fn is None:
@@ -189,6 +195,8 @@ class SizeBucketDataset:
                 cache_file_prefix="latents_",
                 regenerate_cache=False,
                 caching_batch_size=caching_batch_size,
+                num_proc=cache_num_proc,
+                keep_in_memory=cache_keep_in_memory,
             )
             self.iteration_order = datasets.load_from_disk(
                 str(iteration_order_cache_dir)
@@ -203,6 +211,8 @@ class SizeBucketDataset:
             cache_file_prefix="latents_",
             regenerate_cache=regenerate_cache,
             caching_batch_size=caching_batch_size,
+            num_proc=cache_num_proc,
+            keep_in_memory=cache_keep_in_memory,
         )
         assert len(self.latent_dataset) == len(self.metadata_dataset)
 
@@ -275,6 +285,8 @@ class SizeBucketDataset:
         i: int,
         regenerate_cache: bool = False,
         caching_batch_size: int = 1,
+        cache_num_proc: int | None = None,
+        cache_keep_in_memory: bool = False,
     ) -> None:
         print(f"caching text embeddings: {self.size_bucket}")
         te_dataset = _cache_text_embeddings(
@@ -284,16 +296,16 @@ class SizeBucketDataset:
             self.cache_dir,
             regenerate_cache,
             caching_batch_size,
+            cache_num_proc=cache_num_proc,
+            cache_keep_in_memory=cache_keep_in_memory,
         )
         self.text_embedding_datasets.append(te_dataset)
 
     def add_text_embedding_dataset(self, te_dataset) -> None:
         self.text_embedding_datasets.append(te_dataset)
 
-    def __getitem__(self, idx):
-        idx = idx % len(self.iteration_order)
-        entry = self.iteration_order[idx]
-        ret = dict(self.latent_dataset[entry["latents_idx"]])
+    def _sample_from_entry(self, entry, latent_dict: dict | None = None) -> dict:
+        ret = dict(latent_dict if latent_dict is not None else self.latent_dataset[entry["latents_idx"]])
         use_uncond = (
             UNCOND_FRACTION > 0 and random.random() < UNCOND_FRACTION
         )
@@ -325,6 +337,24 @@ class SizeBucketDataset:
             ret.update(emb_dict)
         ret["caption"] = caption
         return ret
+
+    def get_items_batch(self, idx_list: list[int]) -> list[dict]:
+        """Load multiple training samples; batches latent cache reads per shard."""
+        entries = []
+        for idx in idx_list:
+            idx = idx % len(self.iteration_order)
+            entries.append(self.iteration_order[idx])
+        latent_idxs = [e["latents_idx"] for e in entries]
+        latent_dicts = self.latent_dataset.get_many(latent_idxs)
+        return [
+            self._sample_from_entry(entry, latent_dicts[i])
+            for i, entry in enumerate(entries)
+        ]
+
+    def __getitem__(self, idx):
+        idx = idx % len(self.iteration_order)
+        entry = self.iteration_order[idx]
+        return self._sample_from_entry(entry)
 
     def __len__(self) -> int:
         return int(len(self.iteration_order) * self.num_repeats)
@@ -399,6 +429,13 @@ class ConcatenatedBatchedDataset:
             + self.data_parallel_rank * self.batch_size
         )
         end_idx = start_idx + self.batch_size
+        if self.batch_size > 1:
+            ds_ids = [int(self.iteration_order[k][0]) for k in range(start_idx, end_idx)]
+            if len(set(ds_ids)) == 1:
+                ds = self.datasets[ds_ids[0]]
+                inner = [int(self.iteration_order[k][1]) for k in range(start_idx, end_idx)]
+                if hasattr(ds, "get_items_batch"):
+                    return ds.get_items_batch(inner)
         return [
             self.datasets[int(self.iteration_order[k][0])][
                 int(self.iteration_order[k][1])
@@ -441,6 +478,8 @@ class ARBucketDataset:
         regenerate_cache: bool = False,
         trust_cache: bool = False,
         caching_batch_size: int = 1,
+        cache_num_proc: int | None = None,
+        cache_keep_in_memory: bool = False,
     ) -> None:
         print(f"caching latents: {self.ar_frames}")
         for res in self.resolutions:
@@ -475,6 +514,8 @@ class ARBucketDataset:
                 regenerate_cache=regenerate_cache,
                 trust_cache=trust_cache,
                 caching_batch_size=caching_batch_size,
+                cache_num_proc=cache_num_proc,
+                cache_keep_in_memory=cache_keep_in_memory,
             )
 
     def cache_text_embeddings(
@@ -483,6 +524,8 @@ class ARBucketDataset:
         i: int,
         regenerate_cache: bool = False,
         caching_batch_size: int = 1,
+        cache_num_proc: int | None = None,
+        cache_keep_in_memory: bool = False,
     ) -> None:
         print(f"caching text embeddings: {self.ar_frames}")
         te_dataset = _cache_text_embeddings(
@@ -492,6 +535,8 @@ class ARBucketDataset:
             self.cache_dir,
             regenerate_cache,
             caching_batch_size,
+            cache_num_proc=cache_num_proc,
+            cache_keep_in_memory=cache_keep_in_memory,
         )
         for sb in self.size_buckets:
             sb.add_text_embedding_dataset(te_dataset)
@@ -673,7 +718,10 @@ class DirectoryDataset:
         self,
         regenerate_cache: bool = False,
         trust_cache: bool = False,
+        cache_num_proc: int | None = None,
     ) -> None:
+        metadata_num_proc = resolve_cache_num_proc(cache_num_proc)
+
         def check_grouped():
             if not self.grouping_keys_json_file.exists():
                 return False, None
@@ -907,7 +955,7 @@ class DirectoryDataset:
             load_from_cache_file=(not regenerate_cache and trust_cache),
             batched=True,
             batch_size=1,
-            num_proc=NUM_PROC,
+            num_proc=metadata_num_proc,
             remove_columns=metadata_dataset.column_names,
         )
         return metadata_dataset
@@ -1080,6 +1128,8 @@ class DirectoryDataset:
         regenerate_cache: bool = False,
         trust_cache: bool = False,
         caching_batch_size: int = 1,
+        cache_num_proc: int | None = None,
+        cache_keep_in_memory: bool = False,
     ) -> None:
         print(f"caching latents: {self.path}")
         datasets_list = (
@@ -1093,6 +1143,8 @@ class DirectoryDataset:
                 regenerate_cache=regenerate_cache,
                 trust_cache=trust_cache,
                 caching_batch_size=caching_batch_size,
+                cache_num_proc=cache_num_proc,
+                cache_keep_in_memory=cache_keep_in_memory,
             )
 
     def cache_text_embeddings(
@@ -1101,6 +1153,8 @@ class DirectoryDataset:
         i: int,
         regenerate_cache: bool = False,
         caching_batch_size: int = 1,
+        cache_num_proc: int | None = None,
+        cache_keep_in_memory: bool = False,
     ) -> None:
         print(f"caching text embeddings: {self.path}")
         datasets_list = (
@@ -1113,6 +1167,8 @@ class DirectoryDataset:
                 map_fn, i,
                 regenerate_cache=regenerate_cache,
                 caching_batch_size=caching_batch_size,
+                cache_num_proc=cache_num_proc,
+                cache_keep_in_memory=cache_keep_in_memory,
             )
         empty_ds = datasets.Dataset.from_dict(
             {
@@ -1127,6 +1183,8 @@ class DirectoryDataset:
             cache_dir=self.cache_dir,
             cache_file_prefix=f"uncond_text_embeddings_{i}_",
             regenerate_cache=regenerate_cache,
+            num_proc=cache_num_proc,
+            keep_in_memory=cache_keep_in_memory,
         )
         for sb in self.get_size_bucket_datasets():
             sb.uncond_text_embeddings.append(uncond_ds)
@@ -1256,10 +1314,13 @@ class Dataset:
         self,
         regenerate_cache: bool = False,
         trust_cache: bool = False,
+        cache_num_proc: int | None = None,
     ) -> None:
         for ds in self.directory_datasets:
             ds.cache_metadata(
-                regenerate_cache=regenerate_cache, trust_cache=trust_cache
+                regenerate_cache=regenerate_cache,
+                trust_cache=trust_cache,
+                cache_num_proc=cache_num_proc,
             )
 
     def cache_latents(
@@ -1268,6 +1329,8 @@ class Dataset:
         regenerate_cache: bool = False,
         trust_cache: bool = False,
         caching_batch_size: int = 1,
+        cache_num_proc: int | None = None,
+        cache_keep_in_memory: bool = False,
     ) -> None:
         for ds in self.directory_datasets:
             ds.cache_latents(
@@ -1275,6 +1338,8 @@ class Dataset:
                 regenerate_cache=regenerate_cache,
                 trust_cache=trust_cache,
                 caching_batch_size=caching_batch_size,
+                cache_num_proc=cache_num_proc,
+                cache_keep_in_memory=cache_keep_in_memory,
             )
 
     def cache_text_embeddings(
@@ -1283,10 +1348,14 @@ class Dataset:
         i: int,
         regenerate_cache: bool = False,
         caching_batch_size: int = 1,
+        cache_num_proc: int | None = None,
+        cache_keep_in_memory: bool = False,
     ) -> None:
         for ds in self.directory_datasets:
             ds.cache_text_embeddings(
                 map_fn, i,
                 regenerate_cache=regenerate_cache,
                 caching_batch_size=caching_batch_size,
+                cache_num_proc=cache_num_proc,
+                cache_keep_in_memory=cache_keep_in_memory,
             )

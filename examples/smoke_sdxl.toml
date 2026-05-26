@@ -12,6 +12,7 @@ logging_steps = 1
 caching_batch_size = 1
 save_every_n_epochs = 999
 activation_checkpointing = true
+bench = true
 
 [model]
 type = "sdxl"

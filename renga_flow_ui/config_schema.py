@@ -484,6 +484,18 @@ def get_sections() -> list[dict[str, Any]]:
                 _field("compile", "torch.compile", "boolean", default=False, importance="advanced"),
                 _field("x_axis_examples", "TensorBoard x-axis = examples", "boolean"),
                 _field("caching_batch_size", "Dataset cache batch size", "integer", default=1),
+                _field("cache_num_proc", "Cache CPU workers", "integer", default=8, min_value=1),
+                _field("cache_keep_in_memory", "Keep HF slice in RAM during cache", "boolean", default=False),
+                _field("dataloader_num_workers", "Train DataLoader workers", "integer", default=0, min_value=0),
+                _field("dataloader_prefetch", "Prefetch next batch (thread)", "boolean", default=False),
+                _field("dataloader_pin_memory", "Pin memory (CUDA)", "boolean", default=False),
+                _field("dataloader_prefetch_factor", "DataLoader prefetch factor", "integer", default=2, min_value=1),
+                _field(
+                    "dataloader_persistent_workers",
+                    "Persistent DataLoader workers",
+                    "boolean",
+                    default=True,
+                ),
             ],
         },
         {

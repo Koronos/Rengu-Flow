@@ -2,7 +2,7 @@
 
 Technical contract for dataset config, data loading, and cache in Renga Flow. Phase 2 implements directory-based datasets, latent and text-embedding cache, and integration with the training loop.
 
-**Implementation tracking:** Directory datasets, `DatasetManager.cache()`, latent and text-embedding cache, SDXL and Cosmos Predict2 model hooks, `--dump_dataset`, and the CC0 smoke fixture are implemented. **Not implemented:** dataset augmentation (spec only — see [Dataset augmentation](dataset-augmentation.md)).
+**Implementation tracking:** Directory datasets, `DatasetManager.cache()`, latent and text-embedding cache, SDXL and Cosmos Predict2 model hooks, `--dump_dataset`, and the CC0 smoke fixture are implemented. **Not implemented:** dataset augmentation (spec only — see [Dataset augmentation](dataset-augmentation.md)). CPU/RAM tuning options and smoke A/B: [performance-cpu-ram](performance-cpu-ram.md).
 
 ## Dataset augmentation (planned)
 
@@ -30,7 +30,8 @@ Caption lists are flattened for text-embedding cache (one embedding per (image, 
 ## Cache
 
 - **`renga_flow.utils.cache.Cache`** — Disk cache with fingerprint and sharding (SQLite + binary shards). Used by `_map_and_cache`.
-- **`renga_flow.data.cache_utils._map_and_cache`** — Maps over a HuggingFace `datasets.Dataset` with a `map_fn(example, rank)`, persists results in `Cache`. Fingerprint from dataset `_fingerprint` + optional `new_fingerprint_args`. If `map_fn is None`, loads existing cache only (used after worker cache run).
+- **`renga_flow.data.cache_utils._map_and_cache`** — Maps over a HuggingFace `datasets.Dataset` with a `map_fn(example, rank)`, persists results in `Cache`. Fingerprint from dataset `_fingerprint` + optional `new_fingerprint_args`. If `map_fn is None`, loads existing cache only (used after worker cache run). Config: `cache_num_proc` (pool size, default `min(8, cpu_count)`), `cache_keep_in_memory` (default `false` for resume slices).
+- **`PipelineDataLoader` prefetch** — `dataloader_prefetch=true` uses a background thread when `dataloader_num_workers=0`; `prepare_inputs` stays on the main process. See `dataloader_num_workers`, `dataloader_pin_memory`, `dataloader_prefetch_factor` in the main TOML.
 - **`renga_flow.data.manager.DatasetManager`** — Holds model (VAE, text encoders), registers datasets, and runs **`cache()`**: spawns a worker process that runs `_cache_fn` (metadata → latents → text embeddings); main processes handle GPU work via a queue. After cache, VAE/TE can be unloaded; then all ranks load datasets from cache (`cache_metadata(trust_cache=True)`, `cache_latents(None, trust_cache=True)`, `cache_text_embeddings(None, i)`).
 
 ## Dataset classes

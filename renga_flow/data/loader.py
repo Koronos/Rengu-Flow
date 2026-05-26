@@ -1,11 +1,18 @@
 """PipelineDataLoader: wraps dataset, calls model.prepare_inputs, splits into micro-batches."""
 
+from __future__ import annotations
+
+import queue
+import threading
+
 import torch
 
 try:
     from deepspeed import comm as dist
 except Exception:
     dist = None
+
+_SENTINEL = object()
 
 
 def split_batch(batch, pieces: int) -> list:
@@ -30,7 +37,18 @@ def split_batch(batch, pieces: int) -> list:
 class PipelineDataLoader:
     """Iterates over dataset, prepares inputs via model.prepare_inputs, yields micro-batches. Syncs epoch."""
 
-    def __init__(self, dataset, model_engine, gradient_accumulation_steps, model, num_dataloader_workers=0):
+    def __init__(
+        self,
+        dataset,
+        model_engine,
+        gradient_accumulation_steps,
+        model,
+        num_dataloader_workers: int = 0,
+        dataloader_prefetch: bool = False,
+        pin_memory: bool = False,
+        prefetch_factor: int = 2,
+        persistent_workers: bool = True,
+    ):
         if len(dataset) == 0:
             msg = "Dataset is empty."
             if hasattr(dataset, "dataset_config"):
@@ -41,12 +59,19 @@ class PipelineDataLoader:
         self.model_engine = model_engine
         self.gradient_accumulation_steps = gradient_accumulation_steps
         self.num_dataloader_workers = num_dataloader_workers
+        self.dataloader_prefetch = dataloader_prefetch
+        self.pin_memory = pin_memory
+        self.prefetch_factor = prefetch_factor
+        self.persistent_workers = persistent_workers
         self.iter_called = False
         self.eval_quantile = None
         self.epoch = 1
         self.num_batches_pulled = 0
         self.next_micro_batch = None
         self.recreate_dataloader = False
+        self._prefetch_thread: threading.Thread | None = None
+        self._prefetch_queue: queue.Queue | None = None
+        self._prefetch_error: list[BaseException] = []
         self._create_dataloader()
         self.data = self._pull_batches_from_dataloader()
 
@@ -55,9 +80,11 @@ class PipelineDataLoader:
 
     def reset(self):
         """Reset loader for reuse (e.g. between eval quantiles)."""
+        self._stop_prefetch_thread()
         self.epoch = 1
         self.num_batches_pulled = 0
         self.next_micro_batch = None
+        self._create_dataloader()
         self.data = self._pull_batches_from_dataloader()
 
     def __iter__(self):
@@ -74,6 +101,7 @@ class PipelineDataLoader:
         try:
             self.next_micro_batch = next(self.data)
         except StopIteration:
+            self._stop_prefetch_thread()
             if self.recreate_dataloader:
                 self._create_dataloader()
                 self.recreate_dataloader = False
@@ -83,7 +111,22 @@ class PipelineDataLoader:
             self.epoch += 1
         return ret
 
+    def _use_thread_prefetch(self) -> bool:
+        return self.dataloader_prefetch and self.num_dataloader_workers == 0
+
+    def _stop_prefetch_thread(self) -> None:
+        if self._prefetch_queue is not None:
+            try:
+                self._prefetch_queue.put(_SENTINEL, block=False)
+            except queue.Full:
+                pass
+        if self._prefetch_thread is not None and self._prefetch_thread.is_alive():
+            self._prefetch_thread.join(timeout=30)
+        self._prefetch_thread = None
+        self._prefetch_queue = None
+
     def _create_dataloader(self, skip_first_n_batches=None):
+        self._stop_prefetch_thread()
         if skip_first_n_batches is not None and skip_first_n_batches > 0:
 
             class SkipFirstN(torch.utils.data.Sampler):
@@ -100,22 +143,59 @@ class PipelineDataLoader:
             sampler = SkipFirstN(skip_first_n_batches, len(self.dataset))
         else:
             sampler = None
-        self.dataloader = torch.utils.data.DataLoader(
-            self.dataset,
-            batch_size=None,
-            sampler=sampler,
-            num_workers=self.num_dataloader_workers,
-            persistent_workers=(self.num_dataloader_workers > 0),
-        )
+
+        loader_kwargs: dict = {
+            "batch_size": None,
+            "sampler": sampler,
+            "num_workers": self.num_dataloader_workers,
+        }
+        if self.num_dataloader_workers > 0:
+            loader_kwargs["persistent_workers"] = self.persistent_workers
+            loader_kwargs["prefetch_factor"] = self.prefetch_factor
+        if self.pin_memory:
+            loader_kwargs["pin_memory"] = True
+
+        self.dataloader = torch.utils.data.DataLoader(self.dataset, **loader_kwargs)
+
+    def _prepare_batch(self, batch):
+        features, label = self.model.prepare_inputs(batch, timestep_quantile=self.eval_quantile)
+        target, mask = label
+        target = self._broadcast_target(target)
+        label = (target, mask)
+        self.num_batches_pulled += 1
+        return split_batch((features, label), self.gradient_accumulation_steps)
+
+    def _iter_raw_batches(self):
+        if not self._use_thread_prefetch():
+            yield from self.dataloader
+            return
+
+        self._prefetch_error = []
+        self._prefetch_queue = queue.Queue(maxsize=2)
+
+        def producer():
+            try:
+                for batch in self.dataloader:
+                    self._prefetch_queue.put(batch)
+            except BaseException as exc:
+                self._prefetch_error.append(exc)
+            finally:
+                self._prefetch_queue.put(_SENTINEL)
+
+        self._prefetch_thread = threading.Thread(target=producer, daemon=True)
+        self._prefetch_thread.start()
+
+        while True:
+            item = self._prefetch_queue.get()
+            if item is _SENTINEL:
+                if self._prefetch_error:
+                    raise self._prefetch_error[0]
+                break
+            yield item
 
     def _pull_batches_from_dataloader(self):
-        for batch in self.dataloader:
-            features, label = self.model.prepare_inputs(batch, timestep_quantile=self.eval_quantile)
-            target, mask = label
-            target = self._broadcast_target(target)
-            label = (target, mask)
-            self.num_batches_pulled += 1
-            for micro_batch in split_batch((features, label), self.gradient_accumulation_steps):
+        for batch in self._iter_raw_batches():
+            for micro_batch in self._prepare_batch(batch):
                 yield micro_batch
 
     def _broadcast_target(self, target):

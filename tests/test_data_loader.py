@@ -1,5 +1,7 @@
 """Tests for PipelineDataLoader (with mock model and engine)."""
 
+from unittest.mock import MagicMock, patch
+
 import pytest
 import torch
 
@@ -55,6 +57,53 @@ def test_pipeline_data_loader_one_iteration():
     assert len(label) == 2
     assert label[0].shape[0] == 1
     assert label[1].shape[0] == 1
+
+
+def test_pipeline_data_loader_thread_prefetch():
+    ds = SyntheticSDXLDataset(num_batches=2, micro_batch_size=1, latent_height=64, latent_width=64)
+    mock_model = _make_mock_model()
+    mock_engine = _make_mock_engine()
+    batches = [ds[0], ds[1]]
+
+    class PrefetchDataLoader:
+        def __iter__(self):
+            return iter(batches)
+
+    loader = PipelineDataLoader(
+        ds,
+        mock_engine,
+        gradient_accumulation_steps=1,
+        model=mock_model,
+        dataloader_prefetch=True,
+    )
+    loader.dataloader = PrefetchDataLoader()
+    loader.data = loader._pull_batches_from_dataloader()
+    micro = next(iter(loader))
+    assert micro is not None
+    loader._stop_prefetch_thread()
+
+
+def test_pipeline_data_loader_dataloader_kwargs():
+    ds = SyntheticSDXLDataset(num_batches=1, micro_batch_size=1)
+    mock_model = _make_mock_model()
+    mock_engine = _make_mock_engine()
+    with patch("renga_flow.data.loader.torch.utils.data.DataLoader") as mock_dl:
+        mock_dl.return_value = iter([])
+        PipelineDataLoader(
+            ds,
+            mock_engine,
+            gradient_accumulation_steps=1,
+            model=mock_model,
+            num_dataloader_workers=2,
+            pin_memory=True,
+            prefetch_factor=3,
+            persistent_workers=False,
+        )
+        _, kwargs = mock_dl.call_args
+        assert kwargs["num_workers"] == 2
+        assert kwargs["pin_memory"] is True
+        assert kwargs["prefetch_factor"] == 3
+        assert kwargs["persistent_workers"] is False
 
 
 def test_pipeline_data_loader_reset():

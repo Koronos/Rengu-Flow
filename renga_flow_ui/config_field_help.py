@@ -414,6 +414,38 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "detail": "Larger values can speed cache but use more VRAM during caching.",
         "doc": "docs/user/dataset-config.md",
     },
+    "cache_num_proc": {
+        "summary": "CPU processes for metadata map and latent/TE cache.",
+        "detail": "Default caps at 8. Lower if RAM is tight during --cache_only.",
+        "doc": "docs/user/training-loop-and-eval.md",
+    },
+    "cache_keep_in_memory": {
+        "summary": "Load resumed cache slices fully into RAM.",
+        "detail": "false saves RAM on large datasets; train reads still use OS page cache.",
+        "doc": "docs/user/training-loop-and-eval.md",
+    },
+    "dataloader_num_workers": {
+        "summary": "Parallel workers loading cached batches during training.",
+        "detail": "Try 2–4 on Linux if the GPU waits on disk. Use dataloader_prefetch instead when 0.",
+        "doc": "docs/user/training-loop-and-eval.md",
+    },
+    "dataloader_prefetch": {
+        "summary": "Background thread loads the next batch while training.",
+        "detail": "Only applies when dataloader_num_workers is 0.",
+        "doc": "docs/user/training-loop-and-eval.md",
+    },
+    "dataloader_pin_memory": {
+        "summary": "Page-locked CPU tensors for faster CUDA copies.",
+        "doc": "docs/user/training-loop-and-eval.md",
+    },
+    "dataloader_prefetch_factor": {
+        "summary": "Batches prefetched per worker when num_workers > 0.",
+        "doc": "docs/user/training-loop-and-eval.md",
+    },
+    "dataloader_persistent_workers": {
+        "summary": "Keep DataLoader worker processes between epochs.",
+        "doc": "docs/user/training-loop-and-eval.md",
+    },
     "max_steps": {
         "summary": "Stop training after this many optimizer steps.",
         "detail": "Overrides epoch count when set.",

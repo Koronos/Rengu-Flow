@@ -149,7 +149,7 @@ Dataset-related tests (config, loader, captions, cache hooks, smoke fixture):
 | File | What it covers |
 |------|----------------|
 | `tests/test_dataset_config.py` | **Dataset config loading:** `load_dataset_config` (no dataset / `None`, missing file, valid TOML with `resolutions` and `directories`); `load_eval_dataset_config` (path string, dict with `name` + `config`, missing path). |
-| `tests/test_data_loader.py` | **PipelineDataLoader:** empty dataset raises; `len(loader)`; one iteration yields correct micro-batch structure. Uses `SyntheticSDXLDataset` and mocks for model/engine. |
+| `tests/test_data_loader.py` | **PipelineDataLoader:** empty dataset raises; `len(loader)`; iteration; thread prefetch; DataLoader kwargs; `reset()`. Uses `SyntheticSDXLDataset` and mocks. |
 | `tests/test_data_split_batch.py` | **split_batch:** correct number of pieces and sizes (parametrised); tensors `None` produce empty tensors per piece. This is splitting a batch into **micro-batches** for gradient accumulation, not train/val or folder-based split. |
 | `tests/test_data_synthetic.py` | **SyntheticSDXLDataset:** length, keys and shapes of `__getitem__`; device and dtypes; reproducibility (same item returns same tensors). |
 | `tests/test_dataset_captions.py` | **Caption formats:** multi-line `.txt` (one caption per line), `captions.json` (list or string per image, JSON over `.txt` when both exist), `DirectoryDataset._metadata_map_fn`, `SizeBucketDataset` multi-caption `iteration_order` and `online_captions` / `caption_number`. |
@@ -159,8 +159,14 @@ Dataset-related tests (config, loader, captions, cache hooks, smoke fixture):
 | `tests/test_dump_dataset.py` | `renga_flow.data.dump_dataset` on a temporary directory. |
 | `tests/test_oom_skip.py` | `is_cuda_oom`, `OomSkipState`, `handle_oom_skip` (CPU). |
 | `tests/test_cosmos_load_and_fuse.py` | Cosmos `load_and_fuse_adapter` raises `NotImplementedError` (documented). |
+| `tests/test_cache_utils_config.py` | `resolve_cache_num_proc`, `_map_and_cache` `keep_in_memory`. |
+| `tests/test_bench_utils.py` | `bench_mean_iter_sec_after_warmup`, `find_latest_bench_csv`. |
 
 **GPU smokes (optional, local):** Copy [`.env.example`](../.env.example) to `.env` (gitignored) and set `RENGA_SDXL_CHECKPOINT_PATH` / `RENGA_COSMOS_*`. Then `scripts/run_model_smoke.sh sdxl|cosmos` vendors fixtures if needed, runs `--cache_only`, then **30** training steps. Model paths are never committed in smoke TOMLs; `renga_flow.config.local_env` applies env vars before validation. The script **purges** `output/`, `tests/fixtures/smoke_cc0/images/cache/`, and `tmp/smoke_*.log` before and after a successful run (set `KEEP_SMOKE_ARTIFACTS=1` or `KEEP_SMOKE_LOG=1` to retain artifacts or the log).
+
+**GPU smoke A/B (dataloader/cache flags):** After unit tests pass, run `scripts/smoke_perf_ab.sh sdxl` for baseline `iter_sec_mean` (steps ≥ 6 from `bench_steps.csv`), then e.g. `scripts/smoke_perf_ab.sh sdxl prefetch` to compare `dataloader_prefetch=true`. Presets: `prefetch`, `workers2`. See [performance-cpu-ram](performance-cpu-ram.md).
+
+**POC CPU/RAM ideas (no GPU):** `python scripts/poc_cpu_ram_optimizations.py` — CI runs a short smoke via `tests/test_poc_cpu_ram_smoke.py`. Results and default policy: [poc-cpu-ram-results](poc-cpu-ram-results.md).
 
 **Not covered:**
 
