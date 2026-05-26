@@ -8,15 +8,15 @@ Reference: `renga_flow/model/base.py`, implementations `renga_flow/model/sdxl.py
 |--------|------|-----------------|
 | `load_diffusion_model` | Implemented | Implemented |
 | `get_vae` | Implemented | Implemented (Wan VAE) |
-| `get_text_encoders` | **`[TODO]`** — returns `[]` | Implemented when `cache_text_embeddings` |
+| `get_text_encoders` | Implemented when `cache_text_embeddings` (default true) | Implemented when `cache_text_embeddings` |
 | `configure_adapter` | Implemented (`lora` / `lokr`) | Implemented via `adapter_dit` |
 | `save_adapter` | Implemented | Implemented (Comfy keys) |
 | `load_adapter_weights` | Implemented | Implemented |
-| `load_and_fuse_adapter` | Implemented | **Not implemented** (raises) |
+| `load_and_fuse_adapter` | Implemented | **Not supported** — raises `NotImplementedError` (documented) |
 | `save_model` | Implemented | Implemented (`net.` prefix) |
-| `get_preprocess_media_file_fn` | **`[TODO]`** | Implemented (`PreprocessMediaFile`) |
+| `get_preprocess_media_file_fn` | Implemented (`PreprocessMediaFile`, 16px round) | Implemented (`PreprocessMediaFile`) |
 | `get_call_vae_fn` | Implemented | Implemented |
-| `get_call_text_encoder_fn` | **`[TODO]`** | Implemented |
+| `get_call_text_encoder_fn` | Implemented — TE1 `prompt_embeds`, TE2 `prompt_embeds_2` + `pooled_prompt_embeds` | Implemented |
 | `prepare_inputs` | Implemented | Implemented |
 | `to_layers` | Implemented | Implemented |
 | `model_specific_dataset_config_validation` | Default no-op | Implemented (`frame_buckets` must include `1`) |

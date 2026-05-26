@@ -1,0 +1,33 @@
+# Short Cosmos Predict2 smoke (~10 steps) with smoke_cc0 images (frame_buckets = [1]).
+#   deepspeed --num_gpus=1 renga_flow/main.py --config examples/smoke_cosmos_predict2.toml
+# Or: scripts/run_model_smoke.sh cosmos
+
+dataset = "examples/smoke_cc0_dataset.toml"
+output_dir = "output"
+max_steps = 10
+micro_batch_size_per_gpu = 1
+gradient_accumulation_steps = 1
+pipeline_stages = 1
+activation_checkpointing = true
+logging_steps = 1
+caching_batch_size = 1
+save_every_n_epochs = 999
+
+[model]
+type = "cosmos_predict2"
+dtype = "bfloat16"
+cache_text_embeddings = true
+# transformer_path = "/path/to/anima-preview.safetensors"
+# vae_path = "/path/to/qwen_image_vae.safetensors"
+# llm_path = "/path/to/qwen_3_06b_base.safetensors"
+transformer_path = "path/to/anima-preview.safetensors"
+vae_path = "path/to/qwen_image_vae.safetensors"
+llm_path = "path/to/qwen_3_06b_base.safetensors"
+
+[adapter]
+type = "lora"
+rank = 16
+
+[optimizer]
+type = "adamw"
+lr = 1.0e-4

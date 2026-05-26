@@ -156,3 +156,18 @@ Example:
 activation_checkpointing = true
 reentrant_activation_checkpointing = false
 ```
+
+## Skipping batches on CUDA OOM (optional)
+
+When a single training step runs out of GPU memory (e.g. after a resolution bucket change), you can skip that step and continue instead of aborting the whole run. This matches the behaviour described in many flow-model trainers (see developer doc [training-step-skip-on-oom](../developer/training-step-skip-on-oom.md)).
+
+| Key | Description | Values | Default |
+|-----|-------------|--------|---------|
+| **`[train.oom_skip]`** | Optional section. | Table. | Omitted (`enabled` = false). |
+| **`train.oom_skip.enabled`** | Catch CUDA OOM around each training step. | `true` or `false`. | `false` |
+| **`train.oom_skip.max_consecutive`** | Abort after this many OOM skips **in a row**. | Integer ≥ 1. | `3` |
+| **`train.oom_skip.clear_cache_on_skip`** | Call CUDA cache flush helpers after a skip. | `true` or `false`. | `true` |
+
+Example: `examples/config_oom_skip.toml`.
+
+**Note:** Intended for single-GPU runs (`pipeline_stages = 1`). Multi-GPU training may desynchronize if only one rank OOMs; disable OOM skip on multi-GPU until your setup documents otherwise.

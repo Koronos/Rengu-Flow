@@ -55,7 +55,7 @@ def set_config_defaults(config: dict[str, Any]) -> None:
     if diffusion_model_dtype := model_config.get("diffusion_model_dtype", None):
         model_config["diffusion_model_dtype"] = DTYPE_MAP[diffusion_model_dtype]
     model_config.setdefault("guidance", 1.0)
-    if str(model_config.get("type", "")).lower() == "cosmos_predict2":
+    if str(model_config.get("type", "")).lower() in ("cosmos_predict2", "sdxl"):
         model_config.setdefault("cache_text_embeddings", True)
         if config.get("activation_checkpointing") and not config.get("blocks_to_swap"):
             config.setdefault("reentrant_activation_checkpointing", True)
@@ -111,3 +111,9 @@ def set_config_defaults(config: dict[str, Any]) -> None:
     mon.setdefault("wandb_api_key", None)
     mon.setdefault("wandb_tracker_name", "renga-flow")
     mon.setdefault("wandb_run_name", None)
+
+    train_cfg = config.setdefault("train", {})
+    oom_skip = train_cfg.setdefault("oom_skip", {})
+    oom_skip.setdefault("enabled", False)
+    oom_skip.setdefault("max_consecutive", 3)
+    oom_skip.setdefault("clear_cache_on_skip", True)

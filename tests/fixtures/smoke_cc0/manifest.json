@@ -1,0 +1,14 @@
+[
+  {"upstream_png": "girl-lossless.png", "output_stem": "gb82_01", "caption": "portrait photograph with fine facial detail"},
+  {"upstream_png": "sunset-lossless.png", "output_stem": "gb82_02", "caption": "outdoor scene with soft sky gradient at sunset"},
+  {"upstream_png": "sand-lossless.png", "output_stem": "gb82_03", "caption": "sandy beach texture with warm natural light"},
+  {"upstream_png": "pixel-lossless.png", "output_stem": "gb82_04", "caption": "high frequency noise and fine pixel texture"},
+  {"upstream_png": "city-lossless.png", "output_stem": "gb82_05", "caption": "urban cityscape with buildings and streets"},
+  {"upstream_png": "dog-lossless.png", "output_stem": "gb82_06", "caption": "dog portrait with clear fur detail"},
+  {"upstream_png": "flowers-lossless.png", "output_stem": "gb82_07", "caption": "colorful flowers in natural daylight"},
+  {"upstream_png": "night-lossless.png", "output_stem": "gb82_08", "caption": "night scene with low light and deep shadows"},
+  {"upstream_png": "haze-lossless.png", "output_stem": "gb82_09", "caption": "hazy atmospheric sky with soft gradients"},
+  {"upstream_png": "grass-lossless.png", "output_stem": "gb82_10", "caption": "green grass field texture close up"},
+  {"upstream_png": "waves-lossless.png", "output_stem": "gb82_11", "caption": "ocean waves with foam and water motion"},
+  {"upstream_png": "house-lossless.png", "output_stem": "gb82_12", "caption": "residential house exterior in daylight"}
+]

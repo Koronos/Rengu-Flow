@@ -1,0 +1,25 @@
+# Example: continue training after CUDA OOM on a batch (up to max_consecutive skips in a row).
+# Single-GPU only; multi-GPU OOM skip is not synchronized across ranks.
+
+dataset = "examples/smoke_cc0_dataset.toml"
+output_dir = "output"
+max_steps = 100
+micro_batch_size_per_gpu = 1
+gradient_accumulation_steps = 1
+pipeline_stages = 1
+logging_steps = 10
+synthetic_num_batches = 50
+
+[model]
+type = "sdxl"
+dtype = "bfloat16"
+checkpoint_path = "path/to/sdxl.safetensors"
+
+[optimizer]
+type = "adamw"
+lr = 1.0e-4
+
+[train.oom_skip]
+enabled = true
+max_consecutive = 3
+clear_cache_on_skip = true

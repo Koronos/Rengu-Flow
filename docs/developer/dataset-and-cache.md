@@ -64,7 +64,7 @@ Contract for the object passed to the orchestrator as the training dataset:
 | Cache orchestration | `renga_flow.data.manager`: `_cache_fn`, `DatasetManager` |
 | Data loader | `renga_flow.data.loader`: `PipelineDataLoader`, `split_batch` |
 | Synthetic dataset | `renga_flow.data.synthetic`: `SyntheticSDXLDataset` |
-| Main flow | `renga_flow.main`: loads dataset config; if real data: `Dataset`, `DatasetManager`, `cache()`, `--cache_only` exit; after DeepSpeed init: `train_data.post_init(...)` or synthetic, then `PipelineDataLoader`; CLI: `--cache_only`, `--regenerate_cache`, `--trust_cache`, **`[TODO]` `--dump_dataset`** |
+| Main flow | `renga_flow.main`: loads dataset config; if real data: `Dataset`, `DatasetManager`, `cache()`, `--cache_only` exit; after DeepSpeed init: `train_data.post_init(...)` or synthetic, then `PipelineDataLoader`; CLI: `--cache_only`, `--regenerate_cache`, `--trust_cache`, `--dump_dataset` (see `renga_flow.data.dump_dataset`) |
 | UI dataset library | `renga_flow_ui.datasets_store`, `library_db`, `dataset_scan`, `dataset_schema` — TOML in SQLite (`jobs.db`), compose `[[directory]]`, folder scan preview; see **`docs/developer/web-ui.md`** |
 
 ## Tests
@@ -96,8 +96,10 @@ Required by `DatasetManager.cache()` / `_cache_fn`.
 | Method | Status |
 |--------|--------|
 | `get_call_vae_fn` | Implemented |
-| **`[TODO]` `get_preprocess_media_file_fn`** | Raises `NotImplementedError` |
-| **`[TODO]` `get_call_text_encoder_fn`** | Raises `NotImplementedError` |
-| **`[TODO]` `get_text_encoders`** | Returns `[]` |
+| `get_preprocess_media_file_fn` | Implemented — `PreprocessMediaFile` (images only, 16px round) |
+| `get_call_text_encoder_fn` | Implemented — per-encoder dict keys (see below) |
+| `get_text_encoders` | `[text_encoder, text_encoder_2]` when `cache_text_embeddings` (default true) |
 
-Until SDXL **`[TODO]`** hooks are implemented, SDXL real-data cache still fails on the missing preprocess path. Cosmos Predict2 supports full cache + train for image datasets with `frame_buckets = [1]`.
+**SDXL cached embedding keys:** encoder 1 → `prompt_embeds`; encoder 2 → `prompt_embeds_2`, `pooled_prompt_embeds`. `prepare_inputs` concatenates prompt embeds for the UNet and passes cached tensors to `InitialLayer` when `cache_text_embeddings` is true.
+
+**Smoke dataset:** `tests/fixtures/smoke_cc0/` (12 CC0 GB82 JPEGs + captions). Regenerate with `scripts/vendor_smoke_cc0.sh`. Example TOML: `examples/smoke_cc0_dataset.toml`.

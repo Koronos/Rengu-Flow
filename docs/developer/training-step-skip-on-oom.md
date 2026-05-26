@@ -128,11 +128,13 @@ The skip logic does **not** inspect loss magnitude or diffusion timestep `t`; it
 
 If the remembered behavior was “training kept going after OOM on huge resolutions,” it likely came from **ai-toolkit** (or a fork), not from the first diffusion-pipe AuraFlow merge.
 
-## Proposed contract for renga-flow
+## Implementation in renga-flow
 
-**Status:** Entire section **`[TODO]`** — not implemented in `renga_flow/` today (no OOM catch around `train_batch`).
+**Status:** Implemented for **single-GPU** training (`pipeline_stages = 1`). Code: `renga_flow/utils/oom_skip.py`, wired in `renga_flow/main.py` around `train_batch`. Example: `examples/config_oom_skip.toml`.
 
-If renga-flow ports this feature, suggested design aligned with ai-toolkit and distributed training constraints:
+**Limitation:** Multi-GPU / pipeline stages &gt; 1 are not synchronized on OOM; an OOM on one rank can desynchronize collectives. Prefer disabling `[train.oom_skip]` for multi-GPU until a broadcast skip flag exists.
+
+Design aligned with ai-toolkit:
 
 ### Config (optional block)
 
@@ -157,16 +159,15 @@ Wrap the call in `renga_flow/main.py` `_run_training` where the loop currently d
 loss = model_engine.train_batch(iterator).item()
 ```
 
-Pseudocode ( **`[TODO]`** helpers `is_cuda_oom`, `handle_oom_skip` ):
-
 ```python
 try:
     loss = model_engine.train_batch(iterator).item()
-except (torch.cuda.OutOfMemoryError, RuntimeError) as e:
-    if not is_cuda_oom(e):  # [TODO]
+except Exception as e:
+    if not is_cuda_oom(e):
         raise
-    handle_oom_skip(...)  # [TODO] zero grad state on engine, increment counter, maybe abort
-    continue  # do not add to epoch_loss; still increment step/examples per policy
+    handle_oom_skip(oom_skip_state, model_engine, ...)
+    oom_skip_state.record_skip()
+    continue  # no loss log; step/examples still advance
 ```
 
 ### Distributed requirements
@@ -179,13 +180,12 @@ With DeepSpeed pipeline / multi-GPU:
 
 ### Metrics
 
-- **`[TODO]`** Log `train/oom_skip` counter and `train/consecutive_oom` to TensorBoard/WandB on skip.
-- Do not log `train/loss` for skipped steps (when skip is implemented).
+- TensorBoard: `train/oom_skip` (total skips), `train/consecutive_oom` on skip when a writer is active.
+- Skipped steps do not call `log_training_step` (no `train/loss` for that step).
 
 ### Tests (fast, no GPU)
 
-- **`[TODO]`** Unit-test `is_cuda_oom()` message matching.
-- **`[TODO]`** Unit-test counter: success resets, three failures raise.
+- `tests/test_oom_skip.py` — `is_cuda_oom`, counter reset/abort, `handle_oom_skip` zeros optimizer grads.
 
 ## References
 

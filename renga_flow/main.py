@@ -564,12 +564,54 @@ def _run_training(args, config):
             wandb_enable=wandb_enable,
         )
 
+    oom_skip_cfg = config.get("train", {}).get("oom_skip", {})
+    oom_skip_enabled = bool(oom_skip_cfg.get("enabled", False))
+    oom_skip_state = None
+    if oom_skip_enabled:
+        from renga_flow.utils.oom_skip import OomSkipState, handle_oom_skip, is_cuda_oom
+
+        oom_skip_state = OomSkipState(max_consecutive=int(oom_skip_cfg.get("max_consecutive", 3)))
+
     while True:
         model_engine.reset_activation_shape()
         iterator = get_data_iterator_for_step(train_dataloader, model_engine)
         t0 = time.perf_counter()
-        loss = model_engine.train_batch(iterator).item()
+        skipped_oom = False
+        if oom_skip_enabled:
+            try:
+                loss = model_engine.train_batch(iterator).item()
+            except Exception as e:
+                if not is_cuda_oom(e):
+                    raise
+                handle_oom_skip(
+                    oom_skip_state,
+                    model_engine,
+                    clear_cache=bool(oom_skip_cfg.get("clear_cache_on_skip", True)),
+                    step=step,
+                    tb_writer=tb_writer,
+                )
+                oom_skip_state.record_skip()
+                train_dataloader.sync_epoch()
+                skipped_oom = True
+        else:
+            loss = model_engine.train_batch(iterator).item()
         iter_sec = time.perf_counter() - t0
+        if skipped_oom:
+            if max_steps is not None and step >= max_steps:
+                final_model_name = f"step{step}"
+                if is_main_process():
+                    print(f"Reached max_steps={max_steps}")
+                break
+            if epoch > epochs:
+                final_model_name = f"epoch{epoch}"
+                if is_main_process():
+                    print(f"Reached epochs={epochs}")
+                break
+            step += 1
+            examples += global_batch_size
+            continue
+        if oom_skip_state is not None:
+            oom_skip_state.record_success()
         if bench_enabled(config) and is_main_process():
             bench_record(
                 bench_csv,
@@ -724,7 +766,9 @@ def main():
         return
 
     if args.dump_dataset:
-        print("renga_flow: --dump_dataset not implemented in Phase 1; exiting.")
+        from renga_flow.data.dump_dataset import dump_dataset
+
+        dump_dataset(args.dump_dataset)
         return
 
     _run_training(args, config)

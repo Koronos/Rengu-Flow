@@ -153,10 +153,17 @@ Four test files cover dataset config, the data loader, batch splitting, and the 
 | `tests/test_data_split_batch.py` | **split_batch:** correct number of pieces and sizes (parametrised); tensors `None` produce empty tensors per piece. This is splitting a batch into **micro-batches** for gradient accumulation, not train/val or folder-based split. |
 | `tests/test_data_synthetic.py` | **SyntheticSDXLDataset:** length, keys and shapes of `__getitem__`; device and dtypes; reproducibility (same item returns same tensors). |
 
-**Not covered / `[TODO]` in code:**
+| `tests/test_smoke_cc0_dataset.py` | Versioned CC0 fixture (12 jpg/txt pairs, manifest, `dump_dataset` on `examples/smoke_cc0_dataset.toml`). |
+| `tests/test_sdxl_cache_hooks.py` | SDXL `get_preprocess_media_file_fn`, `get_text_encoders`, `get_call_text_encoder_fn` (mocked). |
+| `tests/test_sdxl_cached_prepare_inputs.py` | SDXL `prepare_inputs` / `InitialLayer` cached embedding path (mocked). |
+| `tests/test_dump_dataset.py` | `renga_flow.data.dump_dataset` on a temporary directory. |
+| `tests/test_oom_skip.py` | `is_cuda_oom`, `OomSkipState`, `handle_oom_skip` (CPU). |
 
-- **`[TODO]` Real-data training E2E:** Directory datasets and `DatasetManager.cache()` exist (`tests/test_cache.py`, etc.), but SDXL still lacks `get_preprocess_media_file_fn` / `get_call_text_encoder_fn` — add integration tests when those hooks land.
-- **`[TODO]` `--dump_dataset`:** CLI flag prints not implemented; no tests.
+**GPU smokes (optional, local):** `scripts/run_model_smoke.sh sdxl|cosmos` runs `vendor_smoke_cc0.sh` if needed, then ~10 training steps with `examples/smoke_*.toml`. Requires CUDA and valid checkpoint paths in those TOMLs.
+
+**Not covered:**
+
+- **Real-data training E2E on GPU** (full `DatasetManager.cache()` + train) — hook unit tests and `smoke_cc0` fixture cover the data path without checkpoints.
 - **Dataset augmentation:** Spec only; no tests until `apply_augmentation` exists.
 
 ## Adding tests

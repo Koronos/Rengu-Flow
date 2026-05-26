@@ -11,6 +11,7 @@ from deepspeed.utils.logging import logger
 import safetensors
 from safetensors.torch import save_file
 
+from renga_flow.data.preprocess_media import PreprocessMediaFile
 from renga_flow.model.base import BasePipeline, make_contiguous
 from renga_flow.registry.models import register_model
 from renga_flow.utils.common import cuda_autocast, is_main_process
@@ -277,6 +278,8 @@ class SDXLPipeline(BasePipeline):
         self.v_pred = self.model_config.get("v_pred", False)
         self.min_snr_gamma = self.model_config.get("min_snr_gamma", None)
         self.debiased_estimation_loss = self.model_config.get("debiased_estimation_loss", None)
+        self.cache_text_embeddings = self.model_config.get("cache_text_embeddings", True)
+        self.clip_skip = self.model_config.get("clip_skip", None)
         self._pipeline = None
 
         if self.v_pred:
@@ -338,7 +341,10 @@ class SDXLPipeline(BasePipeline):
         return self.vae
 
     def get_text_encoders(self):
-        return []
+        if not self.cache_text_embeddings:
+            return []
+        pipe = self.diffusers_pipeline
+        return [pipe.text_encoder, pipe.text_encoder_2]
 
     def configure_adapter(self, adapter_config):
         self.adapter_config = adapter_config
@@ -457,7 +463,12 @@ class SDXLPipeline(BasePipeline):
         save_file(state_dict, save_dir / "model.safetensors", metadata={"format": "pt"})
 
     def get_preprocess_media_file_fn(self):
-        raise NotImplementedError("get_preprocess_media_file_fn not used in Phase 1 minimal loop")
+        return PreprocessMediaFile(
+            self.config,
+            support_video=False,
+            round_height=16,
+            round_width=16,
+        )
 
     def get_call_vae_fn(self, vae):
         def fn(tensor):
@@ -470,14 +481,79 @@ class SDXLPipeline(BasePipeline):
         return fn
 
     def get_call_text_encoder_fn(self, text_encoder):
-        raise NotImplementedError("get_call_text_encoder_fn not used in Phase 1 minimal loop")
+        pipe = self.diffusers_pipeline
+        is_te2 = text_encoder is pipe.text_encoder_2
+
+        def fn(captions, is_video):
+            if is_te2:
+                prompt_embeds_2, pooled = self._encode_prompt_embeds_batch(
+                    captions, pipe.tokenizer_2, text_encoder, return_pooled_prompt_embeds=True
+                )
+                return {
+                    "prompt_embeds_2": prompt_embeds_2,
+                    "pooled_prompt_embeds": pooled,
+                }
+            return {
+                "prompt_embeds": self._encode_prompt_embeds_batch(
+                    captions, pipe.tokenizer, text_encoder, return_pooled_prompt_embeds=False
+                )
+            }
+
+        return fn
+
+    def _encode_prompt_embeds_batch(
+        self, captions, tokenizer, text_encoder, return_pooled_prompt_embeds=False
+    ):
+        chunks_out = []
+        pooled_list = []
+        for caption in captions:
+            input_ids = self._get_input_ids([caption], tokenizer)
+            embed, pooled = self._encode_prompt_embeds_from_input_ids(
+                input_ids, tokenizer, text_encoder, return_pooled_prompt_embeds
+            )
+            chunks_out.append(embed)
+            if return_pooled_prompt_embeds:
+                pooled_list.append(pooled)
+        prompt_embeds = torch.cat(chunks_out, dim=0)
+        if return_pooled_prompt_embeds:
+            return prompt_embeds, torch.cat(pooled_list, dim=0)
+        return prompt_embeds
+
+    def _encode_prompt_embeds_from_input_ids(
+        self, input_ids, tokenizer, text_encoder, return_pooled_prompt_embeds=False
+    ):
+        bos, eos, pad = tokenizer.bos_token_id, tokenizer.eos_token_id, tokenizer.pad_token_id
+        bs, device = input_ids.shape[0], input_ids.device
+        chunks = torch.split(input_ids, tokenizer.model_max_length - 2, dim=-1)
+        processed_chunks = []
+        for chunk in chunks:
+            chunk = torch.cat(
+                [torch.full((bs, 1), bos, device=device), chunk, torch.full((bs, 1), pad, device=device)],
+                dim=-1,
+            )
+            first_pad_idx = torch.argmax((chunk == pad).to(torch.int32), dim=-1)
+            chunk[torch.arange(chunk.shape[0]), first_pad_idx] = eos
+            processed_chunks.append(chunk)
+        embed_chunks = []
+        pooled_prompt_embeds = None
+        for i, input_ids_chunk in enumerate(processed_chunks):
+            prompt_embeds = text_encoder(input_ids_chunk, output_hidden_states=True)
+            if i == 0 and return_pooled_prompt_embeds:
+                pooled_prompt_embeds = prompt_embeds[0]
+            hidden = (
+                prompt_embeds.hidden_states[-(self.clip_skip + 2)]
+                if self.clip_skip is not None
+                else prompt_embeds.hidden_states[-2]
+            )
+            embed_chunks.append(hidden)
+        out = torch.cat(embed_chunks, dim=1)
+        if return_pooled_prompt_embeds:
+            return out, pooled_prompt_embeds
+        return out, None
 
     def prepare_inputs(self, inputs, timestep_quantile=None):
         latents = inputs["latents"].float()
-        caption = inputs["caption"]
         mask = inputs["mask"]
-        input_ids = self._get_input_ids(caption, self.tokenizer)
-        input_ids_2 = self._get_input_ids(caption, self.tokenizer_2)
         bs, channels, h, w = latents.shape
         device = latents.device
         if mask is not None:
@@ -497,13 +573,36 @@ class SDXLPipeline(BasePipeline):
         add_time_ids = self._get_add_time_ids(
             original_size, (0, 0), target_size, dtype=torch.float32, text_encoder_projection_dim=self.text_encoder_2.config.projection_dim
         ).expand(bs, -1)
+
+        if self.cache_text_embeddings:
+            encoder_hidden_states = torch.cat(
+                [inputs["prompt_embeds"], inputs["prompt_embeds_2"]], dim=-1
+            )
+            pooled_prompt_embeds = inputs["pooled_prompt_embeds"]
+            return (
+                noisy_latents,
+                timesteps,
+                encoder_hidden_states,
+                pooled_prompt_embeds,
+                add_time_ids,
+            ), (target, mask)
+
+        caption = inputs["caption"]
+        input_ids = self._get_input_ids(caption, self.tokenizer)
+        input_ids_2 = self._get_input_ids(caption, self.tokenizer_2)
         return (noisy_latents, timesteps, input_ids, input_ids_2, add_time_ids), (target, mask)
 
     def _get_input_ids(self, prompt, tokenizer):
         return tokenizer(prompt, padding="longest", truncation=False, add_special_tokens=False, return_tensors="pt").input_ids.to(torch.int64)
 
     def to_layers(self):
-        layers = [InitialLayer(self.diffusers_pipeline)]
+        layers = [
+            InitialLayer(
+                self.diffusers_pipeline,
+                cache_text_embeddings=self.cache_text_embeddings,
+                clip_skip=self.clip_skip,
+            )
+        ]
         unet = self.diffusers_pipeline.unet
         for block in unet.down_blocks:
             layers.extend(UnetDownBlockLayer(block).to_layers())
@@ -567,9 +666,10 @@ class SDXLPipeline(BasePipeline):
 
 
 class InitialLayer(nn.Module):
-    def __init__(self, diffusers_pipeline):
+    def __init__(self, diffusers_pipeline, cache_text_embeddings=False, clip_skip=None):
         super().__init__()
-        self.clip_skip = None
+        self.cache_text_embeddings = cache_text_embeddings
+        self.clip_skip = clip_skip
         self.diffusers_pipeline = diffusers_pipeline
         self.text_encoder = self.diffusers_pipeline.text_encoder
         self.text_encoder_2 = self.diffusers_pipeline.text_encoder_2
@@ -591,11 +691,14 @@ class InitialLayer(nn.Module):
             for tensor in inputs:
                 if torch.is_floating_point(tensor):
                     tensor.requires_grad_(True)
-            sample, timestep, input_ids, input_ids_2, add_time_ids = inputs
+            sample, timestep, te_a, te_b, add_time_ids = inputs
             default_overall_up_factor = 2 ** self.unet.num_upsamplers
             forward_upsample_size = any(dim % default_overall_up_factor != 0 for dim in sample.shape[-2:])
             forward_upsample_size = torch.tensor(forward_upsample_size).to(sample.device)
-            encoder_hidden_states, pooled_prompt_embeds = self.get_text_conditioning(input_ids, input_ids_2)
+            if self.cache_text_embeddings or torch.is_floating_point(te_a):
+                encoder_hidden_states, pooled_prompt_embeds = te_a, te_b
+            else:
+                encoder_hidden_states, pooled_prompt_embeds = self.get_text_conditioning(te_a, te_b)
             add_time_ids = add_time_ids.to(pooled_prompt_embeds.dtype)
             added_cond_kwargs = {"text_embeds": pooled_prompt_embeds, "time_ids": add_time_ids}
             t_emb = self.unet.get_time_embed(sample=sample, timestep=timestep)

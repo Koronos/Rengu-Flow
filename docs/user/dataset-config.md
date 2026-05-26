@@ -111,3 +111,13 @@ The main config’s **`eval_datasets`** is a list. Each entry is either:
 - A table with `name` and `config` (path), e.g. `{ name = "my_eval", config = "path/to/eval_dataset.toml" }`.
 
 These are loaded for evaluation hooks; the training loop uses the main dataset (real or synthetic) for training.
+
+## Inspecting a dataset (`--dump_dataset`)
+
+Print one JSON line per image (path and resolved captions) without loading a model or GPU:
+
+```bash
+python -m renga_flow.main --dump_dataset examples/smoke_cc0_dataset.toml
+```
+
+Use this to verify directory paths, `.txt` captions, and `captions.json` before a long cache or training run. The official smoke dataset for docs and tests is `examples/smoke_cc0_dataset.toml` (12 CC0 images under `tests/fixtures/smoke_cc0/`).
