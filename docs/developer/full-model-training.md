@@ -34,10 +34,8 @@ The method is optional on the model contract (default no-op in `renga_flow/model
 
 Block swapping is only supported when training **adapters**. In `main.py`, if `config.get("blocks_to_swap", 0)` is set and `config.get("adapter")` is missing, the script raises a `ValueError`. When block swap is enabled, `model.enable_block_swap(config["blocks_to_swap"])` is called only when an adapter is present. Full-model training must not use block swap (aligned with diffusion-pipe).
 
-## Future: dataset cache and VAE
+## Dataset cache and VAE unload (SDXL)
 
-**`[TODO]`** Unload policy for full-model training after cache (data layer exists; SDXL cache hooks still **`[TODO]`** — see [Dataset and cache](dataset-and-cache.md#model-hooks-for-cache-sdxl)).
-
-When real-data cache + unload runs end-to-end, the following must be respected for full-model SDXL:
+SDXL cache hooks are implemented (see [Dataset and cache — model hooks](dataset-and-cache.md#model-hooks-for-cache-sdxl)). After `DatasetManager.cache()`, unload behaviour for full-model SDXL:
 
 - For **full fine tuning** (no adapter), the VAE must be kept on **CPU** (not moved to `meta`) when unloading submodels after caching. Otherwise the full checkpoint cannot be written at save time, because `model.save_model()` needs the VAE state dict. See diffusion-pipe `utils/dataset.py` around the unload loop (~L1155–1158): `if self.model.name == 'sdxl' and model is self.vae` and full fine tuning, then `model.to('cpu')` instead of `model.to('meta')`.

@@ -42,6 +42,16 @@ Use **`[[directory]]`** (array of tables). Each entry must have:
 | **`cache_shuffle_delimiter`** | Delimiter used when shuffling tags inside a caption (e.g. comma for "a, b, c"). | String, e.g. `", "`. | `", "` (from global). |
 | **`shuffle_tags`** | Shuffle comma-separated (or delimiter-separated) tags in each caption. | `true` or `false`. | From global (default `false`). |
 
+### Captions: `.txt` vs `captions.json`
+
+| Source | Format | Behaviour |
+|--------|--------|-----------|
+| **Sidecar `.txt`** | One **line** = one caption variant for that image. | Multiple lines → multiple training rows per image (separate text-embedding cache entries). Empty file → one empty caption. |
+| **`captions.json`** in the image folder | JSON object: filename → caption or **list of captions**. | If present, **overrides** sidecar `.txt` for that directory. Example: `{ "photo.jpg": ["tag1, style", "alt description"] }`. A single string value is treated as one caption. |
+| **`directory_caption`** | One string in TOML. | Used when there is no `.txt` and no JSON entry; when a per-image caption exists, it is **prepended** as a prefix (see table above). |
+
+Inspect resolved captions with [`--dump_dataset`](#inspecting-a-dataset---dump_dataset) before caching.
+
 Example:
 
 ```toml

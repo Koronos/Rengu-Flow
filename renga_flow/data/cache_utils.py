@@ -22,6 +22,13 @@ NUM_PROC = min(8, os.cpu_count() or 1)
 ROUND_DECIMAL_DIGITS = 3
 
 
+def resolve_cache_num_proc(value: int | None) -> int:
+    """Return a positive worker count for cache map/pool (default capped at 8)."""
+    if value is None:
+        return NUM_PROC
+    return max(1, int(value))
+
+
 def bucket_suffix(key: tuple) -> str:
     """Format a bucket key as a path-safe suffix."""
     if len(key) == 2:
@@ -54,6 +61,8 @@ def _map_and_cache(
     new_fingerprint_args: list | None = None,
     regenerate_cache: bool = False,
     caching_batch_size: int = 1,
+    num_proc: int | None = None,
+    keep_in_memory: bool = False,
 ):
     """Map over dataset with map_fn(example, rank), persist results in Cache.
 
@@ -81,8 +90,11 @@ def _map_and_cache(
     assert cache_size <= dataset_size
     if cache_size == dataset_size:
         return cache
-    dataset = dataset.select(range(cache_size, dataset_size), keep_in_memory=True)
+    dataset = dataset.select(
+        range(cache_size, dataset_size), keep_in_memory=keep_in_memory
+    )
 
+    pool_workers = resolve_cache_num_proc(num_proc)
     manager = mp.Manager()
     id_queue = manager.Queue()
 
@@ -90,10 +102,10 @@ def _map_and_cache(
         global rank
         rank = queue.get()
 
-    for i in range(NUM_PROC):
+    for i in range(pool_workers):
         id_queue.put(i)
 
-    pool = mp.Pool(NUM_PROC, init, (id_queue,))
+    pool = mp.Pool(pool_workers, init, (id_queue,))
 
     def wrapper(example):
         global rank

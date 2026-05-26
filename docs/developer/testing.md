@@ -144,7 +144,7 @@ Tests that need the model registry (e.g. `test_registry.py`) may skip if optiona
 
 ## Dataset and data loading tests
 
-Four test files cover dataset config, the data loader, batch splitting, and the synthetic dataset:
+Dataset-related tests (config, loader, captions, cache hooks, smoke fixture):
 
 | File | What it covers |
 |------|----------------|
@@ -152,14 +152,15 @@ Four test files cover dataset config, the data loader, batch splitting, and the 
 | `tests/test_data_loader.py` | **PipelineDataLoader:** empty dataset raises; `len(loader)`; one iteration yields correct micro-batch structure. Uses `SyntheticSDXLDataset` and mocks for model/engine. |
 | `tests/test_data_split_batch.py` | **split_batch:** correct number of pieces and sizes (parametrised); tensors `None` produce empty tensors per piece. This is splitting a batch into **micro-batches** for gradient accumulation, not train/val or folder-based split. |
 | `tests/test_data_synthetic.py` | **SyntheticSDXLDataset:** length, keys and shapes of `__getitem__`; device and dtypes; reproducibility (same item returns same tensors). |
-
+| `tests/test_dataset_captions.py` | **Caption formats:** multi-line `.txt` (one caption per line), `captions.json` (list or string per image, JSON over `.txt` when both exist), `DirectoryDataset._metadata_map_fn`, `SizeBucketDataset` multi-caption `iteration_order` and `online_captions` / `caption_number`. |
 | `tests/test_smoke_cc0_dataset.py` | Versioned CC0 fixture (12 jpg/txt pairs, manifest, `dump_dataset` on `examples/smoke_cc0_dataset.toml`). |
 | `tests/test_sdxl_cache_hooks.py` | SDXL `get_preprocess_media_file_fn`, `get_text_encoders`, `get_call_text_encoder_fn` (mocked). |
 | `tests/test_sdxl_cached_prepare_inputs.py` | SDXL `prepare_inputs` / `InitialLayer` cached embedding path (mocked). |
 | `tests/test_dump_dataset.py` | `renga_flow.data.dump_dataset` on a temporary directory. |
 | `tests/test_oom_skip.py` | `is_cuda_oom`, `OomSkipState`, `handle_oom_skip` (CPU). |
+| `tests/test_cosmos_load_and_fuse.py` | Cosmos `load_and_fuse_adapter` raises `NotImplementedError` (documented). |
 
-**GPU smokes (optional, local):** `scripts/run_model_smoke.sh sdxl|cosmos` runs `vendor_smoke_cc0.sh` if needed, then ~10 training steps with `examples/smoke_*.toml`. Requires CUDA and valid checkpoint paths in those TOMLs.
+**GPU smokes (optional, local):** Copy [`.env.example`](../.env.example) to `.env` (gitignored) and set `RENGA_SDXL_CHECKPOINT_PATH` / `RENGA_COSMOS_*`. Then `scripts/run_model_smoke.sh sdxl|cosmos` vendors fixtures if needed, runs `--cache_only`, then **30** training steps. Model paths are never committed in smoke TOMLs; `renga_flow.config.local_env` applies env vars before validation. The script **purges** `output/`, `tests/fixtures/smoke_cc0/images/cache/`, and `tmp/smoke_*.log` before and after a successful run (set `KEEP_SMOKE_ARTIFACTS=1` or `KEEP_SMOKE_LOG=1` to retain artifacts or the log).
 
 **Not covered:**
 

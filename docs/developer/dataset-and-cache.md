@@ -2,7 +2,7 @@
 
 Technical contract for dataset config, data loading, and cache in Renga Flow. Phase 2 implements directory-based datasets, latent and text-embedding cache, and integration with the training loop.
 
-**Implementation tracking:** Items prefixed with **`[TODO]`** are not wired in `renga_flow/` yet (or are stubs on SDXL). Implemented: config loaders, dataset hierarchy, `DatasetManager.cache()`, `Cache`, `PipelineDataLoader`, synthetic training path.
+**Implementation tracking:** Directory datasets, `DatasetManager.cache()`, latent and text-embedding cache, SDXL and Cosmos Predict2 model hooks, `--dump_dataset`, and the CC0 smoke fixture are implemented. **Not implemented:** dataset augmentation (spec only — see [Dataset augmentation](dataset-augmentation.md)).
 
 ## Dataset augmentation (planned)
 
@@ -69,13 +69,13 @@ Contract for the object passed to the orchestrator as the training dataset:
 
 ## Tests
 
-- **`tests/test_dataset_config.py`** — `load_dataset_config`, `load_eval_dataset_config`; add tests for `validate_dataset_config_for_real_data` (empty directory, missing path/num_repeats).
-- **`tests/test_data_loader.py`** — `PipelineDataLoader` with synthetic dataset; empty dataset message; optional: `state_dict` / `load_state_dict` round-trip.
-- **`tests/test_data_split_batch.py`** — `split_batch`.
-- **`tests/test_data_synthetic.py`** — `SyntheticSDXLDataset`.
-- **Cache:** Unit test for `Cache` (add items, read back, fingerprint, clear) in e.g. `tests/test_cache.py`.
+See the full table in [Testing — Dataset and data loading tests](testing.md#dataset-and-data-loading-tests). Highlights:
 
-See [Testing](testing.md) for more detail.
+- **`tests/test_dataset_config.py`** — config load and `validate_dataset_config_for_real_data`.
+- **`tests/test_dataset_captions.py`** — `.txt` (one caption per line), `captions.json` (list or string), multi-caption `iteration_order`, `online_captions`.
+- **`tests/test_dump_dataset.py`**, **`tests/test_smoke_cc0_dataset.py`** — `dump_dataset` and the versioned CC0 fixture.
+- **`tests/test_sdxl_cache_hooks.py`**, **`tests/test_sdxl_cached_prepare_inputs.py`** — SDXL cache hooks and cached training path (mocked).
+- **`tests/test_cache.py`** — disk `Cache` fingerprint and shards.
 
 ## Model hooks for cache
 

@@ -19,9 +19,10 @@ build/
 venv/
 env/
 
-# Secrets and local env
+# Secrets and local env (track .env.example only)
 .env
-.env.*
+.env.local
+!.env.example
 
 # Web UI local state (configs library, jobs.db, staging, logs)
 .renga-flow-ui/

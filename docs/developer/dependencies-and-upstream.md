@@ -1,6 +1,6 @@
 # Dependencies and upstream (diffusion-pipe)
 
-renga-flow does **not** depend on diffusion-pipe at runtime. The repo at `https://github.com/nicojanssens/diffusion-pipe` is a **behavior reference** for Cosmos Predict2 / Anima training.
+renga-flow does **not** depend on diffusion-pipe at runtime. A local clone of [diffusion-pipe](https://github.com/nicojanssens/diffusion-pipe) (or your fork) is a **behavior reference** for Cosmos Predict2 / Anima training.
 
 ## Git submodules in diffusion-pipe vs renga-flow
 

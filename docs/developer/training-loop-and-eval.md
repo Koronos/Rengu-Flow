@@ -2,7 +2,7 @@
 
 Where the training loop lives, how **evaluation** is invoked, where metrics are written (TensorBoard / WandB), and how this integrates with the **Saver** and **signal files**.
 
-**`[TODO]` (not in this module):** `enable_block_swap` on SDXL (`main.py` calls it when `blocks_to_swap` is set, but `SDXLPipeline` inherits `BasePipeline.enable_block_swap` → `NotImplementedError`). OOM step skip — see [training-step-skip-on-oom.md](training-step-skip-on-oom.md).
+**Not in this module:** `enable_block_swap` on SDXL (`main.py` calls it when `blocks_to_swap` is set, but `SDXLPipeline` inherits `BasePipeline.enable_block_swap` → `NotImplementedError`). **OOM step skip** is implemented — see [training-step-skip-on-oom.md](training-step-skip-on-oom.md) and `renga_flow/utils/oom_skip.py`.
 
 ## Execution flow
 

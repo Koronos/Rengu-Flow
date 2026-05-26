@@ -15,6 +15,7 @@ from renga_flow.data.preprocess_media import PreprocessMediaFile
 from renga_flow.model.base import BasePipeline, make_contiguous
 from renga_flow.registry.models import register_model
 from renga_flow.utils.common import cuda_autocast, is_main_process
+from renga_flow.utils.diffusers_tf5_compat import apply_diffusers_transformers_v5_single_file_patch
 
 # Optional: import network adapters (lora_sdxl always; lokr_sdxl may use LyCORIS or vendored)
 from renga_flow import networks as networks_module
@@ -309,6 +310,7 @@ class SDXLPipeline(BasePipeline):
     def load_diffusion_model(self) -> None:
         if self._pipeline is not None:
             return
+        apply_diffusers_transformers_v5_single_file_patch()
         self._pipeline = diffusers.StableDiffusionXLPipeline.from_single_file(
             self.model_config["checkpoint_path"],
             torch_dtype=self.model_config["dtype"],
@@ -522,8 +524,10 @@ class SDXLPipeline(BasePipeline):
     def _encode_prompt_embeds_from_input_ids(
         self, input_ids, tokenizer, text_encoder, return_pooled_prompt_embeds=False
     ):
+        te_device = next(text_encoder.parameters()).device
+        input_ids = input_ids.to(te_device)
         bos, eos, pad = tokenizer.bos_token_id, tokenizer.eos_token_id, tokenizer.pad_token_id
-        bs, device = input_ids.shape[0], input_ids.device
+        bs, device = input_ids.shape[0], te_device
         chunks = torch.split(input_ids, tokenizer.model_max_length - 2, dim=-1)
         processed_chunks = []
         for chunk in chunks:
@@ -671,8 +675,13 @@ class InitialLayer(nn.Module):
         self.cache_text_embeddings = cache_text_embeddings
         self.clip_skip = clip_skip
         self.diffusers_pipeline = diffusers_pipeline
-        self.text_encoder = self.diffusers_pipeline.text_encoder
-        self.text_encoder_2 = self.diffusers_pipeline.text_encoder_2
+        # Do not register TE submodules when embeddings are cached (TE weights live on meta after cache).
+        if cache_text_embeddings:
+            self.text_encoder = None
+            self.text_encoder_2 = None
+        else:
+            self.text_encoder = self.diffusers_pipeline.text_encoder
+            self.text_encoder_2 = self.diffusers_pipeline.text_encoder_2
         self.tokenizer = self.diffusers_pipeline.tokenizer
         self.tokenizer_2 = self.diffusers_pipeline.tokenizer_2
         self.time_proj = self.diffusers_pipeline.unet.time_proj
@@ -718,8 +727,10 @@ class InitialLayer(nn.Module):
         return torch.concat([prompt_embeds, prompt_embeds_2], dim=-1), pooled_prompt_embeds
 
     def get_prompt_embeds(self, input_ids, tokenizer, text_encoder, return_pooled_prompt_embeds=False):
+        te_device = next(text_encoder.parameters()).device
+        input_ids = input_ids.to(te_device)
         bos, eos, pad = tokenizer.bos_token_id, tokenizer.eos_token_id, tokenizer.pad_token_id
-        bs, device = input_ids.shape[0], input_ids.device
+        bs, device = input_ids.shape[0], te_device
         chunks = torch.split(input_ids, tokenizer.model_max_length - 2, dim=-1)
         processed_chunks = []
         for chunk in chunks:

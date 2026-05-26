@@ -1,6 +1,6 @@
 # Model pipeline contract — implementation status
 
-`renga_flow.model.base.ModelPipelineProtocol` defines methods the orchestrator and `DatasetManager` expect. **`[TODO]`** = not implemented on **`SDXLPipeline`** today (or stub only).
+`renga_flow.model.base.ModelPipelineProtocol` defines methods the orchestrator and `DatasetManager` expect. Unless noted, both **`sdxl`** and **`cosmos_predict2`** implement the cache and training hooks below.
 
 Reference: `renga_flow/model/base.py`, implementations `renga_flow/model/sdxl.py`, `renga_flow/model/cosmos_predict2/pipeline.py`.
 

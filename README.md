@@ -40,15 +40,17 @@ Optional: LoRA/Lycoris-style adapters can use the `lycoris` extra: `pip install 
 
 1. **Install** (see above).
 
-2. **Prepare a config.** Copy an example and set your paths:
+2. **Local model paths (optional).** Copy `.env.example` to `.env` (gitignored) and set `RENGA_SDXL_CHECKPOINT_PATH` or `RENGA_COSMOS_*` paths. Training loads `.env` automatically and overrides `[model]` checkpoint keys when those variables are set.
+
+3. **Prepare a config.** Copy an example and set your paths:
 
    ```bash
    cp examples/minimal_config_lora_sdxl.toml my_train.toml
    ```
 
-   Edit `my_train.toml`: set `dataset` to your dataset TOML path, and under `[model]` set `checkpoint_path` to your SDXL checkpoint (e.g. a `.safetensors` file).
+   Edit `my_train.toml`: set `dataset` to your dataset TOML path, and under `[model]` set `checkpoint_path` (or use `.env` as above).
 
-3. **Run training** with DeepSpeed:
+4. **Run training** with DeepSpeed:
 
    ```bash
    deepspeed --num_gpus=1 -m renga_flow.main --config my_train.toml

@@ -1,23 +1,26 @@
-# Short SDXL smoke (~10 steps) with versioned CC0 dataset. Set checkpoint_path before running.
-#   deepspeed --num_gpus=1 renga_flow/main.py --config examples/smoke_sdxl.toml
-# Or: scripts/run_model_smoke.sh sdxl
+# SDXL smoke (30 steps) with versioned CC0 dataset.
+# Model path: RENGA_SDXL_CHECKPOINT_PATH in repo-root `.env` (see `.env.example`).
+#   scripts/run_model_smoke.sh sdxl
 
 dataset = "examples/smoke_cc0_dataset.toml"
 output_dir = "output"
-max_steps = 10
+max_steps = 30
 micro_batch_size_per_gpu = 1
 gradient_accumulation_steps = 1
 pipeline_stages = 1
 logging_steps = 1
 caching_batch_size = 1
 save_every_n_epochs = 999
+activation_checkpointing = true
 
 [model]
 type = "sdxl"
 dtype = "bfloat16"
-# checkpoint_path = "/path/to/sdxl.safetensors"
-checkpoint_path = "path/to/sdxl.safetensors"
 cache_text_embeddings = true
+
+[adapter]
+type = "lora"
+rank = 8
 
 [optimizer]
 type = "adamw"

@@ -148,9 +148,10 @@ python -m renga_flow.main --config my.toml --validate-only
 ## Manual GPU smoke (not automated)
 
 1. Install `.[cosmos_predict2]` and DeepSpeed with CUDA.
-2. Set real paths for transformer, VAE, and LLM in an example TOML.
-3. `--cache_only` on a small image folder.
-4. Train 1 epoch with LoRA; confirm `adapter_model.safetensors` under the run directory.
-5. Optional: repeat with LoKr and full finetune.
+2. Copy `.env.example` → `.env` and set `RENGA_COSMOS_TRANSFORMER_PATH`, `RENGA_COSMOS_VAE_PATH`, `RENGA_COSMOS_LLM_PATH`.
+3. `scripts/run_model_smoke.sh cosmos` — vendors `tests/fixtures/smoke_cc0/` if needed, then `--cache_only` and **30** training steps (`examples/smoke_cosmos_predict2.toml`). The script removes `output/` and dataset caches after the run to save disk (`KEEP_SMOKE_ARTIFACTS=1` to keep them).
+4. Confirm `adapter_model.safetensors` under the run directory.
 
-Out of scope for this austere path: **Cosmos block swap** (not implemented), training previews, augmentation presets, OOM skip, ComfyUI submodule.
+Optional: `[train.oom_skip]` for single-GPU OOM resilience — see [Training loop and eval](training-loop-and-eval.md) and `examples/config_oom_skip.toml`.
+
+Out of scope for this austere path: **Cosmos block swap** (not implemented), **load_and_fuse_adapter** (use `load_adapter_weights` only), training previews, augmentation presets, ComfyUI submodule.

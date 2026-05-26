@@ -9,9 +9,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from renga_flow.config import (
+    apply_model_paths_from_env,
     load_config,
     load_dataset_config,
     load_eval_dataset_config,
+    load_repo_dotenv,
     set_config_defaults,
     validate_config,
 )
@@ -757,7 +759,9 @@ def main():
     if args.config is None:
         raise SystemExit("renga_flow: --config is required (unless using --dump_dataset).")
 
+    load_repo_dotenv()
     config = load_config(args.config)
+    apply_model_paths_from_env(config)
     set_config_defaults(config)
 
     if not args.validate_only:

@@ -17,10 +17,10 @@
   - [Dataset and cache](developer/dataset-and-cache.md) — Dataset config contract, code locations, and Phase 2 plan.
   - [Dataset augmentation](developer/dataset-augmentation.md) — String strategy names, parameters, presets, merge rules, cache/seed modes, implementation hook.
   - [Training loop and evaluation](developer/training-loop-and-eval.md) — Loop flow, evaluate() contract, TensorBoard/WandB, Saver and signal files, isolate_rng, PipelineDataLoader.reset().
-  - [Training step skip on OOM (spec)](developer/training-step-skip-on-oom.md) — Reference behavior from ai-toolkit (not in diffusion-pipe); porting notes for renga-flow.
+  - [Training step skip on OOM](developer/training-step-skip-on-oom.md) — ai-toolkit-style skip (implemented for single-GPU); config and tests.
   - [Checkpoints, model export, and retention](developer/checkpoint-and-save.md) — Saver, pruning, export signal naming.
   - [Training previews](developer/previews.md) — `preview` module, SDXL pipeline call, loop integration.
-  - [Model pipeline contract (implementation status)](developer/model-pipeline-contract.md) — `ModelPipelineProtocol` methods; **`[TODO]`** vs implemented on SDXL.
+  - [Model pipeline contract (implementation status)](developer/model-pipeline-contract.md) — `ModelPipelineProtocol` methods for SDXL and Cosmos Predict2.
   - [Cosmos Predict2 pipeline](developer/cosmos-predict2-pipeline.md) — Layout, cache hooks, adapters, param groups.
   - [Dependencies and upstream](developer/dependencies-and-upstream.md) — diffusion-pipe submodules vs in-repo incorporation.
   - [Networks](developer/networks.md) — Adapter modules (lora_sdxl, lokr_sdxl), contract, and how to add new networks or models.
