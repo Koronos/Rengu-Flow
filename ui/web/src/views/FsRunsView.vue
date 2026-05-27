@@ -1,6 +1,7 @@
 <template>
   <div>
-    <h2 class="page-title">Output runs</h2>
+    <h2 v-if="!embedded" class="page-title">Runs</h2>
+    <p v-if="!embedded" class="page-subtitle">All output folders under output_dir</p>
 
     <el-alert v-if="error" type="error" :title="error" show-icon class="mb-12" />
 
@@ -70,6 +71,10 @@ import { Refresh } from "@element-plus/icons-vue";
 import { api } from "../api";
 import { useBreakpoint } from "../composables/useBreakpoint";
 import { useTensorboard } from "../composables/useTensorboard";
+
+defineProps({
+  embedded: { type: Boolean, default: false },
+});
 
 const router = useRouter();
 const { isMobile } = useBreakpoint();

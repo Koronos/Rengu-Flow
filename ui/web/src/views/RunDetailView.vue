@@ -70,7 +70,7 @@
 
     <el-card shadow="never" class="mt-12">
       <template #header>Loss</template>
-      <LossChart :scalars="metrics" />
+      <ScalarLineChart :scalars="metrics" tag="train/loss" />
     </el-card>
 
     <el-card v-if="mode === 'job'" shadow="never" class="mt-12">
@@ -95,7 +95,7 @@ import { ElMessage } from "element-plus";
 import { api } from "../api";
 import { useBreakpoint } from "../composables/useBreakpoint";
 import { useTensorboard } from "../composables/useTensorboard";
-import LossChart from "../components/LossChart.vue";
+import ScalarLineChart from "../components/ScalarLineChart.vue";
 
 const props = defineProps({
   mode: { type: String, required: true },
@@ -144,12 +144,12 @@ function formatLoss(v) {
 }
 
 function goBack() {
-  router.push(props.mode === "job" ? "/jobs" : "/runs");
+  router.push("/runs");
 }
 
 function goContinueTraining() {
   if (!runDir.value) return;
-  router.push({ name: "configs", query: { continue_run: runDir.value } });
+  router.push({ name: "configs-new", query: { continue_run: runDir.value } });
 }
 
 function openTensorboardForRun() {

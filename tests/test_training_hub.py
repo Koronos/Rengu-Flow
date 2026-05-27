@@ -1,0 +1,50 @@
+"""Train hub unified list and progress."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from renga_flow_ui import training_hub
+
+
+def test_sort_runs_orders_states() -> None:
+    items = [
+        {"state": "finished", "finished_at": "2020-01-02", "started_at": ""},
+        {"state": "pending", "queue_position": 1, "started_at": ""},
+        {"state": "running", "started_at": ""},
+    ]
+    ordered = training_hub._sort_runs(items)
+    assert [r["state"] for r in ordered] == ["running", "pending", "finished"]
+
+
+def test_compute_run_progress_from_status(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run_a"
+    run_dir.mkdir()
+    (run_dir / "train.toml").write_text(
+        "max_steps = 100\n[model]\ntype = \"sdxl\"\n[optimizer]\ntype = \"adamw\"\n",
+        encoding="utf-8",
+    )
+    (run_dir / "status.json").write_text(
+        json.dumps({"step": 25, "loss": 0.5, "epoch": 1, "phase": "training"}),
+        encoding="utf-8",
+    )
+    prog = training_hub.compute_run_progress(run_dir)
+    assert prog is not None
+    assert prog["step"] == 25
+    assert prog["max_steps"] == 100
+    assert prog["percent"] == 25.0
+
+
+def test_train_runs_api(ui_client) -> None:
+    r = ui_client.get("/api/v1/train/runs?page=1&page_size=10")
+    assert r.status_code == 200
+    data = r.json()
+    assert "items" in data
+    assert "stats" in data
+
+
+def test_train_active_api(ui_client) -> None:
+    r = ui_client.get("/api/v1/train/active")
+    assert r.status_code == 200
+    assert "active" in r.json()

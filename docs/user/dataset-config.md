@@ -4,13 +4,22 @@ How to point the training config at a dataset and what the dataset TOML contains
 
 ## Main config: referencing a dataset
 
-In your main TOML config, set the `dataset` key to the path of a **dataset TOML file**:
+In your main TOML config, set the `dataset` key to the path of a **dataset TOML file**, or to a **list of paths** that are merged at train time (all `[[directory]]` tables; global options from the first file):
 
 ```toml
 dataset = "examples/minimal_dataset.toml"
 ```
 
-The path can be relative to the working directory or absolute. If you omit `dataset` or use synthetic data only (see below), training uses an in-memory synthetic dataset instead.
+```toml
+dataset = [
+  "renga-flow-dataset:1:portraits",
+  "renga-flow-dataset:2:landscapes",
+]
+```
+
+The part after the second colon is optional and only helps you read the file; only the numeric library id is used when training runs.
+
+Each path can be relative to the working directory or absolute. Library refs (`renga-flow-dataset:<id>`) are resolved when a job is staged from the UI. If you omit `dataset` or use synthetic data only (see below), training uses an in-memory synthetic dataset instead.
 
 ## Dataset TOML schema
 

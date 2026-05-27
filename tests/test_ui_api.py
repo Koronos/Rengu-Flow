@@ -48,12 +48,12 @@ def test_schema_and_dataset_schema(ui_client) -> None:
 
 
 def test_configs_search_paginated(ui_client, ui_data_tmp: Path) -> None:
-    for i in range(3):
-        configs_store.write_config_text(f"pag_{i}", MINIMAL_TOML)
-    r = ui_client.get("/api/v1/configs", params={"page": 1, "page_size": 2, "q": "pag"})
+    for _ in range(3):
+        configs_store.insert_config(MINIMAL_TOML)
+    r = ui_client.get("/api/v1/configs", params={"page": 1, "page_size": 2})
     assert r.status_code == 200
     body = r.json()
-    assert body["total"] == 3
+    assert body["total"] >= 3
     assert len(body["items"]) == 2
     assert body["page"] == 1
 
@@ -63,28 +63,29 @@ def test_configs_search_paginated(ui_client, ui_data_tmp: Path) -> None:
 
 
 def test_config_crud_via_api(ui_client, ui_data_tmp: Path) -> None:
-    r = ui_client.post("/api/v1/configs", json={"id": "api_cfg", "content": MINIMAL_TOML})
+    r = ui_client.post("/api/v1/configs", json={"content": MINIMAL_TOML})
     assert r.status_code == 200
-    assert r.json()["id"] == "api_cfg"
+    cid = r.json()["id"]
+    assert isinstance(cid, int)
 
-    r = ui_client.get("/api/v1/configs/api_cfg")
+    r = ui_client.get(f"/api/v1/configs/{cid}")
     assert r.status_code == 200
     assert "sdxl" in r.json()["content"]
 
     r = ui_client.get("/api/v1/configs")
     ids = [c["id"] for c in r.json()["configs"]]
-    assert "api_cfg" in ids
+    assert cid in ids
 
     updated = MINIMAL_TOML + '\nrun_name = "test"\n'
-    r = ui_client.put("/api/v1/configs/api_cfg", json={"content": updated})
+    r = ui_client.put(f"/api/v1/configs/{cid}", json={"content": updated})
     assert r.status_code == 200
 
-    r = ui_client.post("/api/v1/configs/api_cfg/duplicate")
+    r = ui_client.post(f"/api/v1/configs/{cid}/duplicate")
     assert r.status_code == 200
     dup_id = r.json()["id"]
-    assert dup_id != "api_cfg"
+    assert dup_id != cid
 
-    r = ui_client.delete("/api/v1/configs/api_cfg")
+    r = ui_client.delete(f"/api/v1/configs/{cid}")
     assert r.status_code == 200
 
 
@@ -132,8 +133,19 @@ def test_dataset_library_api(ui_client, ui_data_tmp: Path) -> None:
         "resolutions = [1024]\nframe_buckets = [1]\n\n"
         "[[directory]]\npath = '/tmp/x'\nnum_repeats = 1\n"
     )
-    r = ui_client.post("/api/v1/datasets", json={"id": "lib_ds", "content": ds_toml})
+    r = ui_client.post(
+        "/api/v1/datasets",
+        json={"content": ds_toml, "name": "Test portraits"},
+    )
     assert r.status_code == 200
+    body = r.json()
+    lib_id = body["id"]
+    assert isinstance(lib_id, int)
+    assert body["name"] == "Test portraits"
+
+    r = ui_client.get(f"/api/v1/datasets/{lib_id}")
+    assert r.status_code == 200
+    assert r.json()["name"] == "Test portraits"
 
     r = ui_client.post(
         "/api/v1/datasets/preview",
@@ -143,9 +155,17 @@ def test_dataset_library_api(ui_client, ui_data_tmp: Path) -> None:
     preview = r.json()
     assert preview.get("ok") is True or "preview" in preview
 
-    r = ui_client.post("/api/v1/datasets/compose", json={"target_id": "merged", "source_ids": ["lib_ds"]})
+    r = ui_client.post("/api/v1/datasets/compose", json={"source_ids": [lib_id]})
     assert r.status_code == 200
-    assert r.json()["id"] == "merged"
+    merged_id = r.json()["id"]
+    assert isinstance(merged_id, int)
+    assert merged_id != lib_id
+
+    r = ui_client.get("/api/v1/datasets/folder-suggestions")
+    assert r.status_code == 200
+    body = r.json()
+    assert "suggestions" in body
+    assert "missing" in body
 
 
 def test_registry_probe(ui_client) -> None:
@@ -160,7 +180,7 @@ def test_registry_probe(ui_client) -> None:
 
 
 def test_jobs_enqueue_mocked(ui_client, ui_data_tmp: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    configs_store.write_config_text("job_cfg", MINIMAL_TOML)
+    job_cfg = configs_store.insert_config(MINIMAL_TOML)
 
     def fake_start(job: db.JobRecord) -> int:
         db.update_job(job.id, state="running", pid=12345)
@@ -171,12 +191,12 @@ def test_jobs_enqueue_mocked(ui_client, ui_data_tmp: Path, monkeypatch: pytest.M
 
     r = ui_client.post(
         "/api/v1/jobs",
-        json={"config_id": "job_cfg", "num_gpus": 1, "enqueue": True},
+        json={"config_id": job_cfg, "num_gpus": 1, "enqueue": True},
     )
     assert r.status_code == 200
     job = r.json()
     assert job["state"] in ("running", "pending")
-    assert job["config_id"] == "job_cfg"
+    assert job["config_id"] == job_cfg
 
     r2 = ui_client.get(f"/api/v1/jobs/{job['id']}")
     assert r2.status_code == 200

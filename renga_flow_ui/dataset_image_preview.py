@@ -11,12 +11,26 @@ from typing import Any
 
 import toml
 
-from renga_flow_ui.dataset_scan import IMAGE_EXTENSIONS
+from renga_flow_ui.dataset_scan import (
+    UI_LIST_COUNT_CAP,
+    list_image_files_page,
+)
 from renga_flow_ui.settings import ui_data_dir, ui_token
 
 DEFAULT_LIST_LIMIT = 24
 MAX_LIST_LIMIT = 48
-MAX_CATALOG_PER_DIR = 2000
+
+_IMAGE_SUFFIXES = {
+    ".jpg",
+    ".jpeg",
+    ".jpe",
+    ".png",
+    ".webp",
+    ".bmp",
+    ".gif",
+    ".tif",
+    ".tiff",
+}
 
 
 def _signing_key() -> bytes:
@@ -31,7 +45,7 @@ def _safe_filename(name: str) -> bool:
         return False
     if "/" in name or "\\" in name:
         return False
-    return Path(name).suffix.lower() in IMAGE_EXTENSIONS
+    return Path(name).suffix.lower() in _IMAGE_SUFFIXES
 
 
 def _directory_entries(config: dict[str, Any]) -> list[dict[str, Any]]:
@@ -46,33 +60,6 @@ def _directory_root(entry: dict[str, Any]) -> Path | None:
     if not path or not isinstance(path, str):
         return None
     return Path(path).expanduser().resolve()
-
-
-def list_images_in_directory(
-    root: Path,
-    *,
-    limit: int = DEFAULT_LIST_LIMIT,
-    offset: int = 0,
-) -> tuple[list[str], int]:
-    """Return (page of filenames, total image count) for one folder (non-recursive)."""
-    if not root.is_dir():
-        return [], 0
-    names: list[str] = []
-    try:
-        for entry in sorted(root.iterdir()):
-            if not entry.is_file():
-                continue
-            if entry.suffix.lower() not in IMAGE_EXTENSIONS:
-                continue
-            names.append(entry.name)
-            if len(names) >= MAX_CATALOG_PER_DIR:
-                break
-    except OSError:
-        return [], 0
-    total = len(names)
-    start = max(0, offset)
-    end = start + max(1, min(limit, MAX_LIST_LIMIT))
-    return names[start:end], total
 
 
 def issue_image_token(directory_index: int, filename: str, root: Path) -> str:
@@ -118,7 +105,7 @@ def resolve_image_token(token: str) -> Path:
         raise ValueError("Path escapes dataset directory") from e
     if not candidate.is_file():
         raise ValueError("Image file not found")
-    if candidate.suffix.lower() not in IMAGE_EXTENSIONS:
+    if candidate.suffix.lower() not in _IMAGE_SUFFIXES:
         raise ValueError("Not an image file")
     return candidate
 
@@ -130,7 +117,7 @@ def list_dataset_preview_images(
     limit: int = DEFAULT_LIST_LIMIT,
     offset: int = 0,
 ) -> dict[str, Any]:
-    """List image files under configured dataset directories."""
+    """List one page of image files (bounded scan per folder)."""
     limit = max(1, min(int(limit), MAX_LIST_LIMIT))
     offset = max(0, int(offset))
 
@@ -145,17 +132,31 @@ def list_dataset_preview_images(
             "ok": True,
             "images": [],
             "total": 0,
+            "total_capped": False,
             "limit": limit,
             "offset": offset,
             "directories": [],
         }
 
-    catalog: list[tuple[int, str, Path]] = []
     dir_meta: list[dict[str, Any]] = []
+    page_items: list[tuple[int, str, Path]] = []
+    total_for_response = 0
+    total_capped = False
 
-    for idx, entry in enumerate(entries):
-        if directory_index is not None and idx != directory_index:
-            continue
+    if directory_index is not None:
+        if directory_index < 0 or directory_index >= len(entries):
+            return {"ok": False, "error": "directory_index out of range"}
+        indices = [directory_index]
+    else:
+        indices = list(range(len(entries)))
+
+    remaining_offset = offset
+    remaining_limit = limit
+
+    for idx in indices:
+        if remaining_limit <= 0:
+            break
+        entry = entries[idx]
         root = _directory_root(entry)
         path_str = str(entry.get("path", ""))
         if root is None:
@@ -181,34 +182,57 @@ def list_dataset_preview_images(
             )
             continue
 
-        names, total = list_images_in_directory(root, limit=MAX_CATALOG_PER_DIR, offset=0)
+        listed = list_image_files_page(
+            root,
+            offset=remaining_offset,
+            limit=remaining_limit,
+            count_cap=UI_LIST_COUNT_CAP,
+        )
+        names = listed["names"]
         dir_meta.append(
             {
                 "index": idx,
                 "path": str(root),
                 "ok": True,
-                "image_count": total,
-                "catalog_capped": total >= MAX_CATALOG_PER_DIR,
+                "image_count": listed["total"],
+                "count_capped": listed["count_capped"],
             }
         )
-        for name in names:
-            catalog.append((idx, name, root))
+        if listed["count_capped"]:
+            total_capped = True
 
-    page = catalog[offset : offset + limit]
+        for name in names:
+            page_items.append((idx, name, root))
+
+        if directory_index is not None:
+            total_for_response = listed["total"]
+            break
+
+        remaining_offset = max(0, remaining_offset - listed["total"])
+        remaining_limit = limit - len(page_items)
+        if len(page_items) >= limit:
+            total_for_response = sum(
+                m.get("image_count", 0) for m in dir_meta if m.get("ok")
+            )
+            break
+
+    if directory_index is None and page_items and total_for_response == 0:
+        total_for_response = sum(m.get("image_count", 0) for m in dir_meta if m.get("ok"))
+
     images = [
         {
             "directory_index": idx,
             "name": name,
             "token": issue_image_token(idx, name, root),
         }
-        for idx, name, root in page
+        for idx, name, root in page_items
     ]
 
-    total_images = len(catalog)
     return {
         "ok": True,
         "images": images,
-        "total": total_images,
+        "total": total_for_response,
+        "total_capped": total_capped,
         "limit": limit,
         "offset": offset,
         "directories": dir_meta,

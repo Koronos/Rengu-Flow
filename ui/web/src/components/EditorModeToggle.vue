@@ -1,14 +1,14 @@
 <template>
   <el-button-group size="small" class="editor-mode-toggle">
     <el-button
-      :type="model === 'form' ? 'primary' : 'default'"
-      @click="model = 'form'"
+      :type="modelValue === 'form' ? 'primary' : 'default'"
+      @click="setMode('form')"
     >
       Form
     </el-button>
     <el-button
-      :type="model === 'toml' ? 'primary' : 'default'"
-      @click="model = 'toml'"
+      :type="modelValue === 'toml' ? 'primary' : 'default'"
+      @click="setMode('toml')"
     >
       TOML
     </el-button>
@@ -16,7 +16,16 @@
 </template>
 
 <script setup>
-const model = defineModel({ type: String, default: "form" });
+defineProps({
+  modelValue: { type: String, default: "form" },
+});
+
+const emit = defineEmits(["update:modelValue"]);
+
+function setMode(mode) {
+  if (mode !== "form" && mode !== "toml") return;
+  emit("update:modelValue", mode);
+}
 </script>
 
 <style scoped>

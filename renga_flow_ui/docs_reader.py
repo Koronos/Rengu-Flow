@@ -40,6 +40,32 @@ def resolve_doc_path(rel_path: str) -> Path:
     return target
 
 
+def _title_from_markdown(content: str, fallback: str) -> str:
+    for line in content.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("# "):
+            return stripped[2:].strip()
+    return fallback.replace("-", " ").title()
+
+
+def list_docs_index() -> list[dict[str, str]]:
+    """Return user-facing documentation index entries."""
+    repo = repo_root().resolve()
+    items: list[dict[str, str]] = []
+    user_dir = repo / "docs" / "user"
+    if user_dir.is_dir():
+        for path in sorted(user_dir.glob("*.md")):
+            rel = str(path.relative_to(repo)).replace("\\", "/")
+            content = path.read_text(encoding="utf-8")
+            items.append({"path": rel, "title": _title_from_markdown(content, path.stem)})
+    readme = repo / "docs" / "README.md"
+    if readme.is_file():
+        rel = str(readme.relative_to(repo)).replace("\\", "/")
+        content = readme.read_text(encoding="utf-8")
+        items.insert(0, {"path": rel, "title": _title_from_markdown(content, "Documentation")})
+    return items
+
+
 def read_doc(rel_path: str) -> dict[str, str]:
     path = resolve_doc_path(rel_path)
     return {

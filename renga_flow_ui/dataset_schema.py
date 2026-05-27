@@ -26,13 +26,14 @@ def _field(
         "path": path,
         "label": label,
         "type": ftype,
-        "default": default,
         "description": description,
         "required": required,
         "recommended": recommended,
         "importance": imp,
         "options": options,
     }
+    if default is not None:
+        out["default"] = default
     if option_values is not None:
         out["option_values"] = option_values
     if show_if_set:

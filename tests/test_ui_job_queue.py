@@ -26,12 +26,11 @@ synthetic_num_batches = 50
 
 
 @pytest.fixture
-def job_config(ui_data_tmp: Path) -> str:
-    configs_store.write_config_text("q", JOB_TOML)
-    return "q"
+def job_config(ui_data_tmp: Path) -> int:
+    return configs_store.insert_config(JOB_TOML)
 
 
-def test_move_queue_up_down(job_config: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_move_queue_up_down(job_config: int, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("renga_flow_ui.job_queue.try_start_next", lambda: None)
 
     j1 = job_queue.enqueue_job(
@@ -63,7 +62,7 @@ def test_move_queue_up_down(job_config: str, monkeypatch: pytest.MonkeyPatch) ->
     job_queue.move_queue(j2.id, "down")
 
 
-def test_delete_pending_job(job_config: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_delete_pending_job(job_config: int, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("renga_flow_ui.job_queue.try_start_next", lambda: None)
     job = job_queue.enqueue_job(
         config_id=job_config,
@@ -80,7 +79,7 @@ def test_delete_pending_job(job_config: str, monkeypatch: pytest.MonkeyPatch) ->
         db.get_job(job.id)
 
 
-def test_try_start_next_after_finish(job_config: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_try_start_next_after_finish(job_config: int, monkeypatch: pytest.MonkeyPatch) -> None:
     started: list[str] = []
 
     def fake_start(job: db.JobRecord) -> int:
@@ -123,7 +122,7 @@ def test_try_start_next_after_finish(job_config: str, monkeypatch: pytest.Monkey
     assert nxt.state == "running"
 
 
-def test_prepare_job_reset_flags(job_config: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_prepare_job_reset_flags(job_config: int, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("renga_flow_ui.job_queue.try_start_next", lambda: None)
     job = job_queue.prepare_job(
         config_id=job_config,

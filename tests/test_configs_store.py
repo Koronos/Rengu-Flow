@@ -39,28 +39,30 @@ def test_safe_id_sanitizes() -> None:
 
 
 def test_config_library_crud(ui_data_tmp: Path) -> None:
-    configs_store.write_config_text("run_cfg", MINIMAL_TOML)
-    assert "run_cfg" in configs_store.list_config_ids()
-    assert configs_store.config_exists("run_cfg")
-    dup = configs_store.duplicate_config("run_cfg")
-    assert dup != "run_cfg"
-    configs_store.delete_config("run_cfg")
+    cid = configs_store.insert_config(MINIMAL_TOML)
+    assert cid in configs_store.list_config_ids()
+    assert configs_store.config_exists(cid)
+    dup = configs_store.duplicate_config(cid)
+    assert dup != cid
+    configs_store.delete_config(cid)
     with pytest.raises(FileNotFoundError):
-        configs_store.read_config_text("run_cfg")
+        configs_store.read_config_text(cid)
 
 
 def test_materialize_staging_resolves_library_dataset(ui_data_tmp: Path) -> None:
-    datasets_store.write_dataset_text("my_dataset", DATASET_TOML)
-    configs_store.write_config_text("run_cfg", MINIMAL_TOML)
+    did = datasets_store.insert_dataset(DATASET_TOML)
+    ref = library_db.dataset_library_ref(did)
+    content = MINIMAL_TOML.replace("renga-flow-dataset:my_dataset", ref)
+    cid = configs_store.insert_config(content)
 
     staging = configs_store.materialize_staging(
-        configs_store.read_config_text("run_cfg"),
+        configs_store.read_config_text(cid),
         "job-abc",
     )
     assert staging.name == "train.toml"
     cfg = toml.loads(staging.read_text(encoding="utf-8"))
     assert Path(cfg["dataset"]).is_absolute()
-    assert (staging.parent / "my_dataset.dataset.toml").is_file()
+    assert (staging.parent / f"{did}.dataset.toml").is_file()
 
 
 def test_materialize_staging_absolute_dataset_unchanged(ui_data_tmp: Path) -> None:
@@ -79,9 +81,36 @@ def test_validate_rejects_bad_toml() -> None:
     assert configs_store.validate_toml_text("not valid {{{")["ok"] is False
 
 
-def test_validate_accepts_minimal(minimal_config: dict) -> None:
-    minimal_config["dataset"] = library_db.dataset_library_ref("ds1")
-    datasets_store.write_dataset_text("ds1", DATASET_TOML)
+def test_materialize_staging_merges_multiple_datasets(ui_data_tmp: Path) -> None:
+    did_a = datasets_store.insert_dataset(DATASET_TOML)
+    did_b = datasets_store.insert_dataset(
+        DATASET_TOML.replace('path = "/tmp/img"', 'path = "/tmp/img2"')
+    )
+    ref_a = library_db.dataset_library_ref(did_a)
+    ref_b = library_db.dataset_library_ref(did_b)
+    content = MINIMAL_TOML.replace(
+        'dataset = "renga-flow-dataset:my_dataset"',
+        f"dataset = [{ref_a!r}, {ref_b!r}]",
+    )
+    out = configs_store.materialize_staging(content, "job-merge")
+    cfg = toml.loads(out.read_text(encoding="utf-8"))
+    merged_path = Path(cfg["dataset"])
+    assert merged_path.is_file()
+    merged = toml.loads(merged_path.read_text(encoding="utf-8"))
+    assert len(merged["directory"]) == 2
+
+
+def test_validate_accepts_dataset_list(ui_data_tmp: Path, minimal_config: dict) -> None:
+    did = datasets_store.insert_dataset(DATASET_TOML)
+    ref = library_db.dataset_library_ref(did)
+    minimal_config["dataset"] = [ref, ref]
+    r = configs_store.validate_toml_text(toml.dumps(minimal_config))
+    assert r["ok"] is True
+
+
+def test_validate_accepts_minimal(ui_data_tmp: Path, minimal_config: dict) -> None:
+    did = datasets_store.insert_dataset(DATASET_TOML)
+    minimal_config["dataset"] = library_db.dataset_library_ref(did)
     text = toml.dumps(minimal_config)
     r = configs_store.validate_toml_text(text)
     assert r["ok"] is True

@@ -63,6 +63,13 @@
             <el-button :icon="Search" @click="loadBrowser(1)" />
           </template>
         </el-input>
+        <LibrarySortControls
+          v-model:sort-field="sortField"
+          :sort-order="sortOrder"
+          :field-options="fieldOptions"
+          :order-button-label="orderButtonLabel"
+          @toggle-order="onToggleBrowserSort"
+        />
       </div>
 
       <el-table
@@ -89,9 +96,14 @@
           label="Dirs"
           width="64"
         />
-        <el-table-column label="Updated" width="150">
+        <el-table-column label="Created" width="132">
           <template #default="{ row }">
-            {{ formatUpdated(row.updated_at) }}
+            {{ formatLibraryTimestamp(row.created_at) }}
+          </template>
+        </el-table-column>
+        <el-table-column label="Updated" width="132">
+          <template #default="{ row }">
+            {{ formatLibraryTimestamp(row.updated_at) }}
           </template>
         </el-table-column>
         <el-table-column label="" width="220" fixed="right">
@@ -139,6 +151,9 @@
 import { computed, ref, watch } from "vue";
 import { ArrowDown, Search } from "@element-plus/icons-vue";
 import { api } from "../api";
+import { useLibraryListSort } from "../composables/useLibraryListSort";
+import { formatLibraryTimestamp } from "../lib/formatLibraryTime.js";
+import LibrarySortControls from "./LibrarySortControls.vue";
 
 const props = defineProps({
   kind: { type: String, required: true }, // "config" | "dataset"
@@ -166,6 +181,26 @@ const browserPage = ref(1);
 const browserPageSize = ref(20);
 const browserLoading = ref(false);
 
+const {
+  sortField,
+  sortOrder,
+  fieldOptions,
+  sortParams,
+  toggleSortOrder,
+  orderButtonLabel,
+} = useLibraryListSort(`renga-flow-library-sort-${props.kind}`, {
+  kind: props.kind,
+});
+
+function onToggleBrowserSort() {
+  toggleSortOrder();
+  loadBrowser(1);
+}
+
+watch([sortField, sortOrder], () => {
+  if (browserOpen.value) loadBrowser(1);
+});
+
 const searchPlaceholder = computed(() =>
   props.kind === "config"
     ? "Search configs (id, model, dataset)…"
@@ -184,15 +219,12 @@ watch(
   { immediate: true }
 );
 
-function formatUpdated(iso) {
-  return (iso || "").slice(0, 16).replace("T", " ");
-}
-
 async function searchPage(q, page, pageSize) {
   const params = new URLSearchParams({
     page: String(page),
     page_size: String(pageSize),
     q: q || "",
+    ...sortParams(),
   });
   if (props.kind === "config") {
     return api.searchConfigs(params);
@@ -344,7 +376,15 @@ defineExpose({ refreshBrowser: () => loadBrowser(browserPage.value) });
   color: var(--el-text-color-secondary);
 }
 .browser-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
   margin-bottom: 12px;
+}
+.browser-toolbar .el-input {
+  flex: 1;
+  min-width: 200px;
 }
 .browser-table {
   width: 100%;

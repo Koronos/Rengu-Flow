@@ -8,15 +8,15 @@ from renga_flow_ui import configs_store
 
 
 def test_config_crud(ui_data_tmp: Path) -> None:
-    configs_store.write_config_text("test_cfg", 'dataset = "x.toml"\n[model]\ntype="sdxl"\n')
-    assert "test_cfg" in configs_store.list_config_ids()
-    text = configs_store.read_config_text("test_cfg")
+    cid = configs_store.insert_config('dataset = "x.toml"\n[model]\ntype="sdxl"\n')
+    assert cid in configs_store.list_config_ids()
+    text = configs_store.read_config_text(cid)
     assert "sdxl" in text
-    dup = configs_store.duplicate_config("test_cfg")
-    assert dup != "test_cfg"
-    configs_store.delete_config("test_cfg")
+    dup = configs_store.duplicate_config(cid)
+    assert dup != cid
+    configs_store.delete_config(cid)
     with pytest.raises(FileNotFoundError):
-        configs_store.read_config_text("test_cfg")
+        configs_store.read_config_text(cid)
 
 
 def test_validate_minimal_toml() -> None:

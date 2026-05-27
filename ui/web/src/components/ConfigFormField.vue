@@ -34,12 +34,24 @@
       <el-text type="info" size="small" class="path-tag">{{ field.path }}</el-text>
     </template>
 
+    <TrainingDatasetsField
+      v-if="field.path === 'dataset'"
+      :model-value="effectiveValue"
+      @update:model-value="onTrainingDatasetsInput"
+    />
+
+    <EvalDatasetsField
+      v-else-if="field.path === 'eval_datasets'"
+      :model-value="effectiveValue"
+      @update:model-value="onEvalDatasetsInput"
+    />
+
     <el-autocomplete
-      v-if="field.type === 'select' && field.allow_custom"
+      v-else-if="field.type === 'select' && field.allow_custom"
       v-model="editableText"
       :fetch-suggestions="fetchSuggestions"
       clearable
-      class="field-full"
+      :class="widthClass"
       placeholder="Edit in place or pick a suggestion…"
       :trigger-on-focus="true"
       :select-when-unmatched="false"
@@ -53,7 +65,7 @@
       :model-value="stringValue"
       clearable
       filterable
-      class="field-full"
+      :class="widthClass"
       @update:model-value="onInput"
     >
       <el-option
@@ -76,7 +88,7 @@
       :min="field.min ?? undefined"
       :step="1"
       controls-position="right"
-      class="field-full"
+      class="field-narrow"
       @update:model-value="onInput"
     />
 
@@ -85,7 +97,7 @@
       :model-value="numberValue"
       :step="0.0001"
       controls-position="right"
-      class="field-full"
+      class="field-narrow"
       @update:model-value="onInput"
     />
 
@@ -122,7 +134,7 @@
       :model-value="displayValue"
       type="textarea"
       :rows="4"
-      class="field-full"
+      :class="widthClass"
       @update:model-value="onInput"
     />
 
@@ -131,7 +143,7 @@
       :model-value="displayValue"
       :placeholder="field.placeholder"
       clearable
-      class="field-full"
+      :class="widthClass"
       @update:model-value="onInput"
     />
 
@@ -156,6 +168,8 @@ import {
 } from "../lib/formUtils";
 import { api } from "../api";
 import FieldHelpIcon from "./FieldHelpIcon.vue";
+import TrainingDatasetsField from "./TrainingDatasetsField.vue";
+import EvalDatasetsField from "./EvalDatasetsField.vue";
 import IntegerListField from "./IntegerListField.vue";
 import NumberListField from "./NumberListField.vue";
 import StringListField from "./StringListField.vue";
@@ -167,13 +181,18 @@ const props = defineProps({
   field: { type: Object, required: true },
   form: { type: Object, required: true },
   capabilities: { type: Object, default: () => ({}) },
+  /** When true, always render (parent already decided visibility). */
+  alwaysVisible: { type: Boolean, default: false },
+  /** Dataset TOML form (flat keys, no training config visibility). */
+  datasetForm: { type: Boolean, default: false },
 });
 
 const emit = defineEmits(["update:path"]);
 
 const visible = computed(() => {
+  if (props.alwaysVisible) return true;
   const f = props.field;
-  if (!f.path?.includes(".") && (f.show_if_set || f.show_when_field)) {
+  if (props.datasetForm || !f.path?.includes(".")) {
     return datasetFieldVisible(f, props.form);
   }
   return fieldVisible(f, props.form, props.capabilities);
@@ -238,6 +257,24 @@ const displayValue = computed(() => {
   return String(v);
 });
 
+function isPathField(field) {
+  const p = field.path || "";
+  if (p === "dataset" || p === "eval_datasets") return false;
+  if (p.includes("path") || p.endsWith("_dir") || p === "output_dir" || p === "resume_from") {
+    return true;
+  }
+  return false;
+}
+
+const widthClass = computed(() => {
+  const f = props.field;
+  if (f.path === "dataset" || f.path === "eval_datasets") return "";
+  if (f.type === "integer" || f.type === "number") return "field-narrow";
+  if (isPathField(f)) return "field-path";
+  if (f.type === "boolean") return "";
+  return "field-full";
+});
+
 const resolveHint = ref(null);
 let probeTimer = null;
 
@@ -274,6 +311,14 @@ function onStringListInput(val) {
     path: props.field.path,
     value: stringListToFormValue(val),
   });
+}
+
+function onEvalDatasetsInput(val) {
+  emit("update:path", { path: props.field.path, value: val });
+}
+
+function onTrainingDatasetsInput(val) {
+  emit("update:path", { path: props.field.path, value: val });
 }
 
 function onClear() {
@@ -344,9 +389,6 @@ watch(stringValue, (v) => {
 </script>
 
 <style scoped>
-.field-full {
-  width: 100%;
-}
 .label-row {
   display: inline-flex;
   align-items: center;
@@ -372,5 +414,7 @@ watch(stringValue, (v) => {
 .resolve-hint {
   margin-top: 4px;
   line-height: 1.4;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 </style>

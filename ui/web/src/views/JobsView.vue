@@ -1,47 +1,44 @@
 <template>
-  <div class="jobs-page">
+  <div class="jobs-page page-shell">
     <div class="page-head">
-      <h2 class="page-title">Training jobs</h2>
-      <el-text type="info" class="stats-line">
-        <span v-if="stats.running" class="stat-running">{{ stats.running }} running</span>
-        <span v-if="stats.pending">{{ stats.pending }} in queue</span>
-      </el-text>
+      <div class="page-head-text">
+        <p class="page-subtitle">Launch jobs and monitor runs</p>
+        <el-text v-if="stats.running || stats.pending" type="info" class="page-head-meta stats-line">
+          <span v-if="stats.running" class="stat-running">{{ stats.running }} running</span>
+          <span v-if="stats.pending">{{ stats.pending }} in queue</span>
+        </el-text>
+      </div>
     </div>
 
     <el-alert v-if="error" type="error" :title="error" show-icon class="mb-12" />
 
-    <el-alert type="info" :closable="false" show-icon class="mb-12 workflow-alert">
-      <template #title>Recommended workflow</template>
-      <ol class="workflow-list">
-        <li>
-          <router-link to="/datasets">Datasets</router-link> — image folders (optional if you use an example path)
-        </li>
-        <li>
-          <a href="#" class="workflow-link" @click.prevent="goPickConfig">Configs</a>
-          — training TOML (required before a job)
-        </li>
-        <li><strong>Jobs</strong> — queue or start training here</li>
-      </ol>
-    </el-alert>
+    <TrainLivePanel
+      class="page-section"
+      :run="activeRun"
+      @open-detail="openRun"
+      @stop="stop"
+    />
 
-    <el-card shadow="hover" class="mb-12 launch-card">
+    <el-card shadow="never" class="page-section">
       <template #header>
-        <span>Add training job</span>
+        <div class="launch-head">
+          <span>New training run</span>
+          <el-button size="small" :icon="FolderOpened" @click="openImportDialog">Import existing run</el-button>
+        </div>
       </template>
       <el-form label-position="top" class="launch-form">
         <el-form-item label="Training config" required>
-          <div v-if="!hasAnyConfig" class="config-block">
-            <el-empty description="No training configs yet" :image-size="56">
-              <el-button type="primary" @click="goCreateConfig">Create your first config</el-button>
-            </el-empty>
+          <div v-if="!hasAnyConfig" class="page-panel config-block--compact">
+            <span class="page-hint">No training configs yet.</span>
+            <el-button type="primary" size="small" @click="goCreateConfig">Create config</el-button>
           </div>
-          <div v-else-if="!configId" class="config-block config-block--empty">
-            <p class="config-hint">
+          <div v-else-if="!configId" class="page-panel">
+            <p class="page-hint">
               Pick a config from the library so you can review and edit it before training.
             </p>
             <el-button type="primary" @click="goPickConfig">Choose config in library</el-button>
           </div>
-          <div v-else class="config-block config-block--selected">
+          <div v-else class="page-panel">
             <div class="config-selected-row">
               <code class="config-id">{{ configId }}</code>
               <el-tag v-if="configValid === true" type="success" size="small">Valid</el-tag>
@@ -82,110 +79,118 @@
             Start now
           </el-button>
         </div>
-        <el-text type="info" size="small" class="hint">
+        <el-text type="info" size="small" class="page-hint hint">
           One job runs at a time. Queued jobs start automatically when the current run finishes.
         </el-text>
       </el-form>
     </el-card>
 
-    <el-card shadow="hover" class="mb-12 import-card">
-      <template #header>
-        <span>Import script run</span>
-      </template>
-      <p class="import-hint">
-        Already trained with <code>renga-flow</code> from the terminal? Register an output folder so it
-        appears in job history with metrics, signals, and optional config/dataset library entries.
-      </p>
-      <el-button type="primary" plain :icon="FolderOpened" @click="openImportDialog">
-        Import run folder…
-      </el-button>
-    </el-card>
+    <div class="page-toolbar">
+      <el-input
+        v-model="listQuery"
+        clearable
+        placeholder="Search config, run folder…"
+        class="page-toolbar-search"
+        @keyup.enter="loadRuns(1)"
+        @clear="loadRuns(1)"
+      />
+      <el-select v-model="stateFilter" clearable placeholder="All states" class="page-toolbar-filter" @change="loadRuns(1)">
+        <el-option label="Active" value="active" />
+        <el-option label="Queued" value="queued" />
+        <el-option label="Finished" value="finished" />
+        <el-option label="On disk only" value="disk" />
+      </el-select>
+    </div>
 
-    <section v-if="runningJobs.length" class="job-section">
-      <h3 class="section-title">
-        <span class="pulse-dot" />
-        Running
-      </h3>
-      <div class="job-cards">
-        <el-card
-          v-for="job in runningJobs"
-          :key="job.id"
-          shadow="always"
-          class="job-card job-card--active"
-          @click="goJob(job.id)"
-        >
-          <div class="job-card-top">
-            <el-tag type="success" effect="dark" size="small">{{ job.state }}</el-tag>
-            <code class="job-id">{{ job.id }}</code>
-          </div>
-          <div class="job-meta">{{ job.config_id || "—" }} · {{ job.num_gpus }} GPU</div>
-          <div class="job-meta muted">PID {{ job.pid || "—" }}</div>
-          <el-button
-            type="danger"
-            size="small"
-            :icon="VideoPause"
-            class="job-stop"
-            @click.stop="stop(job.id)"
-          >
-            Stop
-          </el-button>
-        </el-card>
-      </div>
-    </section>
-
-    <section v-if="queueJobs.length" class="job-section">
-      <h3 class="section-title">Queue</h3>
-      <el-table :data="queueJobs" stripe size="small" class="queue-table">
-        <el-table-column label="#" width="48">
-          <template #default="{ $index }">{{ $index + 1 }}</template>
-        </el-table-column>
-        <el-table-column prop="config_id" label="Config" min-width="120" show-overflow-tooltip />
-        <el-table-column prop="num_gpus" label="GPUs" width="70" />
-        <el-table-column prop="resume_from" label="Resume" min-width="120" show-overflow-tooltip />
-        <el-table-column label="Actions" width="280" fixed="right">
-          <template #default="{ row }">
-            <el-button-group size="small">
-              <el-button :icon="Top" @click="move(row.id, 'up')" />
-              <el-button :icon="Bottom" @click="move(row.id, 'down')" />
-              <el-button :icon="Edit" @click="openEdit(row)" />
-              <el-button type="primary" :icon="VideoPlay" @click="startQueuedNow(row.id)">
-                Run
-              </el-button>
-              <el-button type="danger" :icon="Delete" @click="removeQueued(row.id)" />
-            </el-button-group>
+    <div class="runs-table-wrap">
+    <el-table
+      v-loading="listLoading"
+      :data="runs"
+      stripe
+      size="small"
+      class="runs-table"
+      @row-click="openRun"
+    >
+      <el-table-column label="State" width="88">
+        <template #default="{ row }">
+          <el-tag :type="stateTag(row.state)" size="small" :effect="row.state === 'running' ? 'dark' : 'light'">
+            {{ row.state }}
+          </el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="Run" min-width="100" show-overflow-tooltip>
+        <template #default="{ row }">
+          {{ row.label || row.run_name || "—" }}
+        </template>
+      </el-table-column>
+      <el-table-column prop="config_id" label="Config" width="72" show-overflow-tooltip class-name="col-config" />
+      <el-table-column label="Progress" min-width="96" show-overflow-tooltip class-name="col-progress">
+        <template #default="{ row }">
+          <template v-if="row.progress?.step != null">
+            step {{ row.progress.step }}
+            <template v-if="row.progress.max_steps">/ {{ row.progress.max_steps }}</template>
+            <span v-if="row.progress.loss != null" class="loss-cell">
+              · {{ Number(row.progress.loss).toFixed(4) }}
+            </span>
           </template>
-        </el-table-column>
-      </el-table>
-    </section>
+          <span v-else>—</span>
+        </template>
+      </el-table-column>
+      <el-table-column label="Updated" width="108" show-overflow-tooltip class-name="col-updated">
+        <template #default="{ row }">
+          {{ formatTime(row.progress?.updated_at || row.finished_at || row.started_at) }}
+        </template>
+      </el-table-column>
+      <el-table-column label="" width="188" align="right" class-name="col-actions">
+        <template #default="{ row }">
+          <el-space class="row-actions" @click.stop>
+            <el-tooltip content="Open run" placement="top">
+              <el-button size="small" :icon="View" circle @click.stop="openRun(row)" />
+            </el-tooltip>
+            <el-tooltip v-if="row.config_id" content="Edit config" placement="top">
+              <el-button size="small" :icon="Edit" circle @click.stop="goEditConfigId(row.config_id)" />
+            </el-tooltip>
+            <el-tooltip v-if="row.run_dir" content="Continue training" placement="top">
+              <el-button size="small" :icon="VideoPlay" circle @click.stop="goContinue(row)" />
+            </el-tooltip>
+            <template v-if="row.state === 'pending'">
+              <el-tooltip content="Run now" placement="top">
+                <el-button size="small" :icon="VideoPlay" circle @click.stop="startQueuedNow(row.job_id)" />
+              </el-tooltip>
+              <el-tooltip content="Move up" placement="top">
+                <el-button size="small" :icon="Top" circle @click.stop="move(row.job_id, 'up')" />
+              </el-tooltip>
+              <el-tooltip content="Move down" placement="top">
+                <el-button size="small" :icon="Bottom" circle @click.stop="move(row.job_id, 'down')" />
+              </el-tooltip>
+              <el-tooltip content="Remove" placement="top">
+                <el-button size="small" :icon="Delete" circle @click.stop="removeQueued(row.job_id)" />
+              </el-tooltip>
+            </template>
+            <el-tooltip v-if="row.state === 'running' || row.state === 'stopping'" content="Stop" placement="top">
+              <el-button size="small" :icon="VideoPause" circle @click.stop="stop(row.job_id)" />
+            </el-tooltip>
+          </el-space>
+        </template>
+      </el-table-column>
+    </el-table>
+    </div>
 
-    <el-collapse v-if="historyJobs.length" class="history-collapse">
-      <el-collapse-item title="History" name="history">
-        <el-table :data="historyJobs" stripe size="small" @row-click="(r) => goJob(r.id)">
-          <el-table-column prop="id" label="ID" min-width="100" />
-          <el-table-column prop="state" label="State" width="90">
-            <template #default="{ row }">
-              <el-tag :type="stateTag(row.state)" size="small">{{ row.state }}</el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column prop="config_id" label="Config" min-width="100" />
-          <el-table-column label="Run folder" min-width="120" show-overflow-tooltip>
-            <template #default="{ row }">
-              {{ runFolderLabel(row) }}
-            </template>
-          </el-table-column>
-          <el-table-column label="Finished" min-width="140">
-            <template #default="{ row }">
-              {{ formatTime(row.finished_at || row.started_at) }}
-            </template>
-          </el-table-column>
-        </el-table>
-      </el-collapse-item>
-    </el-collapse>
+    <div v-if="runsTotal > listPageSize" class="runs-pagination">
+      <el-pagination
+        v-model:current-page="listPage"
+        v-model:page-size="listPageSize"
+        :total="runsTotal"
+        :page-sizes="[10, 20, 50]"
+        layout="total, sizes, prev, pager, next"
+        small
+        background
+        @current-change="loadRuns"
+        @size-change="() => loadRuns(1)"
+      />
+    </div>
 
-    <el-empty
-      v-if="!runningJobs.length && !queueJobs.length && !historyJobs.length"
-      description="No jobs yet — add one to the queue above."
-    />
+    <el-empty v-if="!listLoading && !runs.length" description="No training runs yet — start one above." />
 
     <el-dialog
       v-model="importOpen"
@@ -325,15 +330,24 @@ import {
   FolderOpened,
   Plus,
   Top,
+  View,
   VideoPause,
   VideoPlay,
 } from "@element-plus/icons-vue";
 import { api } from "../api";
+import TrainLivePanel from "../components/TrainLivePanel.vue";
 import { getJobConfigId, setJobConfigId } from "../lib/jobConfigPick";
 
 const router = useRouter();
 
-const jobs = ref([]);
+const runs = ref([]);
+const runsTotal = ref(0);
+const listPage = ref(1);
+const listPageSize = ref(20);
+const listQuery = ref("");
+const stateFilter = ref("");
+const listLoading = ref(false);
+const activeRun = ref(null);
 const stats = ref({ running: 0, pending: 0 });
 const hasAnyConfig = ref(false);
 const configOptions = ref([]);
@@ -368,23 +382,16 @@ const editForm = reactive({
 });
 
 const runningJobs = computed(() =>
-  jobs.value.filter((j) => j.state === "running" || j.state === "stopping")
-);
-
-const queueJobs = computed(() =>
-  jobs.value
-    .filter((j) => j.state === "pending")
-    .sort((a, b) => (a.queue_position ?? 999) - (b.queue_position ?? 999))
-);
-
-const historyJobs = computed(() =>
-  jobs.value.filter((j) => !["running", "stopping", "pending"].includes(j.state))
+  runs.value.filter((j) => j.state === "running" || j.state === "stopping")
 );
 
 const canLaunch = computed(() => Boolean(configId.value && hasAnyConfig.value));
 
 function stateTag(state) {
+  if (state === "running" || state === "stopping") return "success";
+  if (state === "pending") return "warning";
   if (state === "finished") return "info";
+  if (state === "on_disk") return "";
   if (state === "stopped") return "warning";
   if (state === "failed") return "danger";
   return "";
@@ -460,7 +467,7 @@ async function confirmImportRun() {
     ElMessage.success("Run imported");
     importOpen.value = false;
     await refresh();
-    router.push(`/jobs/${job.id}`);
+    router.push({ name: "job-detail", params: { id: job.id } });
   } catch (e) {
     ElMessage.error(String(e));
   } finally {
@@ -493,26 +500,54 @@ function syncConfigSelection() {
   }
 }
 
+async function loadRuns(page = listPage.value) {
+  listLoading.value = true;
+  listPage.value = page;
+  try {
+    const data = await api.trainRuns({
+      page: listPage.value,
+      page_size: listPageSize.value,
+      q: listQuery.value.trim(),
+      state: stateFilter.value || "",
+      include_disk: true,
+    });
+    runs.value = data.items || [];
+    runsTotal.value = data.total ?? 0;
+    stats.value = data.stats || { running: 0, pending: 0 };
+  } catch (e) {
+    error.value = String(e);
+    runs.value = [];
+  } finally {
+    listLoading.value = false;
+  }
+}
+
+async function refreshActive() {
+  try {
+    const data = await api.trainActive();
+    activeRun.value = data.active || null;
+  } catch {
+    activeRun.value = null;
+  }
+}
+
 async function refresh() {
-  const j = await api.listJobs();
-  jobs.value = j.jobs || [];
-  stats.value = j.stats || { running: 0, pending: 0 };
-  await refreshConfigAvailability();
+  await Promise.all([loadRuns(listPage.value), refreshActive(), refreshConfigAvailability()]);
   syncConfigSelection();
   if (configId.value) checkConfig();
 }
 
 function goPickConfig() {
-  router.push({ name: "configs", query: { pick: "job" } });
+  router.push({ name: "configs-list", query: { pick: "job" } });
 }
 
 function goEditConfig() {
   if (!configId.value) return;
-  router.push({ name: "configs", query: { config: configId.value } });
+  router.push({ name: "configs-detail", params: { configId: String(configId.value) } });
 }
 
 function goCreateConfig() {
-  router.push({ name: "configs", query: { new: "1" } });
+  router.push({ name: "configs-new" });
 }
 
 async function checkConfig() {
@@ -544,7 +579,28 @@ onUnmounted(() => {
 });
 
 function goJob(id) {
-  router.push(`/jobs/${id}`);
+  router.push({ name: "job-detail", params: { id } });
+}
+
+function openRun(row) {
+  if (!row) return;
+  if (row.kind === "job" && row.job_id != null) {
+    goJob(row.job_id);
+    return;
+  }
+  if (row.run_name) {
+    router.push({ name: "run-detail", params: { name: row.run_name } });
+  }
+}
+
+function goEditConfigId(id) {
+  if (!id) return;
+  router.push({ name: "configs-detail", params: { configId: String(id) } });
+}
+
+function goContinue(row) {
+  if (!row?.run_dir) return;
+  router.push({ name: "configs-new", query: { continue_run: row.run_dir } });
 }
 
 async function enqueue() {
@@ -636,29 +692,26 @@ async function saveEdit() {
 .jobs-page {
   max-width: 100%;
 }
-.page-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 12px;
-  margin-bottom: 16px;
-}
-.page-title {
-  margin: 0;
-}
 .stats-line {
   display: flex;
-  gap: 12px;
+  gap: var(--rf-space-sm);
 }
 .stat-running {
   color: var(--el-color-success);
   font-weight: 600;
 }
-.mb-12 {
-  margin-bottom: 12px;
-}
-.launch-card :deep(.el-card__header) {
+.launch-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--rf-space-sm);
+  flex-wrap: wrap;
   font-weight: 600;
+}
+.launch-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rf-space-sm);
 }
 .launch-form :deep(.el-form-item) {
   margin-bottom: 0;
@@ -670,133 +723,66 @@ async function saveEdit() {
 .launch-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 8px;
+  gap: var(--rf-space-xs);
+  margin-bottom: var(--rf-space-xs);
 }
 .hint {
   display: block;
 }
-.job-section {
-  margin-bottom: 20px;
-}
-.section-title {
+.config-block--compact {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  font-size: 1rem;
-  margin: 0 0 10px;
-  font-weight: 600;
+  gap: var(--rf-space-sm);
 }
-.pulse-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--el-color-success);
-  animation: pulse 1.5s ease-in-out infinite;
+.config-block--compact .page-hint {
+  margin: 0;
 }
-@keyframes pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.35;
-  }
-}
-.job-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 12px;
-}
-.job-card {
-  cursor: pointer;
-  position: relative;
-}
-.job-card--active {
-  border-color: var(--el-color-success);
-}
-.job-card-top {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 6px;
-}
-.job-id {
-  font-size: 12px;
-}
-.job-meta {
-  font-size: 13px;
-  margin-bottom: 4px;
-}
-.job-meta.muted {
-  color: var(--el-text-color-secondary);
-  font-size: 12px;
-}
-.job-stop {
-  margin-top: 8px;
-}
-.queue-table {
-  width: 100%;
-}
-.history-collapse {
-  margin-top: 8px;
-}
-.w-full {
-  width: 100%;
-}
-.workflow-alert :deep(.el-alert__content) {
-  width: 100%;
-}
-.workflow-list {
-  margin: 8px 0 0;
-  padding-left: 1.2rem;
-  font-size: 13px;
-  line-height: 1.6;
-}
-.workflow-list a,
-.workflow-link {
-  color: var(--el-color-primary);
-  text-decoration: none;
-}
-.workflow-list a:hover,
-.workflow-link:hover {
-  text-decoration: underline;
-}
-.config-block {
-  padding: 12px;
-  border-radius: var(--el-border-radius-base);
-  background: var(--el-fill-color-light);
-  border: 1px solid var(--el-border-color-lighter);
-}
-.config-block--empty .config-hint {
-  margin: 0 0 12px;
-  font-size: 13px;
-  color: var(--el-text-color-secondary);
+.page-panel {
+  padding: 14px;
 }
 .config-selected-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 10px;
+  gap: var(--rf-space-xs);
+  margin-bottom: var(--rf-space-xs);
 }
 .config-id {
-  font-size: 14px;
-  font-weight: 600;
-}
-.import-hint {
-  margin: 0 0 12px;
+  font-family: var(--rf-font-mono);
   font-size: 13px;
-  color: var(--el-text-color-secondary);
-  line-height: 1.5;
 }
-.import-hint code {
+.runs-table-wrap {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+}
+.runs-table {
+  width: 100%;
+  cursor: pointer;
+}
+@media (max-width: 960px) {
+  .runs-table :deep(.col-updated),
+  .runs-table :deep(.col-config) {
+    display: none;
+  }
+}
+.loss-cell {
+  font-family: var(--rf-font-mono);
   font-size: 12px;
 }
+.runs-pagination {
+  margin-top: var(--rf-space-sm);
+  display: flex;
+  justify-content: flex-end;
+}
+.row-actions {
+  justify-content: flex-end;
+}
 .mt-8 {
-  margin-top: 8px;
+  margin-top: var(--rf-space-xs);
 }
 .mt-12 {
-  margin-top: 12px;
+  margin-top: var(--rf-space-sm);
 }
 </style>

@@ -105,8 +105,30 @@ def parse_toml(content: str) -> dict[str, Any]:
     return form
 
 
+def normalize_dataset_value(value: Any) -> Any:
+    """Single path string when one entry; list when several (matches TOML conventions)."""
+    if isinstance(value, list):
+        paths = [x.strip() for x in value if isinstance(x, str) and x.strip()]
+        if not paths:
+            return None
+        if len(paths) == 1:
+            return paths[0]
+        return paths
+    if isinstance(value, str):
+        s = value.strip()
+        return s if s else None
+    return value
+
+
 def form_to_config(form: dict[str, Any]) -> dict[str, Any]:
-    return unflatten_form(form)
+    config = unflatten_form(form)
+    if "dataset" in config:
+        normalized = normalize_dataset_value(config["dataset"])
+        if normalized is None:
+            config.pop("dataset", None)
+        else:
+            config["dataset"] = normalized
+    return config
 
 
 def form_to_toml(form: dict[str, Any]) -> str:

@@ -41,10 +41,19 @@ export function fieldEffectiveValue(field, form) {
 /** Dataset-only visibility (flat keys, no model.type). */
 export function datasetFieldVisible(field, form) {
   const path = field.path;
+  if (field.show_if_set && Object.prototype.hasOwnProperty.call(form, path)) {
+    return true;
+  }
   if (field.show_if_set && isFormValueFilled(form[path])) {
     return true;
   }
   if (field.show_when_field) {
+    if (Object.prototype.hasOwnProperty.call(form, path)) {
+      return true;
+    }
+    if (isFormValueFilled(form[path])) {
+      return true;
+    }
     if (form[field.show_when_field]) {
       return true;
     }

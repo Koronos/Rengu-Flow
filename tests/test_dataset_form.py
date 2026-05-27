@@ -29,7 +29,7 @@ num_repeats = 1
     assert cfg["resolutions"] == [1024, 512]
 
 
-def test_skips_empty_directory_rows() -> None:
+def test_renders_empty_path_directory_rows() -> None:
     form = {
         "_directories": [
             {"path": "", "num_repeats": 1},
@@ -39,9 +39,10 @@ def test_skips_empty_directory_rows() -> None:
         "frame_buckets": "[1]",
     }
     cfg = toml.loads(form_to_toml(form))
-    assert len(cfg["directory"]) == 1
-    assert cfg["directory"][0]["path"] == "/only/this"
-    assert cfg["directory"][0]["num_repeats"] == 3
+    assert len(cfg["directory"]) == 2
+    assert cfg["directory"][0]["path"] == ""
+    assert cfg["directory"][1]["path"] == "/only/this"
+    assert cfg["directory"][1]["num_repeats"] == 3
 
 
 def test_form_values_for_ui_fills_dataset_defaults() -> None:
@@ -51,6 +52,17 @@ def test_form_values_for_ui_fills_dataset_defaults() -> None:
     filled = form_values_for_ui(form, schema)
     assert filled["enable_ar_bucket"] is False
     assert filled["frame_buckets"] == [1]
+
+
+def test_parse_toml_to_form_skips_defaults_by_default() -> None:
+    from renga_flow_ui.dataset_form import parse_toml_to_form
+
+    form, _notes = parse_toml_to_form(
+        "resolutions = [768]\nframe_buckets = [1]\n\n[[directory]]\npath = '/x'\nnum_repeats = 1\n"
+    )
+    assert form["resolutions"] == [768]
+    assert "enable_ar_bucket" not in form
+    assert "shuffle_tags" not in form
 
 
 def test_parse_keeps_number_lists_as_arrays() -> None:

@@ -6,6 +6,8 @@ from typing import Any
 
 import toml
 
+from renga_flow.config.dataset_merge import merge_dataset_configs
+
 
 def load_config(path: str | Path, make_pickleable: bool = True) -> dict[str, Any]:
     """Load main TOML config from file.
@@ -26,21 +28,46 @@ def load_config(path: str | Path, make_pickleable: bool = True) -> dict[str, Any
     return config
 
 
+def normalize_dataset_paths(value: Any) -> list[str]:
+    """Return non-empty dataset path strings from a main-config ``dataset`` value."""
+    if value is None:
+        return []
+    if isinstance(value, str):
+        s = value.strip()
+        return [s] if s else []
+    if isinstance(value, list):
+        out: list[str] = []
+        for item in value:
+            if isinstance(item, str) and item.strip():
+                out.append(item.strip())
+        return out
+    return []
+
+
 def load_dataset_config(config: dict[str, Any]) -> dict[str, Any] | None:
-    """Load dataset TOML referenced by config['dataset'].
+    """Load dataset TOML(s) referenced by config['dataset'].
+
+    ``dataset`` may be a single path string or a list of paths. Multiple paths are
+    merged (all ``[[directory]]`` tables; globals from the first file), same as
+    composing datasets in the UI library.
 
     Args:
-        config: Main config dict; must contain 'dataset' key with a path to a TOML file.
+        config: Main config dict with optional ``dataset`` key.
 
     Returns:
-        Dataset config dict, or None if config has no 'dataset' key.
+        Dataset config dict, or None if config has no usable ``dataset`` value.
     """
-    dataset_path = config.get("dataset")
-    if dataset_path is None:
+    paths = normalize_dataset_paths(config.get("dataset"))
+    if not paths:
         return None
-    path = Path(dataset_path)
-    with open(path) as f:
-        return toml.load(f)
+    loaded: list[dict[str, Any]] = []
+    for dataset_path in paths:
+        with open(dataset_path, encoding="utf-8") as f:
+            loaded.append(toml.load(f))
+    if len(loaded) == 1:
+        return json.loads(json.dumps(loaded[0]))
+    merged = merge_dataset_configs(loaded)
+    return json.loads(json.dumps(merged))
 
 
 def load_eval_dataset_config(eval_entry: str | dict[str, Any]) -> tuple[str, dict[str, Any]]:

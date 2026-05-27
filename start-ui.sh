@@ -50,6 +50,8 @@ for arg in "$@"; do
       echo "Usage: ./start-ui.sh [--no-open] [--rebuild-web]"
       echo "  Host, port, and data dir: edit the config block at the top of start-ui.sh"
       echo ""
+      echo "Development (hot reload, no rebuild): ./start-ui-dev.sh"
+      echo ""
       echo "Keep this terminal open while the UI runs. Close the window to stop the server."
       exit 0
       ;;

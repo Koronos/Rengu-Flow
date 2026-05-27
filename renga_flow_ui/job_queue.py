@@ -69,7 +69,7 @@ def try_start_next() -> db.JobRecord | None:
 
 def prepare_job(
     *,
-    config_id: str | None,
+    config_id: str | int | None,
     content: str | None,
     num_gpus: int,
     resume_from: str | None,
@@ -147,8 +147,7 @@ def enqueue_continue_run(
     resume_arg = resume_checkpoint_arg(run_dir, cfg)
     cid = config_id
     if save_to_library:
-        cid = library_db._safe_id(config_id or f"{run_dir.name}_continued")
-        configs_store.write_config_text(cid, content)
+        cid = configs_store.insert_config(content)
 
     kwargs = dict(
         config_id=cid if save_to_library else None,

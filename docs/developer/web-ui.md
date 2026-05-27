@@ -36,6 +36,7 @@ User guide: **`docs/user/web-ui.md`**.
 | `renga_flow/control/status_file.py` | Opt-in `status.json` writer (trainer hook in `main.py`) |
 | `ui/web/` | Vite + Vue 3 + Element Plus SPA; build output `ui/web/dist/` |
 | `start-ui.sh` | User entrypoint: install `[ui]`, build web, `renga-flow-ui serve` |
+| `start-ui-dev.sh` | Dev: API `--reload` + Vite on port 5173 (proxies `/api`) |
 
 ## API prefix
 
@@ -72,7 +73,7 @@ On `POST /api/v1/jobs`:
 - Content column: full TOML string; index columns: `model_type`, `dataset_ref`, `directory_count`, `meta_json`
 - Library dataset reference in training TOML: `renga-flow-dataset:<id>` — resolved to a file under `staging/{job_id}/` at job start
 - **`compose_datasets(target_id, source_ids)`** — merges `[[directory]]` blocks into one library record
-- **`list_for_training_picker()`** — `renga-flow-dataset:…` refs + repo `examples/*dataset*.toml` paths
+- **`list_for_training_picker()`** — `renga-flow-dataset:…` refs from the SQLite library only (no repo `examples/` paths)
 - Import/export: `POST …/import`, `GET …/{id}/export`
 - Validation reuses **`validate_dataset_config_for_real_data`** from `renga_flow.data.dataset_config`
 

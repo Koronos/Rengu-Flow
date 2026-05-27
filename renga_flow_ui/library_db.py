@@ -1,4 +1,4 @@
-"""SQLite library for training configs and dataset TOML (content + index columns)."""
+"""SQLite library for training configs and dataset TOML (integer autoincrement ids)."""
 
 from __future__ import annotations
 
@@ -9,18 +9,29 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Iterator
-from uuid import uuid4
 
 import toml
 
 from renga_flow_ui.settings import db_path, ensure_data_dirs
 
-DATASET_REF_PREFIX = "renga-flow-dataset:"
+from renga_flow_ui.dataset_library_ref import (
+    DATASET_REF_PREFIX,
+    dataset_library_ref,
+    is_library_dataset_ref,
+    library_dataset_id_from_ref,
+)
+
+__all__ = [
+    "DATASET_REF_PREFIX",
+    "dataset_library_ref",
+    "is_library_dataset_ref",
+    "library_dataset_id_from_ref",
+]
 
 
 @dataclass
 class LibraryRecord:
-    id: str
+    id: int
     content: str
     created_at: str
     updated_at: str
@@ -35,8 +46,81 @@ def _now() -> str:
 
 
 def _safe_id(name: str) -> str:
+    """Sanitize a label for staging filenames (not used as DB primary keys)."""
     base = re.sub(r"[^a-zA-Z0-9._-]+", "_", name.strip()).strip("._")
-    return base or uuid4().hex[:8]
+    return base or "unnamed"
+
+
+def _coerce_record_id(record_id: str | int) -> int:
+    if isinstance(record_id, bool):
+        raise FileNotFoundError(record_id)
+    if isinstance(record_id, int):
+        return record_id
+    s = str(record_id).strip()
+    if not s.isdigit():
+        raise FileNotFoundError(record_id)
+    return int(s)
+
+
+def _safe_meta_json(raw: str | None) -> dict[str, Any]:
+    if not raw or not str(raw).strip():
+        return {}
+    try:
+        parsed = json.loads(raw)
+        return parsed if isinstance(parsed, dict) else {}
+    except json.JSONDecodeError:
+        return {}
+
+
+def _safe_int_column(val: Any, default: int = 0) -> int:
+    try:
+        return int(val)
+    except (TypeError, ValueError):
+        return default
+
+
+_DATASET_SORT_KEYS = frozenset({"id", "name", "created_at", "updated_at"})
+_CONFIG_SORT_KEYS = frozenset({"id", "name", "created_at", "updated_at"})
+DEFAULT_LIBRARY_SORT = "id"
+DEFAULT_LIBRARY_ORDER = "desc"
+
+
+def normalize_library_sort(
+    sort: str | None = None,
+    order: str | None = None,
+    *,
+    table: str = "datasets",
+) -> tuple[str, str]:
+    """Return validated ``(sort_key, asc|desc)`` for library list queries."""
+    allowed = _DATASET_SORT_KEYS if table == "datasets" else _CONFIG_SORT_KEYS
+    key = (sort or DEFAULT_LIBRARY_SORT).strip().lower()
+    if key not in allowed:
+        key = DEFAULT_LIBRARY_SORT
+    direction = (order or DEFAULT_LIBRARY_ORDER).strip().lower()
+    if direction not in ("asc", "desc"):
+        direction = DEFAULT_LIBRARY_ORDER
+    return key, direction
+
+
+def _library_order_clause(
+    sort: str | None = None,
+    order: str | None = None,
+    *,
+    table: str = "datasets",
+) -> str:
+    key, direction = normalize_library_sort(sort, order, table=table)
+    dir_sql = direction.upper()
+    id_tie = f", id {dir_sql}"
+    if key == "name":
+        if table == "datasets":
+            return f"ORDER BY name COLLATE NOCASE {dir_sql}{id_tie}"
+        return (
+            "ORDER BY COALESCE(json_extract(meta_json, '$.run_name'), '') "
+            f"COLLATE NOCASE {dir_sql}{id_tie}"
+        )
+    if key == "id":
+        return f"ORDER BY id {dir_sql}"
+    return f"ORDER BY {key} {dir_sql}{id_tie}"
 
 
 def _connect() -> sqlite3.Connection:
@@ -50,7 +134,7 @@ def init_library_tables(conn: sqlite3.Connection) -> None:
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS training_configs (
-            id TEXT PRIMARY KEY,
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
             content TEXT NOT NULL,
             model_type TEXT,
             dataset_ref TEXT,
@@ -63,7 +147,7 @@ def init_library_tables(conn: sqlite3.Connection) -> None:
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS datasets (
-            id TEXT PRIMARY KEY,
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
             content TEXT NOT NULL,
             directory_count INTEGER NOT NULL DEFAULT 0,
             meta_json TEXT NOT NULL DEFAULT '{}',
@@ -81,6 +165,34 @@ def init_library_tables(conn: sqlite3.Connection) -> None:
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_datasets_updated ON datasets(updated_at)"
     )
+    _migrate_datasets_name(conn)
+
+
+def _migrate_datasets_name(conn: sqlite3.Connection) -> None:
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(datasets)").fetchall()}
+    if "name" not in cols:
+        conn.execute("ALTER TABLE datasets ADD COLUMN name TEXT NOT NULL DEFAULT ''")
+        rows = conn.execute("SELECT id FROM datasets").fetchall()
+        for row in rows:
+            did = int(row["id"])
+            conn.execute(
+                "UPDATE datasets SET name = ? WHERE id = ? AND (name IS NULL OR name = '')",
+                (f"Dataset {did}", did),
+            )
+
+
+def _normalize_dataset_name(name: str | None, dataset_id: int | None = None) -> str:
+    s = (name or "").strip()
+    if s:
+        return s[:200]
+    if dataset_id is not None:
+        return f"Dataset {dataset_id}"
+    return ""
+
+
+def _dataset_display_name(raw_name: str | None, dataset_id: int) -> str:
+    s = (raw_name or "").strip()
+    return s if s else f"Dataset {dataset_id}"
 
 
 @contextmanager
@@ -94,18 +206,6 @@ def _cursor() -> Iterator[sqlite3.Cursor]:
         conn.close()
 
 
-def dataset_library_ref(dataset_id: str) -> str:
-    return f"{DATASET_REF_PREFIX}{_safe_id(dataset_id)}"
-
-
-def is_library_dataset_ref(value: str) -> bool:
-    return isinstance(value, str) and value.startswith(DATASET_REF_PREFIX)
-
-
-def library_dataset_id_from_ref(value: str) -> str:
-    return _safe_id(value[len(DATASET_REF_PREFIX) :])
-
-
 def _extract_config_index(content: str) -> tuple[str | None, str | None, dict[str, Any]]:
     try:
         cfg = toml.loads(content)
@@ -113,7 +213,24 @@ def _extract_config_index(content: str) -> tuple[str | None, str | None, dict[st
         return None, None, {}
     model = cfg.get("model") if isinstance(cfg.get("model"), dict) else {}
     model_type = model.get("type") if isinstance(model, dict) else None
-    dataset_ref = cfg.get("dataset") if isinstance(cfg.get("dataset"), str) else None
+    dataset_val = cfg.get("dataset")
+    def _index_dataset_ref(raw: str | None) -> str | None:
+        if not raw:
+            return None
+        if is_library_dataset_ref(raw):
+            try:
+                return f"{DATASET_REF_PREFIX}{library_dataset_id_from_ref(raw)}"
+            except ValueError:
+                return raw
+        return raw
+
+    if isinstance(dataset_val, str):
+        dataset_ref = _index_dataset_ref(dataset_val.strip() or None)
+    elif isinstance(dataset_val, list):
+        parts = [x.strip() for x in dataset_val if isinstance(x, str) and x.strip()]
+        dataset_ref = _index_dataset_ref(parts[0] if parts else None)
+    else:
+        dataset_ref = None
     meta: dict[str, Any] = {}
     if isinstance(cfg.get("run_name"), str):
         meta["run_name"] = cfg["run_name"]
@@ -127,56 +244,74 @@ def _extract_config_index(content: str) -> tuple[str | None, str | None, dict[st
 
 
 def _extract_dataset_index(content: str) -> tuple[int, dict[str, Any]]:
+    from renga_flow_ui.dataset_form import parse_toml_to_form
+
+    stripped = (content or "").strip()
+    if not stripped:
+        return 0, {}
+
     try:
-        cfg = toml.loads(content)
+        form, _warnings = parse_toml_to_form(stripped)
     except Exception:
         return 0, {}
-    directories = cfg.get("directory") or []
-    if not isinstance(directories, list):
-        directories = []
-    meta: dict[str, Any] = {
-        "resolutions": cfg.get("resolutions"),
-        "frame_buckets": cfg.get("frame_buckets"),
-    }
-    paths = []
+
+    directories = form.get("_directories") or []
+    paths: list[str] = []
     for entry in directories:
-        if isinstance(entry, dict) and entry.get("path"):
-            paths.append(str(entry["path"]))
+        if not isinstance(entry, dict):
+            continue
+        path_val = entry.get("path")
+        if isinstance(path_val, str) and path_val.strip():
+            paths.append(path_val.strip())
+
+    meta: dict[str, Any] = {}
+    resolutions = form.get("resolutions")
+    if resolutions is not None:
+        meta["resolutions"] = resolutions
+    frame_buckets = form.get("frame_buckets")
+    if frame_buckets is not None:
+        meta["frame_buckets"] = frame_buckets
     if paths:
         meta["directory_paths"] = paths[:32]
-    return len(directories), meta
+    return len(paths), meta
 
 
 # --- Training configs ---
 
 
-def list_config_ids() -> list[str]:
+def list_config_ids() -> list[int]:
     with _connect() as conn:
         init_library_tables(conn)
         rows = conn.execute(
-            "SELECT id FROM training_configs ORDER BY updated_at DESC"
+            f"SELECT id FROM training_configs {_library_order_clause(table='configs')}"
         ).fetchall()
-    return [r["id"] for r in rows]
+    return [int(r["id"]) for r in rows]
 
 
 def _config_summary_row(r: sqlite3.Row) -> dict[str, Any]:
-    meta = json.loads(r["meta_json"] or "{}")
+    meta = _safe_meta_json(r["meta_json"])
     return {
-        "id": r["id"],
+        "id": int(r["id"]),
         "model_type": r["model_type"],
         "dataset_ref": r["dataset_ref"],
+        "created_at": r["created_at"],
         "updated_at": r["updated_at"],
         "run_name": meta.get("run_name"),
     }
 
 
-def list_configs_summary() -> list[dict[str, Any]]:
+def list_configs_summary(
+    *,
+    sort: str | None = None,
+    order: str | None = None,
+) -> list[dict[str, Any]]:
+    clause = _library_order_clause(sort, order, table="configs")
     with _connect() as conn:
         init_library_tables(conn)
         rows = conn.execute(
-            """
-            SELECT id, model_type, dataset_ref, updated_at, meta_json
-            FROM training_configs ORDER BY updated_at DESC
+            f"""
+            SELECT id, model_type, dataset_ref, created_at, updated_at, meta_json
+            FROM training_configs {clause}
             """
         ).fetchall()
     return [_config_summary_row(r) for r in rows]
@@ -187,8 +322,9 @@ def search_configs(
     *,
     page: int = 1,
     page_size: int = 20,
+    sort: str | None = None,
+    order: str | None = None,
 ) -> dict[str, Any]:
-    """Paginated config library search (id, model_type, dataset_ref)."""
     page = max(1, page)
     page_size = max(1, min(100, page_size))
     offset = (page - 1) * page_size
@@ -198,7 +334,7 @@ def search_configs(
     params: list[Any] = []
     if term:
         where = (
-            "WHERE id LIKE ? OR COALESCE(model_type, '') LIKE ? "
+            "WHERE CAST(id AS TEXT) LIKE ? OR COALESCE(model_type, '') LIKE ? "
             "OR COALESCE(dataset_ref, '') LIKE ?"
         )
         params = [like, like, like]
@@ -209,11 +345,12 @@ def search_configs(
             params,
         ).fetchone()
         total = int(total_row["n"]) if total_row else 0
+        clause = _library_order_clause(sort, order, table="configs")
         rows = conn.execute(
             f"""
-            SELECT id, model_type, dataset_ref, updated_at, meta_json
+            SELECT id, model_type, dataset_ref, created_at, updated_at, meta_json
             FROM training_configs {where}
-            ORDER BY updated_at DESC
+            {clause}
             LIMIT ? OFFSET ?
             """,
             (*params, page_size, offset),
@@ -226,8 +363,8 @@ def search_configs(
     }
 
 
-def config_exists(config_id: str) -> bool:
-    cid = _safe_id(config_id)
+def config_exists(config_id: str | int) -> bool:
+    cid = _coerce_record_id(config_id)
     with _connect() as conn:
         init_library_tables(conn)
         row = conn.execute(
@@ -236,8 +373,8 @@ def config_exists(config_id: str) -> bool:
     return row is not None
 
 
-def read_config_text(config_id: str) -> str:
-    cid = _safe_id(config_id)
+def read_config_text(config_id: str | int) -> str:
+    cid = _coerce_record_id(config_id)
     with _connect() as conn:
         init_library_tables(conn)
         row = conn.execute(
@@ -248,89 +385,101 @@ def read_config_text(config_id: str) -> str:
     return row["content"]
 
 
-def write_config_text(config_id: str, content: str) -> str:
-    cid = _safe_id(config_id)
+def insert_config(content: str) -> int:
     now = _now()
     model_type, dataset_ref, meta = _extract_config_index(content)
     meta_json = json.dumps(meta)
     with _cursor() as cur:
-        exists = cur.execute(
-            "SELECT id FROM training_configs WHERE id = ?", (cid,)
-        ).fetchone()
-        if exists:
-            cur.execute(
-                """
-                UPDATE training_configs
-                SET content = ?, model_type = ?, dataset_ref = ?, meta_json = ?, updated_at = ?
-                WHERE id = ?
-                """,
-                (content, model_type, dataset_ref, meta_json, now, cid),
-            )
-        else:
-            cur.execute(
-                """
-                INSERT INTO training_configs (
-                    id, content, model_type, dataset_ref, meta_json, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                (cid, content, model_type, dataset_ref, meta_json, now, now),
-            )
+        cur.execute(
+            """
+            INSERT INTO training_configs (
+                content, model_type, dataset_ref, meta_json, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (content, model_type, dataset_ref, meta_json, now, now),
+        )
+        return int(cur.lastrowid)
+
+
+def update_config_text(config_id: str | int, content: str) -> int:
+    cid = _coerce_record_id(config_id)
+    now = _now()
+    model_type, dataset_ref, meta = _extract_config_index(content)
+    meta_json = json.dumps(meta)
+    with _cursor() as cur:
+        cur.execute(
+            """
+            UPDATE training_configs
+            SET content = ?, model_type = ?, dataset_ref = ?, meta_json = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (content, model_type, dataset_ref, meta_json, now, cid),
+        )
+        if cur.rowcount == 0:
+            raise FileNotFoundError(config_id)
     return cid
 
 
-def delete_config(config_id: str) -> None:
-    cid = _safe_id(config_id)
+def delete_config(config_id: str | int) -> None:
+    cid = _coerce_record_id(config_id)
     with _cursor() as cur:
         cur.execute("DELETE FROM training_configs WHERE id = ?", (cid,))
         if cur.rowcount == 0:
             raise FileNotFoundError(config_id)
 
 
-def duplicate_config(config_id: str, new_id: str | None = None) -> str:
+def duplicate_config(config_id: str | int) -> int:
     text = read_config_text(config_id)
-    target = _safe_id(new_id or f"{config_id}_copy")
-    while config_exists(target):
-        target = _safe_id(f"{target}_{uuid4().hex[:4]}")
-    write_config_text(target, text)
-    return target
+    return insert_config(text)
 
 
-def write_config_temp_file(config_id: str, *, staging_dir) -> "Path":
+def write_config_temp_file(config_id: str | int, *, staging_dir) -> "Path":
     from pathlib import Path
 
-    path = Path(staging_dir) / f"_validate_{_safe_id(config_id)}.toml"
+    cid = _coerce_record_id(config_id)
+    path = Path(staging_dir) / f"_validate_{cid}.toml"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(read_config_text(config_id), encoding="utf-8")
+    path.write_text(read_config_text(cid), encoding="utf-8")
     return path
 
 
 # --- Datasets ---
 
 
-def list_dataset_ids() -> list[str]:
+def list_dataset_ids() -> list[int]:
     with _connect() as conn:
         init_library_tables(conn)
-        rows = conn.execute("SELECT id FROM datasets ORDER BY updated_at DESC").fetchall()
-    return [r["id"] for r in rows]
+        rows = conn.execute(
+            f"SELECT id FROM datasets {_library_order_clause(table='datasets')}"
+        ).fetchall()
+    return [int(r["id"]) for r in rows]
 
 
 def _dataset_summary_row(r: sqlite3.Row) -> dict[str, Any]:
-    meta = json.loads(r["meta_json"] or "{}")
+    meta = _safe_meta_json(r["meta_json"])
+    did = int(r["id"])
     return {
-        "id": r["id"],
-        "directory_count": r["directory_count"],
+        "id": did,
+        "name": _dataset_display_name(r["name"] if "name" in r.keys() else "", did),
+        "directory_count": _safe_int_column(r["directory_count"], 0),
+        "created_at": r["created_at"],
         "updated_at": r["updated_at"],
         "directory_paths": meta.get("directory_paths") or [],
     }
 
 
-def list_datasets_summary() -> list[dict[str, Any]]:
+def list_datasets_summary(
+    *,
+    sort: str | None = None,
+    order: str | None = None,
+) -> list[dict[str, Any]]:
+    clause = _library_order_clause(sort, order, table="datasets")
     with _connect() as conn:
         init_library_tables(conn)
         rows = conn.execute(
-            """
-            SELECT id, directory_count, updated_at, meta_json
-            FROM datasets ORDER BY updated_at DESC
+            f"""
+            SELECT id, name, directory_count, created_at, updated_at, meta_json
+            FROM datasets {clause}
             """
         ).fetchall()
     return [_dataset_summary_row(r) for r in rows]
@@ -341,8 +490,9 @@ def search_datasets(
     *,
     page: int = 1,
     page_size: int = 20,
+    sort: str | None = None,
+    order: str | None = None,
 ) -> dict[str, Any]:
-    """Paginated dataset library search (id, paths in meta_json)."""
     page = max(1, page)
     page_size = max(1, min(100, page_size))
     offset = (page - 1) * page_size
@@ -351,8 +501,11 @@ def search_datasets(
     where = ""
     params: list[Any] = []
     if term:
-        where = "WHERE id LIKE ? OR COALESCE(meta_json, '') LIKE ?"
-        params = [like, like]
+        where = (
+            "WHERE CAST(id AS TEXT) LIKE ? OR COALESCE(name, '') LIKE ? "
+            "OR COALESCE(meta_json, '') LIKE ?"
+        )
+        params = [like, like, like]
     with _connect() as conn:
         init_library_tables(conn)
         total_row = conn.execute(
@@ -360,11 +513,12 @@ def search_datasets(
             params,
         ).fetchone()
         total = int(total_row["n"]) if total_row else 0
+        clause = _library_order_clause(sort, order, table="datasets")
         rows = conn.execute(
             f"""
-            SELECT id, directory_count, updated_at, meta_json
+            SELECT id, name, directory_count, created_at, updated_at, meta_json
             FROM datasets {where}
-            ORDER BY updated_at DESC
+            {clause}
             LIMIT ? OFFSET ?
             """,
             (*params, page_size, offset),
@@ -377,32 +531,112 @@ def search_datasets(
     }
 
 
-def dataset_exists(dataset_id: str) -> bool:
-    did = _safe_id(dataset_id)
+def dataset_exists(dataset_id: str | int) -> bool:
+    did = _coerce_record_id(dataset_id)
     with _connect() as conn:
         init_library_tables(conn)
         row = conn.execute("SELECT 1 FROM datasets WHERE id = ?", (did,)).fetchone()
     return row is not None
 
 
-def read_dataset_text(dataset_id: str) -> str:
-    did = _safe_id(dataset_id)
+def read_dataset_row(dataset_id: str | int) -> dict[str, Any]:
+    did = _coerce_record_id(dataset_id)
     with _connect() as conn:
         init_library_tables(conn)
-        row = conn.execute("SELECT content FROM datasets WHERE id = ?", (did,)).fetchone()
+        row = conn.execute(
+            "SELECT id, name, content FROM datasets WHERE id = ?", (did,)
+        ).fetchone()
     if row is None:
         raise FileNotFoundError(dataset_id)
-    return row["content"]
+    raw = row["content"]
+    content = "" if raw is None else (raw if isinstance(raw, str) else str(raw))
+    return {
+        "id": did,
+        "name": _dataset_display_name(row["name"], did),
+        "content": content,
+    }
 
 
-def write_dataset_text(dataset_id: str, content: str) -> str:
-    did = _safe_id(dataset_id)
+def read_dataset_text(dataset_id: str | int) -> str:
+    return read_dataset_row(dataset_id)["content"]
+
+
+def refresh_dataset_index(dataset_id: str | int) -> None:
+    did = _coerce_record_id(dataset_id)
+    with _cursor() as cur:
+        row = cur.execute("SELECT content FROM datasets WHERE id = ?", (did,)).fetchone()
+        if row is None:
+            raise FileNotFoundError(dataset_id)
+        content = row["content"]
+        if content is None:
+            content = ""
+        elif not isinstance(content, str):
+            content = str(content)
+        directory_count, meta = _extract_dataset_index(content)
+        cur.execute(
+            """
+            UPDATE datasets
+            SET directory_count = ?, meta_json = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (directory_count, json.dumps(meta), _now(), did),
+        )
+
+
+def insert_dataset(content: str, name: str | None = None) -> int:
+    from renga_flow_ui.datasets_store import prepare_dataset_content_for_storage
+
     now = _now()
+    content = prepare_dataset_content_for_storage(content, name)
     directory_count, meta = _extract_dataset_index(content)
     meta_json = json.dumps(meta)
     with _cursor() as cur:
-        exists = cur.execute("SELECT id FROM datasets WHERE id = ?", (did,)).fetchone()
-        if exists:
+        cur.execute(
+            """
+            INSERT INTO datasets (
+                content, name, directory_count, meta_json, created_at, updated_at
+            ) VALUES (?, '', ?, ?, ?, ?)
+            """,
+            (content, directory_count, meta_json, now, now),
+        )
+        did = int(cur.lastrowid)
+        final_name = _normalize_dataset_name(name, did)
+        cur.execute("UPDATE datasets SET name = ? WHERE id = ?", (final_name, did))
+        return did
+
+
+def update_dataset_text(
+    dataset_id: str | int,
+    content: str,
+    *,
+    name: str | None = None,
+) -> int:
+    did = _coerce_record_id(dataset_id)
+    now = _now()
+    from renga_flow_ui.datasets_store import prepare_dataset_content_for_storage
+
+    row = None
+    if name is None:
+        try:
+            row = read_dataset_row(did)
+        except FileNotFoundError:
+            pass
+    storage_name = name if name is not None else (row["name"] if row else None)
+    content = prepare_dataset_content_for_storage(content, storage_name)
+    directory_count, meta = _extract_dataset_index(content)
+    meta_json = json.dumps(meta)
+    with _cursor() as cur:
+        if name is not None:
+            final_name = _normalize_dataset_name(name, did)
+            cur.execute(
+                """
+                UPDATE datasets
+                SET content = ?, name = ?, directory_count = ?, meta_json = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (content, final_name, directory_count, meta_json, now, did),
+            )
+        else:
             cur.execute(
                 """
                 UPDATE datasets
@@ -411,30 +645,24 @@ def write_dataset_text(dataset_id: str, content: str) -> str:
                 """,
                 (content, directory_count, meta_json, now, did),
             )
-        else:
-            cur.execute(
-                """
-                INSERT INTO datasets (
-                    id, content, directory_count, meta_json, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (did, content, directory_count, meta_json, now, now),
-            )
+        if cur.rowcount == 0:
+            raise FileNotFoundError(dataset_id)
     return did
 
 
-def delete_dataset(dataset_id: str) -> None:
-    did = _safe_id(dataset_id)
+def delete_dataset(dataset_id: str | int) -> None:
+    did = _coerce_record_id(dataset_id)
     with _cursor() as cur:
         cur.execute("DELETE FROM datasets WHERE id = ?", (did,))
         if cur.rowcount == 0:
             raise FileNotFoundError(dataset_id)
 
 
-def duplicate_dataset(dataset_id: str, new_id: str | None = None) -> str:
-    text = read_dataset_text(dataset_id)
-    target = _safe_id(new_id or f"{dataset_id}_copy")
-    while dataset_exists(target):
-        target = _safe_id(f"{target}_{uuid4().hex[:4]}")
-    write_dataset_text(target, text)
-    return target
+def duplicate_dataset(dataset_id: str | int) -> int:
+    row = read_dataset_row(dataset_id)
+    base = row["name"]
+    if base.startswith("Dataset ") and base[8:].isdigit():
+        copy_name = f"Dataset {row['id']} (copy)"
+    else:
+        copy_name = f"{base} (copy)" if base else None
+    return insert_dataset(row["content"], name=copy_name)

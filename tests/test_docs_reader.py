@@ -2,7 +2,7 @@
 
 import pytest
 
-from renga_flow_ui.docs_reader import DocNotFoundError, DocPathError, read_doc
+from renga_flow_ui.docs_reader import DocNotFoundError, DocPathError, list_docs_index, read_doc
 
 
 def test_read_web_ui_doc() -> None:
@@ -19,3 +19,12 @@ def test_reject_path_traversal() -> None:
 def test_missing_doc() -> None:
     with pytest.raises(DocNotFoundError):
         read_doc("docs/user/does-not-exist-xyz.md")
+
+
+def test_list_docs_index() -> None:
+    items = list_docs_index()
+    assert len(items) >= 1
+    paths = {item["path"] for item in items}
+    assert "docs/user/web-ui.md" in paths
+    web_ui = next(i for i in items if i["path"] == "docs/user/web-ui.md")
+    assert web_ui["title"]

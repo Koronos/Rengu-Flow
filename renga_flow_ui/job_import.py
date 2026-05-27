@@ -97,7 +97,7 @@ def import_run(
     if config_path is None:
         raise JobImportError("No training config .toml found in the run folder")
 
-    lib_config_id: str | None = None
+    lib_config_id: int | None = None
     if import_config:
         lib_config_id = _import_config_from_run(
             run_dir,
@@ -109,8 +109,7 @@ def import_run(
     elif import_dataset:
         ds_path = _dataset_file_in_run(run_dir, config_path)
         if ds_path is not None:
-            did = library_db._safe_id(dataset_id or f"{run_dir.name}_dataset")
-            library_db.write_dataset_text(did, ds_path.read_text(encoding="utf-8"))
+            did = datasets_store.insert_dataset(ds_path.read_text(encoding="utf-8"))
 
     started_at, finished_at = _infer_timestamps(run_dir, desc)
     log_path = _write_import_log(run_dir, config_path, lib_config_id)
@@ -118,7 +117,7 @@ def import_run(
     return db.create_imported_job(
         run_dir=run_dir_s,
         config_path=str(config_path.resolve()),
-        config_id=lib_config_id or library_db._safe_id(run_dir.name),
+        config_id=lib_config_id,
         output_dir=str(run_dir.parent),
         log_path=str(log_path),
         started_at=started_at,
@@ -135,24 +134,20 @@ def _import_config_from_run(
     config_id: str | None,
     import_dataset: bool,
     dataset_id: str | None,
-) -> str:
+) -> int:
     content = config_path.read_text(encoding="utf-8")
     try:
         cfg = toml.loads(content)
     except Exception as e:
         raise JobImportError(f"Could not parse config TOML: {e}") from e
 
-    cid = library_db._safe_id(config_id or run_dir.name)
-
     if import_dataset:
         ds_path = _dataset_file_in_run(run_dir, config_path, cfg)
         if ds_path is not None:
-            did = library_db._safe_id(dataset_id or f"{cid}_dataset")
-            datasets_store.write_dataset_text(did, ds_path.read_text(encoding="utf-8"))
+            did = datasets_store.insert_dataset(ds_path.read_text(encoding="utf-8"))
             cfg["dataset"] = datasets_store.dataset_library_ref(did)
 
-    configs_store.write_config_text(cid, toml.dumps(cfg))
-    return cid
+    return configs_store.insert_config(toml.dumps(cfg))
 
 
 def _dataset_file_in_run(
@@ -161,13 +156,15 @@ def _dataset_file_in_run(
     cfg: dict[str, Any] | None = None,
 ) -> Path | None:
     candidates: list[Path] = []
-    if cfg and isinstance(cfg.get("dataset"), str):
-        ds_val = cfg["dataset"].strip()
-        if ds_val and not library_db.is_library_dataset_ref(ds_val):
-            p = Path(ds_val)
-            if not p.is_absolute():
-                p = run_dir / p
-            candidates.append(p)
+    if cfg:
+        from renga_flow.config.loader import normalize_dataset_paths
+
+        for ds_val in normalize_dataset_paths(cfg.get("dataset")):
+            if not library_db.is_library_dataset_ref(ds_val):
+                p = Path(ds_val)
+                if not p.is_absolute():
+                    p = run_dir / p
+                candidates.append(p)
     for name in ("dataset.toml",):
         candidates.append(run_dir / name)
     if config_path:

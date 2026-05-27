@@ -1,5 +1,6 @@
 <template>
-  <div class="host-stats" @click="drawerOpen = true">
+  <div class="host-stats-root" v-bind="$attrs">
+    <div class="host-stats" @click="drawerOpen = true">
     <template v-if="loading && !stats">
       <span class="chip muted">Host…</span>
     </template>
@@ -55,9 +56,9 @@
     </template>
     <span v-else class="chip muted">Host unavailable</span>
     <el-icon class="expand-hint"><ArrowDown /></el-icon>
-  </div>
+    </div>
 
-  <el-drawer
+    <el-drawer
     v-model="drawerOpen"
     title="Host metrics"
     direction="rtl"
@@ -213,11 +214,14 @@
       <el-empty v-else :description="detail.gpus?.error || 'No GPU data'" :image-size="48" />
     </div>
     <el-skeleton v-else :rows="6" animated />
-  </el-drawer>
+    </el-drawer>
+  </div>
 </template>
 
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from "vue";
+
+defineOptions({ inheritAttrs: false });
 import { ArrowDown } from "@element-plus/icons-vue";
 import { api } from "../api";
 import { useBreakpoint } from "../composables/useBreakpoint";
@@ -314,8 +318,8 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 6px;
-  flex: 1;
-  min-width: 0;
+  flex-shrink: 0;
+  max-width: min(100%, 720px);
   overflow-x: auto;
   cursor: pointer;
   padding: 4px 8px;

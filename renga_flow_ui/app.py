@@ -13,13 +13,13 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from starlette.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from renga_flow_ui import configs_store, datasets_store, db, jobs, metrics_tb, runs_scanner, signals
 from renga_flow_ui.dataset_form import form_to_toml as dataset_form_to_toml
-from renga_flow_ui.dataset_form import parse_toml as dataset_parse_toml
+from renga_flow_ui.dataset_form import parse_toml_to_form
 from renga_flow_ui.dataset_image_preview import (
     list_dataset_preview_images,
     resolve_image_token,
@@ -46,12 +46,16 @@ API_PREFIX = "/api/v1"
 
 
 class ConfigCreate(BaseModel):
-    id: str | None = None
     content: str
 
 
 class ConfigUpdate(BaseModel):
     content: str
+
+
+class ConfigExportBody(BaseModel):
+    content: str
+    name: str | None = None
 
 
 class ValidateBody(BaseModel):
@@ -60,7 +64,7 @@ class ValidateBody(BaseModel):
 
 
 class RunStart(BaseModel):
-    config_id: str | None = None
+    config_id: int | str | None = None
     content: str | None = None
     num_gpus: int = Field(default=1, ge=1)
     resume_from: str | None = None
@@ -74,7 +78,7 @@ class RunStart(BaseModel):
 
 
 class JobUpdate(BaseModel):
-    config_id: str | None = None
+    config_id: int | str | None = None
     num_gpus: int | None = Field(default=None, ge=1)
     resume_from: str | None = None
     output_dir: str | None = None
@@ -135,17 +139,17 @@ class RegistryProbeBody(BaseModel):
 
 
 class DatasetCreate(BaseModel):
-    id: str | None = None
     content: str
+    name: str | None = None
 
 
 class DatasetUpdate(BaseModel):
     content: str
+    name: str | None = None
 
 
 class DatasetComposeBody(BaseModel):
-    target_id: str
-    source_ids: list[str]
+    source_ids: list[int]
 
 
 class DatasetScanBody(BaseModel):
@@ -199,10 +203,14 @@ def create_app() -> FastAPI:
         q: str | None = None,
         page: int | None = Query(None, ge=1),
         page_size: int = Query(20, ge=1, le=100),
+        sort: str = Query("id", description="id | name | created_at | updated_at"),
+        order: str = Query("desc", description="asc | desc"),
     ) -> dict[str, Any]:
         if page is not None:
-            return configs_store.search_configs_page(q or "", page=page, page_size=page_size)
-        return {"configs": configs_store.list_configs_summary()}
+            return configs_store.search_configs_page(
+                q or "", page=page, page_size=page_size, sort=sort, order=order
+            )
+        return {"configs": configs_store.list_configs_summary(sort=sort, order=order)}
 
     @app.get(f"{API_PREFIX}/configs/{{config_id}}")
     def get_config(config_id: str) -> dict[str, str]:
@@ -211,40 +219,50 @@ def create_app() -> FastAPI:
         except FileNotFoundError:
             raise HTTPException(404, "Config not found")
 
+    def _training_export_response(content: str, bundle_stem: str) -> Response:
+        from renga_flow_ui.training_export import build_training_export_zip
+
+        try:
+            zip_bytes, filename = build_training_export_zip(content, bundle_stem=bundle_stem)
+        except FileNotFoundError as e:
+            raise HTTPException(404, str(e)) from e
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from e
+        return Response(
+            content=zip_bytes,
+            media_type="application/zip",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
     @app.get(f"{API_PREFIX}/configs/{{config_id}}/export")
-    def export_config(config_id: str) -> dict[str, str]:
+    def export_config(config_id: str) -> Response:
         try:
             content = configs_store.read_config_text(config_id)
         except FileNotFoundError:
             raise HTTPException(404, "Config not found")
-        return {"id": config_id, "content": content, "filename": f"{config_id}.toml"}
+        return _training_export_response(content, bundle_stem=str(config_id))
+
+    @app.post(f"{API_PREFIX}/configs/export-bundle")
+    def export_config_bundle(body: ConfigExportBody) -> Response:
+        stem = (body.name or "training_export").strip() or "training_export"
+        return _training_export_response(body.content, bundle_stem=stem)
 
     @app.post(f"{API_PREFIX}/configs")
-    def post_config(body: ConfigCreate) -> dict[str, str]:
-        cid = configs_store._safe_id(body.id or "config")
-        if configs_store.config_exists(cid) and body.id:
-            raise HTTPException(409, "Config already exists")
-        while configs_store.config_exists(cid):
-            cid = configs_store._safe_id(f"{cid}_new")
-        configs_store.write_config_text(cid, body.content)
+    def post_config(body: ConfigCreate) -> dict[str, int]:
+        cid = configs_store.create_config(body.content)
         return {"id": cid}
 
     @app.post(f"{API_PREFIX}/configs/import")
-    def import_config(body: ConfigCreate) -> dict[str, str]:
-        """Import TOML from drag-drop or paste (create or replace by id)."""
-        cid = configs_store._safe_id(body.id or "imported_config")
-        if not body.id:
-            while configs_store.config_exists(cid):
-                cid = configs_store._safe_id(f"{cid}_new")
-        configs_store.write_config_text(cid, body.content)
+    def import_config(body: ConfigCreate) -> dict[str, int]:
+        cid = configs_store.create_config(body.content)
         return {"id": cid}
 
     @app.put(f"{API_PREFIX}/configs/{{config_id}}")
-    def put_config(config_id: str, body: ConfigUpdate) -> dict[str, str]:
+    def put_config(config_id: str, body: ConfigUpdate) -> dict[str, int]:
         if not configs_store.config_exists(config_id):
             raise HTTPException(404, "Config not found")
-        configs_store.write_config_text(config_id, body.content)
-        return {"id": config_id}
+        cid = configs_store.update_config_text(config_id, body.content)
+        return {"id": cid}
 
     @app.delete(f"{API_PREFIX}/configs/{{config_id}}")
     def delete_config(config_id: str) -> dict[str, bool]:
@@ -255,9 +273,9 @@ def create_app() -> FastAPI:
         return {"ok": True}
 
     @app.post(f"{API_PREFIX}/configs/{{config_id}}/duplicate")
-    def duplicate_config(config_id: str, new_id: str | None = None) -> dict[str, str]:
+    def duplicate_config_route(config_id: str) -> dict[str, int]:
         try:
-            nid = configs_store.duplicate_config(config_id, new_id)
+            nid = configs_store.duplicate_config(config_id)
         except FileNotFoundError:
             raise HTTPException(404, "Config not found")
         return {"id": nid}
@@ -311,9 +329,13 @@ def create_app() -> FastAPI:
         q: str | None = None,
         page: int | None = Query(None, ge=1),
         page_size: int = Query(20, ge=1, le=100),
+        sort: str = Query("id", description="id | name | created_at | updated_at"),
+        order: str = Query("desc", description="asc | desc"),
     ) -> dict[str, Any]:
         if page is not None:
-            result = datasets_store.search_datasets_page(q or "", page=page, page_size=page_size)
+            result = datasets_store.search_datasets_page(
+                q or "", page=page, page_size=page_size, sort=sort, order=order
+            )
             for row in result["items"]:
                 row["dataset_ref"] = datasets_store.dataset_library_ref(row["id"])
             return result
@@ -339,6 +361,14 @@ def create_app() -> FastAPI:
     def dataset_schema() -> dict[str, Any]:
         return get_dataset_schema()
 
+    @app.get(f"{API_PREFIX}/datasets/folder-suggestions")
+    def dataset_folder_suggestions(
+        exclude: str | None = Query(None, description="Dataset id to omit when collecting paths"),
+    ) -> dict[str, Any]:
+        from renga_flow_ui.dataset_folder_suggestions import collect_folder_suggestions
+
+        return collect_folder_suggestions(exclude_dataset_id=exclude or None)
+
     @app.get(f"{API_PREFIX}/datasets/preview-image")
     def dataset_preview_image(t: str = Query(..., description="Signed preview token")):
         try:
@@ -359,45 +389,55 @@ def create_app() -> FastAPI:
         return FileResponse(path, media_type=media)
 
     @app.get(f"{API_PREFIX}/datasets/{{dataset_id}}")
-    def get_dataset(dataset_id: str) -> dict[str, str]:
+    def get_dataset(dataset_id: str) -> dict[str, Any]:
         try:
-            return {"id": dataset_id, "content": datasets_store.read_dataset_text(dataset_id)}
+            return datasets_store.read_dataset_for_ui(dataset_id)
         except FileNotFoundError:
             raise HTTPException(404, "Dataset not found")
 
     @app.get(f"{API_PREFIX}/datasets/{{dataset_id}}/export")
     def export_dataset(dataset_id: str) -> dict[str, str]:
+        from renga_flow_ui.training_export import export_dataset_toml_text
+
         try:
             content = datasets_store.read_dataset_text(dataset_id)
         except FileNotFoundError:
             raise HTTPException(404, "Dataset not found")
-        return {"id": dataset_id, "content": content, "filename": f"{dataset_id}.toml"}
+        return {
+            "id": dataset_id,
+            "content": export_dataset_toml_text(content),
+            "filename": f"dataset_{dataset_id}.toml",
+        }
 
     @app.post(f"{API_PREFIX}/datasets")
-    def post_dataset(body: DatasetCreate) -> dict[str, str]:
-        cid = datasets_store._safe_id(body.id or "dataset")
-        if datasets_store.dataset_exists(cid) and body.id:
-            raise HTTPException(409, "Dataset already exists")
-        while datasets_store.dataset_exists(cid):
-            cid = datasets_store._safe_id(f"{cid}_new")
-        datasets_store.write_dataset_text(cid, body.content)
-        return {"id": cid}
+    def post_dataset(body: DatasetCreate) -> dict[str, Any]:
+        cid = datasets_store.create_dataset(body.content, name=body.name)
+        row = datasets_store.read_dataset_for_ui(cid)
+        return {
+            "id": cid,
+            "name": row["name"],
+            "dataset_ref": datasets_store.dataset_library_ref(cid),
+        }
 
     @app.post(f"{API_PREFIX}/datasets/import")
-    def import_dataset(body: DatasetCreate) -> dict[str, str]:
-        cid = datasets_store._safe_id(body.id or "imported_dataset")
-        if not body.id:
-            while datasets_store.dataset_exists(cid):
-                cid = datasets_store._safe_id(f"{cid}_new")
-        datasets_store.write_dataset_text(cid, body.content)
-        return {"id": cid, "dataset_ref": datasets_store.dataset_library_ref(cid)}
+    def import_dataset(body: DatasetCreate) -> dict[str, Any]:
+        cid = datasets_store.create_dataset(body.content, name=body.name)
+        row = datasets_store.read_dataset_for_ui(cid)
+        return {
+            "id": cid,
+            "name": row["name"],
+            "dataset_ref": datasets_store.dataset_library_ref(cid),
+        }
 
     @app.put(f"{API_PREFIX}/datasets/{{dataset_id}}")
-    def put_dataset(dataset_id: str, body: DatasetUpdate) -> dict[str, str]:
+    def put_dataset(dataset_id: str, body: DatasetUpdate) -> dict[str, Any]:
         if not datasets_store.dataset_exists(dataset_id):
             raise HTTPException(404, "Dataset not found")
-        datasets_store.write_dataset_text(dataset_id, body.content)
-        return {"id": dataset_id}
+        did = datasets_store.update_dataset_text(
+            dataset_id, body.content, name=body.name
+        )
+        row = datasets_store.read_dataset_for_ui(did)
+        return {"id": did, "name": row["name"]}
 
     @app.delete(f"{API_PREFIX}/datasets/{{dataset_id}}")
     def delete_dataset(dataset_id: str) -> dict[str, bool]:
@@ -408,9 +448,9 @@ def create_app() -> FastAPI:
         return {"ok": True}
 
     @app.post(f"{API_PREFIX}/datasets/{{dataset_id}}/duplicate")
-    def duplicate_dataset(dataset_id: str, new_id: str | None = None) -> dict[str, str]:
+    def duplicate_dataset_route(dataset_id: str) -> dict[str, int]:
         try:
-            nid = datasets_store.duplicate_dataset(dataset_id, new_id)
+            nid = datasets_store.duplicate_dataset(dataset_id)
         except FileNotFoundError:
             raise HTTPException(404, "Dataset not found")
         return {"id": nid}
@@ -431,14 +471,11 @@ def create_app() -> FastAPI:
 
     @app.post(f"{API_PREFIX}/datasets/parse-toml")
     def dataset_parse(body: TomlParseBody) -> dict[str, Any]:
-        try:
-            from renga_flow_ui.dataset_form import form_values_for_ui
-            from renga_flow_ui.dataset_schema import get_dataset_schema
+        from renga_flow_ui.dataset_schema import get_dataset_schema
 
-            form = form_values_for_ui(dataset_parse_toml(body.content), get_dataset_schema())
-            return {"ok": True, "form": form}
-        except Exception as e:
-            return {"ok": False, "error": str(e)}
+        schema = get_dataset_schema()
+        form, ui_notes = parse_toml_to_form(body.content, schema)
+        return {"ok": True, "form": form, "ui_notes": ui_notes}
 
     @app.post(f"{API_PREFIX}/datasets/render-toml")
     def dataset_render(body: TomlRenderBody) -> dict[str, Any]:
@@ -459,7 +496,26 @@ def create_app() -> FastAPI:
 
     @app.post(f"{API_PREFIX}/datasets/scan-path")
     def dataset_scan_path(body: DatasetScanBody) -> dict[str, Any]:
-        return scan_folder(body.path)
+        from pathlib import Path
+
+        from renga_flow_ui.dataset_image_preview import issue_image_token
+
+        from renga_flow_ui.dataset_scan import IMAGE_EXTENSIONS
+
+        result = scan_folder(body.path)
+        if result.get("ok") and result.get("sample_files"):
+            root = Path(result["path"])
+            tokens: list[str] = []
+            for name in result["sample_files"]:
+                if Path(name).suffix.lower() not in IMAGE_EXTENSIONS:
+                    continue
+                tokens.append(issue_image_token(0, name, root))
+                if len(tokens) >= 4:
+                    break
+            if tokens:
+                result["preview_tokens"] = tokens
+                result["preview_token"] = tokens[0]
+        return result
 
     @app.post(f"{API_PREFIX}/datasets/preview-images")
     def dataset_preview_images(body: DatasetPreviewImagesBody) -> dict[str, Any]:
@@ -473,8 +529,7 @@ def create_app() -> FastAPI:
     @app.post(f"{API_PREFIX}/datasets/compose")
     def dataset_compose(body: DatasetComposeBody) -> dict[str, Any]:
         try:
-            tid = datasets_store._safe_id(body.target_id)
-            datasets_store.compose_datasets(tid, body.source_ids)
+            tid = datasets_store.compose_datasets(body.source_ids)
             return {
                 "id": tid,
                 "dataset_ref": datasets_store.dataset_library_ref(tid),
@@ -488,26 +543,73 @@ def create_app() -> FastAPI:
     @app.post(f"{API_PREFIX}/datasets/import-example")
     def import_dataset_example(
         path: str = Query(..., description="Example path under repo"),
-        dataset_id: str | None = None,
-    ) -> dict[str, str]:
+    ) -> dict[str, Any]:
         src = repo_root() / path
         if not src.is_file():
             raise HTTPException(404, "Example file not found")
-        cid = datasets_store.import_example(src, dataset_id)
+        cid = datasets_store.import_example(src)
         return {"id": cid, "dataset_ref": datasets_store.dataset_library_ref(cid)}
 
     @app.post(f"{API_PREFIX}/configs/import-example")
-    def import_example(
+    def import_config_example(
         path: str = Query(...),
-        config_id: str | None = Query(None),
-    ) -> dict[str, str]:
+    ) -> dict[str, int]:
         src = Path(path)
         if not src.is_file():
             src = repo_root() / path
         if not src.is_file():
             raise HTTPException(404, "Example file not found")
-        cid = configs_store.import_example(src, config_id)
+        cid = configs_store.import_example(src)
         return {"id": cid}
+
+    # --- Train hub (unified jobs + disk runs) ---
+    @app.get(f"{API_PREFIX}/train/runs")
+    def list_train_runs(
+        q: str | None = None,
+        page: int = Query(1, ge=1),
+        page_size: int = Query(20, ge=1, le=100),
+        include_disk: bool = Query(True),
+        output_dir: str = Query("output"),
+        state: str | None = Query(None, description="active | queued | finished | disk"),
+    ) -> dict[str, Any]:
+        from renga_flow_ui import training_hub
+
+        return training_hub.list_training_runs(
+            q=q or "",
+            page=page,
+            page_size=page_size,
+            include_disk=include_disk,
+            output_dir=output_dir,
+            state_filter=state,
+        )
+
+    @app.get(f"{API_PREFIX}/train/active")
+    def train_active() -> dict[str, Any]:
+        from renga_flow_ui import training_hub
+
+        active = training_hub.get_active_training_run()
+        return {"active": active}
+
+    @app.get(f"{API_PREFIX}/train/preview-image")
+    def train_preview_image(
+        run_dir: str = Query(...),
+        name: str = Query(...),
+    ):
+        from renga_flow_ui import training_hub
+
+        try:
+            path = training_hub.resolve_preview_image(run_dir, name)
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from e
+        except FileNotFoundError as e:
+            raise HTTPException(404, str(e)) from e
+        media = {
+            ".png": "image/png",
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".webp": "image/webp",
+        }.get(path.suffix.lower(), "application/octet-stream")
+        return FileResponse(path, media_type=media)
 
     # --- Jobs / runs ---
     @app.get(f"{API_PREFIX}/jobs")
@@ -853,6 +955,12 @@ def create_app() -> FastAPI:
         if not out:
             raise HTTPException(400, "Provide optimizer and/or scheduler")
         return out
+
+    @app.get(f"{API_PREFIX}/docs/index")
+    def get_docs_index() -> dict[str, list[dict[str, str]]]:
+        from renga_flow_ui.docs_reader import list_docs_index
+
+        return {"items": list_docs_index()}
 
     @app.get(f"{API_PREFIX}/docs")
     def get_doc(path: str = Query(..., description="Path under docs/, e.g. docs/user/web-ui.md")) -> dict[str, str]:

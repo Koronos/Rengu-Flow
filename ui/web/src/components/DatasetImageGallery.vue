@@ -58,6 +58,7 @@
 <script setup>
 import { computed, ref, watch } from "vue";
 import { api } from "../api";
+import { formatMediaCount } from "../lib/formatMediaCount";
 
 const props = defineProps({
   content: { type: String, default: "" },
@@ -69,16 +70,18 @@ const loadingMore = ref(false);
 const error = ref("");
 const images = ref([]);
 const total = ref(0);
+const totalCapped = ref(false);
 const hasConfiguredPaths = ref(false);
 const limit = 24;
 
 const summary = computed(() => {
   if (!total.value) return "";
   const shown = images.value.length;
-  if (shown >= total.value) {
+  const totalLabel = formatMediaCount(total.value, totalCapped.value);
+  if (shown >= total.value && !totalCapped.value) {
     return `${shown} image${shown === 1 ? "" : "s"}`;
   }
-  return `Showing ${shown} of ${total.value}`;
+  return `Showing ${shown} of ${totalLabel}`;
 });
 
 const canLoadMore = computed(() => images.value.length < total.value);
@@ -129,6 +132,7 @@ async function fetchImages({ append = false } = {}) {
     }
     hasConfiguredPaths.value = (r.directories || []).some((d) => d.path);
     total.value = r.total ?? 0;
+    totalCapped.value = !!r.total_capped;
     const batch = r.images || [];
     images.value = append ? [...images.value, ...batch] : batch;
     if (!batch.length && !hasConfiguredPaths.value) {

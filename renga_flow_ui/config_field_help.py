@@ -7,8 +7,12 @@ from typing import Any
 # path -> {summary, detail?, doc?}
 FIELD_HELP: dict[str, dict[str, str]] = {
     "dataset": {
-        "summary": "Dataset TOML: one file with one or more [[directory]] folders.",
-        "detail": "Pick from the Datasets library or type a path. Compose collections in the Datasets tab, then reference the merged .toml here.",
+        "summary": "Training data: one dataset TOML or several merged at run time.",
+        "detail": (
+            "Each entry is a library ref (renga-flow-dataset:<id> or renga-flow-dataset:<id>:label) "
+            "or a .toml path. The optional label after the id is only for reading the TOML; "
+            "training resolves by id. Multiple entries merge all [[directory]] tables."
+        ),
         "doc": "docs/user/dataset-config.md",
     },
     "output_dir": {

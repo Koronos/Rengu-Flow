@@ -785,7 +785,7 @@ def main():
             config["_dataset_config_loaded"] = dataset_config
 
     try:
-        validate_config(config)
+        validate_config(config, for_script=True)
     except ConfigValidationError as e:
         raise SystemExit(f"Config validation failed: {e}") from e
 

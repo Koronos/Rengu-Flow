@@ -10,7 +10,29 @@ From the repository root:
 ./start-ui.sh
 ```
 
-On **Windows**, double-click [`start-ui.bat`](../../start-ui.bat) or run it from CMD — it calls the same script and keeps the window open.
+### Development mode (hot reload)
+
+While editing the UI or Python API, use dev mode so you do not rebuild or restart manually:
+
+```bash
+./start-ui-dev.sh
+```
+
+Run it **from a terminal** in the repo root (not by double-clicking the file — the window would close when the script exits). If something fails, the script waits for Enter so you can read the error.
+
+This starts (Linux or WSL — same environment as training):
+
+
+| Process | URL | Behavior |
+|---------|-----|----------|
+| Vite dev server | [http://127.0.0.1:5173](http://127.0.0.1:5173) | Vue HMR — save a `.vue` file and the browser updates |
+| API (`renga-flow-ui`) | [http://127.0.0.1:8765](http://127.0.0.1:8765) | `uvicorn --reload` on `renga_flow_ui/` |
+
+Open the **5173** URL in the browser (Vite proxies `/api` to the API). Press **Ctrl+C** in the terminal to stop both.
+
+Use `./start-ui.sh` when you want production-like serving from `ui/web/dist/` (no separate Vite process).
+
+Run from a Linux environment or WSL (training dependencies are not supported on native Windows).
 
 **Important:** leave the terminal window open while the UI runs. Closing the window stops the server.
 
@@ -60,11 +82,12 @@ In Docker, mount that folder (adjust `RENGA_FLOW_UI_DATA` in `start-ui.sh` to th
 
 | Area | Description |
 |------|-------------|
-| **Configs** | **Form** editor (all major TOML sections: model, adapter/network, optimizer, scheduler, training, checkpoints, eval, preview, monitoring) plus raw **TOML** tab; lists registered models, adapters, and optimizers from the framework |
-| **Datasets** | Library of dataset TOMLs: multiple `[[directory]]` folders per file, per-folder **Scan**, live **Preview** (folder stats plus thumbnail gallery from your image paths), **Compose** to merge library datasets into one file (OneTrainer-style packs); in-app links to [dataset config](dataset-config.md) docs |
-| **Jobs** | Queue runs after choosing a config in the **Configs** library (edit/validate there first); one active job at a time; **Import script run** registers an existing `output/…` folder from terminal training (metrics, signals, optional config/dataset library copy) |
-| **Config form** | Required fields first; click the **i** icon to open in-app help (loads `docs/**/*.md` from the repo) |
-| **Output runs** | List folders under `output_dir`, view metrics, send signals to active runs |
+| **Docs** | In-app guide index (`docs/user/*.md`) from the **Docs** nav item |
+| **Training** | **Form** editor (all major TOML sections: model, adapter/network, optimizer, scheduler, training, checkpoints, eval, preview, monitoring) plus raw **TOML** tab; lists registered models, adapters, and optimizers from the framework |
+| **Datasets** | Library of dataset TOMLs: multiple `[[directory]]` folders per file, per-folder **Scan**, live **Dataset preview** (folder stats plus thumbnail gallery), **Compose** to merge library datasets into one file (OneTrainer-style packs); in-app links to [dataset config](dataset-config.md) docs |
+| **Train** | Queue runs after choosing a config in the **Training** library (edit/validate there first); tab **Runs on disk** lists output folders; **Import script run** registers an existing `output/…` folder from terminal training |
+| **Config form** | Required fields first; visual dataset picker; click the **i** icon to open in-app help (loads `docs/**/*.md` from the repo) |
+| **Runs** | List folders under `output_dir`, view metrics, send signals to active runs |
 | **TensorBoard** | **Open TensorBoard** on the run detail or Output runs page — starts TensorBoard via `uv` (no extra pip install); compares all runs under the same `output_dir` |
 | **Signals** | Same files as [signal files](signal-files.md): `save`, `save_quit`, `export_model`, `export_model_quit`, `preview` |
 | **Host bar** | Top bar shows live CPU/RAM/GPU load, temperatures, and VRAM; click for per-core CPU, sensors, swap, and full GPU details (via `nvidia-smi` when available) |
@@ -72,12 +95,12 @@ In Docker, mount that folder (adjust `RENGA_FLOW_UI_DATA` in `start-ui.sh` to th
 ### Suggested workflow
 
 1. **Datasets** (optional) — build or import dataset TOMLs with your image folders.
-2. **Configs** — create or import a training config; set `dataset = ...` to your dataset file; validate.
-3. **Jobs** — click **Choose config in library** to open Configs, edit if needed, then **Use for training job**; set GPUs/resume and queue or start.
+2. **Training** — create or import a training config; set `dataset = ...` via the dataset picker; validate.
+3. **Train** — click **Choose config in library** to open Training, edit if needed, then **Use for training job**; set GPUs/resume and queue or start.
 
-To **continue a run** with new settings (e.g. more epochs), open the job or filesystem run detail and click **Continue training…**. That loads the TOML from the run folder into Configs; after editing, queue a continuation job. Training resumes in the same output folder and updates the TOML snapshot there.
+To **continue a run** with new settings (e.g. more epochs), open the job or filesystem run detail and click **Continue training…**. That loads the TOML from the run folder into **Training**; after editing, queue a continuation job. Training resumes in the same output folder and updates the TOML snapshot there.
 
-If you already trained from the terminal, use **Import script run** on the Jobs page: pick a folder under your `output_dir` (or paste an absolute path). The UI links that run for TensorBoard metrics and [signal files](signal-files.md), and can copy the run’s `*.toml` files into the config/dataset library.
+If you already trained from the terminal, use **Import script run** on the **Train** page: pick a folder under your `output_dir` (or paste an absolute path). The UI links that run for TensorBoard metrics and [signal files](signal-files.md), and can copy the run’s `*.toml` files into the config/dataset library.
 
 The app opens on **Configs** by default. The Jobs page does not include an inline config dropdown so you always review the full config in the library before running.
 

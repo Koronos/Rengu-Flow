@@ -286,7 +286,10 @@ def get_sections() -> list[dict[str, Any]]:
                     required=True,
                     allow_custom=True,
                     recommended=True,
-                    description="Library dataset (renga-flow-dataset:…) or path to a .toml file on disk.",
+                    description=(
+                        "One or more dataset TOMLs (library ref or file path). "
+                        "Multiple entries are merged at train time (all [[directory]] blocks)."
+                    ),
                 ),
                 _field(
                     "output_dir",

@@ -1,0 +1,120 @@
+<template>
+  <div class="training-datasets-field">
+    <el-tag
+      v-for="(entry, idx) in entries"
+      :key="idx"
+      closable
+      class="dataset-tag"
+      @close="removeAt(idx)"
+    >
+      {{ entryLabel(entry) }}
+    </el-tag>
+    <el-space wrap class="training-datasets-field__row">
+      <el-button size="small" @click="pickerOpen = true">Add dataset…</el-button>
+      <el-input
+        v-model="pathDraft"
+        clearable
+        placeholder="Or type a .toml path, Enter to add"
+        class="path-draft"
+        @keyup.enter="addDraftPath"
+      />
+    </el-space>
+    <p class="field-hint">
+      One path uses a single dataset TOML; several paths are merged (all <code>[[directory]]</code>
+      blocks) at train time, like composing in the Datasets library.
+    </p>
+    <DatasetPickerModal
+      v-model="pickerOpen"
+      multiple
+      :selected="entries"
+      @select-multiple="onAddMultiple"
+    />
+  </div>
+</template>
+
+<script setup>
+import { computed, ref } from "vue";
+import DatasetPickerModal from "./DatasetPickerModal.vue";
+import { canonicalDatasetRef, datasetRefDisplayLabel } from "../lib/datasetLibraryRef";
+
+const props = defineProps({
+  modelValue: { default: "" },
+});
+
+const emit = defineEmits(["update:modelValue"]);
+
+const pickerOpen = ref(false);
+const pathDraft = ref("");
+
+const entries = computed(() => {
+  const v = props.modelValue;
+  if (Array.isArray(v)) {
+    return v.filter((e) => typeof e === "string" && e.trim());
+  }
+  if (typeof v === "string" && v.trim()) {
+    return [v.trim()];
+  }
+  return [];
+});
+
+function entryLabel(entry) {
+  return datasetRefDisplayLabel(entry);
+}
+
+function normalizeEmit(paths) {
+  const clean = paths.filter((p) => typeof p === "string" && p.trim()).map((p) => p.trim());
+  if (clean.length === 0) return "";
+  if (clean.length === 1) return clean[0];
+  return clean;
+}
+
+function emitPaths(paths) {
+  emit("update:modelValue", normalizeEmit(paths));
+}
+
+function removeAt(idx) {
+  emitPaths(entries.value.filter((_, i) => i !== idx));
+}
+
+function onAddMultiple(paths) {
+  const existing = new Set(entries.value.map(canonicalDatasetRef));
+  const next = [...entries.value];
+  for (const p of paths) {
+    const key = canonicalDatasetRef(p);
+    if (!existing.has(key)) {
+      next.push(p);
+      existing.add(key);
+    }
+  }
+  emitPaths(next);
+}
+
+function addDraftPath() {
+  const p = pathDraft.value?.trim();
+  if (!p) return;
+  onAddMultiple([p]);
+  pathDraft.value = "";
+}
+</script>
+
+<style scoped>
+.training-datasets-field__row {
+  width: 100%;
+  max-width: 100%;
+}
+.dataset-tag {
+  margin: 0 6px 6px 0;
+}
+.path-draft {
+  flex: 1 1 180px;
+  min-width: 0;
+  max-width: 100%;
+}
+.field-hint {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  line-height: 1.4;
+  word-break: break-word;
+}
+</style>

@@ -8,16 +8,25 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
-from uuid import uuid4
-
 from renga_flow_ui.library_db import init_library_tables
 from renga_flow_ui.settings import db_path, ensure_data_dirs
 
 
+def _coerce_job_id(job_id: str | int) -> int:
+    if isinstance(job_id, bool):
+        raise KeyError(job_id)
+    if isinstance(job_id, int):
+        return job_id
+    s = str(job_id).strip()
+    if not s.isdigit():
+        raise KeyError(job_id)
+    return int(s)
+
+
 @dataclass
 class JobRecord:
-    id: str
-    config_id: str | None
+    id: int
+    config_id: int | None
     config_path: str
     state: str
     pid: int | None
@@ -41,13 +50,23 @@ def _connect() -> sqlite3.Connection:
     return conn
 
 
+def reset_ui_database() -> Path:
+    """Delete jobs.db and recreate an empty schema (configs, datasets, jobs)."""
+    ensure_data_dirs()
+    path = db_path()
+    if path.exists():
+        path.unlink()
+    init_db()
+    return path
+
+
 def init_db() -> None:
     with _connect() as conn:
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS jobs (
-                id TEXT PRIMARY KEY,
-                config_id TEXT,
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                config_id INTEGER,
                 config_path TEXT NOT NULL,
                 state TEXT NOT NULL,
                 pid INTEGER,
@@ -88,9 +107,11 @@ def _cursor() -> Iterator[sqlite3.Cursor]:
 
 
 def _row_to_job(row: sqlite3.Row) -> JobRecord:
+    raw_cfg = row["config_id"]
+    config_id = int(raw_cfg) if raw_cfg is not None else None
     return JobRecord(
-        id=row["id"],
-        config_id=row["config_id"],
+        id=int(row["id"]),
+        config_id=config_id,
         config_path=row["config_path"],
         state=row["state"],
         pid=row["pid"],
@@ -123,7 +144,7 @@ def create_imported_job(
     *,
     run_dir: str,
     config_path: str,
-    config_id: str | None,
+    config_id: int | None,
     log_path: str,
     output_dir: str,
     started_at: str,
@@ -133,20 +154,19 @@ def create_imported_job(
     source_run_dir: str | None = None,
 ) -> JobRecord:
     """Register a finished script-mode run for UI history and monitoring."""
-    job_id = uuid4().hex[:12]
     src = source_run_dir or run_dir
+    cfg_id = config_id
     with _cursor() as cur:
         cur.execute(
             """
             INSERT INTO jobs (
-                id, config_id, config_path, state, pid, run_dir, output_dir,
+                config_id, config_path, state, pid, run_dir, output_dir,
                 num_gpus, resume_from, log_path, started_at, finished_at,
                 exit_code, extra_args, queue_position, source_run_dir
-            ) VALUES (?, ?, ?, 'finished', NULL, ?, ?, 1, NULL, ?, ?, ?, ?, ?, NULL, ?)
+            ) VALUES (?, ?, 'finished', NULL, ?, ?, 1, NULL, ?, ?, ?, ?, ?, NULL, ?)
             """,
             (
-                job_id,
-                config_id,
+                cfg_id,
                 config_path,
                 run_dir,
                 output_dir,
@@ -158,13 +178,14 @@ def create_imported_job(
                 src,
             ),
         )
+        job_id = int(cur.lastrowid)
     return get_job(job_id)
 
 
 def create_job(
     *,
     config_path: str,
-    config_id: str | None,
+    config_id: int | None,
     log_path: str,
     num_gpus: int = 1,
     resume_from: str | None = None,
@@ -173,20 +194,19 @@ def create_job(
     queue_position: int | None = None,
     source_run_dir: str | None = None,
 ) -> JobRecord:
-    job_id = uuid4().hex[:12]
     now = datetime.now(timezone.utc).isoformat()
+    cfg_id = config_id
     with _cursor() as cur:
         cur.execute(
             """
             INSERT INTO jobs (
-                id, config_id, config_path, state, pid, run_dir, output_dir,
+                config_id, config_path, state, pid, run_dir, output_dir,
                 num_gpus, resume_from, log_path, started_at, extra_args, queue_position,
                 source_run_dir
-            ) VALUES (?, ?, ?, 'pending', NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, 'pending', NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                job_id,
-                config_id,
+                cfg_id,
                 config_path,
                 output_dir,
                 num_gpus,
@@ -198,20 +218,23 @@ def create_job(
                 source_run_dir,
             ),
         )
+        job_id = int(cur.lastrowid)
     return get_job(job_id)
 
 
-def get_job(job_id: str) -> JobRecord:
+def get_job(job_id: str | int) -> JobRecord:
+    jid = _coerce_job_id(job_id)
     with _connect() as conn:
-        row = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+        row = conn.execute("SELECT * FROM jobs WHERE id = ?", (jid,)).fetchone()
     if row is None:
         raise KeyError(job_id)
     return _row_to_job(row)
 
 
-def delete_job(job_id: str) -> None:
+def delete_job(job_id: str | int) -> None:
+    jid = _coerce_job_id(job_id)
     with _cursor() as cur:
-        cur.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
+        cur.execute("DELETE FROM jobs WHERE id = ?", (jid,))
 
 
 def list_jobs(limit: int = 200) -> list[JobRecord]:
@@ -222,7 +245,7 @@ def list_jobs(limit: int = 200) -> list[JobRecord]:
     return [_row_to_job(r) for r in rows]
 
 
-def update_job(job_id: str, **fields: Any) -> JobRecord:
+def update_job(job_id: str | int, **fields: Any) -> JobRecord:
     allowed = {
         "state",
         "pid",
@@ -247,7 +270,8 @@ def update_job(job_id: str, **fields: Any) -> JobRecord:
         values.append(val)
     if not parts:
         return get_job(job_id)
-    values.append(job_id)
+    jid = _coerce_job_id(job_id)
+    values.append(jid)
     with _cursor() as cur:
         cur.execute(f"UPDATE jobs SET {', '.join(parts)} WHERE id = ?", values)
-    return get_job(job_id)
+    return get_job(jid)

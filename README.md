@@ -71,9 +71,11 @@ The script will load and validate the config then exit.
 Local control panel for configs, jobs, logs, and signal files:
 
 ```bash
-./start-ui.sh          # Linux / Git Bash — keep the terminal open
-start-ui.bat           # Windows CMD — double-click or run from cmd
+./start-ui.sh          # keep the terminal open
+./start-ui-dev.sh      # development: Vite HMR + API reload
 ```
+
+Use Linux or WSL (training stack is not supported on native Windows).
 
 See [Web UI user guide](docs/user/web-ui.md). Training without the UI is unchanged (`pip install -e .` only).
 

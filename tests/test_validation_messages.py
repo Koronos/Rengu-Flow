@@ -1,6 +1,12 @@
 """Validation API returns readable errors (not bare KeyError names)."""
 
-from renga_flow.config.validation import collect_validation_errors, format_validation_issues
+from renga_flow.config.dataset_library_ref import dataset_library_ref
+from renga_flow.config.validation import (
+    collect_validation_errors,
+    format_validation_issues,
+    validate_config,
+    ConfigValidationError,
+)
 from renga_flow_ui.configs_store import validate_toml_text
 
 
@@ -35,3 +41,34 @@ def test_invalid_cache_format() -> None:
         }
     )
     assert any("cache_format" in e for e in issues)
+
+
+def _minimal_training_config(dataset: str | list[str]) -> dict:
+    return {
+        "dataset": dataset,
+        "model": {"type": "sdxl", "dtype": "bfloat16"},
+        "optimizer": {"type": "adamw", "lr": 1e-4},
+    }
+
+
+def test_ui_library_ref_allowed_in_ui_validate() -> None:
+    ref = dataset_library_ref(3, "artista 1")
+    issues = collect_validation_errors(_minimal_training_config(ref))
+    assert not any("renga-flow-dataset" in e for e in issues)
+
+
+def test_ui_library_ref_rejected_in_script_validate() -> None:
+    ref = dataset_library_ref(3, "artista 1")
+    issues = collect_validation_errors(_minimal_training_config(ref), for_script=True)
+    assert any("Export dataset #3" in e for e in issues)
+    assert any("renga-flow-dataset" in e for e in issues)
+
+
+def test_script_validate_config_raises_on_library_ref() -> None:
+    ref = dataset_library_ref(1)
+    try:
+        validate_config(_minimal_training_config(ref), for_script=True)
+    except ConfigValidationError as e:
+        assert "Export" in str(e)
+    else:
+        raise AssertionError("expected ConfigValidationError")

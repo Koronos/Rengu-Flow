@@ -1,3 +1,6 @@
+import { formatApiDetail } from "./lib/formatError.js";
+import { filenameFromContentDisposition } from "./lib/downloadBlob.js";
+
 const API = "/api/v1";
 
 async function request(path, options = {}) {
@@ -13,7 +16,11 @@ async function request(path, options = {}) {
     data = { detail: text };
   }
   if (!res.ok) {
-    throw new Error(data?.detail || data?.error || res.statusText);
+    const msg =
+      formatApiDetail(data?.detail) ||
+      (typeof data?.error === "string" ? data.error : formatApiDetail(data?.error)) ||
+      res.statusText;
+    throw new Error(msg || `HTTP ${res.status}`);
   }
   return data;
 }
@@ -42,8 +49,46 @@ export const api = {
     ),
   importConfig: (content, id) =>
     request("/configs/import", { method: "POST", body: JSON.stringify({ id, content }) }),
-  exportConfig: (id) => request(`/configs/${encodeURIComponent(id)}/export`),
+  async exportConfigBundle(configId, content) {
+    const hasInline = typeof content === "string";
+    const url = hasInline
+      ? `${API}/configs/export-bundle`
+      : `${API}/configs/${encodeURIComponent(configId)}/export`;
+    const res = await fetch(url, {
+      method: hasInline ? "POST" : "GET",
+      headers: hasInline ? { "Content-Type": "application/json" } : {},
+      body: hasInline
+        ? JSON.stringify({ content, name: configId || "training_export" })
+        : undefined,
+    });
+    const text = await res.text();
+    if (!res.ok) {
+      let data = null;
+      try {
+        data = text ? JSON.parse(text) : null;
+      } catch {
+        data = { detail: text };
+      }
+      const msg =
+        formatApiDetail(data?.detail) ||
+        (typeof data?.error === "string" ? data.error : formatApiDetail(data?.error)) ||
+        res.statusText;
+      throw new Error(msg || `HTTP ${res.status}`);
+    }
+    const blob = await res.blob();
+    const filename =
+      filenameFromContentDisposition(res.headers.get("Content-Disposition")) ||
+      `${configId || "training_export"}.zip`;
+    return { blob, filename };
+  },
   listJobs: () => request("/jobs"),
+  trainRuns: (params) => {
+    const q = params instanceof URLSearchParams ? params : new URLSearchParams(params);
+    if (!q.has("page")) q.set("page", "1");
+    if (!q.has("page_size")) q.set("page_size", "20");
+    return request(`/train/runs?${q.toString()}`);
+  },
+  trainActive: () => request("/train/active"),
   listImportCandidates: (outputDir = "output") =>
     request(`/jobs/import/candidates?output_dir=${encodeURIComponent(outputDir)}`),
   previewJobImport: (runPath) =>
@@ -90,10 +135,18 @@ export const api = {
   probeRegistry: (body) =>
     request("/registry/probe", { method: "POST", body: JSON.stringify(body) }),
   getDoc: (path) => request(`/docs?path=${encodeURIComponent(path)}`),
+  getDocsIndex: () => request("/docs/index"),
   parseToml: (content) =>
     request("/configs/parse-toml", { method: "POST", body: JSON.stringify({ content }) }),
-  renderToml: (form) =>
-    request("/configs/render-toml", { method: "POST", body: JSON.stringify({ form }) }),
+  renderToml: (form) => {
+    if (!form || typeof form !== "object" || Array.isArray(form)) {
+      return Promise.reject(new Error("Config form is not ready yet."));
+    }
+    return request("/configs/render-toml", {
+      method: "POST",
+      body: JSON.stringify({ form }),
+    });
+  },
 
   listDatasets: () => request("/datasets"),
   searchDatasets: (params) => {
@@ -103,10 +156,18 @@ export const api = {
     return request(`/datasets?${q.toString()}`);
   },
   getDataset: (id) => request(`/datasets/${id}`),
-  saveDataset: (id, content) =>
-    request(`/datasets/${id}`, { method: "PUT", body: JSON.stringify({ content }) }),
-  createDataset: (id, content) =>
-    request("/datasets", { method: "POST", body: JSON.stringify({ id, content }) }),
+  saveDataset: (id, payload) =>
+    request(`/datasets/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(
+        typeof payload === "string" ? { content: payload } : payload
+      ),
+    }),
+  createDataset: (payload) => {
+    const body =
+      typeof payload === "string" ? { content: payload } : { ...payload };
+    return request("/datasets", { method: "POST", body: JSON.stringify(body) });
+  },
   deleteDataset: (id) => request(`/datasets/${id}`, { method: "DELETE" }),
   duplicateDataset: (id, newId) =>
     request(
@@ -120,14 +181,28 @@ export const api = {
       `/datasets/import-example?path=${encodeURIComponent(path)}${datasetId ? `&dataset_id=${encodeURIComponent(datasetId)}` : ""}`,
       { method: "POST" }
     ),
-  importDataset: (content, id) =>
-    request("/datasets/import", { method: "POST", body: JSON.stringify({ id, content }) }),
+  importDataset: (content, id) => {
+    const body = { content };
+    if (id) body.id = id;
+    return request("/datasets/import", { method: "POST", body: JSON.stringify(body) });
+  },
   exportDataset: (id) => request(`/datasets/${encodeURIComponent(id)}/export`),
   getDatasetSchema: () => request("/datasets/schema"),
+  getDatasetFolderSuggestions: (excludeId) => {
+    const q = excludeId ? `?exclude=${encodeURIComponent(excludeId)}` : "";
+    return request(`/datasets/folder-suggestions${q}`);
+  },
   parseDatasetToml: (content) =>
     request("/datasets/parse-toml", { method: "POST", body: JSON.stringify({ content }) }),
-  renderDatasetToml: (form) =>
-    request("/datasets/render-toml", { method: "POST", body: JSON.stringify({ form }) }),
+  renderDatasetToml: (form) => {
+    if (!form || typeof form !== "object" || Array.isArray(form)) {
+      return Promise.reject(new Error("Dataset form is not ready yet."));
+    }
+    return request("/datasets/render-toml", {
+      method: "POST",
+      body: JSON.stringify({ form }),
+    });
+  },
   previewDataset: (content) =>
     request("/datasets/preview", { method: "POST", body: JSON.stringify({ content }) }),
   listDatasetPreviewImages: (body) =>
@@ -136,9 +211,9 @@ export const api = {
     `${API}/datasets/preview-image?t=${encodeURIComponent(token)}`,
   scanDatasetPath: (path) =>
     request("/datasets/scan-path", { method: "POST", body: JSON.stringify({ path }) }),
-  composeDatasets: (targetId, sourceIds) =>
-    request("/datasets/compose", {
-      method: "POST",
-      body: JSON.stringify({ target_id: targetId, source_ids: sourceIds }),
-    }),
+  composeDatasets: (sourceIds, targetId) => {
+    const body = { source_ids: sourceIds };
+    if (targetId) body.target_id = targetId;
+    return request("/datasets/compose", { method: "POST", body: JSON.stringify(body) });
+  },
 };

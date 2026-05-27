@@ -211,3 +211,27 @@ epochs = 2
     form2 = parse_toml(out)
     assert form2["model.type"] == "sdxl"
     assert form2["adapter.rank"] == 8
+
+
+def test_form_to_toml_dataset_list_roundtrip() -> None:
+    form = parse_toml(
+        """
+dataset = ["a.toml", "b.toml"]
+[model]
+type = "sdxl"
+dtype = "bfloat16"
+checkpoint_path = "/t"
+[optimizer]
+type = "adamw"
+"""
+    )
+    assert form["dataset"] == ["a.toml", "b.toml"]
+    out = form_to_toml(form)
+    form2 = parse_toml(out)
+    assert form2["dataset"] == ["a.toml", "b.toml"]
+
+
+def test_form_to_toml_single_dataset_stays_string() -> None:
+    form = {"dataset": "only.toml", "model.type": "sdxl", "model.dtype": "bfloat16", "_has_adapter": False}
+    out = form_to_toml(form)
+    assert 'dataset = "only.toml"' in out or "dataset = 'only.toml'" in out
