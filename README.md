@@ -81,5 +81,12 @@ See [Web UI user guide](docs/user/web-ui.md). Training without the UI is unchang
 
 - [User guide](docs/user/) — Training, config, and signal files for external control.
 - [Developer guide](docs/developer/) — Extending the framework (APIs, adding models and signals). Includes [testing](docs/developer/testing.md) (how to run and extend the test suite).
+- [Architecture](docs/developer/architecture.md) — Design goals and execution flow.
+- [Implementation backlog](docs/BACKLOG.md) — Planned / deferred features.
+- [Third-party notices](THIRD_PARTY_NOTICES.md) — Upstream licenses (diffusion-pipe, NVIDIA, etc.).
 
 See [docs/README.md](docs/README.md) for the full index.
+
+## License
+
+Renga Flow is distributed under the **GNU General Public License v3.0 or later** ([LICENSE](LICENSE)). See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for incorporated components.

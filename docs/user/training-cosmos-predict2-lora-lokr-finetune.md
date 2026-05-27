@@ -98,7 +98,7 @@ With `cache_text_embeddings = true` (default), text embeddings are cached once; 
 
 ## Performance and VRAM (Anima / Cosmos)
 
-Guidance for **real runs (typically ≥1000 steps)** on **LoKR**, **RTX 4080 (16 GB)**, pinned stack ([`requirements-pinned.txt`](../requirements-pinned.txt)). Benchmark detail (including 30-step previews): [`docs/training-tuning-journal.md`](../training-tuning-journal.md).
+Guidance for **real runs (typically ≥1000 steps)** on **LoKR** with ~16 GB VRAM (e.g. RTX 4080). Install deps with `pip install -e ".[cosmos_predict2]"` or `uv sync --extra cosmos_predict2` (see [pyproject.toml](../../pyproject.toml)).
 
 Short tuning smokes (30 steps) are only **previews** for CI and quick regressions. They mix in `torch.compile` warmup and are **not** representative of per-step time on long jobs — ignore smoke averages for `compile`; judge steady-state iter time after warmup on your own run.
 

@@ -1,7 +1,7 @@
 """Contract (Protocol) and stub base class for training pipeline models.
 
 The orchestrator expects any registered model to satisfy this interface.
-Aligned with diffusion-pipe models/base.BasePipeline and EXECUTIVE_REPORT §1.2.
+Aligned with diffusion-pipe models/base.BasePipeline; see docs/developer/architecture.md.
 """
 
 from __future__ import annotations

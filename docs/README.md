@@ -12,7 +12,10 @@
   - [Training previews](user/previews.md) — Sample images during training, TensorBoard IMAGES tab, schedules and `preview` signal.
   - [Signal files](user/signal-files.md) — Control runs with `save`, `save_quit`, `export_model`, `export_model_quit`, and `preview`.
   - [Web UI](user/web-ui.md) — Optional local UI: `./start-ui.sh`, configs, jobs, signals, progress.
-- **[Developer guide](developer/)** — For contributors and anyone extending the framework (APIs, adding signals, internals). In developer specs, **`[TODO]`** marks functions or features **not yet implemented** in `renga_flow/` (grep specs with `[TODO]` for a backlog).
+- **[Implementation backlog](BACKLOG.md)** — Deferred / not-yet-implemented work.
+- **[Public release prep](RELEASE_PREP.md)** — Tracked-files audit for the first release.
+- **[Developer guide](developer/)** — For contributors and anyone extending the framework (APIs, adding signals, internals). Inline **`[TODO]`** in specs → [BACKLOG.md](BACKLOG.md).
+  - [Architecture and design goals](developer/architecture.md) — Registries, execution flow, extensibility principles.
   - [Testing](developer/testing.md) — How to run tests, layout, fixtures, and dataset/data loading tests.
   - [Dataset and cache](developer/dataset-and-cache.md) — Dataset config contract, code locations, cache v1/v2.
   - [CPU/RAM and disk cache performance](developer/performance-cpu-ram.md) — `cache_format`, dataloader/cache tuning, smoke A/B.

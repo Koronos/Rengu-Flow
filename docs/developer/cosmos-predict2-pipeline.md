@@ -54,7 +54,7 @@ User-facing summary: **`docs/user/training-cosmos-predict2-lora-lokr-finetune.md
 
 ### Tuning notes (Anima LoKR)
 
-Benchmark journal: [`docs/training-tuning-journal.md`](../training-tuning-journal.md). Highlights for operators:
+Highlights for operators (see also user doc **Performance and VRAM**):
 
 - **`pipeline_model.compile()`** is wired in `main.py` when `compile = true` (diffusion-pipe parity). Short smokes penalize compile in the mean; on long runs steady iter was ~0.51 s vs ~0.68–0.70 s without compile — see user doc **Performance and VRAM**.
 - **`reentrant_activation_checkpointing`** defaults to `true` for `cosmos_predict2` when AC is on and `blocks_to_swap` is unset (`defaults.py`).
