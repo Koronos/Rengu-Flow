@@ -15,7 +15,7 @@
   </el-button-group>
 </template>
 
-<script setup>
+<script setup lang="ts">
 defineProps({
   modelValue: { type: String, default: "form" },
 });

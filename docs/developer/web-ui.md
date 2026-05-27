@@ -102,7 +102,7 @@ On `POST /api/v1/jobs`:
 
 ### Field visibility (single place)
 
-Logic lives in **`renga_flow_ui/field_visibility.py`**; the Vue form mirrors it in **`ui/web/src/lib/formUtils.js`** (`fieldVisible`, `pruneFormForModel`).
+Logic lives in **`renga_flow_ui/field_visibility.py`**; the Vue form mirrors it in **`ui/web/src/lib/formUtils.ts`** (`fieldVisible`, `pruneFormForModel`).
 
 | Mechanism | Where to set it | Example |
 |-----------|-----------------|--------|
@@ -145,18 +145,26 @@ Dataset form: same pattern in **`dataset_field_help.py`** and **`tests/test_data
 ## Extending
 
 - **New signal**: add constant in `signal_files.py`, map in `renga_flow_ui/signals.py`, button in `ui/web/src/views/RunDetailView.vue`
-- **New API route**: add handler in `app.py`, mirror in `ui/web/src/api.js`
+- **New API route**: add handler in `app.py`, mirror in `ui/web/src/api.ts`
 - **Trainer status fields**: extend `write_status_file()` payload and UI reader
 - **New model in UI**: `@register_model("my_type")` adds the type to the model picker. Optional: `register_model_capability(ModelCapability(...))` in `renga_flow/registry/model_capabilities.py` for LoRA/LoKr/full, preview, per-model form fields. `GET /api/v1/schema` exposes `registries.model_capabilities`
 - **Section without Advanced collapse**: set `"flat_optional": true` on the section dict in `get_sections()` (used for Evaluation, Monitoring)
 
 ## Tests
 
+Python (API / stores):
+
 ```bash
 pytest tests/test_status_file.py tests/test_renga_flow_ui.py \
   tests/test_config_form.py tests/test_dataset_field_help.py \
   tests/test_job_queue.py tests/test_docs_reader.py \
   tests/test_system_stats.py tests/test_datasets_store.py -q
+```
+
+Frontend (Vitest, `ui/web/`):
+
+```bash
+cd ui/web && npm ci && npm test && npm run typecheck
 ```
 
 ## Dependencies

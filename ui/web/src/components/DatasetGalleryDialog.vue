@@ -11,7 +11,7 @@
   </el-dialog>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import DatasetImageGallery from "./DatasetImageGallery.vue";
 
 defineProps({

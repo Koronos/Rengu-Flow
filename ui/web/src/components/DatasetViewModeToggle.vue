@@ -15,7 +15,7 @@
   </el-radio-group>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { Grid, List, Notebook } from "@element-plus/icons-vue";
 
 defineProps({

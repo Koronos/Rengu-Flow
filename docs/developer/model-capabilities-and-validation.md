@@ -30,7 +30,7 @@ SDXL does not need a hand-written block in `validation.py`; `checkpoint_path` is
 
 **`renga_flow_ui/field_visibility.py`** — evaluates a `visibility` tree on each schema field (attached in `get_schema()` → `attach_visibility_to_schema()`).
 
-**`ui/web/src/lib/formUtils.js`** — same clause types for the SPA.
+**`ui/web/src/lib/formUtils.ts`** — same clause types for the SPA.
 
 | Mechanism | Purpose |
 |-----------|---------|

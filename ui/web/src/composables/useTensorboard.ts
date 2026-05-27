@@ -1,30 +1,31 @@
 import { ref } from "vue";
 import { ElMessage } from "element-plus";
 import { api } from "../api";
+import type { TensorboardStatus } from "../types/runtime";
 
-export function useTensorboard(getOutputDir) {
+export function useTensorboard(getOutputDir: () => string | undefined) {
   const tbLoading = ref(false);
-  const tbStatus = ref(null);
+  const tbStatus = ref<TensorboardStatus | null>(null);
 
   async function refreshTbStatus() {
     try {
-      tbStatus.value = await api.tensorboardStatus();
+      tbStatus.value = (await api.tensorboardStatus()) as TensorboardStatus;
     } catch {
       tbStatus.value = null;
     }
   }
 
-  async function openTensorboard({ onError } = {}) {
-    const outputDir = typeof getOutputDir === "function" ? getOutputDir() : getOutputDir;
+  async function openTensorboard({ onError }: { onError?: (msg: string) => void } = {}) {
+    const outputDir = getOutputDir();
     tbLoading.value = true;
     try {
-      const r = await api.tensorboardStart({ output_dir: outputDir || "output" });
+      const r = (await api.tensorboardStart({ output_dir: outputDir || "output" })) as TensorboardStatus;
       tbStatus.value = r;
-      if (r.url) window.open(r.url, "_blank", "noopener,noreferrer");
+      if (r.url) window.open(String(r.url), "_blank", "noopener,noreferrer");
       ElMessage.success(r.reused ? "TensorBoard already running" : "TensorBoard started");
     } catch (e) {
       const msg = String(e);
-      if (onError) onError(msg);
+      onError?.(msg);
       ElMessage.error(msg);
       throw e;
     } finally {
@@ -32,7 +33,7 @@ export function useTensorboard(getOutputDir) {
     }
   }
 
-  async function stopTensorboard({ onError } = {}) {
+  async function stopTensorboard({ onError }: { onError?: (msg: string) => void } = {}) {
     tbLoading.value = true;
     try {
       await api.tensorboardStop();
@@ -40,7 +41,7 @@ export function useTensorboard(getOutputDir) {
       ElMessage.success("TensorBoard stopped");
     } catch (e) {
       const msg = String(e);
-      if (onError) onError(msg);
+      onError?.(msg);
       ElMessage.error(msg);
       throw e;
     } finally {

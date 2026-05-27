@@ -147,12 +147,13 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { ArrowDown, Search } from "@element-plus/icons-vue";
 import { api } from "../api";
 import { useLibraryListSort } from "../composables/useLibraryListSort";
-import { formatLibraryTimestamp } from "../lib/formatLibraryTime.js";
+import { formatLibraryTimestamp } from "../lib/formatLibraryTime";
+import type { JsonRecord } from "../types/runtime";
 import LibrarySortControls from "./LibrarySortControls.vue";
 
 const props = defineProps({
@@ -175,7 +176,7 @@ const emit = defineEmits([
 const searchText = ref("");
 const browserOpen = ref(false);
 const browserQuery = ref("");
-const browserItems = ref([]);
+const browserItems = ref<JsonRecord[]>([]);
 const browserTotal = ref(0);
 const browserPage = ref(1);
 const browserPageSize = ref(20);
@@ -219,7 +220,7 @@ watch(
   { immediate: true }
 );
 
-async function searchPage(q, page, pageSize) {
+async function searchPage(q: string, page: number, pageSize: number) {
   const params = new URLSearchParams({
     page: String(page),
     page_size: String(pageSize),
@@ -227,16 +228,16 @@ async function searchPage(q, page, pageSize) {
     ...sortParams(),
   });
   if (props.kind === "config") {
-    return api.searchConfigs(params);
+    return api.searchConfigs(params) as Promise<{ items?: JsonRecord[]; total?: number }>;
   }
-  return api.searchDatasets(params);
+  return api.searchDatasets(params) as Promise<{ items?: JsonRecord[]; total?: number }>;
 }
 
-function itemHint(item) {
+function itemHint(item: JsonRecord) {
   if (props.kind === "config") {
-    const parts = [];
-    if (item.model_type) parts.push(item.model_type);
-    if (item.dataset_ref) parts.push(item.dataset_ref);
+    const parts: string[] = [];
+    if (item.model_type) parts.push(String(item.model_type));
+    if (item.dataset_ref) parts.push(String(item.dataset_ref));
     return parts.join(" · ");
   }
   const n = item.directory_count;

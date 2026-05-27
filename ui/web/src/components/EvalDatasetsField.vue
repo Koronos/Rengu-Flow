@@ -32,14 +32,19 @@
   </div>
 </template>
 
-<script setup>
-import { computed, ref } from "vue";
+<script setup lang="ts">
+import { computed, ref, type PropType } from "vue";
 import DatasetPickerModal from "./DatasetPickerModal.vue";
 import { canonicalDatasetRef, datasetRefDisplayLabel } from "../lib/datasetLibraryRef";
 import { jsonStringify } from "../lib/formUtils";
 
+export type EvalDatasetEntry = string | { config?: string; name?: string; [key: string]: unknown };
+
 const props = defineProps({
-  modelValue: { default: () => [] },
+  modelValue: {
+    type: [Array, String, Object] as PropType<EvalDatasetEntry[] | EvalDatasetEntry | null>,
+    default: () => [],
+  },
 });
 
 const emit = defineEmits(["update:modelValue"]);
@@ -60,14 +65,14 @@ const entryPaths = computed(() =>
 
 const jsonText = computed(() => jsonStringify(entries.value));
 
-function entryLabel(entry) {
+function entryLabel(entry: EvalDatasetEntry) {
   if (typeof entry === "string") {
     return datasetRefDisplayLabel(entry);
   }
   return entry?.name || entry?.config || JSON.stringify(entry);
 }
 
-function emitEntries(next) {
+function emitEntries(next: EvalDatasetEntry[]) {
   emit("update:modelValue", next);
 }
 
@@ -76,7 +81,7 @@ function removeAt(idx) {
   emitEntries(next);
 }
 
-function onAddMultiple(paths) {
+function onAddMultiple(paths: string[]) {
   const existing = new Set(entryPaths.value.map(canonicalDatasetRef));
   const next = [...entries.value];
   for (const p of paths) {

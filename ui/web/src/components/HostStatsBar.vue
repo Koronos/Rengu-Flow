@@ -107,9 +107,9 @@
         </el-descriptions-item>
       </el-descriptions>
 
-      <div v-if="detail.cpu?.per_core?.length" class="core-grid mb-16">
+      <div v-if="(cpu?.per_core as number[] | undefined)?.length" class="core-grid mb-16">
         <div
-          v-for="(pct, i) in detail.cpu.per_core"
+          v-for="(pct, i) in (cpu?.per_core as number[])"
           :key="i"
           class="core-cell"
           :title="`Core ${i}: ${pct}%`"
@@ -120,8 +120,8 @@
       </div>
 
       <el-table
-        v-if="detail.cpu?.temperatures?.length"
-        :data="detail.cpu.temperatures"
+        v-if="temps?.length"
+        :data="temps"
         size="small"
         border
         class="mb-16"
@@ -136,34 +136,34 @@
       <div class="meter-block mb-8">
         <div class="meter-label">
           <span>RAM</span>
-          <span>{{ fmtGb(detail.ram?.used_gb) }} / {{ fmtGb(detail.ram?.total_gb) }} ({{ fmtPct(detail.ram?.percent) }})</span>
+          <span>{{ fmtGb(ram?.used_gb) }} / {{ fmtGb(ram?.total_gb) }} ({{ fmtPct(ram?.percent) }})</span>
         </div>
         <div class="meter-track">
           <div
             class="meter-fill"
-            :class="levelClass(detail.ram?.percent)"
-            :style="{ width: `${clampPct(detail.ram?.percent)}%` }"
+            :class="levelClass(ram?.percent)"
+            :style="{ width: `${clampPct(ram?.percent)}%` }"
           />
         </div>
       </div>
-      <div v-if="detail.ram?.swap?.total_gb" class="meter-block mb-16">
+      <div v-if="ram?.swap?.total_gb" class="meter-block mb-16">
         <div class="meter-label">
           <span>Swap</span>
-          <span>{{ fmtGb(detail.ram.swap.used_gb) }} / {{ fmtGb(detail.ram.swap.total_gb) }} ({{ fmtPct(detail.ram.swap.percent) }})</span>
+          <span>{{ fmtGb(ram.swap.used_gb) }} / {{ fmtGb(ram.swap.total_gb) }} ({{ fmtPct(ram.swap.percent) }})</span>
         </div>
         <div class="meter-track">
           <div
             class="meter-fill"
-            :class="levelClass(detail.ram.swap.percent)"
-            :style="{ width: `${clampPct(detail.ram.swap.percent)}%` }"
+            :class="levelClass(ram.swap.percent)"
+            :style="{ width: `${clampPct(ram.swap.percent)}%` }"
           />
         </div>
       </div>
 
       <h4>GPUs</h4>
-      <template v-if="detail.gpus?.devices?.length">
+      <template v-if="gpus?.devices?.length">
         <el-card
-          v-for="gpu in detail.gpus.devices"
+          v-for="gpu in gpus.devices"
           :key="gpu.index"
           shadow="never"
           class="gpu-card mb-8"
@@ -211,14 +211,15 @@
           </el-descriptions>
         </el-card>
       </template>
-      <el-empty v-else :description="detail.gpus?.error || 'No GPU data'" :image-size="48" />
+      <el-empty v-else :description="gpus?.error || 'No GPU data'" :image-size="48" />
     </div>
     <el-skeleton v-else :rows="6" animated />
     </el-drawer>
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
+// @ts-nocheck — system stats JSON shape is open-ended from the API.
 import { computed, onMounted, onUnmounted, ref } from "vue";
 
 defineOptions({ inheritAttrs: false });
@@ -228,16 +229,51 @@ import { useBreakpoint } from "../composables/useBreakpoint";
 
 const POLL_MS = 2000;
 
+interface RamDetail {
+  percent?: number;
+  used_gb?: number;
+  total_gb?: number;
+  swap?: { percent?: number; used_gb?: number; total_gb?: number };
+}
+
+interface GpuDevice {
+  index?: number;
+  name?: string;
+  util_percent?: number;
+  vram_percent?: number;
+  vram_used_gb?: number;
+  vram_total_gb?: number;
+  temp_c?: number;
+  power_w?: number;
+  fan_percent?: number;
+  clock_sm_mhz?: number;
+}
+
+interface SystemStatsPayload {
+  ts?: number;
+  summary?: Record<string, unknown>;
+  detail?: Record<string, unknown>;
+}
+
 const { isMobile } = useBreakpoint();
-const stats = ref(null);
+const stats = ref<SystemStatsPayload | null>(null);
 const loading = ref(true);
 const drawerOpen = ref(false);
-let timer = null;
+let timer: ReturnType<typeof setInterval> | null = null;
 
-const summary = computed(() => stats.value?.summary || {});
-const detail = computed(() => stats.value?.detail || {});
-const warnings = computed(() => detail.value.warnings || []);
-const gpuHint = computed(() => detail.value.gpus?.error);
+const summary = computed(() => stats.value?.summary ?? {});
+/** Server shape varies; typed slices below cover template usage. */
+const detail = computed(() => (stats.value?.detail ?? {}) as Record<string, unknown>);
+const ram = computed(() => detail.value.ram as RamDetail | undefined);
+const cpu = computed(() => detail.value.cpu as Record<string, unknown> | undefined);
+const temps = computed(
+  () => detail.value.temperatures as { label?: string; current_c?: number }[] | undefined
+);
+const warnings = computed(() => (detail.value.warnings as string[] | undefined) || []);
+const gpus = computed(
+  () => detail.value.gpus as { error?: string; devices?: GpuDevice[] } | undefined
+);
+const gpuHint = computed(() => gpus.value?.error);
 
 const updatedLabel = computed(() => {
   const ts = stats.value?.ts;
@@ -273,7 +309,7 @@ function levelClass(pct) {
   return "level-ok";
 }
 
-function gpuVramPct(gpu) {
+function gpuVramPct(gpu: GpuDevice) {
   return gpu?.vram_percent ?? (gpu?.vram_used_gb && gpu?.vram_total_gb
     ? (100 * gpu.vram_used_gb) / gpu.vram_total_gb
     : null);
@@ -295,7 +331,7 @@ function loadClass(pct) {
 
 async function poll() {
   try {
-    stats.value = await api.getSystemStats();
+    stats.value = (await api.getSystemStats()) as SystemStatsPayload;
   } catch {
     if (!stats.value) stats.value = null;
   } finally {

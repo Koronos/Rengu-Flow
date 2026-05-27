@@ -36,13 +36,13 @@
 
     <TrainingDatasetsField
       v-if="field.path === 'dataset'"
-      :model-value="effectiveValue"
+      :model-value="trainingDatasetModel"
       @update:model-value="onTrainingDatasetsInput"
     />
 
     <EvalDatasetsField
       v-else-if="field.path === 'eval_datasets'"
-      :model-value="effectiveValue"
+      :model-value="evalDatasetsModel"
       @update:model-value="onEvalDatasetsInput"
     />
 
@@ -103,7 +103,7 @@
 
     <IntegerListField
       v-else-if="field.type === 'integer_list'"
-      :model-value="effectiveValue"
+      :model-value="listModelValue"
       :preset-options="field.options || []"
       :placeholder="field.placeholder || 'Pick or type a number, then Enter'"
       :min="field.min ?? 1"
@@ -112,7 +112,7 @@
 
     <NumberListField
       v-else-if="field.type === 'number_list'"
-      :model-value="effectiveValue"
+      :model-value="listModelValue"
       :preset-options="field.options || []"
       :placeholder="field.placeholder || 'Type a number, then Enter'"
       :min="field.min"
@@ -122,7 +122,7 @@
 
     <StringListField
       v-else-if="field.type === 'string_list' && !stringListUseJson"
-      :model-value="effectiveValue"
+      :model-value="stringListModel"
       :preset-options="field.options || []"
       :placeholder="field.placeholder || 'Type text, then Enter'"
       :hint="field.string_list_hint || ''"
@@ -157,7 +157,7 @@
   </el-form-item>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import {
   adapterOptionsForModel,
@@ -169,18 +169,20 @@ import {
 import { api } from "../api";
 import FieldHelpIcon from "./FieldHelpIcon.vue";
 import TrainingDatasetsField from "./TrainingDatasetsField.vue";
-import EvalDatasetsField from "./EvalDatasetsField.vue";
+import EvalDatasetsField, { type EvalDatasetEntry } from "./EvalDatasetsField.vue";
 import IntegerListField from "./IntegerListField.vue";
 import NumberListField from "./NumberListField.vue";
 import StringListField from "./StringListField.vue";
 import { integerListToFormValue } from "../lib/integerList";
 import { numberListToFormValue } from "../lib/numberList";
 import { stringListNeedsJsonEditor, stringListToFormValue } from "../lib/stringList";
+import type { PropType } from "vue";
+import type { FormValues, ModelCapabilities, RawListInput, SchemaField } from "../types/forms";
 
 const props = defineProps({
-  field: { type: Object, required: true },
-  form: { type: Object, required: true },
-  capabilities: { type: Object, default: () => ({}) },
+  field: { type: Object as PropType<SchemaField>, required: true },
+  form: { type: Object as PropType<FormValues>, required: true },
+  capabilities: { type: Object as PropType<ModelCapabilities>, default: () => ({}) },
   /** When true, always render (parent already decided visibility). */
   alwaysVisible: { type: Boolean, default: false },
   /** Dataset TOML form (flat keys, no training config visibility). */
@@ -200,9 +202,10 @@ const visible = computed(() => {
 
 const stringListUseJson = computed(() => {
   if (props.field.type !== "string_list") return false;
-  return stringListNeedsJsonEditor(
-    props.field.path in props.form ? props.form[props.field.path] : effectiveValue.value
-  );
+  const raw = (props.field.path in props.form
+    ? props.form[props.field.path]
+    : effectiveValue.value) as RawListInput;
+  return stringListNeedsJsonEditor(raw);
 });
 
 const hasDefault = computed(
@@ -214,6 +217,23 @@ const hasDefault = computed(
 
 const effectiveValue = computed(() => fieldEffectiveValue(props.field, props.form));
 
+const listModelValue = computed(
+  () => effectiveValue.value as string | number | unknown[] | undefined
+);
+
+const stringListModel = computed(
+  () => effectiveValue.value as string | unknown[] | undefined
+);
+
+const evalDatasetsModel = computed(
+  () => effectiveValue.value as EvalDatasetEntry[] | EvalDatasetEntry | null | undefined
+);
+
+const trainingDatasetModel = computed(() => {
+  const v = effectiveValue.value;
+  return v === undefined || v === null ? "" : String(v);
+});
+
 const selectOptions = computed(() => {
   if (props.field.options_from_model) {
     return adapterOptionsForModel(props.capabilities, props.form["model.type"]).map((o) => ({
@@ -221,7 +241,7 @@ const selectOptions = computed(() => {
       value: String(o),
     }));
   }
-  const values = props.field.option_values;
+  const values = props.field.option_values || [];
   const labels = props.field.options || [];
   if (values?.length) {
     return values.map((v, i) => ({
@@ -356,7 +376,10 @@ async function runProbe(name) {
       resolveHint.value = null;
       return;
     }
-    const r = await api.probeRegistry(body);
+    const r = (await api.probeRegistry(body)) as {
+      optimizer?: { available?: boolean; resolved_class?: string; resolved?: string; source?: string; error?: string };
+      scheduler?: { available?: boolean; resolved_class?: string; resolved?: string; source?: string; error?: string };
+    };
     const check = r.optimizer || r.scheduler;
     if (check?.available) {
       const detail = check.resolved_class || check.resolved || check.source;

@@ -65,7 +65,7 @@
   </el-dialog>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { api } from "../api";
 import DatasetGalleryDialog from "./DatasetGalleryDialog.vue";
@@ -116,7 +116,9 @@ function parseLibraryId(path) {
 async function loadItems() {
   loading.value = true;
   try {
-    const schema = await api.getSchema();
+    const schema = (await api.getSchema()) as {
+      registries?: { dataset_paths?: { path: string; label?: string; id?: string }[] };
+    };
     const picker = schema?.registries?.dataset_paths || [];
     items.value = picker.map((entry) => {
         const libraryId = parseLibraryId(entry.path);

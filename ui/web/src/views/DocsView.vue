@@ -44,11 +44,12 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { api } from "../api";
 import { renderMarkdown } from "../lib/markdown";
+import type { DocIndexItem } from "../types/runtime";
 
 const route = useRoute();
 const router = useRouter();
@@ -56,7 +57,7 @@ const router = useRouter();
 const loadingIndex = ref(true);
 const loadingDoc = ref(false);
 const error = ref("");
-const indexItems = ref([]);
+const indexItems = ref<DocIndexItem[]>([]);
 const activePath = ref("");
 const html = ref("");
 
@@ -64,7 +65,7 @@ async function loadIndex() {
   loadingIndex.value = true;
   error.value = "";
   try {
-    const data = await api.getDocsIndex();
+    const data = (await api.getDocsIndex()) as { items?: DocIndexItem[] };
     indexItems.value = data.items || [];
     const q = route.query.doc;
     if (typeof q === "string" && q) {
@@ -79,12 +80,12 @@ async function loadIndex() {
   }
 }
 
-async function loadDoc(path) {
+async function loadDoc(path: string) {
   loadingDoc.value = true;
   error.value = "";
   html.value = "";
   try {
-    const data = await api.getDoc(path);
+    const data = (await api.getDoc(path)) as { path?: string; content?: string };
     activePath.value = data.path || path;
     html.value = renderMarkdown(data.content || "", { docPath: activePath.value });
     router.replace({ name: "docs", query: { doc: activePath.value } });
@@ -95,7 +96,7 @@ async function loadDoc(path) {
   }
 }
 
-function onSelectDoc(path) {
+function onSelectDoc(path: string) {
   loadDoc(path);
 }
 

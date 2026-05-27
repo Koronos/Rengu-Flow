@@ -19,7 +19,7 @@
   </el-drawer>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, watch } from "vue";
 import { api } from "../api";
 import { renderMarkdown } from "../lib/markdown";
@@ -37,13 +37,13 @@ const html = ref("");
 const title = ref("");
 const activePath = ref("");
 
-async function load(path) {
+async function load(path: string) {
   if (!path) return;
   loading.value = true;
   error.value = "";
   html.value = "";
   try {
-    const data = await api.getDoc(path);
+    const data = (await api.getDoc(path)) as { title?: string; path?: string; content?: string };
     title.value = data.title || path;
     activePath.value = data.path || path;
     html.value = renderMarkdown(data.content || "", {
@@ -67,9 +67,9 @@ function onArticleClick(event) {
 }
 
 watch(
-  () => [props.modelValue, props.docPath],
-  ([open, path]) => {
-    if (open && path) {
+  () => (props.modelValue ? props.docPath : ""),
+  (path) => {
+    if (path) {
       activePath.value = path;
       load(path);
     }

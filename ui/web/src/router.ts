@@ -1,4 +1,9 @@
-import { createRouter, createWebHistory } from "vue-router";
+import {
+  createRouter,
+  createWebHistory,
+  type NavigationGuardNext,
+  type RouteLocationNormalized,
+} from "vue-router";
 import ConfigEditorView from "./views/ConfigEditorView.vue";
 import ConfigsListView from "./views/ConfigsListView.vue";
 import DatasetsListView from "./views/DatasetsListView.vue";
@@ -7,25 +12,29 @@ import DocsView from "./views/DocsView.vue";
 import JobsView from "./views/JobsView.vue";
 import RunDetailView from "./views/RunDetailView.vue";
 
-function configsListLegacyRedirect(to) {
+function configsListLegacyRedirect(
+  to: RouteLocationNormalized,
+  _from: RouteLocationNormalized,
+  next: NavigationGuardNext
+) {
   const { config, new: isNew, continue_run, pick, ...rest } = to.query;
   if (isNew === "1") {
-    return {
+    return next({
       name: "configs-new",
       query: continue_run ? { continue_run, ...rest } : rest,
-    };
+    });
   }
   if (typeof continue_run === "string" && continue_run) {
-    return { name: "configs-new", query: { continue_run, ...rest } };
+    return next({ name: "configs-new", query: { continue_run, ...rest } });
   }
   if (typeof config === "string" && config) {
-    return {
+    return next({
       name: "configs-detail",
       params: { configId: config },
       query: pick ? { pick, ...rest } : rest,
-    };
+    });
   }
-  return true;
+  return next();
 }
 
 const router = createRouter({

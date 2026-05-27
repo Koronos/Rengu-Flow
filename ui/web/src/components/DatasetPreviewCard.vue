@@ -31,11 +31,13 @@
   </component>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed } from "vue";
 import { Check } from "@element-plus/icons-vue";
 import DatasetThumbGrid from "./DatasetThumbGrid.vue";
 import { usePreviewThumbs } from "../composables/usePreviewThumbs";
+import type { ThumbSource } from "../lib/previewThumbs";
+import type { PropType } from "vue";
 
 const props = defineProps({
   title: { type: String, required: true },
@@ -43,7 +45,7 @@ const props = defineProps({
   /** Pre-resolved URLs; skipped when thumbSource is set. */
   thumbs: { type: Array, default: () => [] },
   /** { kind: 'library', id } | { kind: 'path', path } */
-  thumbSource: { type: Object, default: null },
+  thumbSource: { type: Object as PropType<ThumbSource | null>, default: null },
   active: { type: Boolean, default: false },
   showCheck: { type: Boolean, default: false },
   warning: { type: Boolean, default: false },

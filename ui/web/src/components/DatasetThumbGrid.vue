@@ -21,7 +21,7 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 defineProps({
   urls: { type: Array, default: () => [] },
   fallbackText: { type: String, default: "DS" },

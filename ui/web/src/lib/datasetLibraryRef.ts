@@ -1,12 +1,10 @@
-/** Training-config ``renga-flow-dataset:`` refs (optional ``:label`` suffix for TOML readability). */
+/** Training-config `renga-flow-dataset:` refs (optional `:label` suffix for TOML readability). */
+
+import type { DatasetLibraryRefParts } from "../types/forms";
 
 export const DATASET_REF_PREFIX = "renga-flow-dataset:";
 
-/**
- * @param {string} value
- * @returns {{ isRef: boolean, id: string | null, label: string | null, canonical: string }}
- */
-export function parseDatasetLibraryRef(value) {
+export function parseDatasetLibraryRef(value: unknown): DatasetLibraryRefParts {
   const s = String(value ?? "").trim();
   if (!s.startsWith(DATASET_REF_PREFIX)) {
     return { isRef: false, id: null, label: null, canonical: s };
@@ -35,22 +33,27 @@ export function parseDatasetLibraryRef(value) {
   };
 }
 
-export function formatDatasetLibraryRef(id, label) {
+/** Alias aligned with Python `dataset_library_ref()`. */
+export function formatDatasetLibraryRef(id: string | number, label?: string | null): string {
   const base = `${DATASET_REF_PREFIX}${id}`;
   const text = (label ?? "").trim();
   return text ? `${base}:${text}` : base;
 }
 
-export function canonicalDatasetRef(value) {
+export function canonicalDatasetRef(value: unknown): string {
   const p = parseDatasetLibraryRef(value);
   return p.isRef ? p.canonical : String(value ?? "").trim();
 }
 
 /** Tag / table label: display suffix, else library id, else full path. */
-export function datasetRefDisplayLabel(value) {
+export function datasetRefDisplayLabel(value: unknown): string {
   const p = parseDatasetLibraryRef(value);
   if (p.isRef) {
-    return p.label || p.id || value;
+    return p.label || p.id || String(value);
   }
-  return value;
+  return String(value);
+}
+
+export function isLibraryDatasetRef(value: unknown): boolean {
+  return parseDatasetLibraryRef(value).isRef;
 }

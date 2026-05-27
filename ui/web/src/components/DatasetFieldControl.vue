@@ -35,7 +35,7 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, watch } from "vue";
 import { api } from "../api";
 import DatasetPickerModal from "./DatasetPickerModal.vue";
@@ -65,8 +65,10 @@ async function loadThumb(path) {
     return;
   }
   try {
-    const { content } = await api.getDataset(libraryId);
-    const r = await api.listDatasetPreviewImages({ content, limit: 1, offset: 0 });
+    const { content } = (await api.getDataset(libraryId)) as { content: string };
+    const r = (await api.listDatasetPreviewImages({ content, limit: 1, offset: 0 })) as {
+      images?: { token: string }[];
+    };
     const img = r.images?.[0];
     thumbUrl.value = img ? api.datasetPreviewImageUrl(img.token) : "";
   } catch {

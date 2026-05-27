@@ -63,7 +63,7 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed } from "vue";
 import { storeToRefs } from "pinia";
 import ConfigFormField from "./ConfigFormField.vue";
@@ -78,7 +78,16 @@ import { useDatasetEditorStore } from "../stores/datasetEditor";
 const editor = useDatasetEditorStore();
 const { form, schema } = storeToRefs(editor);
 
-const sections = computed(() => schema.value?.sections || []);
+interface DatasetFormSection {
+  id: string;
+  title?: string;
+  description?: string;
+  fields?: Record<string, unknown>[];
+}
+
+const sections = computed(
+  () => (schema.value?.sections as DatasetFormSection[] | undefined) || []
+);
 
 function coreFields(sec) {
   return sectionCoreFields(sec);

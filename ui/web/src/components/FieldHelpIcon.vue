@@ -46,7 +46,7 @@
   </template>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed, ref } from "vue";
 import { InfoFilled } from "@element-plus/icons-vue";
 import DocMarkdownDrawer from "./DocMarkdownDrawer.vue";

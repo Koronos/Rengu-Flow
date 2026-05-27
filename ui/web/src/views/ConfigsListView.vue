@@ -84,7 +84,7 @@
   </ImportTomlOverlay>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { Plus, Search } from "@element-plus/icons-vue";
@@ -97,18 +97,21 @@ import LibrarySortControls from "../components/LibrarySortControls.vue";
 import { useDatasetViewMode } from "../composables/useDatasetViewMode";
 import { useLibraryListSort } from "../composables/useLibraryListSort";
 import { formatError } from "../lib/formatError";
-import { formatLibraryTimestamp } from "../lib/formatLibraryTime.js";
+import { formatLibraryTimestamp } from "../lib/formatLibraryTime";
 import { getJobConfigId, setJobConfigId } from "../lib/jobConfigPick";
+import type { JsonRecord } from "../types/runtime";
+import type { DatasetPreviewItem } from "../components/DatasetPreviewCollection.vue";
+import type ImportTomlOverlayType from "../components/ImportTomlOverlay.vue";
 
 const CONFIG_LIBRARY_VIEW_KEY = "renga-flow-config-library-view";
 
 const route = useRoute();
 const router = useRouter();
-const rawItems = ref([]);
+const rawItems = ref<JsonRecord[]>([]);
 const loading = ref(false);
 const error = ref("");
 const query = ref("");
-const importOverlay = ref(null);
+const importOverlay = ref<InstanceType<typeof ImportTomlOverlayType> | null>(null);
 const { viewMode } = useDatasetViewMode(CONFIG_LIBRARY_VIEW_KEY);
 const {
   sortField,
@@ -121,12 +124,12 @@ const {
 
 const pickForJob = computed(() => route.query.pick === "job");
 
-let searchTimer = null;
+let searchTimer: ReturnType<typeof setTimeout> | undefined;
 
-const previewItems = computed(() =>
+const previewItems = computed((): DatasetPreviewItem[] =>
   rawItems.value.map((row) => ({
     key: String(row.id),
-    id: row.id,
+    id: row.id as string | number,
     title: configTitle(row),
     subtitle: formatSubtitle(row),
     fallbackText: configFallback(row),
@@ -184,12 +187,12 @@ async function load() {
   loading.value = true;
   error.value = "";
   try {
-    const data = await api.searchConfigs({
+    const data = (await api.searchConfigs({
       q: query.value.trim(),
       page: 1,
       page_size: 100,
       ...sortParams(),
-    });
+    })) as { items?: JsonRecord[] };
     rawItems.value = data.items || [];
   } catch (e) {
     error.value = formatError(e);
@@ -212,7 +215,7 @@ async function onImportFile(file) {
   try {
     const text = await file.text();
     const base = file.name.replace(/\.toml$/i, "") || "imported";
-    const r = await api.importConfig(text, base);
+    const r = (await api.importConfig(text, base)) as { id: string };
     ElMessage.success(`Imported as ${r.id}`);
     router.push({ name: "configs-detail", params: { configId: String(r.id) } });
   } catch (e) {

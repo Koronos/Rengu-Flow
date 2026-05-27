@@ -28,13 +28,17 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
+import type { PropType } from "vue";
 import { ArrowDown, ArrowUp } from "@element-plus/icons-vue";
 
 defineProps({
   sortField: { type: String, required: true },
   sortOrder: { type: String, required: true },
-  fieldOptions: { type: Array, required: true },
+  fieldOptions: {
+    type: Array as PropType<{ value: string; label: string }[]>,
+    required: true,
+  },
   orderButtonLabel: { type: String, default: "" },
 });
 

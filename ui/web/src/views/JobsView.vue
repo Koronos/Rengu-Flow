@@ -14,7 +14,7 @@
 
     <TrainLivePanel
       class="page-section"
-      :run="activeRun"
+      :run="activeRun ?? undefined"
       @open-detail="openRun"
       @stop="stop"
     />
@@ -318,7 +318,7 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
@@ -337,33 +337,34 @@ import {
 import { api } from "../api";
 import TrainLivePanel from "../components/TrainLivePanel.vue";
 import { getJobConfigId, setJobConfigId } from "../lib/jobConfigPick";
+import type { ImportRunPreview, JsonRecord } from "../types/runtime";
 
 const router = useRouter();
 
-const runs = ref([]);
+const runs = ref<JsonRecord[]>([]);
 const runsTotal = ref(0);
 const listPage = ref(1);
 const listPageSize = ref(20);
 const listQuery = ref("");
 const stateFilter = ref("");
 const listLoading = ref(false);
-const activeRun = ref(null);
+const activeRun = ref<JsonRecord | null>(null);
 const stats = ref({ running: 0, pending: 0 });
 const hasAnyConfig = ref(false);
-const configOptions = ref([]);
+const configOptions = ref<JsonRecord[]>([]);
 const configId = ref(getJobConfigId());
-const configValid = ref(null);
+const configValid = ref<boolean | null>(null);
 const validating = ref(false);
 const numGpus = ref(1);
 const resumeFrom = ref("");
 const error = ref("");
-let timer = null;
+let timer: ReturnType<typeof setInterval> | null = null;
 
 const importOpen = ref(false);
 const importRunPath = ref("");
 const importOutputDir = ref("output");
-const importCandidates = ref([]);
-const importPreview = ref(null);
+const importCandidates = ref<JsonRecord[]>([]);
+const importPreview = ref<ImportRunPreview | null>(null);
 const importPreviewLoading = ref(false);
 const importSaving = ref(false);
 const importForm = reactive({
@@ -422,7 +423,9 @@ function resetImportDialog() {
 }
 
 async function loadImportCandidates() {
-  const data = await api.listImportCandidates(importOutputDir.value || "output");
+  const data = (await api.listImportCandidates(importOutputDir.value || "output")) as {
+    runs?: JsonRecord[];
+  };
   importCandidates.value = data.runs || [];
 }
 
@@ -437,13 +440,13 @@ async function previewImportRun() {
   importPreviewLoading.value = true;
   importPreview.value = null;
   try {
-    const data = await api.previewJobImport(path);
+    const data = (await api.previewJobImport(path)) as ImportRunPreview;
     importPreview.value = data;
     if (!importForm.config_id) {
-      importForm.config_id = data.suggested_config_id || "";
+      importForm.config_id = String(data.suggested_config_id || "");
     }
     if (!importForm.dataset_id) {
-      importForm.dataset_id = data.suggested_dataset_id || "";
+      importForm.dataset_id = String(data.suggested_dataset_id || "");
     }
   } catch (e) {
     ElMessage.error(String(e));
@@ -457,13 +460,13 @@ async function confirmImportRun() {
   if (!path) return;
   importSaving.value = true;
   try {
-    const job = await api.importJobFromRun({
+    const job = (await api.importJobFromRun({
       run_path: path,
       import_config: importForm.import_config,
       config_id: importForm.config_id.trim() || undefined,
       import_dataset: importForm.import_dataset,
       dataset_id: importForm.dataset_id.trim() || undefined,
-    });
+    })) as JsonRecord & { id: string };
     ElMessage.success("Run imported");
     importOpen.value = false;
     await refresh();
@@ -477,7 +480,7 @@ async function confirmImportRun() {
 
 async function refreshConfigAvailability() {
   try {
-    const r = await api.searchConfigs({ q: "", page: 1, page_size: 1 });
+    const r = (await api.searchConfigs({ q: "", page: 1, page_size: 1 })) as { total?: number };
     hasAnyConfig.value = (r.total ?? 0) > 0;
   } catch {
     hasAnyConfig.value = false;
@@ -486,7 +489,9 @@ async function refreshConfigAvailability() {
 
 async function searchConfigOptions(query) {
   try {
-    const r = await api.searchConfigs({ q: query || "", page: 1, page_size: 30 });
+    const r = (await api.searchConfigs({ q: query || "", page: 1, page_size: 30 })) as {
+      items?: JsonRecord[];
+    };
     configOptions.value = r.items || [];
   } catch {
     configOptions.value = [];
@@ -504,13 +509,17 @@ async function loadRuns(page = listPage.value) {
   listLoading.value = true;
   listPage.value = page;
   try {
-    const data = await api.trainRuns({
+    const data = (await api.trainRuns({
       page: listPage.value,
       page_size: listPageSize.value,
       q: listQuery.value.trim(),
       state: stateFilter.value || "",
       include_disk: true,
-    });
+    })) as {
+      items?: JsonRecord[];
+      total?: number;
+      stats?: { running: number; pending: number };
+    };
     runs.value = data.items || [];
     runsTotal.value = data.total ?? 0;
     stats.value = data.stats || { running: 0, pending: 0 };
@@ -524,7 +533,7 @@ async function loadRuns(page = listPage.value) {
 
 async function refreshActive() {
   try {
-    const data = await api.trainActive();
+    const data = (await api.trainActive()) as { active?: JsonRecord | null };
     activeRun.value = data.active || null;
   } catch {
     activeRun.value = null;
@@ -555,9 +564,9 @@ async function checkConfig() {
   validating.value = true;
   configValid.value = null;
   try {
-    const { content } = await api.getConfig(configId.value);
-    const r = await api.validate(content);
-    configValid.value = r.ok;
+    const cfg = (await api.getConfig(configId.value)) as { content: string };
+    const r = (await api.validate(cfg.content)) as { ok?: boolean; error?: string };
+    configValid.value = !!r.ok;
     if (!r.ok) {
       ElMessage.warning(r.error || "Config is not valid yet");
     }

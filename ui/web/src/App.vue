@@ -91,7 +91,7 @@
   </el-config-provider>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed, ref } from "vue";
 import { useRoute } from "vue-router";
 import { Document, Files, Menu, Setting, VideoPlay } from "@element-plus/icons-vue";
@@ -102,16 +102,21 @@ const route = useRoute();
 const { isMobile } = useBreakpoint();
 const drawerOpen = ref(false);
 
+const routeName = computed(() =>
+  typeof route.name === "string" ? route.name : ""
+);
+
 const activeMenu = computed(() => {
-  if (route.name === "docs") return "/docs";
-  if (route.name?.startsWith("configs-")) return "/configs";
-  if (route.name?.startsWith("datasets-")) return "/datasets";
-  if (route.name === "jobs" || route.name === "job-detail" || route.name === "run-detail") return "/runs";
+  const name = routeName.value;
+  if (name === "docs") return "/docs";
+  if (name.startsWith("configs-")) return "/configs";
+  if (name.startsWith("datasets-")) return "/datasets";
+  if (name === "jobs" || name === "job-detail" || name === "run-detail") return "/runs";
   return "/configs";
 });
 
 const pageTitle = computed(() => {
-  const names = {
+  const names: Record<string, string> = {
     docs: "Docs",
     jobs: "Runs",
     "job-detail": "Run detail",
@@ -123,7 +128,7 @@ const pageTitle = computed(() => {
     "datasets-detail": "Dataset",
     "run-detail": "Run detail",
   };
-  return names[route.name] || "Renga Flow";
+  return names[routeName.value] || "Renga Flow";
 });
 </script>
 

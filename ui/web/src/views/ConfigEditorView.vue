@@ -125,7 +125,7 @@
   </ImportTomlOverlay>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { storeToRefs } from "pinia";
@@ -138,7 +138,7 @@ import {
   VideoPlay,
 } from "@element-plus/icons-vue";
 import { api } from "../api";
-import { downloadBlob } from "../lib/downloadBlob.js";
+import { downloadBlob } from "../lib/downloadBlob";
 import { formatError } from "../lib/formatError";
 import { useBreakpoint } from "../composables/useBreakpoint";
 import ConfigFormEditor from "../components/ConfigFormEditor.vue";
@@ -146,6 +146,8 @@ import EditorModeToggle from "../components/EditorModeToggle.vue";
 import ImportTomlOverlay from "../components/ImportTomlOverlay.vue";
 import { getJobConfigId, setJobConfigId } from "../lib/jobConfigPick";
 import { useConfigEditorStore } from "../stores/configEditor";
+import type { JsonRecord } from "../types/runtime";
+import type ImportTomlOverlayType from "../components/ImportTomlOverlay.vue";
 
 const { isMobile } = useBreakpoint();
 const route = useRoute();
@@ -171,7 +173,7 @@ const {
 } = storeToRefs(editor);
 
 const pickForJob = computed(() => route.query.pick === "job");
-const importOverlay = ref(null);
+const importOverlay = ref<InstanceType<typeof ImportTomlOverlayType> | null>(null);
 const newDialogVisible = ref(false);
 const newConfigId = ref("my_config");
 const exporting = ref(false);
@@ -236,14 +238,14 @@ function onClearContinuation() {
   router.replace({ name: "configs-list" });
 }
 
-async function queueContinuation(startNow) {
+async function queueContinuation(startNow: boolean) {
   try {
-    const job = await editor.queueContinuation({
+    const job = (await editor.queueContinuation({
       startNow,
       saveToLibrary: continuationSaveToLibrary.value,
       libraryId: continuationLibraryId.value,
-    });
-    if (job) router.push({ name: "job-detail", params: { id: job.id } });
+    })) as JsonRecord & { id?: string } | null;
+    if (job?.id) router.push({ name: "job-detail", params: { id: String(job.id) } });
   } catch {
     /* store shows error */
   }
@@ -279,7 +281,7 @@ async function useConfigForJob() {
 async function duplicateCurrent() {
   if (!configId.value) return;
   try {
-    const r = await api.duplicate(configId.value);
+    const r = (await api.duplicate(configId.value)) as { id: string };
     ElMessage.success(`Duplicated as ${r.id}`);
     await router.push({ name: "configs-detail", params: { configId: String(r.id) } });
   } catch (e) {
@@ -305,7 +307,9 @@ async function removeCurrent() {
 
 async function importExample() {
   try {
-    const r = await api.importExample("examples/minimal_config_lora_sdxl.toml");
+    const r = (await api.importExample("examples/minimal_config_lora_sdxl.toml", undefined)) as {
+      id: string;
+    };
     editor.message = `Imported ${r.id}`;
     ElMessage.success(editor.message);
     await router.push({ name: "configs-detail", params: { configId: String(r.id) } });
@@ -350,7 +354,7 @@ async function onImportFile(file) {
   try {
     const text = await file.text();
     const base = file.name.replace(/\.toml$/i, "") || "imported";
-    const r = await api.importConfig(text, base);
+    const r = (await api.importConfig(text, base)) as { id: string };
     await router.push({ name: "configs-detail", params: { configId: String(r.id) } });
     ElMessage.success(`Imported as ${r.id}`);
   } catch (e) {

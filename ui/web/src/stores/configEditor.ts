@@ -1,6 +1,7 @@
 import { defineStore } from "pinia";
 import { computed, ref, shallowRef } from "vue";
 import { ElMessage } from "element-plus";
+import type { RouteLocationNormalizedLoaded } from "vue-router";
 import { api } from "../api";
 import { formatError } from "../lib/formatError";
 import { sanitizeConfigForm } from "../lib/configFormPayload";
@@ -9,6 +10,8 @@ import {
   modelSupportsAdapters,
   pruneFormForModel,
 } from "../lib/formUtils";
+import { useTomlFormSync } from "../composables/useTomlFormSync";
+import type { FormValues, ModelCapabilities } from "../types/forms";
 
 export const DEFAULT_CONFIG_TOML = `dataset = "examples/minimal_dataset.toml"
 
@@ -38,16 +41,13 @@ save_every_n_epochs = 1
 output_dir = "output"
 `;
 
-const PARSE_DEBOUNCE_MS = 280;
-const RENDER_DEBOUNCE_MS = 280;
-
 export const useConfigEditorStore = defineStore("configEditor", () => {
-  const configId = ref(null);
+  const configId = ref<string | null>(null);
   const isNew = ref(false);
   const selectedMeta = ref("");
   const content = ref(DEFAULT_CONFIG_TOML);
-  const form = shallowRef({ _has_adapter: true });
-  const schema = ref(null);
+  const form = shallowRef<FormValues | null>({ _has_adapter: true });
+  const schema = ref<Record<string, unknown> | null>(null);
 
   const loading = ref(false);
   const saving = ref(false);
@@ -55,16 +55,16 @@ export const useConfigEditorStore = defineStore("configEditor", () => {
   const error = ref("");
   const message = ref("");
   const parseError = ref("");
-  const validationErrors = ref([]);
+  const validationErrors = ref<string[]>([]);
   const formVersion = ref(0);
   const editorTab = ref("form");
 
-  const continuation = ref(null);
+  const continuation = ref<{ run_dir: string; resume_from: string } | null>(null);
   const continuationSaveToLibrary = ref(false);
   const continuationLibraryId = ref("");
 
   const modelCapabilities = computed(
-    () => schema.value?.registries?.model_capabilities ?? {}
+    () => (schema.value?.registries as { model_capabilities?: ModelCapabilities })?.model_capabilities ?? {}
   );
 
   const editingTitle = computed(() => {
@@ -73,23 +73,11 @@ export const useConfigEditorStore = defineStore("configEditor", () => {
     return "Config";
   });
 
-  let parseTimer = null;
-  let renderTimer = null;
-  /** @type {"toml-to-form" | "form-to-toml" | null} */
-  let syncLock = null;
-  /** @type {"toml" | "form"} */
-  let lastEditSource = "toml";
-
-  function clearSyncTimers() {
-    clearTimeout(parseTimer);
-    clearTimeout(renderTimer);
-  }
-
-  function cleanForm(raw) {
+  function cleanForm(raw: FormValues): FormValues | null {
     return sanitizeConfigForm(raw, modelCapabilities.value);
   }
 
-  function applyModelCapabilityDefaults(target) {
+  function applyModelCapabilityDefaults(target: FormValues): FormValues {
     const cap = getModelCapability(modelCapabilities.value, target["model.type"]);
     if (!cap) return target;
 
@@ -109,7 +97,7 @@ export const useConfigEditorStore = defineStore("configEditor", () => {
     if (next._has_adapter && cap.adapters?.length) {
       const allowed = cap.adapters;
       const current = next["adapter.type"];
-      if (!current || !allowed.includes(current)) {
+      if (!current || !allowed.includes(String(current))) {
         next["adapter.type"] = allowed[0];
         changed = true;
       }
@@ -118,121 +106,61 @@ export const useConfigEditorStore = defineStore("configEditor", () => {
     return changed ? next : target;
   }
 
+  const tomlSync = useTomlFormSync<FormValues>({
+    content,
+    form,
+    syncing,
+    parseError,
+    requireNonemptyContent: true,
+    sanitize: cleanForm,
+    formatError,
+    onFormVersionBump: () => {
+      formVersion.value += 1;
+    },
+    transformParsed: applyModelCapabilityDefaults,
+    parseToml: async (toml) => {
+      const r = (await api.parseToml(toml)) as {
+        ok?: boolean;
+        form?: FormValues;
+        error?: unknown;
+      };
+      return {
+        ok: !!r.ok,
+        form: r.form,
+        error: r.error,
+      };
+    },
+    renderToml: async (payload) => {
+      const r = (await api.renderToml(payload)) as {
+        ok?: boolean;
+        content?: string;
+        error?: unknown;
+      };
+      return {
+        ok: !!r.ok,
+        content: r.content,
+        error: r.error,
+      };
+    },
+  });
+
   async function fetchSchema() {
-    schema.value = await api.getSchema();
+    schema.value = (await api.getSchema()) as Record<string, unknown>;
     return schema.value;
   }
 
-  async function parseFromToml() {
-    if (!(content.value || "").trim()) return;
-    syncing.value = true;
-    parseError.value = "";
-    try {
-      const r = await api.parseToml(content.value);
-      if (!r.ok) {
-        parseError.value =
-          formatError({ detail: r.error }) || "Could not parse TOML for the form";
-        return;
-      }
-      syncLock = "toml-to-form";
-      let next = cleanForm(r.form) || { _has_adapter: true };
-      next = applyModelCapabilityDefaults(next);
-      form.value = next;
-      formVersion.value += 1;
-    } catch (e) {
-      parseError.value = formatError(e);
-    } finally {
-      syncLock = null;
-      syncing.value = false;
-    }
+  function setForm(nextForm: FormValues) {
+    tomlSync.setForm(nextForm);
   }
 
-  async function renderFromForm() {
-    if (!form.value) return;
-    syncing.value = true;
-    parseError.value = "";
-    try {
-      const payload = cleanForm(form.value);
-      if (!payload) {
-        parseError.value = "Could not sync form to TOML (invalid form state).";
-        return;
-      }
-      const r = await api.renderToml(payload);
-      if (!r.ok) {
-        parseError.value =
-          formatError({ detail: r.error }) || "Could not render TOML from form";
-        return;
-      }
-      const nextToml = r.content ?? "";
-      if (nextToml === content.value) return;
-      syncLock = "form-to-toml";
-      content.value = nextToml;
-    } catch (e) {
-      parseError.value = formatError(e);
-    } finally {
-      syncLock = null;
-      syncing.value = false;
-    }
-  }
-
-  function scheduleParseFromToml() {
-    if (syncLock === "form-to-toml") return;
-    clearTimeout(parseTimer);
-    parseTimer = setTimeout(() => parseFromToml(), PARSE_DEBOUNCE_MS);
-  }
-
-  function scheduleRenderFromForm() {
-    if (syncLock === "toml-to-form") return;
-    clearTimeout(renderTimer);
-    renderTimer = setTimeout(() => renderFromForm(), RENDER_DEBOUNCE_MS);
-  }
-
-  function setContent(toml) {
-    lastEditSource = "toml";
-    clearTimeout(renderTimer);
-    renderTimer = null;
-    content.value = toml;
-    scheduleParseFromToml();
-  }
-
-  function setForm(nextForm) {
-    lastEditSource = "form";
-    clearTimeout(parseTimer);
-    parseTimer = null;
-    const clean = cleanForm(nextForm);
-    if (!clean) return;
-    form.value = clean;
-    scheduleRenderFromForm();
-  }
-
-  function patchFormField(path, value) {
+  function patchFormField(path: string, value: unknown) {
     if (!form.value || !path) return;
-    let next = { ...form.value, [path]: value };
+    let next: FormValues = { ...form.value, [path]: value };
     if (path === "model.type") {
       next = pruneFormForModel(next, modelCapabilities.value);
       next = applyModelCapabilityDefaults(next);
     }
     setForm(next);
-  }
-
-  async function applyToml(toml) {
-    clearSyncTimers();
-    syncLock = null;
-    lastEditSource = "toml";
-    parseError.value = "";
-    content.value = toml;
-    await parseFromToml();
-  }
-
-  async function flushSync() {
-    clearSyncTimers();
-    if (lastEditSource === "form") {
-      await renderFromForm();
-      await parseFromToml();
-    } else {
-      await parseFromToml();
-      await renderFromForm();
-    }
   }
 
   function resetEditorState() {
@@ -248,21 +176,25 @@ export const useConfigEditorStore = defineStore("configEditor", () => {
     selectedMeta.value = "";
     resetEditorState();
     editorTab.value = "form";
-    await applyToml(DEFAULT_CONFIG_TOML);
+    await tomlSync.applyToml(DEFAULT_CONFIG_TOML);
   }
 
-  async function openConfig(id) {
+  async function openConfig(id: string) {
     resetEditorState();
-    const data = await api.getConfig(id);
+    const data = (await api.getConfig(id)) as { content: string };
     configId.value = id;
     isNew.value = false;
     content.value = data.content;
     editorTab.value = "form";
     try {
-      const summary = await api.searchConfigs({ q: id, page: 1, page_size: 1 });
-      const row = summary.items?.find((c) => c.id === id);
+      const summary = (await api.searchConfigs({ q: id, page: 1, page_size: 1 })) as {
+        items?: { id: string; model_type?: string; dataset_ref?: string }[];
+      };
+      const row = summary.items?.find(
+        (c) => c.id === id
+      );
       if (row) {
-        const parts = [];
+        const parts: string[] = [];
         if (row.model_type) parts.push(row.model_type);
         if (row.dataset_ref) parts.push(row.dataset_ref);
         selectedMeta.value = parts.join(" · ");
@@ -272,12 +204,16 @@ export const useConfigEditorStore = defineStore("configEditor", () => {
     } catch {
       selectedMeta.value = "";
     }
-    await applyToml(data.content);
+    await tomlSync.applyToml(data.content);
   }
 
-  async function loadContinuation(runPath) {
+  async function loadContinuation(runPath: string) {
     resetEditorState();
-    const data = await api.getRunConfig(runPath);
+    const data = (await api.getRunConfig(runPath)) as {
+      run_dir: string;
+      resume_from: string;
+      content: string;
+    };
     continuation.value = {
       run_dir: data.run_dir,
       resume_from: data.resume_from,
@@ -287,7 +223,7 @@ export const useConfigEditorStore = defineStore("configEditor", () => {
     isNew.value = true;
     selectedMeta.value = "from run folder";
     editorTab.value = "form";
-    await applyToml(data.content);
+    await tomlSync.applyToml(data.content);
   }
 
   function clearContinuation() {
@@ -300,7 +236,7 @@ export const useConfigEditorStore = defineStore("configEditor", () => {
     error.value = "";
     message.value = "";
     try {
-      await flushSync();
+      await tomlSync.flushSync();
       await api.saveConfig(configId.value, content.value);
       message.value = "Saved.";
       ElMessage.success("Saved");
@@ -314,14 +250,14 @@ export const useConfigEditorStore = defineStore("configEditor", () => {
     }
   }
 
-  async function createNew(id) {
+  async function createNew(id: string) {
     const trimmed = (id || "").trim();
     if (!trimmed) return false;
     saving.value = true;
     error.value = "";
     message.value = "";
     try {
-      await flushSync();
+      await tomlSync.flushSync();
       await api.createConfig(trimmed, content.value);
       configId.value = trimmed;
       isNew.value = false;
@@ -337,17 +273,21 @@ export const useConfigEditorStore = defineStore("configEditor", () => {
     }
   }
 
-  /** @returns {Promise<{ ok: boolean, resolution?: object, errors?: string[] }>} */
-  async function validateConfig({ quiet = false } = {}) {
+  async function validateConfig({ quiet = false }: { quiet?: boolean } = {}) {
     error.value = "";
     validationErrors.value = [];
     if (!quiet) message.value = "";
     try {
-      await flushSync();
-      const r = await api.validate(content.value);
+      await tomlSync.flushSync();
+      const r = (await api.validate(content.value)) as {
+        ok?: boolean;
+        resolution?: Record<string, Record<string, unknown>>;
+        errors?: string[];
+        error?: string;
+      };
       if (r.ok) {
         const res = r.resolution || {};
-        const parts = [];
+        const parts: string[] = [];
         if (res.optimizer?.available) {
           parts.push(`optimizer → ${res.optimizer.resolved_class || res.optimizer.name}`);
         }
@@ -360,12 +300,12 @@ export const useConfigEditorStore = defineStore("configEditor", () => {
           message.value = parts.length ? `Valid (${parts.join("; ")})` : "Valid.";
           ElMessage.success(message.value);
         }
-        return { ok: true, resolution: res };
+        return { ok: true as const, resolution: res };
       }
       validationErrors.value =
         Array.isArray(r.errors) && r.errors.length
-          ? r.errors
-          : [r.error || "Invalid configuration."];
+          ? (r.errors as string[])
+          : [String(r.error || "Invalid configuration.")];
       if (!quiet) {
         ElMessage.error(
           validationErrors.value.length === 1
@@ -373,7 +313,7 @@ export const useConfigEditorStore = defineStore("configEditor", () => {
             : `${validationErrors.value.length} issues — see list above`
         );
       }
-      return { ok: false, errors: validationErrors.value };
+      return { ok: false as const, errors: validationErrors.value };
     } catch (e) {
       error.value = formatError(e);
       if (!quiet) ElMessage.error(error.value);
@@ -381,11 +321,19 @@ export const useConfigEditorStore = defineStore("configEditor", () => {
     }
   }
 
-  async function queueContinuation({ startNow, saveToLibrary, libraryId }) {
+  async function queueContinuation({
+    startNow,
+    saveToLibrary,
+    libraryId,
+  }: {
+    startNow: boolean;
+    saveToLibrary: boolean;
+    libraryId?: string;
+  }) {
     if (!continuation.value) return null;
     error.value = "";
     try {
-      await flushSync();
+      await tomlSync.flushSync();
       const job = await api.continueRun({
         run_path: continuation.value.run_dir,
         content: content.value,
@@ -404,7 +352,7 @@ export const useConfigEditorStore = defineStore("configEditor", () => {
     }
   }
 
-  async function openFromRoute(route) {
+  async function openFromRoute(route: RouteLocationNormalizedLoaded) {
     error.value = "";
     message.value = "";
     loading.value = true;
@@ -430,7 +378,7 @@ export const useConfigEditorStore = defineStore("configEditor", () => {
     }
   }
 
-  async function bootstrapPickForJob(storedConfigId) {
+  async function bootstrapPickForJob(storedConfigId: string) {
     if (!storedConfigId) return;
     loading.value = true;
     try {
@@ -453,9 +401,7 @@ export const useConfigEditorStore = defineStore("configEditor", () => {
   }
 
   function dispose() {
-    clearSyncTimers();
-    syncLock = null;
-    lastEditSource = "toml";
+    tomlSync.resetSyncState();
     configId.value = null;
     isNew.value = false;
     selectedMeta.value = "";
@@ -496,11 +442,11 @@ export const useConfigEditorStore = defineStore("configEditor", () => {
     continuationSaveToLibrary,
     continuationLibraryId,
     editingTitle,
-    setContent,
+    setContent: tomlSync.setContent,
     setForm,
     patchFormField,
-    applyToml,
-    flushSync,
+    applyToml: tomlSync.applyToml,
+    flushSync: tomlSync.flushSync,
     fetchSchema,
     newConfig,
     openConfig,

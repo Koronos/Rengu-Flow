@@ -64,13 +64,14 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { Refresh } from "@element-plus/icons-vue";
 import { api } from "../api";
 import { useBreakpoint } from "../composables/useBreakpoint";
 import { useTensorboard } from "../composables/useTensorboard";
+import type { JsonRecord } from "../types/runtime";
 
 defineProps({
   embedded: { type: Boolean, default: false },
@@ -79,7 +80,7 @@ defineProps({
 const router = useRouter();
 const { isMobile } = useBreakpoint();
 
-const runs = ref([]);
+const runs = ref<JsonRecord[]>([]);
 const outputDir = ref("output");
 const error = ref("");
 const { tbLoading, tbStatus, refreshTbStatus, openTensorboard, stopTensorboard } = useTensorboard(
@@ -87,7 +88,7 @@ const { tbLoading, tbStatus, refreshTbStatus, openTensorboard, stopTensorboard }
 );
 
 async function load() {
-  const data = await api.listFsRuns(outputDir.value);
+  const data = (await api.listFsRuns(outputDir.value)) as { runs?: JsonRecord[] };
   runs.value = data.runs || [];
 }
 

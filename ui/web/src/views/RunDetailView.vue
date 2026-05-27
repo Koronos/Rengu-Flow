@@ -88,7 +88,7 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
@@ -96,6 +96,7 @@ import { api } from "../api";
 import { useBreakpoint } from "../composables/useBreakpoint";
 import { useTensorboard } from "../composables/useTensorboard";
 import ScalarLineChart from "../components/ScalarLineChart.vue";
+import type { FsRunRecord, JobRecord, JsonRecord } from "../types/runtime";
 
 const props = defineProps({
   mode: { type: String, required: true },
@@ -114,20 +115,20 @@ const SIGNALS = [
   ["preview", "Preview"],
 ];
 
-const job = ref(null);
-const fsRun = ref(null);
-const jobArtifacts = ref([]);
+const job = ref<JobRecord | null>(null);
+const fsRun = ref<FsRunRecord | null>(null);
+const jobArtifacts = ref<JsonRecord[]>([]);
 const log = ref("");
-const metrics = ref({});
+const metrics = ref<Record<string, unknown>>({});
 const error = ref("");
 const outputDir = ref("output");
 const { tbLoading, tbStatus, refreshTbStatus, openTensorboard, stopTensorboard } = useTensorboard(
-  () => job.value?.output_dir || outputDir.value || "output"
+  () => String(job.value?.output_dir || outputDir.value || "output")
 );
-let pollTimer = null;
-let logTimer = null;
+let pollTimer: ReturnType<typeof setInterval> | null = null;
+let logTimer: ReturnType<typeof setInterval> | null = null;
 let logOffset = 0;
-let cachedPreviewRunDir = null;
+let cachedPreviewRunDir: string | null = null;
 
 const key = computed(() => (props.mode === "job" ? route.params.id : route.params.name));
 
@@ -163,8 +164,8 @@ function stopTensorboardForRun() {
 async function poll() {
   try {
     if (props.mode === "job") {
-      job.value = await api.getJob(key.value);
-      const m = await api.jobMetrics(key.value);
+      job.value = (await api.getJob(String(key.value))) as JobRecord;
+      const m = (await api.jobMetrics(String(key.value))) as { scalars?: Record<string, unknown> };
       metrics.value = m.scalars || {};
       fsRun.value = null;
       jobArtifacts.value = [];
@@ -173,13 +174,17 @@ async function poll() {
           cachedPreviewRunDir = job.value.run_dir;
           jobArtifacts.value = [];
           try {
-            const preview = await api.previewJobImport(job.value.run_dir);
+            const preview = (await api.previewJobImport(job.value.run_dir)) as {
+              run?: FsRunRecord;
+            };
             fsRun.value = preview.run || null;
           } catch {
             /* optional metadata */
           }
           try {
-            const art = await api.jobArtifacts(key.value);
+            const art = (await api.jobArtifacts(String(key.value))) as {
+              artifacts?: JsonRecord[];
+            };
             jobArtifacts.value = art.artifacts || [];
           } catch {
             /* ignore */
@@ -187,8 +192,10 @@ async function poll() {
         }
       }
     } else {
-      fsRun.value = await api.getFsRun(key.value, outputDir.value);
-      const m = await api.fsMetrics(key.value, outputDir.value);
+      fsRun.value = (await api.getFsRun(String(key.value), outputDir.value)) as FsRunRecord;
+      const m = (await api.fsMetrics(String(key.value), outputDir.value)) as {
+        scalars?: Record<string, unknown>;
+      };
       metrics.value = m.scalars || {};
     }
   } catch (e) {

@@ -67,15 +67,30 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
+import type { PropType } from "vue";
 import DatasetPreviewCard from "./DatasetPreviewCard.vue";
 import DatasetPreviewGrid from "./DatasetPreviewGrid.vue";
 import DatasetPreviewList from "./DatasetPreviewList.vue";
 import DatasetPreviewRow from "./DatasetPreviewRow.vue";
 import DatasetPreviewTable from "./DatasetPreviewTable.vue";
+import type { ThumbSource } from "../lib/previewThumbs";
+
+export interface DatasetPreviewItem {
+  key: string;
+  id?: string | number;
+  title?: string;
+  subtitle?: string;
+  thumbSource?: ThumbSource | null;
+  thumbs?: string[];
+  fallbackText?: string;
+  warning?: boolean;
+  active?: boolean;
+  stacked?: boolean;
+}
 
 defineProps({
-  items: { type: Array, default: () => [] },
+  items: { type: Array as PropType<DatasetPreviewItem[]>, default: () => [] },
   viewMode: { type: String, default: "cards" },
   scrollable: { type: Boolean, default: false },
   dense: { type: Boolean, default: false },

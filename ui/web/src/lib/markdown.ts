@@ -75,7 +75,7 @@ export function resolveDocLink(href, baseDocPath) {
  * @param {{ docPath?: string }} [ctx]
  * @returns {string}
  */
-export function renderMarkdown(md, ctx = {}) {
+export function renderMarkdown(md: string, ctx: { docPath?: string } = {}): string {
   if (!md) return "";
   parseContext.docPath = ctx.docPath || "";
   const raw = marked.parse(md, { async: false });

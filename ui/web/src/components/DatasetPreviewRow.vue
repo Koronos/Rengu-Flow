@@ -34,15 +34,17 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed } from "vue";
 import { usePreviewThumbs } from "../composables/usePreviewThumbs";
+import type { ThumbSource } from "../lib/previewThumbs";
+import type { PropType } from "vue";
 
 const props = defineProps({
   title: { type: String, required: true },
   subtitle: { type: String, default: "" },
   thumbs: { type: Array, default: () => [] },
-  thumbSource: { type: Object, default: null },
+  thumbSource: { type: Object as PropType<ThumbSource | null>, default: null },
   warning: { type: Boolean, default: false },
   fallbackText: { type: String, default: "…" },
   thumbLimit: { type: Number, default: 1 },

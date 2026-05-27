@@ -1,21 +1,10 @@
+import { coerceToArray, type RawListInput } from "./parseListInput";
+
 /** Parse form values into a list of non-empty strings. */
 
-export function parseStringList(value) {
-  let raw = value;
-  if (typeof raw === "string" && raw.trim()) {
-    try {
-      raw = JSON.parse(raw);
-    } catch {
-      raw = raw
-        .split("\n")
-        .map((s) => s.trim())
-        .filter(Boolean);
-    }
-  }
-  if (!Array.isArray(raw)) {
-    return [];
-  }
-  const out = [];
+export function parseStringList(value: RawListInput): string[] {
+  const raw = coerceToArray(value, /\n/);
+  const out: string[] = [];
   for (const item of raw) {
     if (typeof item === "string" && item.trim()) {
       out.push(item.trim());
@@ -25,13 +14,14 @@ export function parseStringList(value) {
 }
 
 /** True when the value must stay as JSON (named prompt tables, etc.). */
-export function stringListNeedsJsonEditor(value) {
-  let raw = value;
+export function stringListNeedsJsonEditor(value: RawListInput): boolean {
+  let raw: unknown = value;
   if (typeof raw === "string" && raw.trim()) {
     try {
-      raw = JSON.parse(raw);
+      raw = JSON.parse(raw) as unknown;
     } catch {
-      return raw.includes("{") || raw.includes("name");
+      const s = raw as string;
+      return s.includes("{") || s.includes("name");
     }
   }
   if (!Array.isArray(raw)) {
@@ -40,7 +30,7 @@ export function stringListNeedsJsonEditor(value) {
   return raw.some((item) => typeof item !== "string");
 }
 
-export function stringListToFormValue(strings) {
+export function stringListToFormValue(strings: string[]): string[] | "" {
   if (!Array.isArray(strings) || strings.length === 0) {
     return "";
   }

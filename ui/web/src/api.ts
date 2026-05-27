@@ -1,28 +1,33 @@
-import { formatApiDetail } from "./lib/formatError.js";
-import { filenameFromContentDisposition } from "./lib/downloadBlob.js";
+import { formatApiDetail } from "./lib/formatError";
+import { filenameFromContentDisposition } from "./lib/downloadBlob";
+import type { FormValues } from "./types/forms";
 
 const API = "/api/v1";
 
-async function request(path, options = {}) {
+async function request<T = unknown>(
+  path: string,
+  options: RequestInit = {}
+): Promise<T> {
   const res = await fetch(`${API}${path}`, {
     headers: { "Content-Type": "application/json", ...options.headers },
     ...options,
   });
   const text = await res.text();
-  let data = null;
+  let data: unknown = null;
   try {
     data = text ? JSON.parse(text) : null;
   } catch {
     data = { detail: text };
   }
   if (!res.ok) {
+    const body = data as Record<string, unknown> | null;
     const msg =
-      formatApiDetail(data?.detail) ||
-      (typeof data?.error === "string" ? data.error : formatApiDetail(data?.error)) ||
+      formatApiDetail(body?.detail) ||
+      (typeof body?.error === "string" ? body.error : formatApiDetail(body?.error)) ||
       res.statusText;
     throw new Error(msg || `HTTP ${res.status}`);
   }
-  return data;
+  return data as T;
 }
 
 export const api = {
@@ -138,7 +143,7 @@ export const api = {
   getDocsIndex: () => request("/docs/index"),
   parseToml: (content) =>
     request("/configs/parse-toml", { method: "POST", body: JSON.stringify({ content }) }),
-  renderToml: (form) => {
+  renderToml: (form: FormValues) => {
     if (!form || typeof form !== "object" || Array.isArray(form)) {
       return Promise.reject(new Error("Config form is not ready yet."));
     }
@@ -181,8 +186,8 @@ export const api = {
       `/datasets/import-example?path=${encodeURIComponent(path)}${datasetId ? `&dataset_id=${encodeURIComponent(datasetId)}` : ""}`,
       { method: "POST" }
     ),
-  importDataset: (content, id) => {
-    const body = { content };
+  importDataset: (content: string, id?: string) => {
+    const body: { content: string; id?: string } = { content };
     if (id) body.id = id;
     return request("/datasets/import", { method: "POST", body: JSON.stringify(body) });
   },
@@ -194,7 +199,7 @@ export const api = {
   },
   parseDatasetToml: (content) =>
     request("/datasets/parse-toml", { method: "POST", body: JSON.stringify({ content }) }),
-  renderDatasetToml: (form) => {
+  renderDatasetToml: (form: FormValues) => {
     if (!form || typeof form !== "object" || Array.isArray(form)) {
       return Promise.reject(new Error("Dataset form is not ready yet."));
     }
@@ -211,8 +216,8 @@ export const api = {
     `${API}/datasets/preview-image?t=${encodeURIComponent(token)}`,
   scanDatasetPath: (path) =>
     request("/datasets/scan-path", { method: "POST", body: JSON.stringify({ path }) }),
-  composeDatasets: (sourceIds, targetId) => {
-    const body = { source_ids: sourceIds };
+  composeDatasets: (sourceIds: string[], targetId?: string) => {
+    const body: { source_ids: string[]; target_id?: string } = { source_ids: sourceIds };
     if (targetId) body.target_id = targetId;
     return request("/datasets/compose", { method: "POST", body: JSON.stringify(body) });
   },

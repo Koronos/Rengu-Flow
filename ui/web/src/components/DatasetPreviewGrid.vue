@@ -8,7 +8,7 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 defineProps({
   scrollable: { type: Boolean, default: false },
   /** Slightly smaller cards (e.g. [[directory]] tab). */

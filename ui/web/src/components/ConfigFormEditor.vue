@@ -190,7 +190,7 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
 import ConfigFormField from "./ConfigFormField.vue";
@@ -293,7 +293,8 @@ function onFieldUpdate({ path, value }) {
 
 function initAdvancedOpen() {
   if (!schema.value) return;
-  for (const sec of schema.value.sections || []) {
+  const sections = (schema.value.sections as { id: string; flat_optional?: boolean }[]) || [];
+  for (const sec of sections) {
     if (partition(sec).advanced.length && !sec.flat_optional) {
       advancedOpen[sec.id] = [];
     }

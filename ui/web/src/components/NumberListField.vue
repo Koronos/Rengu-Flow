@@ -23,7 +23,7 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed } from "vue";
 import { parseNumberList } from "../lib/numberList";
 
@@ -39,11 +39,13 @@ const emit = defineEmits(["update:modelValue"]);
 
 const sortedValues = computed(() => {
   let nums = parseNumberList(props.modelValue);
-  if (props.min !== undefined) {
-    nums = nums.filter((n) => n >= props.min);
+  const min = props.min;
+  const max = props.max;
+  if (min !== undefined) {
+    nums = nums.filter((n) => n >= min);
   }
-  if (props.max !== undefined) {
-    nums = nums.filter((n) => n <= props.max);
+  if (max !== undefined) {
+    nums = nums.filter((n) => n <= max);
   }
   return nums;
 });
@@ -63,11 +65,13 @@ const quickAddOptions = computed(() => {
 
 function emitNumbers(nums) {
   let filtered = nums;
-  if (props.min !== undefined) {
-    filtered = filtered.filter((n) => n >= props.min);
+  const min = props.min;
+  const max = props.max;
+  if (min !== undefined) {
+    filtered = filtered.filter((n) => n >= min);
   }
-  if (props.max !== undefined) {
-    filtered = filtered.filter((n) => n <= props.max);
+  if (max !== undefined) {
+    filtered = filtered.filter((n) => n <= max);
   }
   emit("update:modelValue", filtered.length ? filtered : "");
 }

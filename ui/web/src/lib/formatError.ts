@@ -1,6 +1,6 @@
 /** Turn API / fetch errors into a readable string (never "[object Object]"). */
 
-export function formatApiDetail(detail) {
+export function formatApiDetail(detail: unknown): string {
   if (detail == null || detail === "") return "";
   if (typeof detail === "string") return detail;
   if (Array.isArray(detail)) {
@@ -8,10 +8,13 @@ export function formatApiDetail(detail) {
       .map((item) => {
         if (typeof item === "string") return item;
         if (item && typeof item === "object") {
-          const loc = Array.isArray(item.loc) ? item.loc.filter(Boolean).join(".") : "";
-          const msg = item.msg || item.message || "";
+          const rec = item as Record<string, unknown>;
+          const loc = Array.isArray(rec.loc)
+            ? rec.loc.filter(Boolean).join(".")
+            : "";
+          const msg = rec.msg || rec.message || "";
           if (loc && msg) return `${loc}: ${msg}`;
-          if (msg) return msg;
+          if (msg) return String(msg);
         }
         try {
           return JSON.stringify(item);
@@ -23,8 +26,9 @@ export function formatApiDetail(detail) {
       .join("; ");
   }
   if (typeof detail === "object") {
-    if (typeof detail.message === "string") return detail.message;
-    if (typeof detail.error === "string") return detail.error;
+    const rec = detail as Record<string, unknown>;
+    if (typeof rec.message === "string") return rec.message;
+    if (typeof rec.error === "string") return rec.error;
     try {
       return JSON.stringify(detail);
     } catch {
@@ -34,7 +38,7 @@ export function formatApiDetail(detail) {
   return String(detail);
 }
 
-export function formatError(err) {
+export function formatError(err: unknown): string {
   if (err == null) return "Unknown error";
   if (typeof err === "string") return err;
   if (err instanceof Error) {
@@ -42,7 +46,8 @@ export function formatError(err) {
     if (msg && msg !== "[object Object]") return msg;
   }
   if (typeof err === "object") {
-    const fromDetail = formatApiDetail(err.detail ?? err);
+    const rec = err as Record<string, unknown>;
+    const fromDetail = formatApiDetail(rec.detail ?? err);
     if (fromDetail) return fromDetail;
   }
   const fallback = String(err);

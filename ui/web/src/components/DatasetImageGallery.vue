@@ -55,7 +55,7 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { api } from "../api";
 import { formatMediaCount } from "../lib/formatMediaCount";
@@ -116,7 +116,12 @@ async function fetchImages({ append = false } = {}) {
 
   try {
     const offset = append ? images.value.length : 0;
-    const body = {
+    const body: {
+      content: string;
+      limit: number;
+      offset: number;
+      directory_index?: number;
+    } = {
       content,
       limit,
       offset,
@@ -124,7 +129,14 @@ async function fetchImages({ append = false } = {}) {
     if (props.directoryIndex != null) {
       body.directory_index = props.directoryIndex;
     }
-    const r = await api.listDatasetPreviewImages(body);
+    const r = (await api.listDatasetPreviewImages(body)) as {
+      ok?: boolean;
+      error?: string;
+      directories?: { path?: string; ok?: boolean; error?: string }[];
+      total?: number;
+      total_capped?: boolean;
+      images?: { token: string; name?: string; directory_index?: number }[];
+    };
     if (!r.ok) {
       error.value = r.error || "Could not load images";
       if (!append) images.value = [];

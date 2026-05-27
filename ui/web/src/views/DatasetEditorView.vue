@@ -72,7 +72,7 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { useRoute, useRouter } from "vue-router";
@@ -80,7 +80,7 @@ import { ElMessage } from "element-plus";
 import { ArrowLeft, CircleCheck } from "@element-plus/icons-vue";
 import { api } from "../api";
 import { useBreakpoint } from "../composables/useBreakpoint";
-import { downloadBlob } from "../lib/downloadBlob.js";
+import { downloadBlob } from "../lib/downloadBlob";
 import { formatError } from "../lib/formatError";
 import { useDatasetEditorStore } from "../stores/datasetEditor";
 import EditorModeToggle from "../components/EditorModeToggle.vue";
@@ -130,7 +130,7 @@ async function exportDatasetToml() {
   if (!id) return;
   exporting.value = true;
   try {
-    const r = await api.exportDataset(id);
+    const r = (await api.exportDataset(id)) as { content: string; filename?: string };
     const blob = new Blob([r.content], { type: "application/toml;charset=utf-8" });
     downloadBlob(blob, r.filename || `dataset_${id}.toml`);
     ElMessage.success("Exported dataset TOML");

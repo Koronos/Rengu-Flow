@@ -23,13 +23,13 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { onMounted, onUnmounted, ref } from "vue";
 
 const emit = defineEmits(["import"]);
 
-const rootEl = ref(null);
-const fileInput = ref(null);
+const rootEl = ref<HTMLElement | null>(null);
+const fileInput = ref<HTMLInputElement | null>(null);
 const dragActive = ref(false);
 let dragDepth = 0;
 

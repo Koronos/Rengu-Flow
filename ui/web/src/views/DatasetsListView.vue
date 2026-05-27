@@ -60,7 +60,7 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { Plus, Search } from "@element-plus/icons-vue";
@@ -77,11 +77,13 @@ import {
 } from "../composables/useDatasetViewMode";
 import { useLibraryListSort } from "../composables/useLibraryListSort";
 import { formatError } from "../lib/formatError";
-import { formatLibraryTimestamp } from "../lib/formatLibraryTime.js";
+import { formatLibraryTimestamp } from "../lib/formatLibraryTime";
 import { libraryThumbSource } from "../lib/previewThumbs";
+import type { JsonRecord } from "../types/runtime";
+import type { DatasetPreviewItem } from "../components/DatasetPreviewCollection.vue";
 
 const router = useRouter();
-const rawItems = ref([]);
+const rawItems = ref<JsonRecord[]>([]);
 const loading = ref(false);
 const error = ref("");
 const query = ref("");
@@ -103,15 +105,15 @@ function onToggleSortOrder() {
 watch([sortField, sortOrder], () => load());
 const { galleryOpen, galleryTitle, galleryContent, galleryDirectoryIndex, showFromLibrary } =
   useDatasetGallery();
-let searchTimer = null;
+let searchTimer: ReturnType<typeof setTimeout> | undefined;
 
-const previewItems = computed(() =>
+const previewItems = computed((): DatasetPreviewItem[] =>
   rawItems.value.map((row) => ({
     key: String(row.id),
-    id: row.id,
-    title: row.name || `Dataset #${row.id}`,
+    id: row.id as string | number,
+    title: String(row.name || `Dataset #${row.id}`),
     subtitle: formatSubtitle(row),
-    thumbSource: libraryThumbSource(row.id),
+    thumbSource: libraryThumbSource(String(row.id)),
     fallbackText: "DS",
   }))
 );
@@ -142,12 +144,12 @@ async function load() {
   loading.value = true;
   error.value = "";
   try {
-    const data = await api.searchDatasets({
+    const data = (await api.searchDatasets({
       q: query.value.trim(),
       page: 1,
       page_size: 100,
       ...sortParams(),
-    });
+    })) as { items?: JsonRecord[] };
     rawItems.value = data.items || [];
   } catch (e) {
     error.value = formatError(e);
