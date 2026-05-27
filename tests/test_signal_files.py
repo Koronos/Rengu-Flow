@@ -5,6 +5,7 @@ from pathlib import Path
 from renga_flow.utils.signal_files import (
     SIGNAL_EXPORT_MODEL,
     SIGNAL_EXPORT_MODEL_QUIT,
+    SIGNAL_PREVIEW,
     SIGNAL_SAVE,
     SIGNAL_SAVE_QUIT,
     SignalResult,
@@ -49,3 +50,20 @@ def test_process_signals_export_model_quit(tmp_path):
 def test_process_signals_empty(tmp_path):
     result = process_signals(tmp_path)
     assert result == SignalResult(False, False, False, False, False)
+
+
+def test_process_signals_preview(tmp_path):
+    (tmp_path / SIGNAL_PREVIEW).touch()
+    result = process_signals(tmp_path)
+    assert result.should_preview is True
+    assert not (tmp_path / SIGNAL_PREVIEW).exists()
+
+
+def test_process_signals_save_quit_takes_priority_over_save(tmp_path):
+    (tmp_path / SIGNAL_SAVE).touch()
+    (tmp_path / SIGNAL_SAVE_QUIT).touch()
+    result = process_signals(tmp_path)
+    assert result.should_checkpoint is True
+    assert result.should_quit is True
+    assert not (tmp_path / SIGNAL_SAVE).exists()
+    assert not (tmp_path / SIGNAL_SAVE_QUIT).exists()

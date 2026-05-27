@@ -182,6 +182,20 @@ def test_jobs_enqueue_mocked(ui_client, ui_data_tmp: Path, monkeypatch: pytest.M
     assert r2.status_code == 200
 
 
+def test_tensorboard_status(ui_client) -> None:
+    r = ui_client.get("/api/v1/tensorboard/status")
+    assert r.status_code == 200
+    assert r.json()["running"] is False
+
+
+def test_tensorboard_start_missing_dir(ui_client) -> None:
+    r = ui_client.post(
+        "/api/v1/tensorboard/start",
+        json={"output_dir": "definitely_not_an_output_dir_xyz"},
+    )
+    assert r.status_code == 404
+
+
 def test_auth_token_required(ui_client_auth) -> None:
     client, headers = ui_client_auth
     r = client.get("/api/v1/configs")

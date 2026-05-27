@@ -72,7 +72,7 @@ class ModelPipelineProtocol(Protocol):
         """Save full model state dict to save_dir (e.g. for full fine-tuned model)."""
         ...
 
-    def get_preprocess_media_file_fn(self) -> Any:
+    def get_preprocess_media_file_fn(self, augmentation_resolver: Any = None) -> Any:
         """Return a callable/object that preprocesses media (crop, resize, masks) per dataset spec."""
         ...
 

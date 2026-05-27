@@ -1,5 +1,5 @@
-# Example dataset TOML fragment illustrating PLANNED augmentation configuration.
-# Renga Flow may ignore these keys until augmentation is implemented.
+# Example dataset TOML fragment illustrating augmentation configuration (MVP).
+# Supported: Tier A–B strategies and presets listed in docs/user/dataset-augmentation.md.
 # See docs/user/dataset-augmentation.md and docs/developer/dataset-augmentation.md.
 #
 # Prefer named strategies + parameters (readable). Numeric strategy IDs are optional legacy.

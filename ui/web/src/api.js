@@ -83,6 +83,10 @@ export const api = {
     request(`/runs/${encodeURIComponent(name)}/metrics?output_dir=${encodeURIComponent(outputDir)}`),
   getSchema: () => request("/schema"),
   getSystemStats: () => request("/system/stats"),
+  tensorboardStatus: () => request("/tensorboard/status"),
+  tensorboardStart: (body = {}) =>
+    request("/tensorboard/start", { method: "POST", body: JSON.stringify(body) }),
+  tensorboardStop: () => request("/tensorboard/stop", { method: "POST" }),
   probeRegistry: (body) =>
     request("/registry/probe", { method: "POST", body: JSON.stringify(body) }),
   getDoc: (path) => request(`/docs?path=${encodeURIComponent(path)}`),

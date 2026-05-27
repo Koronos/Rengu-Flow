@@ -14,6 +14,22 @@ User-facing options: `docs/user/previews.md`.
 | `should_run_previews(...)` | Schedule + `forced` from signal. |
 | `run_previews(model, config, tb_writer, step, ...)` | Distributed barriers; inference on rank 0 only. |
 | `_run_sdxl_previews(...)` | Calls `StableDiffusionXLPipeline.__call__` with `output_type="pil"`. |
+| `_run_cosmos_previews(...)` | `prepare_preview_memory` → `CosmosPredict2Pipeline.generate_preview_image` → TensorBoard. |
+
+## Cosmos Predict2
+
+**`renga_flow.model.cosmos_predict2.preview_sampling`**
+
+- `build_timestep_schedule` — same `shift` / `flux_shift` as `prepare_inputs` in training.
+- `encode_preview_prompt` — tokenize + `compute_text_embeddings` (T5 ids for `llm_adapter`).
+- `euler_sample_latents` — rectified flow: `x_t = (1-t)·x0 + t·noise`, integrate `t: 1 → 0` with `x -= dt * v_pred`; optional CFG (`guidance_scale`, default `4.0` for Cosmos/Anima).
+- `decode_latents_to_pil` — `WanVAE.decode`, frame `T=0`.
+
+**VRAM (Tier A):** `prepare_preview_memory` / `restore_after_preview` on the pipeline — text encoder to CPU when `preview_offload_text_encoder` (default true), `transformer.eval()`, `empty_cuda_cache` + `cuda.synchronize` in `run_previews` finally.
+
+**VRAM (Tier B):** `preview_blocks_to_swap` → `CosmosBlockOffloader` in `block_offload.py`; `forward_transformer` runs a manual block loop during preview only (training still uses `NoopOffloader` / `enable_block_swap` not implemented).
+
+Requires **`pipeline_stages == 1`**; otherwise `run_previews` prints a skip message on the main process.
 
 ## Training loop integration
 
@@ -48,8 +64,9 @@ Extend `SignalResult` and `broadcast_object_list` length when adding signals.
 
 ## Extending to other models
 
-Add a branch in `run_previews` (or a `generate_preview` method on `ModelPipelineProtocol`) for new `model.type` values. SDXL uses the loaded diffusers pipeline on `model._pipeline`.
+Add a branch in `run_previews` (or a `generate_preview` method on `ModelPipelineProtocol`) for new `model.type` values. SDXL uses the loaded diffusers pipeline on `model._pipeline`. Cosmos uses `generate_preview_image` on `CosmosPredict2Pipeline`.
 
 ## Tests
 
-- `tests/test_preview.py` — config helpers and `preview` signal (no GPU).
+- `tests/test_preview.py` — config helpers, `preview` signal, Cosmos dispatch mock (no GPU).
+- `tests/test_cosmos_preview_sampling.py` — schedule, Euler mock, memory offload, block offloader (CUDA optional).

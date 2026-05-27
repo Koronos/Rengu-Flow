@@ -74,7 +74,9 @@ class CosmosPredict2Pipeline(BasePipeline):
         self.text_encoder.requires_grad_(False)
         self.transformer = None
 
-    def load_diffusion_model(self):
+    def load_diffusion_model(self, *, force: bool = False) -> None:
+        if self.transformer is not None and not force:
+            return
         dtype = self.model_config["dtype"]
         transformer_dtype = self.model_config.get("transformer_dtype", dtype)
 
@@ -187,8 +189,13 @@ class CosmosPredict2Pipeline(BasePipeline):
             state_dict, save_dir / "model.safetensors", metadata={"format": "pt"}
         )
 
-    def get_preprocess_media_file_fn(self):
-        return PreprocessMediaFile(self.config, support_video=True, framerate=self.framerate)
+    def get_preprocess_media_file_fn(self, augmentation_resolver=None):
+        return PreprocessMediaFile(
+            self.config,
+            support_video=True,
+            framerate=self.framerate,
+            augmentation_resolver=augmentation_resolver,
+        )
 
     def get_call_vae_fn(self, vae):
         def fn(tensor):
@@ -355,6 +362,117 @@ class CosmosPredict2Pipeline(BasePipeline):
 
     def freeze_text_encoders(self):
         pass
+
+    def ensure_vae_for_preview(self) -> None:
+        """Reload Wan VAE weights when dataset caching left ``vae.model`` on ``meta``."""
+        try:
+            param = next(self.vae.model.parameters())
+        except StopIteration:
+            return
+        if param.device.type != "meta":
+            return
+        if is_main_process():
+            print("renga_flow: loading VAE weights for preview...", flush=True)
+        dtype = self.model_config["dtype"]
+        self.vae = WanVAE(vae_pth=self.model_config["vae_path"], device="cpu", dtype=dtype)
+        self.vae.mean = self.vae.mean.to("cuda")
+        self.vae.std = self.vae.std.to("cuda")
+        self.vae.scale = [self.vae.mean, 1.0 / self.vae.std]
+        state = getattr(self, "_preview_restore_state", None)
+        if state is None:
+            self._preview_restore_state = {}
+            state = self._preview_restore_state
+        state["vae_was_meta"] = True
+
+    def ensure_text_encoder_for_preview(self, device: str | torch.device = "cuda") -> None:
+        """Load text encoder weights onto *device* when caching left them on ``meta``."""
+        state = getattr(self, "_preview_restore_state", None)
+        if state is None:
+            self._preview_restore_state = {}
+            state = self._preview_restore_state
+        try:
+            param = next(self.text_encoder.parameters())
+        except StopIteration:
+            return
+        if param.device.type == "meta":
+            if is_main_process():
+                print("renga_flow: loading text encoder weights for preview...", flush=True)
+            _, _, text_encoder, _, _ = load_text_stack(self.model_config)
+            text_encoder.requires_grad_(False)
+            self.text_encoder = text_encoder
+            state["text_encoder_was_meta"] = True
+            if is_main_process():
+                print("renga_flow: text encoder ready for preview.", flush=True)
+        else:
+            state.setdefault("text_encoder_was_meta", False)
+            state["text_encoder_device"] = param.device
+        self.text_encoder.to(device)
+
+    def offload_text_encoder_after_encode(self, preview_cfg: dict) -> None:
+        """Move LLM/T5 to CPU after prompts are encoded (Euler loop only needs cross-attn)."""
+        if not preview_cfg.get("preview_offload_text_encoder", True):
+            return
+        try:
+            param = next(self.text_encoder.parameters())
+        except StopIteration:
+            return
+        if param.device.type == "meta":
+            return
+        state = getattr(self, "_preview_restore_state", None) or {}
+        state["text_encoder_device"] = param.device
+        self.text_encoder.to("cpu")
+        self._preview_restore_state = state
+
+    def ensure_transformer_for_preview(self, device: str | torch.device = "cuda") -> None:
+        """Use in-memory DiT on GPU for Euler (do not reload weights from disk)."""
+        if self.transformer is None:
+            self.load_diffusion_model()
+        target = torch.device(device)
+        param = next(self.transformer.parameters())
+        if param.device != target:
+            if is_main_process():
+                print(f"renga_flow: moving DiT to {target} for preview...", flush=True)
+            self.transformer.to(target)
+        self.transformer.eval()
+
+    def prepare_preview_memory(self, preview_cfg: dict) -> None:
+        """Prepare DiT for preview sampling (eval mode; optional block swap)."""
+        self.ensure_transformer_for_preview("cuda")
+        state: dict = {}
+        blocks_swap = int(preview_cfg.get("preview_blocks_to_swap", 0))
+        if blocks_swap > 0:
+            from renga_flow.model.cosmos_predict2.block_offload import CosmosBlockOffloader
+
+            self._preview_offloader = CosmosBlockOffloader(
+                self.transformer.blocks, blocks_swap, device="cuda"
+            )
+        else:
+            self._preview_offloader = None
+        state["transformer_was_training"] = self.transformer.training
+        self._preview_restore_state = state
+
+    def restore_after_preview(self) -> None:
+        state = getattr(self, "_preview_restore_state", None) or {}
+        offloader = getattr(self, "_preview_offloader", None)
+        if offloader is not None:
+            offloader.teardown()
+        self._preview_offloader = None
+        if state.get("vae_was_meta"):
+            self.vae.model.to("meta")
+        if state.get("text_encoder_was_meta"):
+            self.text_encoder.to("meta")
+        else:
+            te_dev = state.get("text_encoder_device")
+            if te_dev is not None:
+                self.text_encoder.to(te_dev)
+        if state.get("transformer_was_training"):
+            self.transformer.train()
+        self._preview_restore_state = None
+
+    def generate_preview_image(self, preview_cfg: dict, prompt: str, step: int, seed: int):
+        from renga_flow.model.cosmos_predict2.preview_sampling import generate_preview_image as _gen
+
+        return _gen(self, preview_cfg, prompt, step, seed)
 
 
 register_model_alias("anima", "cosmos_predict2")

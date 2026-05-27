@@ -61,6 +61,16 @@ def set_config_defaults(config: dict[str, Any]) -> None:
         if config.get("activation_checkpointing") and not config.get("blocks_to_swap"):
             config.setdefault("reentrant_activation_checkpointing", True)
 
+    if str(model_config.get("type", "")).lower() in ("cosmos_predict2", "anima"):
+        preview_cfg = config.get("preview")
+        if isinstance(preview_cfg, dict):
+            preview_cfg.setdefault("num_inference_steps", 20)
+            preview_cfg.setdefault("guidance_scale", 4.0)
+            preview_cfg.setdefault("negative_prompt", "")
+            preview_cfg.setdefault("width", 1024)
+            preview_cfg.setdefault("height", 1024)
+            preview_cfg.setdefault("preview_offload_text_encoder", True)
+
     if "adapter" in config:
         adapter_config = config["adapter"]
         # Normalize dim -> rank (Kohya-style alias) so rest of code uses only "rank"

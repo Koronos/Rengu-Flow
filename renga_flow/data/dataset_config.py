@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+from renga_flow.data.augmentation import (
+    AugmentationConfigError,
+    AugmentationStrategyNotImplementedError,
+    validate_augmentation_for_directory,
+)
+
 
 class DatasetConfigError(ValueError):
     """Raised when dataset config is invalid for real (non-synthetic) dataset."""
@@ -40,3 +46,7 @@ def validate_dataset_config_for_real_data(dataset_config: dict) -> None:
             raise DatasetConfigError(
                 f"dataset_config['directory'][{i}]['num_repeats'] must be > 0."
             )
+        try:
+            validate_augmentation_for_directory(d, dataset_config)
+        except (AugmentationConfigError, AugmentationStrategyNotImplementedError) as e:
+            raise DatasetConfigError(str(e)) from e

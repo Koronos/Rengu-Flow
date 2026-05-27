@@ -53,7 +53,7 @@ source_env_and_paths() {
       echo "Set RENGA_SDXL_CHECKPOINT_PATH in .env" >&2
       exit 1
     }
-    BASE_CONFIG="${REPO_ROOT}/examples/smoke_sdxl.toml"
+    BASE_CONFIG="${REPO_ROOT}/tests/fixtures/smoke/train_sdxl.toml"
   else
     for var in RENGA_COSMOS_TRANSFORMER_PATH RENGA_COSMOS_VAE_PATH RENGA_COSMOS_LLM_PATH; do
       [[ -f "${!var:-}" ]] || {
@@ -61,7 +61,7 @@ source_env_and_paths() {
         exit 1
       }
     done
-    BASE_CONFIG="${REPO_ROOT}/examples/smoke_cosmos_predict2.toml"
+    BASE_CONFIG="${REPO_ROOT}/tests/fixtures/smoke/train_cosmos_predict2.toml"
   fi
 }
 

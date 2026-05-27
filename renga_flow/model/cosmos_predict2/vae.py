@@ -45,3 +45,11 @@ class WanVAE:
 
 def vae_encode(tensor, vae: WanVAE):
     return vae.model.encode(tensor, vae.scale)
+
+
+def vae_decode(latent, vae: WanVAE):
+    """Decode a single latent (C, T, H, W) tensor to pixels."""
+    import torch
+
+    with torch.autocast("cuda", dtype=vae.dtype, enabled=torch.cuda.is_available()):
+        return vae.model.decode(latent.unsqueeze(0), vae.scale).float().clamp(-1, 1).squeeze(0)

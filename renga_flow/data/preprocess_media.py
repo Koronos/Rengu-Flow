@@ -9,8 +9,30 @@ import imageio
 import torch
 from PIL import Image, ImageOps
 
+from renga_flow.data.augmentation import (
+    apply_augmentation,
+    augmentation_seed_for_image,
+    image_spec_base,
+    image_spec_variant_key,
+)
 from renga_flow.data.dataset import VIDEO_EXTENSIONS
 from renga_flow.utils.common import round_down_to_multiple, round_to_nearest_multiple
+
+
+def _ensure_mask_matches_image(
+    mask_pil: Image.Image,
+    height: int,
+    width: int,
+    *,
+    image_path: str,
+    mask_path: str,
+) -> None:
+    mask_hw = (mask_pil.height, mask_pil.width)
+    if mask_hw != (height, width):
+        raise ValueError(
+            f"Mask shape {mask_hw} was not the same as image shape {(height, width)}.\n"
+            f"Image path: {image_path}\nMask path: {mask_path}"
+        )
 
 
 def convert_crop_and_resize(pil_img, width_and_height):
@@ -50,8 +72,10 @@ class PreprocessMediaFile:
         round_height=16,
         round_width=16,
         round_frames=4,
+        augmentation_resolver=None,
     ):
         self.config = config
+        self.augmentation_resolver = augmentation_resolver
         self.video_clip_mode = config.get("video_clip_mode", "single_beginning")
         from torchvision import transforms
 
@@ -70,6 +94,19 @@ class PreprocessMediaFile:
     def __del__(self):
         for tar_f in self.tarfile_map.values():
             tar_f.close()
+
+    def _apply_augmentation_if_needed(self, pil_img, mask, spec):
+        resolved_pack = self.augmentation_resolver(spec)
+        if not resolved_pack:
+            return pil_img, mask
+        resolved, aug_fingerprint = resolved_pack
+        variant_key = image_spec_variant_key(spec)
+        seed = augmentation_seed_for_image(
+            image_spec_base(spec), aug_fingerprint, variant_key
+        )
+        return apply_augmentation(
+            pil_img, mask, seed, resolved, variant_key=variant_key
+        )
 
     def __call__(self, spec, mask_filepath, size_bucket=None):
         from torchvision.transforms import functional as tv_functional
@@ -96,6 +133,21 @@ class PreprocessMediaFile:
             num_frames = 1
             pil_img = Image.open(filepath_or_file)
             height, width = pil_img.height, pil_img.width
+            mask_pil = None
+            if mask_filepath:
+                mask_pil = Image.open(mask_filepath).convert("RGB")
+                _ensure_mask_matches_image(
+                    mask_pil,
+                    height,
+                    width,
+                    image_path=spec[1],
+                    mask_path=mask_filepath,
+                )
+            if self.augmentation_resolver is not None:
+                pil_img, mask_pil = self._apply_augmentation_if_needed(
+                    pil_img, mask_pil, spec
+                )
+                height, width = pil_img.height, pil_img.width
             video = [pil_img]
 
         if size_bucket is not None:
@@ -108,19 +160,22 @@ class PreprocessMediaFile:
         frames_rounded = round_down_to_multiple(size_bucket_frames - 1, self.round_frames) + 1
         resize_wh = (width_rounded, height_rounded)
 
-        if mask_filepath:
-            mask_img = Image.open(mask_filepath).convert("RGB")
-            img_hw = (height, width)
-            mask_hw = (mask_img.height, mask_img.width)
-            if mask_hw != img_hw:
-                raise ValueError(
-                    f"Mask shape {mask_hw} was not the same as image shape {img_hw}.\n"
-                    f"Image path: {spec[1]}\nMask path: {mask_filepath}"
-                )
+        mask = None
+        if not is_video and mask_filepath:
+            mask_img = mask_pil if mask_pil is not None else Image.open(mask_filepath).convert("RGB")
             mask_img = ImageOps.fit(mask_img, resize_wh)
             mask = tv_functional.to_tensor(mask_img)[0].to(torch.float16)
-        else:
-            mask = None
+        elif is_video and mask_filepath:
+            mask_img = Image.open(mask_filepath).convert("RGB")
+            _ensure_mask_matches_image(
+                mask_img,
+                height,
+                width,
+                image_path=spec[1],
+                mask_path=mask_filepath,
+            )
+            mask_img = ImageOps.fit(mask_img, resize_wh)
+            mask = tv_functional.to_tensor(mask_img)[0].to(torch.float16)
 
         resized_video = torch.empty((num_frames, 3, height_rounded, width_rounded))
         for i, frame in enumerate(video):

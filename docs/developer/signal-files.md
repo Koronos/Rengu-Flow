@@ -51,3 +51,18 @@ Keeping `save` / `save_quit` names and the run_dir root preserves diffusion-pipe
 - Same resume signal names: `save`, `save_quit`.
 - Same location: root of the run directory.
 - **New in renga-flow**: `export_model`, `export_model_quit` (diffusion-pipe managers do not send these unless extended).
+
+## Tests and GPU smoke
+
+**Unit tests (CPU, no training):**
+
+- `tests/test_signal_files.py` — `process_signals` for each file name and `save_quit` vs `save` priority.
+- `tests/test_saver_signals.py` — `Saver.process_step` with mocked DeepSpeed engine.
+- `tests/test_ui_signals.py` — `renga_flow_ui.signals.send_signal` and `POST /api/v1/jobs/{id}/signals`.
+- `tests/test_genericoptim_cpu_state.py` — `GenericOptim` + `kahan_buffer_offload` state on CPU after `step` / `load_state_dict`.
+
+**GPU smoke (Cosmos Predict2, manual):**
+
+- Configs live under `tests/fixtures/smoke/` (not `examples/`).
+- `bash scripts/smoke_training_signals.sh` — touches each signal during a real run, then resumes with `genericoptim` + `kahan_buffer_offload` after `save_quit`.
+- Requires repo-root `.env` with `RENGA_COSMOS_*` and `pip install -e ".[optim]"` for the genericoptim phase.

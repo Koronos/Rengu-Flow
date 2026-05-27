@@ -209,13 +209,34 @@ class DatasetManager:
         )
         queue = queue[0]
 
+        resolvers = [
+            ds.get_augmentation_resolver()
+            for ds in self.datasets
+            if hasattr(ds, "get_augmentation_resolver")
+        ]
+        resolvers = [r for r in resolvers if r is not None]
+        if not resolvers:
+            augmentation_resolver = None
+        elif len(resolvers) == 1:
+            augmentation_resolver = resolvers[0]
+        else:
+
+            def augmentation_resolver(spec):
+                for resolver in resolvers:
+                    out = resolver(spec)
+                    if out:
+                        return out
+                return None
+
         if is_main_process():
             proc = mp.Process(
                 target=_cache_fn,
                 args=(
                     self.datasets,
                     queue,
-                    self.model.get_preprocess_media_file_fn(),
+                    self.model.get_preprocess_media_file_fn(
+                        augmentation_resolver=augmentation_resolver
+                    ),
                     len(self.text_encoders),
                     self.regenerate_cache,
                     self.trust_cache,

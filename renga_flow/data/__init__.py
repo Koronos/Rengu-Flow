@@ -5,12 +5,18 @@ from renga_flow.data.loader import PipelineDataLoader, split_batch
 from renga_flow.data.manager import DatasetManager
 from renga_flow.data.synthetic import SyntheticSDXLDataset
 
+from renga_flow.data.augmentation import (  # noqa: F401
+    AugmentationConfigError,
+    AugmentationStrategyNotImplementedError,
+)
 from renga_flow.data.dataset_config import (  # noqa: F401
     DatasetConfigError,
     validate_dataset_config_for_real_data,
 )
 
 __all__ = [
+    "AugmentationConfigError",
+    "AugmentationStrategyNotImplementedError",
     "Dataset",
     "DatasetConfigError",
     "DatasetManager",

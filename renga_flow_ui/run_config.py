@@ -9,7 +9,7 @@ import toml
 
 from renga_flow_ui import runs_scanner
 from renga_flow_ui.job_import import resolve_run_path
-from renga_flow_ui.settings import repo_root
+from renga_flow_ui.paths import resolve_repo_path
 
 
 class RunConfigError(ValueError):
@@ -33,11 +33,7 @@ def read_run_config_dict(run_path: str | Path) -> dict[str, Any]:
 
 
 def resolve_output_dir(config: dict[str, Any]) -> Path:
-    out = config.get("output_dir") or "output"
-    p = Path(out)
-    if not p.is_absolute():
-        p = (repo_root() / p).resolve()
-    return p
+    return resolve_repo_path(config.get("output_dir") or "output")
 
 
 def resume_checkpoint_arg(run_path: str | Path, config: dict[str, Any] | None = None) -> str:

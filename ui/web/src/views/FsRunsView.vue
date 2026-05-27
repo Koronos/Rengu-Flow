@@ -11,6 +11,24 @@
         </el-form-item>
         <el-form-item>
           <el-button :icon="Refresh" @click="load">Refresh</el-button>
+          <el-button :loading="tbLoading" @click="openTensorboardForOutput">Open TensorBoard</el-button>
+          <el-button
+            v-if="tbStatus?.running"
+            :loading="tbLoading"
+            type="danger"
+            plain
+            @click="stopTensorboardForOutput"
+          >
+            Stop TensorBoard
+          </el-button>
+          <el-link
+            v-if="tbStatus?.running && tbStatus.url"
+            :href="tbStatus.url"
+            target="_blank"
+            type="primary"
+          >
+            {{ tbStatus.url }}
+          </el-link>
         </el-form-item>
       </el-form>
     </el-card>
@@ -51,6 +69,7 @@ import { useRouter } from "vue-router";
 import { Refresh } from "@element-plus/icons-vue";
 import { api } from "../api";
 import { useBreakpoint } from "../composables/useBreakpoint";
+import { useTensorboard } from "../composables/useTensorboard";
 
 const router = useRouter();
 const { isMobile } = useBreakpoint();
@@ -58,10 +77,21 @@ const { isMobile } = useBreakpoint();
 const runs = ref([]);
 const outputDir = ref("output");
 const error = ref("");
+const { tbLoading, tbStatus, refreshTbStatus, openTensorboard, stopTensorboard } = useTensorboard(
+  () => outputDir.value || "output"
+);
 
 async function load() {
   const data = await api.listFsRuns(outputDir.value);
   runs.value = data.runs || [];
+}
+
+function openTensorboardForOutput() {
+  openTensorboard({ onError: (msg) => { error.value = msg; } }).catch(() => {});
+}
+
+function stopTensorboardForOutput() {
+  stopTensorboard({ onError: (msg) => { error.value = msg; } }).catch(() => {});
 }
 
 function goRun(name) {
@@ -73,6 +103,7 @@ function onRowClick(row) {
 }
 
 onMounted(() => {
+  refreshTbStatus();
   load().catch((e) => { error.value = String(e); });
 });
 

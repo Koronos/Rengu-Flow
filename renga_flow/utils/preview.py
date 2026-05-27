@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 from typing import Any
 
 import torch
@@ -62,6 +63,27 @@ def should_run_previews(
     return False
 
 
+def _save_preview_png(
+    image,
+    tb_writer: Any,
+    preview_cfg: dict[str, Any],
+    name: str,
+    step: int,
+) -> None:
+    """Write ``preview/{name}_step{N}.png`` under the TensorBoard run directory."""
+    if not preview_cfg.get("preview_save_png", False):
+        return
+    log_dir = getattr(tb_writer, "log_dir", None) if tb_writer is not None else None
+    if not log_dir:
+        return
+    out_dir = Path(log_dir) / "preview"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    safe = str(name).replace("/", "_")
+    path = out_dir / f"{safe}_step{step}.png"
+    image.save(path)
+    print(f"renga_flow: saved preview PNG {path}", flush=True)
+
+
 def _pil_to_chw_float(image) -> torch.Tensor:
     import numpy as np
 
@@ -69,6 +91,41 @@ def _pil_to_chw_float(image) -> torch.Tensor:
     if arr.ndim != 3:
         raise ValueError(f"Expected HWC image, got shape {arr.shape}")
     return torch.from_numpy(arr.transpose(2, 0, 1)).float().div(255.0)
+
+
+def _log_preview_image(
+    *,
+    name: str,
+    prompt: str,
+    image: Any,
+    tb_writer: Any,
+    preview_cfg: dict[str, Any],
+    step: int,
+    wandb_images: dict[str, Any] | None,
+    wandb_enable: bool,
+) -> None:
+    tag = f"preview/{name}"
+    if tb_writer is not None:
+        tb_writer.add_image(tag, _pil_to_chw_float(image), step)
+    _save_preview_png(image, tb_writer, preview_cfg, name, step)
+    if wandb_enable and wandb_images is not None:
+        try:
+            import wandb
+
+            wandb_images[tag] = wandb.Image(image, caption=prompt)
+        except ImportError:
+            pass
+
+
+def _flush_wandb_preview_images(wandb_images: dict[str, Any], step: int) -> None:
+    if not wandb_images:
+        return
+    try:
+        import wandb
+
+        wandb.log({**wandb_images, "step": step})
+    except ImportError:
+        pass
 
 
 def _dist_barrier() -> None:
@@ -96,7 +153,19 @@ def run_previews(
     if not prompts:
         return
 
-    if model.name != "sdxl":
+    if model.name == "sdxl":
+        preview_runner = _run_sdxl_previews
+        use_block_swap_hooks = True
+    elif model.name in ("cosmos_predict2", "anima"):
+        if config.get("pipeline_stages", 1) != 1:
+            if is_main_process():
+                print(
+                    "Preview skipped: cosmos_predict2 previews require pipeline_stages = 1."
+                )
+            return
+        preview_runner = _run_cosmos_previews
+        use_block_swap_hooks = False
+    else:
         if is_main_process():
             print(f"Preview skipped: model type {model.name!r} does not support previews yet.")
         return
@@ -110,19 +179,28 @@ def run_previews(
         optimizer.eval()
 
     empty_cuda_cache()
-    model.prepare_block_swap_inference(disable_block_swap=disable_block_swap)
+    if use_block_swap_hooks:
+        model.prepare_block_swap_inference(disable_block_swap=disable_block_swap)
 
     start = time.time()
     try:
-        _run_sdxl_previews(model, preview_cfg, prompts, tb_writer, step, wandb_enable=wandb_enable)
+        preview_runner(model, preview_cfg, prompts, tb_writer, step, wandb_enable=wandb_enable)
     finally:
-        empty_cuda_cache()
-        model.prepare_block_swap_training()
+        if use_block_swap_hooks:
+            empty_cuda_cache()
+            model.prepare_block_swap_training()
+        else:
+            if hasattr(model, "restore_after_preview"):
+                model.restore_after_preview()
+            empty_cuda_cache()
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
         if optimizer is not None and hasattr(optimizer, "train") and callable(optimizer.train):
             optimizer.train()
 
     _dist_barrier()
-    print(f"Preview complete in {time.time() - start:.1f}s")
+    if is_main_process():
+        print(f"Preview complete in {time.time() - start:.1f}s")
 
 
 def _run_sdxl_previews(
@@ -168,24 +246,55 @@ def _run_sdxl_previews(
                 output_type="pil",
             )
             image = result.images[0]
-            tag = f"preview/{name}"
-            if tb_writer is not None:
-                tb_writer.add_image(tag, _pil_to_chw_float(image), step)
-            if wandb_enable:
-                try:
-                    import wandb
-
-                    wandb_images[tag] = wandb.Image(image, caption=prompt)
-                except ImportError:
-                    pass
+            _log_preview_image(
+                name=name,
+                prompt=prompt,
+                image=image,
+                tb_writer=tb_writer,
+                preview_cfg=preview_cfg,
+                step=step,
+                wandb_images=wandb_images if wandb_enable else None,
+                wandb_enable=wandb_enable,
+            )
 
     for m, was_training in zip(modules, prev_training):
         m.train(was_training)
 
-    if wandb_enable and wandb_images:
-        try:
-            import wandb
+    if wandb_enable:
+        _flush_wandb_preview_images(wandb_images, step)
 
-            wandb.log({**wandb_images, "step": step})
-        except ImportError:
-            pass
+
+def _run_cosmos_previews(
+    model: Any,
+    preview_cfg: dict[str, Any],
+    prompts: list[tuple[str, str]],
+    tb_writer: Any,
+    step: int,
+    *,
+    wandb_enable: bool = False,
+) -> None:
+    base_seed = int(preview_cfg.get("seed", 0))
+    seed_stride = int(preview_cfg.get("seed_stride", 1))
+
+    if hasattr(model, "prepare_preview_memory"):
+        model.prepare_preview_memory(preview_cfg)
+
+    wandb_images: dict[str, Any] = {}
+    print(f"Running preview at step {step} ({len(prompts)} prompt(s))")
+
+    for idx, (name, prompt) in enumerate(prompts):
+        seed = base_seed + step * seed_stride + idx
+        image = model.generate_preview_image(preview_cfg, prompt, step, seed)
+        _log_preview_image(
+            name=name,
+            prompt=prompt,
+            image=image,
+            tb_writer=tb_writer,
+            preview_cfg=preview_cfg,
+            step=step,
+            wandb_images=wandb_images if wandb_enable else None,
+            wandb_enable=wandb_enable,
+        )
+
+    if wandb_enable:
+        _flush_wandb_preview_images(wandb_images, step)

@@ -30,6 +30,26 @@
         <el-button type="primary" @click="goContinueTraining">
           Continue training…
         </el-button>
+        <el-button :loading="tbLoading" @click="openTensorboardForRun">
+          Open TensorBoard
+        </el-button>
+        <el-button
+          v-if="tbStatus?.running"
+          :loading="tbLoading"
+          type="danger"
+          plain
+          @click="stopTensorboardForRun"
+        >
+          Stop TensorBoard
+        </el-button>
+        <el-link
+          v-if="tbStatus?.running && tbStatus.url"
+          :href="tbStatus.url"
+          target="_blank"
+          type="primary"
+        >
+          {{ tbStatus.url }}
+        </el-link>
         <el-text type="info" size="small">
           Load run TOML, edit epochs/steps, resume in this folder
         </el-text>
@@ -74,6 +94,7 @@ import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { api } from "../api";
 import { useBreakpoint } from "../composables/useBreakpoint";
+import { useTensorboard } from "../composables/useTensorboard";
 import LossChart from "../components/LossChart.vue";
 
 const props = defineProps({
@@ -100,9 +121,13 @@ const log = ref("");
 const metrics = ref({});
 const error = ref("");
 const outputDir = ref("output");
+const { tbLoading, tbStatus, refreshTbStatus, openTensorboard, stopTensorboard } = useTensorboard(
+  () => job.value?.output_dir || outputDir.value || "output"
+);
 let pollTimer = null;
 let logTimer = null;
 let logOffset = 0;
+let cachedPreviewRunDir = null;
 
 const key = computed(() => (props.mode === "job" ? route.params.id : route.params.name));
 
@@ -127,6 +152,14 @@ function goContinueTraining() {
   router.push({ name: "configs", query: { continue_run: runDir.value } });
 }
 
+function openTensorboardForRun() {
+  openTensorboard({ onError: (msg) => { error.value = msg; } }).catch(() => {});
+}
+
+function stopTensorboardForRun() {
+  stopTensorboard({ onError: (msg) => { error.value = msg; } }).catch(() => {});
+}
+
 async function poll() {
   try {
     if (props.mode === "job") {
@@ -136,17 +169,21 @@ async function poll() {
       fsRun.value = null;
       jobArtifacts.value = [];
       if (job.value?.run_dir) {
-        try {
-          const preview = await api.previewJobImport(job.value.run_dir);
-          fsRun.value = preview.run || null;
-        } catch {
-          /* optional metadata */
-        }
-        try {
-          const art = await api.jobArtifacts(key.value);
-          jobArtifacts.value = art.artifacts || [];
-        } catch {
-          /* ignore */
+        if (job.value.run_dir !== cachedPreviewRunDir) {
+          cachedPreviewRunDir = job.value.run_dir;
+          jobArtifacts.value = [];
+          try {
+            const preview = await api.previewJobImport(job.value.run_dir);
+            fsRun.value = preview.run || null;
+          } catch {
+            /* optional metadata */
+          }
+          try {
+            const art = await api.jobArtifacts(key.value);
+            jobArtifacts.value = art.artifacts || [];
+          } catch {
+            /* ignore */
+          }
         }
       }
     } else {
@@ -157,6 +194,7 @@ async function poll() {
   } catch (e) {
     error.value = String(e);
   }
+  refreshTbStatus();
 }
 
 async function loadLog() {
@@ -191,6 +229,9 @@ async function sendSignal(type) {
 function startTimers() {
   log.value = "";
   logOffset = 0;
+  cachedPreviewRunDir = null;
+  jobArtifacts.value = [];
+  refreshTbStatus();
   poll();
   pollTimer = setInterval(poll, 4000);
   if (props.mode === "job") {

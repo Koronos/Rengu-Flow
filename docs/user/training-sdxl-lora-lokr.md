@@ -92,7 +92,7 @@ deepspeed --num_gpus=1 -m renga_flow.main --config my.toml
 
 Cache is stored under each directory’s `cache/sdxl/`. Use `--regenerate_cache` after changing images or captions; `--trust_cache` when nothing changed.
 
-**Smoke example (12 CC0 images, 30 steps):** Copy `.env.example` → `.env` and set `RENGA_SDXL_CHECKPOINT_PATH`. Then `scripts/run_model_smoke.sh sdxl` (fixtures + cache + train; cleans `output/` and fixture caches afterward). Config: `examples/smoke_sdxl.toml` + `examples/smoke_cc0_dataset.toml`.
+**Smoke example (12 CC0 images, 30 steps):** Copy `.env.example` → `.env` and set `RENGA_SDXL_CHECKPOINT_PATH`. Then `scripts/run_model_smoke.sh sdxl` (fixtures + cache + train; cleans `output/` and fixture caches afterward). Configs: `tests/fixtures/smoke/train_sdxl.toml` and `tests/fixtures/smoke/dataset_cc0.toml`.
 
 ## How to run training
 

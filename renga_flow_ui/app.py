@@ -6,10 +6,12 @@ import asyncio
 import json
 import subprocess
 import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from starlette.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -27,6 +29,8 @@ from renga_flow_ui.dataset_schema import get_dataset_schema
 from renga_flow_ui.config_form import form_to_toml, toml_to_form
 from renga_flow_ui.config_schema import get_schema
 from renga_flow_ui.docs_reader import DocNotFoundError, DocPathError, read_doc
+from renga_flow_ui import tensorboard_server
+from renga_flow_ui.paths import resolve_repo_path
 from renga_flow_ui.system_stats import collect_system_stats
 from renga_flow_ui.settings import (
     ensure_data_dirs,
@@ -111,6 +115,12 @@ class SignalBody(BaseModel):
     type: str
 
 
+class TensorboardStartBody(BaseModel):
+    output_dir: str = "output"
+    port: int | None = Field(default=None, ge=1, le=65535)
+    host: str | None = None
+
+
 class TomlParseBody(BaseModel):
     content: str
 
@@ -153,7 +163,12 @@ def create_app() -> FastAPI:
     ensure_data_dirs()
     db.init_db()
 
-    app = FastAPI(title="Renga Flow UI", version="0.1.0")
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        yield
+        tensorboard_server.stop_tensorboard()
+
+    app = FastAPI(title="Renga Flow UI", version="0.1.0", lifespan=lifespan)
 
     app.add_middleware(
         CORSMiddleware,
@@ -517,9 +532,7 @@ def create_app() -> FastAPI:
 
     @app.get(f"{API_PREFIX}/jobs/import/candidates")
     def list_import_candidates(output_dir: str = "output") -> dict[str, Any]:
-        root = Path(output_dir)
-        if not root.is_absolute():
-            root = repo_root() / output_dir
+        root = resolve_repo_path(output_dir)
         runs = runs_scanner.scan_output_runs(root)
         imported_dirs = {
             j.run_dir
@@ -759,37 +772,25 @@ def create_app() -> FastAPI:
     # --- Filesystem runs ---
     @app.get(f"{API_PREFIX}/runs")
     def list_fs_runs(output_dir: str = "output") -> dict[str, Any]:
-        root = Path(output_dir)
-        if not root.is_absolute():
-            root = repo_root() / output_dir
-        return {"runs": runs_scanner.scan_output_runs(root)}
+        return {"runs": runs_scanner.scan_output_runs(resolve_repo_path(output_dir))}
 
     @app.get(f"{API_PREFIX}/runs/discover")
     def discover_run(output_dir: str = "output") -> dict[str, Any]:
-        root = Path(output_dir)
-        if not root.is_absolute():
-            root = repo_root() / output_dir
-        runs = runs_scanner.scan_output_runs(root)
+        runs = runs_scanner.scan_output_runs(resolve_repo_path(output_dir))
         if not runs:
             return {"run": None}
         return {"run": runs[-1]}
 
     @app.get(f"{API_PREFIX}/runs/{{run_name}}")
     def get_fs_run(run_name: str, output_dir: str = "output") -> dict[str, Any]:
-        root = Path(output_dir)
-        if not root.is_absolute():
-            root = repo_root() / output_dir
-        path = root / run_name
+        path = resolve_repo_path(output_dir) / run_name
         if not path.is_dir():
             raise HTTPException(404, "Run not found")
         return runs_scanner.describe_run_dir(path)
 
     @app.post(f"{API_PREFIX}/runs/{{run_name}}/signals")
     def fs_run_signal(run_name: str, body: SignalBody, output_dir: str = "output") -> dict[str, str]:
-        root = Path(output_dir)
-        if not root.is_absolute():
-            root = repo_root() / output_dir
-        run_dir = root / run_name
+        run_dir = resolve_repo_path(output_dir) / run_name
         try:
             path = signals.send_signal(run_dir, body.type)
         except ValueError as e:
@@ -800,13 +801,33 @@ def create_app() -> FastAPI:
 
     @app.get(f"{API_PREFIX}/runs/{{run_name}}/metrics")
     def fs_run_metrics(run_name: str, output_dir: str = "output") -> dict[str, Any]:
-        root = Path(output_dir)
-        if not root.is_absolute():
-            root = repo_root() / output_dir
-        run_dir = root / run_name
+        run_dir = resolve_repo_path(output_dir) / run_name
         if not run_dir.is_dir():
             raise HTTPException(404, "Run not found")
         return {"scalars": metrics_tb.read_scalars(run_dir)}
+
+    @app.get(f"{API_PREFIX}/tensorboard/status")
+    def tensorboard_status() -> dict[str, Any]:
+        return tensorboard_server.tensorboard_status()
+
+    @app.post(f"{API_PREFIX}/tensorboard/start")
+    async def tensorboard_start(body: TensorboardStartBody) -> dict[str, Any]:
+        try:
+            return await run_in_threadpool(
+                lambda: tensorboard_server.start_tensorboard(
+                    body.output_dir,
+                    port=body.port,
+                    host=body.host,
+                )
+            )
+        except FileNotFoundError as e:
+            raise HTTPException(404, str(e))
+        except RuntimeError as e:
+            raise HTTPException(500, str(e))
+
+    @app.post(f"{API_PREFIX}/tensorboard/stop")
+    def tensorboard_stop() -> dict[str, Any]:
+        return tensorboard_server.stop_tensorboard()
 
     @app.get(f"{API_PREFIX}/health")
     def health() -> dict[str, str]:

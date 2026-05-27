@@ -149,9 +149,11 @@ python -m renga_flow.main --config my.toml --validate-only
 
 1. Install `.[cosmos_predict2]` and DeepSpeed with CUDA.
 2. Copy `.env.example` → `.env` and set `RENGA_COSMOS_TRANSFORMER_PATH`, `RENGA_COSMOS_VAE_PATH`, `RENGA_COSMOS_LLM_PATH`.
-3. `scripts/run_model_smoke.sh cosmos` — vendors `tests/fixtures/smoke_cc0/` if needed, then `--cache_only` and **30** training steps (`examples/smoke_cosmos_predict2.toml`). The script removes `output/` and dataset caches after the run to save disk (`KEEP_SMOKE_ARTIFACTS=1` to keep them).
+3. `scripts/run_model_smoke.sh cosmos` — vendors `tests/fixtures/smoke_cc0/` if needed, then `--cache_only` and **30** training steps (`tests/fixtures/smoke/train_cosmos_predict2.toml`). The script removes `output/` and dataset caches after the run to save disk (`KEEP_SMOKE_ARTIFACTS=1` to keep them). For training **signal files** and **genericoptim resume**, use `scripts/smoke_training_signals.sh` (see [signal-files](../developer/signal-files.md)).
 4. Confirm `adapter_model.safetensors` under the run directory.
 
 Optional: `[train.oom_skip]` for single-GPU OOM resilience — see [Training loop and eval](training-loop-and-eval.md) and `examples/config_oom_skip.toml`.
 
-Out of scope for this austere path: **Cosmos block swap** (not implemented), **load_and_fuse_adapter** (use `load_adapter_weights` only), training previews, augmentation presets, ComfyUI submodule.
+Out of scope for this austere path: **Cosmos block swap during training** (not implemented), **load_and_fuse_adapter** (use `load_adapter_weights` only), augmentation presets, ComfyUI submodule.
+
+**Training previews** are supported via `[preview]` and the `preview` signal file when `pipeline_stages = 1` — see [Training previews](previews.md). For **Anima**, a practical default is `num_inference_steps = 20`, `guidance_scale = 4`, `width`/`height = 512` on 16 GB GPUs.

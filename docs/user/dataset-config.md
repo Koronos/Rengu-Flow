@@ -92,9 +92,9 @@ These apply to all directories unless overridden per-directory.
 - **`captions.json`:** If present in a directory, it is used instead of `.txt` files. Format: `{ "image1.png": ["caption1", "caption2"], ... }` (list of captions per image for multi-caption).
 - **`directory_caption`:** One option for both roles: when there is no per-image caption, it is used as the full caption; when there is a caption, it is prepended as a prefix (e.g. `"style: "`).
 
-## Dataset augmentation (planned)
+## Dataset augmentation
 
-Optional **image diversity** settings (colour jitter, flip, HDR-style tone mapping, etc.) are specified in [Dataset augmentation](dataset-augmentation.md). Until implemented, augmentation keys in a dataset TOML may be ignored. Augmentation interacts with **latent caching**; see that page for `seed_mode` and compatibility.
+Optional **image diversity** settings (colour jitter, flip, mild geometry, etc.) are configured per directory (and optional global defaults under `[dataset.augmentation]`). See [Dataset augmentation](dataset-augmentation.md) for presets, `seed_mode`, and flip enumeration. Augmentation applies before latent cache; use `deterministic_per_image` for reproducible caches. **Not supported:** video folders with augmentation enabled in this release.
 
 ## Cache and CLI flags
 
@@ -127,7 +127,7 @@ These are loaded for evaluation hooks; the training loop uses the main dataset (
 Print one JSON line per image (path and resolved captions) without loading a model or GPU:
 
 ```bash
-python -m renga_flow.main --dump_dataset examples/smoke_cc0_dataset.toml
+python -m renga_flow.main --dump_dataset tests/fixtures/smoke/dataset_cc0.toml
 ```
 
-Use this to verify directory paths, `.txt` captions, and `captions.json` before a long cache or training run. The official smoke dataset for docs and tests is `examples/smoke_cc0_dataset.toml` (12 CC0 images under `tests/fixtures/smoke_cc0/`).
+Use this to verify directory paths, `.txt` captions, and `captions.json` before a long cache or training run. The versioned smoke dataset TOML for tests and GPU smokes is `tests/fixtures/smoke/dataset_cc0.toml` (12 CC0 images under `tests/fixtures/smoke_cc0/`).

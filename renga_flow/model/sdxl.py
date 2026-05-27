@@ -464,12 +464,13 @@ class SDXLPipeline(BasePipeline):
         state_dict = {**unet_state_dict, **vae_state_dict, **text_enc_dict, **text_enc_2_dict}
         save_file(state_dict, save_dir / "model.safetensors", metadata={"format": "pt"})
 
-    def get_preprocess_media_file_fn(self):
+    def get_preprocess_media_file_fn(self, augmentation_resolver=None):
         return PreprocessMediaFile(
             self.config,
             support_video=False,
             round_height=16,
             round_width=16,
+            augmentation_resolver=augmentation_resolver,
         )
 
     def get_call_vae_fn(self, vae):

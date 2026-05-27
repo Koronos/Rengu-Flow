@@ -10,6 +10,7 @@ import toml
 
 from renga_flow_ui import configs_store, datasets_store, db, library_db
 from renga_flow_ui import runs_scanner
+from renga_flow_ui.paths import resolve_repo_path
 from renga_flow_ui.settings import logs_dir, repo_root
 
 
@@ -21,11 +22,7 @@ def resolve_run_path(run_path: str) -> Path:
     raw = (run_path or "").strip()
     if not raw:
         raise JobImportError("Run folder path is required")
-    p = Path(raw).expanduser()
-    if not p.is_absolute():
-        p = (repo_root() / p).resolve()
-    else:
-        p = p.resolve()
+    p = resolve_repo_path(raw)
     if not p.is_dir():
         raise JobImportError(f"Not a directory: {p}")
     return p

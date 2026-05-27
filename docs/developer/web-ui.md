@@ -10,6 +10,7 @@ User guide: **`docs/user/web-ui.md`**.
 |------|------|
 | `renga_flow_ui/app.py` | FastAPI routes (`/api/v1/...`) |
 | `renga_flow_ui/settings.py` | `RENGA_FLOW_UI_DATA`, `repo_root()`, `web_dist_dir()` |
+| `renga_flow_ui/paths.py` | `resolve_repo_path()` — relative paths under repo root |
 | `renga_flow_ui/library_db.py` | SQLite tables `training_configs` + `datasets` (TOML content + index columns) |
 | `renga_flow_ui/configs_store.py` | Training config CRUD (via library_db), validate, staging |
 | `renga_flow_ui/datasets_store.py` | Dataset CRUD (via library_db), `compose_datasets()`, picker refs |
@@ -27,7 +28,9 @@ User guide: **`docs/user/web-ui.md`**.
 | `renga_flow_ui/job_queue.py` | Pending job queue ordering, `try_start_next()` |
 | `renga_flow_ui/jobs.py` | Subprocess launcher (`deepspeed` / `python -m renga_flow.main`) |
 | `renga_flow_ui/db.py` | SQLite job registry |
-| `renga_flow_ui/metrics_tb.py` | TensorBoard `EventAccumulator` (passive read) |
+| `renga_flow_ui/metrics_tb.py` | TensorBoard `EventAccumulator` (passive read, mtime cache) |
+| `renga_flow_ui/tensorboard_server.py` | Spawn TensorBoard with `uv run --no-project --with tensorboard` |
+| `renga_flow_ui/subprocess_util.py` | `popen_repo_subprocess()` shared by jobs and TensorBoard |
 | `renga_flow_ui/runs_scanner.py` | List/discover runs under `output_dir` |
 | `renga_flow_ui/signals.py` | Touch signal files via `renga_flow.utils.signal_files` constants |
 | `renga_flow/control/status_file.py` | Opt-in `status.json` writer (trainer hook in `main.py`) |
@@ -51,6 +54,7 @@ Authentication: optional `RENGA_FLOW_UI_TOKEN` middleware checks `X-Renga-Flow-T
 | `/docs?path=...` | Markdown for help drawer (repo-relative under `docs/`) |
 | `/registry/probe` | Optimizer/scheduler import probe |
 | `/system/stats` | Host metrics for header bar |
+| `/tensorboard/status`, `/tensorboard/start`, `/tensorboard/stop` | Local TensorBoard subprocess (`uv`, `--logdir=<output_dir>`) |
 | `/health` | Liveness for `start-ui.sh` browser open |
 
 ## Config staging

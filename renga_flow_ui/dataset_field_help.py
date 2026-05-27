@@ -48,6 +48,30 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "summary": "Caption shuffle/repeat count for this folder only.",
         "doc": "docs/user/dataset-config.md",
     },
+    "_dataset_augmentation": {
+        "summary": "Default augmentation for all directories (merged per folder).",
+        "doc": "docs/user/dataset-augmentation.md",
+    },
+    "directory.augmentation.enabled": {
+        "summary": "Apply image diversity transforms before latent cache (images only).",
+        "doc": "docs/user/dataset-augmentation.md",
+    },
+    "directory.augmentation.preset": {
+        "summary": "Named bundle of augmentation strategies.",
+        "doc": "docs/user/dataset-augmentation.md",
+    },
+    "directory.augmentation.seed_mode": {
+        "summary": "deterministic_per_image (cache-safe) or stochastic (not supported with fixed cache).",
+        "doc": "docs/user/dataset-augmentation.md",
+    },
+    "directory.augmentation.variant_sampling": {
+        "summary": "probability = one random branch; enumerated = all flip branches in cache.",
+        "doc": "docs/user/dataset-augmentation.md",
+    },
+    "directory.augmentation.strategies": {
+        "summary": "Per-strategy parameter overrides (JSON object).",
+        "doc": "docs/user/dataset-augmentation.md",
+    },
     "directory.cache_shuffle_delimiter": {
         "summary": "Tag delimiter for this folder when shuffle tags is on.",
         "doc": "docs/user/dataset-config.md",

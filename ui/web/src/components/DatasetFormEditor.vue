@@ -57,6 +57,7 @@
         v-model="form._directories"
         :global-form="form"
         :directory-fields="schema.directory_fields || []"
+        :augmentation-fields="schema.augmentation_directory_fields || []"
         @update:model-value="onDirsChange"
         @select="onDirectorySelect"
       />

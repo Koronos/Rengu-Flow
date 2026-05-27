@@ -1,8 +1,8 @@
-# Cosmos Predict2 LoKr smoke (~30 steps), smoke_cc0 fixture.
-#   .venv/bin/python -m renga_flow.config.local_env examples/smoke_cosmos_predict2_lokr.toml
-#   scripts/run_model_smoke.sh cosmos_lokr   (if added) or manual deepspeed below.
+# Cosmos Predict2 smoke (30 steps) with smoke_cc0 images (frame_buckets = [1]).
+# Model paths: RENGA_COSMOS_* in repo-root `.env` (see `.env.example`).
+#   scripts/run_model_smoke.sh cosmos
 
-dataset = "examples/smoke_cc0_dataset.toml"
+dataset = "tests/fixtures/smoke/dataset_cc0.toml"
 output_dir = "output"
 max_steps = 30
 epochs = 999
@@ -21,10 +21,9 @@ dtype = "bfloat16"
 cache_text_embeddings = true
 
 [adapter]
-type = "lokr"
-rank = 6
-factor = -1
+type = "lora"
+rank = 16
 
 [optimizer]
 type = "adamw"
-lr = 3.0e-5
+lr = 1.0e-4

@@ -1,0 +1,30 @@
+# Cosmos Predict2 smoke: genericoptim + kahan_buffer_offload resume (scripts/smoke_training_signals.sh).
+# Requires: pip install -e ".[optim]"
+
+dataset = "tests/fixtures/smoke/dataset_cc0.toml"
+output_dir = "output"
+run_name = "smoke_genericoptim"
+max_steps = 20
+epochs = 999
+micro_batch_size_per_gpu = 1
+gradient_accumulation_steps = 1
+pipeline_stages = 1
+activation_checkpointing = true
+logging_steps = 1
+caching_batch_size = 1
+save_every_n_epochs = 999
+bench = false
+
+[model]
+type = "cosmos_predict2"
+dtype = "bfloat16"
+cache_text_embeddings = true
+
+[adapter]
+type = "lora"
+rank = 16
+
+[optimizer]
+type = "genericoptim"
+lr = 1.0e-4
+kahan_buffer_offload = true

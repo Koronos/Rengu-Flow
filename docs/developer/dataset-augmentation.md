@@ -2,7 +2,7 @@
 
 This document is the **specification** for dataset diversity augmentation in Renga Flow: **canonical `snake_case` string identifiers** for strategies (same style as preset names), typed parameters, presets, cache/seed modes, and integration hooks.
 
-**Implementation status:** Everything in this document is **`[TODO]`** — not implemented in `renga_flow/` yet (no `augmentation` TOML parsing, no `apply_augmentation`, preset merge, or cache fingerprinting for aug config).
+**Implementation status (MVP):** Parsing, preset merge, `apply_augmentation`, cache fingerprinting, metadata branch expansion, and UI fields are implemented under `renga_flow/data/augmentation/`. Tier A–B strategies plus `horizontal_flip` are available; other catalogue names validate but raise `AugmentationStrategyNotImplementedError`. Video + augmentation is rejected at validation.
 
 ## Design principle: string identifiers only
 
@@ -91,9 +91,29 @@ This section defines the **implementation contract** for discrete augmentation b
 
 **Merge with presets:** Presets imply **`variant_sampling = probability`** unless the merged directory table sets otherwise. Strategy-level **`sampling`** overrides only that strategy’s expansion behaviour.
 
+## Implemented strategies (MVP code)
+
+| Module | Role |
+|--------|------|
+| [`renga_flow/data/augmentation/config.py`](../../renga_flow/data/augmentation/config.py) | Merge, validate, fingerprint |
+| [`renga_flow/data/augmentation/presets.py`](../../renga_flow/data/augmentation/presets.py) | Preset → default strategies |
+| [`renga_flow/data/augmentation/registry.py`](../../renga_flow/data/augmentation/registry.py) | PIL implementations |
+| [`renga_flow/data/augmentation/apply.py`](../../renga_flow/data/augmentation/apply.py) | `apply_augmentation()` |
+| [`renga_flow/data/augmentation/branches.py`](../../renga_flow/data/augmentation/branches.py) | Enumerated variant keys |
+| [`renga_flow/data/preprocess_media.py`](../../renga_flow/data/preprocess_media.py) | Hook before crop/resize |
+| [`renga_flow/data/dataset.py`](../../renga_flow/data/dataset.py) | Metadata rows + latent fingerprint |
+
+**MVP strategy names:** `horizontal_flip`, `color_jitter`, `gamma`, `jpeg_simulation`, `temperature_tint`, `chromatic_aberration`, `gaussian_noise`, `crop_jitter`, `small_rotation`, `film_grain`, `lab_jitter`, `split_toning`.
+
+**MVP presets:** `none`, `custom`, `easy`, `anime`, `anime_mixed`, `manga_mixed`, `manga_bw`, `photo_safe`, `realism_general`, `bw_photo`, `sepia`.
+
+**Deferred presets (validation error if enabled):** `photo_cinematic`, `retro_scan`, `manga_print`.
+
+**`max_branches_per_image`:** If the product of enumerated branches exceeds the cap, configuration fails with `AugmentationConfigError` (no silent truncation).
+
 ## Canonical strategy names and parameters
 
-**Status:** Every strategy **`name`** in the table below is **`[TODO]`** (no runtime implementation).
+**Status:** Names not in the MVP list above are specified here but not yet implemented at runtime.
 
 Each **`name`** is the only public identifier (TOML key under `strategies`). Default parameter values are preset-dependent unless overridden.
 
@@ -185,12 +205,13 @@ Presets are defined as **enabled strategy names (strings) + default parameter st
 
 ## Implementation checklist
 
-1. **`[TODO]`** Parse `augmentation` with **`strategies`** as named maps; validate keys against canonical names.
-2. **`[TODO]`** Implement **preset → default strategy map** merge with user `strategies`.
-3. **`[TODO]`** `apply_augmentation(pil_image, mask, seed, resolved_config)` in the same path as [`PreprocessMediaFile`](../../renga_flow/model/base.py).
-4. **`[TODO]`** Fingerprint **resolved** config for `_map_and_cache`, including **`variant_sampling`**, **`sampling`**, and enumerated branch identity (see [Cache and seed modes](#cache-and-seed-modes)).
-5. **`[TODO]`** When implementing enumeration: extend metadata / `iteration_order` to support **multiple latent rows per `image_spec`** with stable **`variant_key`** (see [Variant sampling and discrete branches](#variant-sampling-and-discrete-branches)).
-6. **`[TODO]`** Tests: merge rules; unknown name errors; mask parity for geometric strategies; reproducibility under `deterministic_per_image`; validation errors for **`enumerated`** on non-finite strategies.
+1. **Done (MVP)** Parse `augmentation` with **`strategies`** as named maps; validate keys against canonical names.
+2. **Done (MVP)** Preset → default strategy map merge with user `strategies`.
+3. **Done (MVP)** `apply_augmentation()` in [`PreprocessMediaFile`](../../renga_flow/data/preprocess_media.py) before crop/resize.
+4. **Done (MVP)** Fingerprint resolved config in `SizeBucketDataset.cache_latents` (`aug_mvp=1` + JSON fingerprint).
+5. **Done (MVP)** Metadata expansion with `image_spec` variant suffix; separate latent rows per branch.
+6. **Done (MVP)** Tests in [`tests/test_augmentation.py`](../../tests/test_augmentation.py).
+7. **Future** Remaining catalogue strategies; video per-frame augmentation; deferred presets.
 
 ## References
 

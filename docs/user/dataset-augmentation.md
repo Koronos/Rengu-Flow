@@ -1,6 +1,8 @@
 # Dataset augmentation (diversity)
 
-This page describes **planned** dataset augmentation for Renga Flow: small in-distribution variations on training images to reduce overfitting to a single pixel–caption pair. **Status: `[TODO]`** — not implemented in code yet; keys in a dataset TOML may be ignored until then.
+This page describes dataset augmentation in Renga Flow: small in-distribution variations on training images to reduce overfitting to a single pixel–caption pair.
+
+**Status: implemented (MVP)** — Tier A–B strategies, core presets, `deterministic_per_image` seeding, and `horizontal_flip` enumeration. **Video is not supported** with augmentation enabled in this release (use `frame_buckets = [1]` only). Presets `photo_cinematic`, `retro_scan`, and `manga_print` are documented but not available until their extra strategies are implemented.
 
 Augmentation applies **per directory** (each `[[directory]]` can choose a different profile). It is conceptually similar to multi-scale copies and to tools that apply mild geometric or colour jitter (see [References](#references)).
 
@@ -76,7 +78,7 @@ sampling = "enumerated"
 
 **`num_repeats`:** Repeats control how often an example appears in the schedule; they are **not** a substitute for enumerating discrete branches under independent RNG — see [developer doc](../developer/dataset-augmentation.md#variant-sampling-and-discrete-branches).
 
-## Configuration layout (planned)
+## Configuration layout
 
 ### Minimal: preset only
 
@@ -136,7 +138,17 @@ augmentation = {
 
 Use **`preset = "none"`** or **`preset = "custom"`** and list only the strategies you want with full parameters (see [Named strategies reference](#named-strategies-reference)).
 
-## Keys (planned)
+## Implemented strategies (MVP)
+
+| Strategy | Notes |
+|----------|--------|
+| `color_jitter`, `gamma`, `jpeg_simulation`, `temperature_tint`, `chromatic_aberration` | Tier A (photometric) |
+| `gaussian_noise`, `crop_jitter`, `small_rotation`, `film_grain`, `lab_jitter`, `split_toning` | Tier B |
+| `horizontal_flip` | Geometric; supports `sampling = "enumerated"` |
+
+Other names in the [developer catalogue](../developer/dataset-augmentation.md#canonical-strategy-names-and-parameters) are reserved; using them in TOML returns a clear error.
+
+## Keys
 
 ### Global `[dataset.augmentation]`
 

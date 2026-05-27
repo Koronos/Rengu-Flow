@@ -64,6 +64,22 @@ def _directory_row_for_toml(entry: dict[str, Any], global_values: dict[str, Any]
     if cap not in (None, ""):
         row["directory_caption"] = cap
 
+    aug = entry.get("augmentation")
+    if isinstance(aug, str):
+        try:
+            aug = json.loads(aug)
+        except json.JSONDecodeError:
+            aug = None
+    if isinstance(aug, dict) and aug:
+        aug_out = dict(aug)
+        strat = aug_out.get("strategies")
+        if isinstance(strat, str):
+            try:
+                aug_out["strategies"] = json.loads(strat)
+            except json.JSONDecodeError:
+                pass
+        row["augmentation"] = aug_out
+
     for key in DIRECTORY_OPTIONAL_KEYS:
         if key == "directory_caption":
             continue
@@ -86,14 +102,33 @@ def _directory_row_for_toml(entry: dict[str, Any], global_values: dict[str, Any]
     return row
 
 
+def _augmentation_for_form(aug: dict[str, Any]) -> dict[str, Any]:
+    out = dict(aug)
+    strategies = out.get("strategies")
+    if isinstance(strategies, dict):
+        out["strategies"] = json.dumps(strategies, indent=2)
+    return out
+
+
 def parse_toml(content: str) -> dict[str, Any]:
     config = toml.loads(content)
     raw_dirs = config.get("directory") or []
     form: dict[str, Any] = {
         DIRECTORIES_KEY: [_normalize_directory_lists(d) for d in raw_dirs if isinstance(d, dict)],
     }
+    dataset_section = config.get("dataset")
+    if isinstance(dataset_section, dict):
+        global_aug = dataset_section.get("augmentation")
+        if isinstance(global_aug, dict) and global_aug:
+            form["_dataset_augmentation"] = json.dumps(global_aug, indent=2)
+    for entry in form[DIRECTORIES_KEY]:
+        aug = entry.get("augmentation")
+        if isinstance(aug, dict):
+            entry["augmentation"] = _augmentation_for_form(aug)
     for key, val in config.items():
         if key == "directory":
+            continue
+        if key == "dataset":
             continue
         if isinstance(val, list) and key in INTEGER_LIST_KEYS | NUMBER_LIST_KEYS:
             form[key] = val
@@ -139,7 +174,22 @@ def form_to_toml(form: dict[str, Any]) -> str:
     if cleaned_dirs:
         config["directory"] = cleaned_dirs
 
+    global_aug_raw = form.get("_dataset_augmentation")
+    if global_aug_raw not in (None, ""):
+        try:
+            global_aug = (
+                json.loads(global_aug_raw)
+                if isinstance(global_aug_raw, str)
+                else global_aug_raw
+            )
+            if isinstance(global_aug, dict) and global_aug:
+                config.setdefault("dataset", {})["augmentation"] = global_aug
+        except json.JSONDecodeError:
+            pass
+
     for key, val in form.items():
+        if key == "_dataset_augmentation":
+            continue
         if key == DIRECTORIES_KEY or val is None or val == "":
             continue
         if (

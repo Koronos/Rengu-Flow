@@ -18,6 +18,14 @@ import torch
 from PIL import Image
 from tqdm import tqdm
 
+from renga_flow.data.augmentation import (
+    augmentation_fingerprint,
+    expand_variant_keys,
+    is_augmentation_enabled,
+    validate_augmentation_for_directory,
+    with_variant_key,
+)
+from renga_flow.data.augmentation.names import AUG_MVP_VERSION
 from renga_flow.data.cache_utils import (
     _map_and_cache,
     bucket_suffix,
@@ -26,6 +34,7 @@ from renga_flow.data.cache_utils import (
     seed_from_hash,
 )
 from renga_flow.utils.common import is_main_process, round_to_nearest_multiple
+from renga_flow.utils.paths import path_is_under
 
 logger = logging.getLogger(__name__)
 
@@ -178,6 +187,9 @@ class SizeBucketDataset:
         self.num_repeats = int(directory_config["num_repeats"])
         if self.num_repeats <= 0:
             raise ValueError(f"num_repeats must be >0, was {self.num_repeats}")
+        self._aug_fingerprint = (
+            directory_dataset._aug_fingerprint if directory_dataset is not None else ""
+        )
 
     def cache_latents(
         self,
@@ -190,12 +202,14 @@ class SizeBucketDataset:
         cache_format: str = "v2",
     ) -> None:
         iteration_order_cache_dir = self.cache_dir / "iteration_order"
+        latent_fp_args = [AUG_MVP_VERSION, self._aug_fingerprint]
         if map_fn is None:
             self.latent_dataset = _map_and_cache(
                 self.metadata_dataset,
                 None,
                 self.cache_dir,
                 cache_file_prefix="latents_",
+                new_fingerprint_args=latent_fp_args,
                 regenerate_cache=False,
                 caching_batch_size=caching_batch_size,
                 num_proc=cache_num_proc,
@@ -213,6 +227,7 @@ class SizeBucketDataset:
             map_fn,
             self.cache_dir,
             cache_file_prefix="latents_",
+            new_fingerprint_args=latent_fp_args,
             regenerate_cache=regenerate_cache,
             caching_batch_size=caching_batch_size,
             num_proc=cache_num_proc,
@@ -568,6 +583,23 @@ class DirectoryDataset:
         self._set_defaults(directory_config, dataset_config)
         self.directory_config = directory_config
         self.dataset_config = dataset_config
+        if skip_dataset_validation:
+            from renga_flow.data.augmentation import resolve_augmentation_config
+
+            self._resolved_augmentation = resolve_augmentation_config(
+                directory_config, dataset_config
+            )
+        else:
+            self._resolved_augmentation = validate_augmentation_for_directory(
+                directory_config, dataset_config
+            )
+        self._aug_fingerprint = augmentation_fingerprint(self._resolved_augmentation)
+        self._aug_enabled = is_augmentation_enabled(self._resolved_augmentation)
+        self._variant_keys = (
+            expand_variant_keys(self._resolved_augmentation)
+            if self._aug_enabled
+            else [None]
+        )
         if not skip_dataset_validation:
             self._validate()
         self.model_name = model_name
@@ -1077,16 +1109,32 @@ class DirectoryDataset:
                     return empty_return
                 size_bucket = None
 
+            if is_video and self._aug_enabled:
+                raise RuntimeError(
+                    f"Augmentation is enabled for {self.path} but {image_file} is video; "
+                    "not supported in this release."
+                )
+
+            variant_keys = self._variant_keys
             ret = {
-                "image_spec": [image_spec],
-                "mask_file": [example["mask_file"][0]],
-                "caption": [captions],
-                "ar_bucket": [ar_bucket],
-                "size_bucket": [size_bucket],
-                "is_video": [is_video],
+                "image_spec": [],
+                "mask_file": [],
+                "caption": [],
+                "ar_bucket": [],
+                "size_bucket": [],
+                "is_video": [],
             }
             if self.control_path:
-                ret["control_file"] = [example["control_file"][0]]
+                ret["control_file"] = []
+            for vk in variant_keys:
+                ret["image_spec"].append(with_variant_key(image_spec, vk))
+                ret["mask_file"].append(example["mask_file"][0])
+                ret["caption"].append(captions)
+                ret["ar_bucket"].append(ar_bucket)
+                ret["size_bucket"].append(size_bucket)
+                ret["is_video"].append(is_video)
+                if self.control_path:
+                    ret["control_file"].append(example["control_file"][0])
             return ret
 
         return fn
@@ -1245,6 +1293,26 @@ class Dataset:
                 skip_dataset_validation=skip_dataset_validation,
             )
             self.directory_datasets.append(dir_dataset)
+
+    def get_augmentation_resolver(self):
+        """Return callable(image_spec) -> (resolved_config, fingerprint) or None."""
+        roots: list[tuple[str, dict, str]] = []
+        for dir_ds in self.directory_datasets:
+            if not dir_ds._aug_enabled:
+                continue
+            root = str(Path(dir_ds.directory_config["path"]).resolve())
+            roots.append((root, dir_ds._resolved_augmentation, dir_ds._aug_fingerprint))
+        if not roots:
+            return None
+
+        def resolve(spec):
+            path = str(spec[1])
+            for root, aug_resolved, aug_fp in roots:
+                if path_is_under(path, root):
+                    return aug_resolved, aug_fp
+            return None
+
+        return resolve
 
     def post_init(
         self,

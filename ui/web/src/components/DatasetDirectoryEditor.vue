@@ -19,6 +19,7 @@
               <el-tag v-if="overrideCount(row) > 0" size="small" type="warning">
                 {{ overrideCount(row) }} override{{ overrideCount(row) === 1 ? "" : "s" }}
               </el-tag>
+              <el-tag v-if="rowAugEnabled(row)" size="small" type="success">aug</el-tag>
               <el-tag v-if="row.num_repeats > 1" size="small" type="info">×{{ row.num_repeats }}</el-tag>
             </div>
             <el-text v-if="row.path" type="info" size="small" class="dir-list-path">{{ row.path }}</el-text>
@@ -77,6 +78,20 @@
             </template>
           </el-form>
 
+          <el-collapse v-if="augmentationFields.length" class="aug-collapse">
+            <el-collapse-item title="Augmentation (this folder)" name="augmentation">
+              <el-form label-position="top" class="dir-fields">
+                <ConfigFormField
+                  v-for="field in augmentationFields"
+                  :key="'aug-' + field.path"
+                  :field="field"
+                  :form="augmentationForm"
+                  @update:path="onAugmentationField"
+                />
+              </el-form>
+            </el-collapse-item>
+          </el-collapse>
+
           <div class="dir-actions">
             <el-button size="small" :loading="scanning" @click="scanSelected">Scan folder</el-button>
           </div>
@@ -116,6 +131,7 @@ const props = defineProps({
   modelValue: { type: Array, default: () => [] },
   globalForm: { type: Object, default: () => ({}) },
   directoryFields: { type: Array, default: () => [] },
+  augmentationFields: { type: Array, default: () => [] },
 });
 
 const emit = defineEmits(["update:modelValue", "select"]);
@@ -192,6 +208,46 @@ const directoryForm = computed(() => {
   return merged;
 });
 
+const augmentationForm = computed(() => {
+  const row = selectedRow.value || {};
+  const aug = row.augmentation;
+  if (aug && typeof aug === "object" && !Array.isArray(aug)) {
+    return { ...aug };
+  }
+  return {};
+});
+
+function rowAugEnabled(row) {
+  const aug = row?.augmentation;
+  return aug && typeof aug === "object" && !!aug.enabled;
+}
+
+function onAugmentationField({ path, value }) {
+  const row = directories.value[selectedIndex.value];
+  if (!row) return;
+  if (!row.augmentation || typeof row.augmentation !== "object") {
+    row.augmentation = {};
+  }
+  if (value === "" || value === undefined || value === null) {
+    if (path === "enabled") {
+      row.augmentation.enabled = false;
+    } else {
+      delete row.augmentation[path];
+    }
+  } else {
+    row.augmentation[path] = value;
+  }
+  if (
+    Object.keys(row.augmentation).length === 0 ||
+    (Object.keys(row.augmentation).length === 1 &&
+      row.augmentation.enabled === false &&
+      !row.augmentation.preset)
+  ) {
+    delete row.augmentation;
+  }
+  emitDirectories();
+}
+
 function hasOwnOverride(path) {
   const row = selectedRow.value;
   return row != null && Object.prototype.hasOwnProperty.call(row, path);
@@ -203,8 +259,12 @@ function canRemoveOverride(path) {
 
 function overrideCount(row) {
   if (!row) return 0;
-  return Object.keys(row).filter((k) => canRemoveOverride(k) && Object.prototype.hasOwnProperty.call(row, k))
-    .length;
+  return Object.keys(row).filter(
+    (k) =>
+      k !== "augmentation" &&
+      canRemoveOverride(k) &&
+      Object.prototype.hasOwnProperty.call(row, k)
+  ).length;
 }
 
 function clearOverride(path) {
@@ -404,6 +464,9 @@ watch(selectedIndex, (i) => emit("select", i));
 }
 .override-row {
   margin-bottom: 12px;
+}
+.aug-collapse {
+  margin-top: 16px;
 }
 .dir-actions {
   margin-top: 8px;

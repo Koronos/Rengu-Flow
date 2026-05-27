@@ -65,6 +65,7 @@ In Docker, mount that folder (adjust `RENGA_FLOW_UI_DATA` in `start-ui.sh` to th
 | **Jobs** | Queue runs after choosing a config in the **Configs** library (edit/validate there first); one active job at a time; **Import script run** registers an existing `output/…` folder from terminal training (metrics, signals, optional config/dataset library copy) |
 | **Config form** | Required fields first; click the **i** icon to open in-app help (loads `docs/**/*.md` from the repo) |
 | **Output runs** | List folders under `output_dir`, view metrics, send signals to active runs |
+| **TensorBoard** | **Open TensorBoard** on the run detail or Output runs page — starts TensorBoard via `uv` (no extra pip install); compares all runs under the same `output_dir` |
 | **Signals** | Same files as [signal files](signal-files.md): `save`, `save_quit`, `export_model`, `export_model_quit`, `preview` |
 | **Host bar** | Top bar shows live CPU/RAM/GPU load, temperatures, and VRAM; click for per-core CPU, sensors, swap, and full GPU details (via `nvidia-smi` when available) |
 
@@ -117,3 +118,13 @@ renga-flow-ui serve --host 127.0.0.1 --port 8765
 ```
 
 Serve the built SPA from `ui/web/dist/` (run `./start-ui.sh` once to build, or `cd ui/web && npm ci && npm run build`).
+
+## TensorBoard from the UI
+
+On **Output runs** or a **run/job detail** page, click **Open TensorBoard**. The UI runs:
+
+```bash
+uv run --no-project --with 'tensorboard>=2.14' tensorboard --logdir=<output_dir>
+```
+
+So you do **not** need `tensorboard` in the project venv unless `.venv/bin/tensorboard` exists (then it is preferred); otherwise you need [uv](https://docs.astral.sh/uv/) on `PATH`. Use **Stop TensorBoard** on the same page to shut down the local server. The log directory is the parent folder (e.g. `output/`), not a single run folder, so run names appear in the TensorBoard sidebar. Logs from a failed start are written to `{RENGA_FLOW_UI_DATA}/logs/tensorboard.log`.

@@ -1,28 +1,27 @@
-# Cosmos Predict2 smoke (30 steps) with smoke_cc0 images (frame_buckets = [1]).
-# Model paths: RENGA_COSMOS_* in repo-root `.env` (see `.env.example`).
-#   scripts/run_model_smoke.sh cosmos
+# SDXL smoke (30 steps) with versioned CC0 dataset.
+# Model path: RENGA_SDXL_CHECKPOINT_PATH in repo-root `.env` (see `.env.example`).
+#   scripts/run_model_smoke.sh sdxl
 
-dataset = "examples/smoke_cc0_dataset.toml"
+dataset = "tests/fixtures/smoke/dataset_cc0.toml"
 output_dir = "output"
 max_steps = 30
-epochs = 999
 micro_batch_size_per_gpu = 1
 gradient_accumulation_steps = 1
 pipeline_stages = 1
-activation_checkpointing = true
 logging_steps = 1
 caching_batch_size = 1
 save_every_n_epochs = 999
+activation_checkpointing = true
 bench = true
 
 [model]
-type = "cosmos_predict2"
+type = "sdxl"
 dtype = "bfloat16"
 cache_text_embeddings = true
 
 [adapter]
 type = "lora"
-rank = 16
+rank = 8
 
 [optimizer]
 type = "adamw"

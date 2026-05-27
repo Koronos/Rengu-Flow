@@ -5,13 +5,13 @@ from __future__ import annotations
 import os
 import shlex
 import signal
-import subprocess
 import sys
 import time
 from pathlib import Path
 
 from renga_flow_ui import db
-from renga_flow_ui.settings import logs_dir, repo_root
+from renga_flow_ui.settings import logs_dir
+from renga_flow_ui.subprocess_util import popen_repo_subprocess
 
 
 def _which(cmd: str) -> str | None:
@@ -57,19 +57,19 @@ def start_job(
     if env:
         run_env.update(env)
     run_env.setdefault("PYTHONUNBUFFERED", "1")
-    with open(log_path, "ab") as log_f:
-        log_f.write(f"\n--- renga-flow-ui job {job.id} ---\n".encode())
-        log_f.write(f"CWD: {repo_root()}\n".encode())
-        log_f.write(f"CMD: {shlex.join(cmd)}\n\n".encode())
-        log_f.flush()
-        proc = subprocess.Popen(
-            cmd,
-            cwd=str(repo_root()),
-            stdout=log_f,
-            stderr=subprocess.STDOUT,
-            env=run_env,
-            start_new_session=True,
-        )
+    from renga_flow_ui import settings
+
+    header = (
+        f"\n--- renga-flow-ui job {job.id} ---\n"
+        f"CWD: {settings.repo_root()}\n"
+        f"CMD: {shlex.join(cmd)}\n\n"
+    ).encode()
+    proc, _log_f = popen_repo_subprocess(
+        cmd,
+        log_path,
+        log_header=header,
+        env=run_env,
+    )
     db.update_job(job.id, state="running", pid=proc.pid)
     return proc.pid
 

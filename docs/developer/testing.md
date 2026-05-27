@@ -153,7 +153,7 @@ Dataset-related tests (config, loader, captions, cache hooks, smoke fixture):
 | `tests/test_data_split_batch.py` | **split_batch:** correct number of pieces and sizes (parametrised); tensors `None` produce empty tensors per piece. This is splitting a batch into **micro-batches** for gradient accumulation, not train/val or folder-based split. |
 | `tests/test_data_synthetic.py` | **SyntheticSDXLDataset:** length, keys and shapes of `__getitem__`; device and dtypes; reproducibility (same item returns same tensors). |
 | `tests/test_dataset_captions.py` | **Caption formats:** multi-line `.txt` (one caption per line), `captions.json` (list or string per image, JSON over `.txt` when both exist), `DirectoryDataset._metadata_map_fn`, `SizeBucketDataset` multi-caption `iteration_order` and `online_captions` / `caption_number`. |
-| `tests/test_smoke_cc0_dataset.py` | Versioned CC0 fixture (12 jpg/txt pairs, manifest, `dump_dataset` on `examples/smoke_cc0_dataset.toml`). |
+| `tests/test_smoke_cc0_dataset.py` | Versioned CC0 fixture (12 jpg/txt pairs, manifest, `dump_dataset` on `tests/fixtures/smoke/dataset_cc0.toml`). |
 | `tests/test_sdxl_cache_hooks.py` | SDXL `get_preprocess_media_file_fn`, `get_text_encoders`, `get_call_text_encoder_fn` (mocked). |
 | `tests/test_sdxl_cached_prepare_inputs.py` | SDXL `prepare_inputs` / `InitialLayer` cached embedding path (mocked). |
 | `tests/test_dump_dataset.py` | `renga_flow.data.dump_dataset` on a temporary directory. |
@@ -162,7 +162,12 @@ Dataset-related tests (config, loader, captions, cache hooks, smoke fixture):
 | `tests/test_cache_utils_config.py` | `resolve_cache_num_proc`, `_map_and_cache` `keep_in_memory`. |
 | `tests/test_bench_utils.py` | `bench_mean_iter_sec_after_warmup`, `find_latest_bench_csv`. |
 
-**GPU smokes (optional, local):** Copy [`.env.example`](../.env.example) to `.env` (gitignored) and set `RENGA_SDXL_CHECKPOINT_PATH` / `RENGA_COSMOS_*`. Then `scripts/run_model_smoke.sh sdxl|cosmos` vendors fixtures if needed, runs `--cache_only`, then **30** training steps. Model paths are never committed in smoke TOMLs; `renga_flow.config.local_env` applies env vars before validation. The script **purges** `output/`, `tests/fixtures/smoke_cc0/images/cache/`, and `tmp/smoke_*.log` before and after a successful run (set `KEEP_SMOKE_ARTIFACTS=1` or `KEEP_SMOKE_LOG=1` to retain artifacts or the log).
+| `tests/test_signal_files.py` | File-based signals: `process_signals` per name, `save_quit` priority over `save`. |
+| `tests/test_saver_signals.py` | `Saver.process_step` with mocked `save_checkpoint` (all signal actions). |
+| `tests/test_ui_signals.py` | `send_signal` and job signals API. |
+| `tests/test_genericoptim_cpu_state.py` | `GenericOptim` + `kahan_buffer_offload` CPU state roundtrip. |
+
+**GPU smokes (optional, local):** Copy [`.env.example`](../.env.example) to `.env` (gitignored) and set `RENGA_SDXL_CHECKPOINT_PATH` / `RENGA_COSMOS_*`. Configs live under `tests/fixtures/smoke/` (not `examples/`). `scripts/run_model_smoke.sh sdxl|cosmos` vendors fixtures if needed, runs `--cache_only`, then **30** training steps. `scripts/smoke_training_signals.sh` exercises every signal file plus `genericoptim` resume (requires `pip install -e ".[optim]"`). `renga_flow.config.local_env` applies env vars before validation. Scripts **purge** `output/`, fixture caches, and `tmp/smoke_*.log` by default (`KEEP_SMOKE_ARTIFACTS=1` / `KEEP_SMOKE_LOG=1` to retain).
 
 **GPU smoke A/B (dataloader/cache flags):** After unit tests pass, run `scripts/smoke_perf_ab.sh sdxl` for baseline `iter_sec_mean` (steps ≥ 6 from `bench_steps.csv`), then e.g. `scripts/smoke_perf_ab.sh sdxl prefetch` to compare `dataloader_prefetch=true`. Presets: `prefetch`, `workers2`. See [performance-cpu-ram](performance-cpu-ram.md).
 
@@ -171,7 +176,7 @@ Dataset-related tests (config, loader, captions, cache hooks, smoke fixture):
 **Not covered:**
 
 - **Real-data training E2E on GPU** (full `DatasetManager.cache()` + train) — hook unit tests and `smoke_cc0` fixture cover the data path without checkpoints.
-- **Dataset augmentation:** Spec only; no tests until `apply_augmentation` exists.
+- **Dataset augmentation:** [`tests/test_augmentation.py`](../tests/test_augmentation.py), [`tests/test_dataset_form_augmentation.py`](../tests/test_dataset_form_augmentation.py).
 
 ## Adding tests
 

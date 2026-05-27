@@ -17,6 +17,7 @@ def _field(
     required: bool = False,
     recommended: bool = False,
     options: list[Any] | None = None,
+    option_values: list[Any] | None = None,
     show_if_set: bool = False,
     show_when_field: str = "",
 ) -> dict[str, Any]:
@@ -32,6 +33,8 @@ def _field(
         "importance": imp,
         "options": options,
     }
+    if option_values is not None:
+        out["option_values"] = option_values
     if show_if_set:
         out["show_if_set"] = True
     if show_when_field:
@@ -163,6 +166,54 @@ def get_directory_fields() -> list[dict[str, Any]]:
     ]
 
 
+def get_augmentation_directory_fields() -> list[dict[str, Any]]:
+    """Per-[[directory]] augmentation (nested ``augmentation`` table in TOML)."""
+    from renga_flow.data.augmentation.names import MVP_PRESET_NAMES
+
+    preset_options = sorted(MVP_PRESET_NAMES)
+    return [
+        _field(
+            "enabled",
+            "Enable augmentation",
+            "boolean",
+            default=False,
+            description="Apply diversity transforms before VAE encode (images only).",
+        ),
+        _field(
+            "preset",
+            "Preset",
+            "select",
+            default="none",
+            options=preset_options,
+            description="Named bundle of strategies; override per strategy below.",
+        ),
+        _field(
+            "seed_mode",
+            "Seed mode",
+            "select",
+            default="deterministic_per_image",
+            options=["deterministic_per_image"],
+            show_if_set=True,
+        ),
+        _field(
+            "variant_sampling",
+            "Variant sampling",
+            "select",
+            default="probability",
+            options=["probability", "enumerated"],
+            description="How discrete strategies (e.g. flip) expand into cache rows.",
+            show_if_set=True,
+        ),
+        _field(
+            "strategies",
+            "Strategy overrides (JSON)",
+            "json",
+            description='e.g. {"horizontal_flip": {"enabled": false}}',
+            show_if_set=True,
+        ),
+    ]
+
+
 def get_dataset_schema() -> dict[str, Any]:
     sections = [
         {
@@ -212,6 +263,20 @@ def get_dataset_schema() -> dict[str, Any]:
             ],
         },
         {
+            "id": "augmentation_global",
+            "title": "Augmentation (global defaults)",
+            "description": "Default augmentation for all folders unless a directory overrides it.",
+            "fields": [
+                _field(
+                    "_dataset_augmentation",
+                    "Global augmentation (JSON)",
+                    "json",
+                    description='{"enabled": false, "preset": "none"} — merged into each [[directory]].',
+                    show_if_set=True,
+                ),
+            ],
+        },
+        {
             "id": "captions",
             "title": "Captions & shuffle (global defaults)",
             "description": "Default caption/shuffle behaviour for all folders. Override per folder in Directories.",
@@ -227,7 +292,32 @@ def get_dataset_schema() -> dict[str, Any]:
     ]
     schema = enrich_dataset_schema({"sections": sections})
     schema["directory_fields"] = enrich_directory_fields(get_directory_fields())
+    schema["augmentation_directory_fields"] = _enrich_augmentation_directory_fields(
+        get_augmentation_directory_fields()
+    )
     return schema
+
+
+def _enrich_augmentation_directory_fields(
+    fields: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    from renga_flow_ui.dataset_field_help import FIELD_HELP
+
+    out = []
+    for field in fields:
+        f = dict(field)
+        path = f.get("path", "")
+        meta = FIELD_HELP.get(f"directory.augmentation.{path}")
+        if meta:
+            if not f.get("description") and meta.get("summary"):
+                f["description"] = meta["summary"]
+            f["help"] = meta.get("detail") or meta.get("summary")
+            if meta.get("doc"):
+                f["doc_path"] = meta["doc"]
+        if not f.get("help"):
+            f["help"] = f.get("description") or f.get("label") or path
+        out.append(f)
+    return out
 
 
 def enrich_directory_fields(fields: list[dict[str, Any]]) -> list[dict[str, Any]]:

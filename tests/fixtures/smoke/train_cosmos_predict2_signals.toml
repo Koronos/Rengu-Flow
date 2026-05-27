@@ -1,0 +1,44 @@
+# Cosmos Predict2 smoke for file-based training signals (scripts/smoke_training_signals.sh).
+# Model paths: RENGA_COSMOS_* in repo-root `.env`.
+
+dataset = "tests/fixtures/smoke/dataset_cc0.toml"
+output_dir = "output"
+run_name = "smoke_signals"
+max_steps = 50
+epochs = 999
+micro_batch_size_per_gpu = 1
+gradient_accumulation_steps = 1
+pipeline_stages = 1
+activation_checkpointing = true
+logging_steps = 1
+caching_batch_size = 1
+save_every_n_epochs = 999
+bench = false
+
+[model]
+type = "cosmos_predict2"
+dtype = "bfloat16"
+cache_text_embeddings = true
+
+[adapter]
+type = "lora"
+rank = 16
+
+[optimizer]
+type = "adamw"
+lr = 1.0e-4
+
+[preview]
+enabled = true
+prompts = [
+  "a cinematic portrait of a woman in a red coat, rain at night, neon reflections on wet pavement, photorealistic",
+]
+preview_every_n_steps = 99999
+width = 1024
+height = 1024
+num_inference_steps = 20
+guidance_scale = 4.0
+negative_prompt = ""
+preview_offload_text_encoder = true
+preview_blocks_to_swap = 0
+preview_save_png = true

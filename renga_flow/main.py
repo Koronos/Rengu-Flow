@@ -463,6 +463,10 @@ def _run_training(args, config):
     if is_main_process():
         print(f"Training: steps_per_epoch={steps_per_epoch}, total_steps={total_steps}")
         print(f"Run dir: {run_dir}")
+        print(
+            f"TensorBoard: tensorboard --logdir {output_dir} "
+            f"(pick run {os.path.basename(run_dir)} in the sidebar; do not point logdir at the run folder itself)"
+        )
 
     global_batch_size = micro_batch * gradient_accumulation_steps
     if hasattr(dist, "get_world_size"):

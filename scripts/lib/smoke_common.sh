@@ -8,15 +8,18 @@ setup_smoke_gpu_env() {
   export NCCL_P2P_DISABLE="${NCCL_P2P_DISABLE:-1}"
   export NCCL_IB_DISABLE="${NCCL_IB_DISABLE:-1}"
   export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
-  local bnb_lib
-  bnb_lib="$("${VENV}/bin/python" -c "
+  local nvidia_libs
+  nvidia_libs="$("${VENV}/bin/python" -c "
 import pathlib, sysconfig
-base = pathlib.Path(sys.prefix)
-lib = base / 'lib' / f'python{sysconfig.get_python_version()}' / 'site-packages' / 'nvidia' / 'cu13' / 'lib'
-print(lib if lib.is_dir() else '', end='')
+sp = pathlib.Path(sysconfig.get_paths()['purelib']) / 'nvidia'
+seen = []
+for libdir in sorted(sp.glob('*/lib')):
+    if libdir.is_dir() and str(libdir) not in seen:
+        seen.append(str(libdir))
+print(':'.join(seen), end='')
 " 2>/dev/null || true)"
-  if [[ -n "${bnb_lib}" ]]; then
-    export LD_LIBRARY_PATH="${bnb_lib}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+  if [[ -n "${nvidia_libs}" ]]; then
+    export LD_LIBRARY_PATH="${nvidia_libs}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
   fi
 }
 

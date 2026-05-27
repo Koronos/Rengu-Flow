@@ -2,11 +2,11 @@
 
 Technical contract for dataset config, data loading, and cache in Renga Flow. Phase 2 implements directory-based datasets, latent and text-embedding cache, and integration with the training loop.
 
-**Implementation tracking:** Directory datasets, `DatasetManager.cache()`, latent and text-embedding cache, SDXL and Cosmos Predict2 model hooks, `--dump_dataset`, and the CC0 smoke fixture are implemented. **Not implemented:** dataset augmentation (spec only — see [Dataset augmentation](dataset-augmentation.md)). CPU/RAM tuning options and smoke A/B: [performance-cpu-ram](performance-cpu-ram.md).
+**Implementation tracking:** Directory datasets, `DatasetManager.cache()`, latent and text-embedding cache, SDXL and Cosmos Predict2 model hooks, `--dump_dataset`, the CC0 smoke fixture, and **dataset augmentation (MVP)** are implemented. CPU/RAM tuning options and smoke A/B: [performance-cpu-ram](performance-cpu-ram.md).
 
-## Dataset augmentation (planned)
+## Dataset augmentation (MVP)
 
-Specification for **named augmentation strategies** (`strategies.<snake_case>` with parameters), presets, merge rules, optional numeric IDs for tests, and cache/seed modes: [Dataset augmentation (developer)](dataset-augmentation.md). Augmentation will apply in the RGB path before VAE encode (same area as `preprocess_media_file_fn` in `renga_flow.data.manager`). Fingerprinting must include the **fully merged** augmentation config when using latent cache.
+**Named strategies**, presets, merge rules, cache/seed modes, and UI: [Dataset augmentation (developer)](dataset-augmentation.md). Augmentation runs in the RGB path before VAE encode (`PreprocessMediaFile` via `DatasetManager.cache()`). Latent cache fingerprint includes the **fully merged** augmentation config (`renga_flow/data/augmentation/config.py`). Images only in this release (`frame_buckets` must be `[1]` when augmentation is enabled).
 
 User-facing summary: [Dataset augmentation (user)](../user/dataset-augmentation.md).
 
@@ -106,4 +106,4 @@ Required by `DatasetManager.cache()` / `_cache_fn`.
 
 **SDXL cached embedding keys:** encoder 1 → `prompt_embeds`; encoder 2 → `prompt_embeds_2`, `pooled_prompt_embeds`. `prepare_inputs` concatenates prompt embeds for the UNet and passes cached tensors to `InitialLayer` when `cache_text_embeddings` is true.
 
-**Smoke dataset:** `tests/fixtures/smoke_cc0/` (12 CC0 GB82 JPEGs + captions). Regenerate with `scripts/vendor_smoke_cc0.sh`. Example TOML: `examples/smoke_cc0_dataset.toml`.
+**Smoke dataset:** `tests/fixtures/smoke_cc0/` (12 CC0 GB82 JPEGs + captions). Regenerate with `scripts/vendor_smoke_cc0.sh`. Dataset TOML: `tests/fixtures/smoke/dataset_cc0.toml`.

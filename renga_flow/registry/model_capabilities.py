@@ -178,8 +178,8 @@ def _register_builtin_capabilities() -> None:
             aliases=["anima"],
             adapters=["lora", "lokr"],
             full_finetune=True,
-            preview=False,
-            features={"block_swap": True},
+            preview=True,
+            features={"block_swap": True, "preview": True},
             branding_note=(
                 "Use checkpoints released for Cosmos Predict2 / Anima-style bundles "
                 "(main, VAE, and Qwen3 text encoder paths below)."

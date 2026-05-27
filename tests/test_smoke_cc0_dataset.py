@@ -10,7 +10,7 @@ from renga_flow.data.dump_dataset import dump_dataset
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "smoke_cc0"
 IMAGES = FIXTURE / "images"
 MANIFEST = FIXTURE / "manifest.json"
-DATASET_TOML = Path(__file__).resolve().parent.parent / "examples" / "smoke_cc0_dataset.toml"
+DATASET_TOML = Path(__file__).resolve().parent / "fixtures" / "smoke" / "dataset_cc0.toml"
 
 
 def test_manifest_has_twelve_entries():

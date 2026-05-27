@@ -30,9 +30,9 @@ if [[ ! -f "${REPO_ROOT}/.env" ]]; then
 fi
 
 if [[ "${MODEL}" == "sdxl" ]]; then
-  CONFIG="${REPO_ROOT}/examples/smoke_sdxl.toml"
+  CONFIG="${REPO_ROOT}/tests/fixtures/smoke/train_sdxl.toml"
 else
-  CONFIG="${REPO_ROOT}/examples/smoke_cosmos_predict2.toml"
+  CONFIG="${REPO_ROOT}/tests/fixtures/smoke/train_cosmos_predict2.toml"
 fi
 
 "${VENV}/bin/python" -m renga_flow.config.local_env "${CONFIG}"
