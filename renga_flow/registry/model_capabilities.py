@@ -18,7 +18,6 @@ ADAPTER_FIELD_TEMPLATES: dict[str, list[dict[str, Any]]] = {
             "type": "integer",
             "default": 16,
             "min": 1,
-            "recommended": True,
         },
         {"path": "adapter.dim", "label": "Dim (alias for rank)", "type": "integer", "min": 1},
         {
@@ -161,6 +160,8 @@ def _register_builtin_capabilities() -> None:
                     "label": "Guidance",
                     "type": "number",
                     "default": 1.0,
+                    "ui": False,
+                    "description": "Parsed in TOML only; training uses preview.guidance_scale for CFG.",
                 },
                 {
                     "path": "model.freeze_text_encoders",
@@ -246,10 +247,11 @@ def _register_builtin_capabilities() -> None:
                 },
                 {
                     "path": "model.diffusion_model_dtype",
-                    "label": "Forward dtype (optional, unused)",
+                    "label": "Forward dtype",
                     "type": "select",
                     "options_key": "dtypes",
-                    "description": "Not applied by training yet; leave unset.",
+                    "ui": False,
+                    "description": "TOML-only; not read by cosmos_predict2 training (use model.dtype).",
                 },
             ],
         )

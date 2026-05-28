@@ -1,5 +1,5 @@
 <template>
-  <div class="directory-override-field">
+  <div v-if="blockVisible" class="directory-override-field">
     <div class="override-head">
       <el-tag
         :type="status === 'inherited' ? 'info' : 'warning'"
@@ -23,14 +23,23 @@
       Uses dataset default: <span class="inherit-value">{{ globalHint }}</span>
     </p>
 
-    <ConfigFormField
+    <el-form
       v-if="showControl"
-      :field="field"
-      :form="entry"
-      dataset-form
-      :always-visible="needsToggle"
-      @update:path="(payload) => emit('update:path', payload)"
-    />
+      label-position="top"
+      class="directory-override-control-form"
+    >
+      <ConfigFormField
+        :field="field"
+        :form="entry"
+        dataset-form
+        :directory-inherit-form="globalForm"
+        :always-visible="needsToggle"
+        :hide-label="needsToggle"
+        hide-label-help
+        :path-tag-placement="needsToggle ? 'foot' : 'label'"
+        @update:path="(payload) => emit('update:path', payload)"
+      />
+    </el-form>
   </div>
 </template>
 
@@ -40,6 +49,7 @@ import ConfigFormField from "./ConfigFormField.vue";
 import FieldHelpIcon from "./FieldHelpIcon.vue";
 import {
   directoryFieldOverrideStatus,
+  directoryOverrideBlockVisible,
   globalFieldDisplayHint,
   isOverrideEnabled,
   needsDirectoryOverrideToggle,
@@ -59,6 +69,10 @@ const emit = defineEmits<{
 }>();
 
 const needsToggle = computed(() => needsDirectoryOverrideToggle(props.field));
+
+const blockVisible = computed(() =>
+  directoryOverrideBlockVisible(props.field, props.entry, props.globalForm)
+);
 
 const status = computed(() => directoryFieldOverrideStatus(props.field, props.entry));
 
@@ -116,7 +130,7 @@ const toggleLabel = computed(() => getToggleLabel(props.field));
   font-family: ui-monospace, Menlo, Monaco, Consolas, monospace;
   font-size: 11px;
 }
-.directory-override-field :deep(.el-form-item) {
+.directory-override-field :deep(.directory-override-control-form .el-form-item) {
   margin-bottom: 0;
 }
 </style>

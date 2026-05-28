@@ -4,6 +4,8 @@
     :title="multiple ? 'Choose datasets' : 'Choose dataset'"
     width="92%"
     class="dataset-picker-dialog"
+    append-to-body
+    align-center
     destroy-on-close
     @update:model-value="$emit('update:modelValue', $event)"
     @open="loadItems"
@@ -62,14 +64,6 @@
         Add selected
       </el-button>
     </template>
-
-    <DatasetGalleryDialog
-      v-model="galleryOpen"
-      :title="galleryTitle"
-      :content="galleryContent"
-      :directory-index="galleryDirectoryIndex"
-      :loading="galleryLoading"
-    />
   </el-dialog>
 </template>
 
@@ -79,7 +73,6 @@ import { useRouter } from "vue-router";
 import { Edit } from "@element-plus/icons-vue";
 import { ElLoadingDirective } from "element-plus";
 import { api } from "../api";
-import DatasetGalleryDialog from "./DatasetGalleryDialog.vue";
 import DatasetPreviewActions from "./DatasetPreviewActions.vue";
 import DatasetPreviewCollection from "./DatasetPreviewCollection.vue";
 import DatasetViewModeToggle from "./DatasetViewModeToggle.vue";
@@ -121,8 +114,7 @@ const filterText = ref("");
 const items = ref<DatasetPickerItem[]>([]);
 const selectedPaths = ref<string[]>([]);
 const { viewMode } = useDatasetViewMode("renga-flow-dataset-picker-view", "table");
-const { galleryOpen, galleryTitle, galleryContent, galleryDirectoryIndex, galleryLoading, showFromLibrary } =
-  useDatasetGallery();
+const { showFromLibrary } = useDatasetGallery();
 
 const filteredItems = computed(() => {
   const q = filterText.value.trim().toLowerCase();
@@ -153,8 +145,14 @@ function formatRowSubtitle(row: DatasetSearchItem): string {
 async function loadItems() {
   loading.value = true;
   try {
-    const rows = (await api.listDatasets()) as DatasetSearchItem[];
-    items.value = rows.map((row): DatasetPickerItem => {
+    const { items: rows } = await api.searchDatasets({
+      q: "",
+      page: 1,
+      page_size: 100,
+      sort: "id",
+      order: "desc",
+    });
+    items.value = (rows ?? []).map((row): DatasetPickerItem => {
       const libraryId = String(row.id);
       const name = String(row.name || `Dataset #${row.id}`);
       const path = formatDatasetLibraryRef(row.id, name);

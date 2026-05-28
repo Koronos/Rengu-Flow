@@ -67,6 +67,39 @@ export function libraryDatasetIdFromRef(value: unknown): string | null {
   return p.id;
 }
 
+/**
+ * Normalize training `dataset` form value to a list of path/ref strings.
+ * Recovers values corrupted by `String(array)` (comma-joined refs).
+ */
+export function coerceTrainingDatasetEntries(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value
+      .filter((e): e is string => typeof e === "string" && e.trim().length > 0)
+      .map((e) => e.trim());
+  }
+  if (typeof value === "string") {
+    const s = value.trim();
+    if (!s) return [];
+    const splitMerged = s.split(
+      new RegExp(`,(?=${DATASET_REF_PREFIX.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`)
+    );
+    if (splitMerged.length > 1) {
+      return splitMerged.map((p) => p.trim()).filter(Boolean);
+    }
+    return [s];
+  }
+  return [];
+}
+
+/** Form model for TrainingDatasetsField: "" | one path | several paths. */
+export function trainingDatasetFormValue(
+  entries: string[]
+): string | string[] {
+  if (entries.length === 0) return "";
+  if (entries.length === 1) return entries[0];
+  return entries;
+}
+
 /** Append paths not already present (by canonical ref). */
 export function appendUniqueDatasetPaths<T extends string>(
   existing: T[],

@@ -33,6 +33,8 @@ export interface SchemaField {
   string_list_hint?: string;
   min?: number;
   max?: number;
+  max_length?: number;
+  runtime_tokens?: string[];
   importance?: string;
   recommended?: boolean;
   required?: boolean;

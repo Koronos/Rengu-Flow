@@ -4,6 +4,13 @@ During training you can generate **sample images** from fixed prompts and view t
 
 Previews are supported for **SDXL** (`model.type = "sdxl"`) and **Cosmos Predict2** (`model.type = "cosmos_predict2"` or `anima`). Cosmos requires **`pipeline_stages = 1`** (single-GPU DiT path).
 
+## Config editor (web UI)
+
+On the training config **Previews** tab:
+
+1. **Preview configurations** — table of entries (Add, Edit, Duplicate, Remove). Each row is one item in `preview.prompts` in TOML (a string or a `[[preview.prompts]]` table).
+2. **Global preview settings** — schedule (`preview_every_n_*`), enable flag, default size/seeds/CFG, and Cosmos-only options. These apply to every row unless a row overrides them in the edit dialog.
+
 ## Enable previews in TOML
 
 Add a `[preview]` section with at least one prompt:

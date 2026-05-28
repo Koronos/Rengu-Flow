@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from renga_flow.cli import training_extras
+from renga_flow.registry.optimizers import OPTIMIZER_ALIASES, VENDOR_OPTIMIZER_ALIASES
 
 
 def test_profiles_for_cosmos_config():
@@ -26,6 +27,28 @@ def test_profiles_for_sdxl_lokr_adds_lycoris():
         "optimizer": {"type": "adamw"},
     }
     assert training_extras.profiles_for_config_dict(data) == ["lycoris"]
+
+
+def test_profiles_for_adamw8bit_adds_optim():
+    data = {
+        "model": {"type": "sdxl"},
+        "optimizer": {"type": "adamw8bit", "lr": 1e-4},
+    }
+    assert training_extras.profiles_for_config_dict(data) == ["optim"]
+
+
+def test_profiles_for_prodigy_adds_optim():
+    data = {
+        "model": {"type": "sdxl"},
+        "optimizer": {"type": "prodigy", "lr": 1.0},
+    }
+    assert training_extras.profiles_for_config_dict(data) == ["optim"]
+
+
+def test_registry_optional_optimizers_map_to_optim_profile() -> None:
+    """Every dropdown alias that needs [optim] must be in profiles_for_config_dict."""
+    names = set(OPTIMIZER_ALIASES) | set(VENDOR_OPTIMIZER_ALIASES)
+    assert names <= training_extras._OPTIMIZER_EXTRA_TYPES
 
 
 def test_profiles_for_genericoptim_adds_optim():
@@ -68,7 +91,7 @@ def test_jobs_start_calls_ensure_training_extras(tmp_path, monkeypatch):
 
     called = []
 
-    def fake_ensure(path):
+    def fake_ensure(path, *, root=None):
         called.append(path)
 
     monkeypatch.setattr(jobs, "ensure_training_extras", fake_ensure)
@@ -77,12 +100,17 @@ def test_jobs_start_calls_ensure_training_extras(tmp_path, monkeypatch):
         "build_train_command",
         lambda *a, **k: ["echo", "train"],
     )
-    monkeypatch.setattr(jobs, "training_subprocess_env", lambda: {})
     monkeypatch.setattr(jobs.db, "update_job", lambda *a, **k: None)
 
     proc = MagicMock()
     proc.pid = 12345
-    monkeypatch.setattr(jobs, "popen_repo_subprocess", lambda *a, **k: (proc, None))
+    from renga_flow_ui import subprocess_util
+
+    monkeypatch.setattr(
+        subprocess_util,
+        "popen_repo_subprocess",
+        lambda *a, **k: (proc, None),
+    )
 
     job = jobs.db.JobRecord(
         id=1,

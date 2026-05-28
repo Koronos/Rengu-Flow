@@ -78,7 +78,7 @@ import ConfigFormField from "./ConfigFormField.vue";
 import DatasetTagDropoutField from "./DatasetTagDropoutField.vue";
 import FieldHelpIcon from "./FieldHelpIcon.vue";
 import {
-  optionalFieldActive,
+  isOverrideEnabled,
   sectionCoreFields,
   sectionOptionalFields,
   setOverrideEnabled,
@@ -134,7 +134,7 @@ function onField({ path, value }: { path: string; value: unknown }) {
 }
 
 function optionalActive(field: SchemaField): boolean {
-  return optionalFieldActive(field, formValues.value);
+  return isOverrideEnabled(field, formValues.value);
 }
 
 function optionalToggleLabel(field: SchemaField): string {

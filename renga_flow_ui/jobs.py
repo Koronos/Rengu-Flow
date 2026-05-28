@@ -9,6 +9,7 @@ import sys
 import time
 from pathlib import Path
 
+from renga_flow.cli.training_extras import ensure_training_extras
 from renga_flow_ui import db
 from renga_flow_ui.settings import logs_dir
 from renga_flow_ui.subprocess_util import popen_repo_subprocess
@@ -46,6 +47,9 @@ def start_job(
 ) -> int:
     log_path = Path(job.log_path)
     log_path.parent.mkdir(parents=True, exist_ok=True)
+    from renga_flow_ui import settings
+
+    ensure_training_extras(Path(job.config_path), root=settings.repo_root())
     extra = shlex.split(job.extra_args) if job.extra_args else []
     cmd = build_train_command(
         Path(job.config_path),
@@ -57,8 +61,6 @@ def start_job(
     if env:
         run_env.update(env)
     run_env.setdefault("PYTHONUNBUFFERED", "1")
-    from renga_flow_ui import settings
-
     header = (
         f"\n--- renga-flow-ui job {job.id} ---\n"
         f"CWD: {settings.repo_root()}\n"

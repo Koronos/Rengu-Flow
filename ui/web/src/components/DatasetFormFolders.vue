@@ -107,12 +107,6 @@
       @save="onDialogSave"
     />
 
-    <DatasetGalleryDialog
-      v-model="galleryOpen"
-      :title="galleryTitle"
-      :content="galleryContent"
-      :directory-index="galleryDirectoryIndex"
-    />
   </div>
 </template>
 
@@ -123,7 +117,6 @@ import { ElMessageBox } from "element-plus";
 import { Plus, Search } from "@element-plus/icons-vue";
 import DatasetDirectoryOverflowMenu from "./DatasetDirectoryOverflowMenu.vue";
 import DatasetFolderDialog from "./DatasetFolderDialog.vue";
-import DatasetGalleryDialog from "./DatasetGalleryDialog.vue";
 import DatasetFolderDetailsButton from "./DatasetFolderDetailsButton.vue";
 import DatasetPreviewActions from "./DatasetPreviewActions.vue";
 import DatasetPreviewCollection from "./DatasetPreviewCollection.vue";
@@ -146,14 +139,7 @@ import type { DatasetPreviewItem } from "./DatasetPreviewCollection.vue";
 const editor = useDatasetEditorStore();
 const { form, schema, uiNotes, content } = storeToRefs(editor);
 const { viewMode } = useDatasetViewMode(DATASET_DIRECTORY_VIEW_KEY);
-const {
-  galleryOpen,
-  galleryTitle,
-  galleryContent,
-  galleryDirectoryIndex,
-  galleryLoading,
-  showFromContent,
-} = useDatasetGallery();
+const { showFromContent } = useDatasetGallery();
 
 const query = ref("");
 const dialogOpen = ref(false);

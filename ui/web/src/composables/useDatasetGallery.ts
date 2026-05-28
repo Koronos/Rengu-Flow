@@ -2,14 +2,15 @@ import { ref } from "vue";
 import { api } from "../api";
 import { formatError } from "../lib/formatError";
 
-/** Shared state for DatasetGalleryDialog across list / picker / editor sections. */
-export function useDatasetGallery() {
-  const galleryOpen = ref(false);
-  const galleryTitle = ref("Image gallery");
-  const galleryContent = ref("");
-  const galleryDirectoryIndex = ref<number | undefined>(undefined);
-  const galleryLoading = ref(false);
+/** Shared state for the app-wide DatasetGalleryHost (list / picker / editor). */
+const galleryOpen = ref(false);
+const galleryTitle = ref("Image gallery");
+const galleryContent = ref("");
+const galleryDirectoryIndex = ref<number | undefined>(undefined);
+const galleryLoading = ref(false);
+const galleryError = ref("");
 
+export function useDatasetGallery() {
   function showFromContent({
     title,
     content,
@@ -21,6 +22,7 @@ export function useDatasetGallery() {
   }) {
     galleryTitle.value = title || "Image gallery";
     galleryContent.value = content || "";
+    galleryError.value = "";
     galleryDirectoryIndex.value = directoryIndex ?? undefined;
     galleryOpen.value = true;
   }
@@ -39,15 +41,20 @@ export function useDatasetGallery() {
     galleryOpen.value = true;
     galleryLoading.value = true;
     galleryContent.value = "";
+    galleryError.value = "";
     try {
       const row = (await api.getDataset(String(id))) as { content?: string };
       galleryContent.value = row.content || "";
     } catch (e) {
       galleryContent.value = "";
-      galleryTitle.value = formatError(e);
+      galleryError.value = formatError(e);
     } finally {
       galleryLoading.value = false;
     }
+  }
+
+  function closeGallery() {
+    galleryOpen.value = false;
   }
 
   return {
@@ -56,7 +63,9 @@ export function useDatasetGallery() {
     galleryContent,
     galleryDirectoryIndex,
     galleryLoading,
+    galleryError,
     showFromContent,
     showFromLibrary,
+    closeGallery,
   };
 }

@@ -1,0 +1,28 @@
+# SDXL LoRA starter — fill dataset TOML path and model checkpoint before training.
+# See docs/user/training-sdxl-lora-lokr.md
+
+dataset = ""
+
+epochs = 1
+gradient_accumulation_steps = 1
+micro_batch_size_per_gpu = 1
+logging_steps = 1
+save_every_n_epochs = 1
+output_dir = "output"
+
+lr_scheduler = "cosine"
+[lr_scheduler_args]
+lr_min = 0.0
+
+[model]
+type = "sdxl"
+dtype = "bfloat16"
+checkpoint_path = ""
+
+[adapter]
+type = "lora"
+rank = 16
+
+[optimizer]
+type = "adamw"
+lr = 1.0e-4

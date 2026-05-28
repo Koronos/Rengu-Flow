@@ -23,7 +23,6 @@ lr = 1.0e-4
 
 epochs = 1
 micro_batch_size_per_gpu = 1
-synthetic_num_batches = 50
 """
 
 
@@ -150,6 +149,20 @@ def test_validate_endpoint(ui_client) -> None:
     assert r2.json()["ok"] is False
 
 
+def test_validate_adamw8bit_ok_without_optimizer_dependency_errors(ui_client) -> None:
+    """Validate must not fail on missing bitsandbytes; extras install at train start."""
+    content = MINIMAL_TOML.replace('type = "adamw"', 'type = "adamw8bit"')
+    r = ui_client.post("/api/v1/validate", json={"content": content})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is True
+    errors = body.get("errors") or []
+    joined = " ".join(str(e) for e in errors).lower()
+    assert "bitsandbytes" not in joined
+    assert "optional dependency" not in joined
+    assert "pip install" not in joined
+
+
 def test_docs_endpoint(ui_client) -> None:
     r = ui_client.get("/api/v1/docs", params={"path": "docs/user/web-ui.md"})
     assert r.status_code == 200
@@ -198,6 +211,20 @@ def test_dataset_library_api(ui_client, ui_data_tmp: Path) -> None:
     r = ui_client.get(f"/api/v1/datasets/{lib_id}")
     assert r.status_code == 200
     assert r.json()["name"] == "Test portraits"
+
+    r = ui_client.get("/api/v1/datasets?page=1&page_size=20&sort=id&order=desc")
+    assert r.status_code == 200
+    page_body = r.json()
+    assert "items" in page_body
+    assert "total" in page_body
+    assert any(row["id"] == lib_id for row in page_body["items"])
+
+    r = ui_client.get("/api/v1/datasets")
+    assert r.status_code == 200
+    list_body = r.json()
+    assert "datasets" in list_body
+    assert "picker" in list_body
+    assert any(row["id"] == lib_id for row in list_body["datasets"])
 
     r = ui_client.post(
         "/api/v1/datasets/preview",

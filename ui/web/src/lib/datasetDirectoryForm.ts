@@ -64,8 +64,9 @@ export function initialValueForOptionalField(field: SchemaField): unknown {
   }
 }
 
+/** Every optional [[directory]] override (non-primary row identity) gets Inherited/Override. */
 export function needsDirectoryOverrideToggle(field: SchemaField): boolean {
-  return !!(field.show_if_set || field.show_when_field);
+  return !DIRECTORY_PRIMARY_PATHS.has(field.path);
 }
 
 /** Whether this key is stored on the [[directory]] row (vs inherited from TOML root). */
@@ -74,9 +75,6 @@ export function directoryFieldWritesToToml(
   entry: FormValues | null
 ): boolean {
   if (!entry || !field.path) return false;
-  if (needsDirectoryOverrideToggle(field)) {
-    return Object.prototype.hasOwnProperty.call(entry, field.path);
-  }
   return Object.prototype.hasOwnProperty.call(entry, field.path);
 }
 
@@ -123,10 +121,32 @@ export function globalFieldDisplayHint(
   return formatHintValue(value);
 }
 
-export function isOverrideEnabled(field: SchemaField, entry: FormValues | null): boolean {
+export const isOverrideEnabled = directoryFieldWritesToToml;
+
+function directoryParentValue(
+  parentPath: string,
+  entry: FormValues,
+  globalForm: FormValues | null
+): unknown {
+  if (Object.prototype.hasOwnProperty.call(entry, parentPath)) {
+    return entry[parentPath];
+  }
+  if (globalForm && Object.prototype.hasOwnProperty.call(globalForm, parentPath)) {
+    return globalForm[parentPath];
+  }
+  return undefined;
+}
+
+/** Whether a dependent override block should appear (parent on this row or dataset default). */
+export function directoryOverrideBlockVisible(
+  field: SchemaField,
+  entry: FormValues | null,
+  globalForm: FormValues | null
+): boolean {
+  const parent = field.show_when_field;
+  if (!parent) return true;
   if (!entry) return false;
-  if (!field.show_if_set && !field.show_when_field) return true;
-  return Object.prototype.hasOwnProperty.call(entry, field.path);
+  return !!directoryParentValue(parent, entry, globalForm);
 }
 
 export function setOverrideEnabled(

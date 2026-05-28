@@ -15,6 +15,13 @@ from renga_flow.registry.model_capabilities import (
     normalize_model_type,
 )
 from renga_flow_ui.field_visibility import attach_visibility_to_schema
+from renga_flow_ui.model_form import attach_model_section_visibility
+from renga_flow_ui.optimizer_form import attach_optimizer_visibility
+from renga_flow_ui.optim_kv_defaults import (
+    SCHEDULER_RUNTIME_TOKENS,
+    SUGGESTED_SCHEDULER_FQNS,
+)
+from renga_flow_ui.scheduler_form import attach_scheduler_visibility
 from renga_flow.registry.optimizers import (
     OPTIMIZER_ALIASES,
     VENDOR_OPTIMIZER_ALIASES,
@@ -26,26 +33,13 @@ ACTIVATION_CHECKPOINTING_OPTIONS = [False, True, "unsloth"]
 PARTITION_METHODS = ["parameters", "uniform", "manual"]
 HAS_ADAPTER = {"field": "_has_adapter", "equals": True}
 
-# Shown upfront: have trainer defaults but you should review/set them explicitly.
+# Fields tagged "Important" in the UI — only knobs most runs should consciously set.
 RECOMMENDED_PATHS: frozenset[str] = frozenset(
     {
-        "output_dir",
-        "adapter.type",
-        "adapter.rank",
-        "adapter.dim",
-        "optimizer.lr",
         "lr_scheduler",
         "epochs",
         "micro_batch_size_per_gpu",
         "gradient_accumulation_steps",
-        "gradient_clipping",
-        "logging_steps",
-        "activation_checkpointing",
-        "blocks_to_swap",
-        "pipeline_stages",
-        "save_every_n_epochs",
-        "warmup_steps",
-        "lr_scheduler_args.lr_min",
     }
 )
 
@@ -72,6 +66,8 @@ def _field(
     show_if_set: bool = False,
     show_if_set_exclude_zero: bool = False,
     visibility: dict[str, Any] | None = None,
+    max_length: int | None = None,
+    runtime_tokens: list[str] | None = None,
 ) -> dict[str, Any]:
     if required:
         imp = "required"
@@ -111,6 +107,10 @@ def _field(
         out["show_if_set_exclude_zero"] = True
     if visibility is not None:
         out["visibility"] = visibility
+    if max_length is not None:
+        out["max_length"] = max_length
+    if runtime_tokens:
+        out["runtime_tokens"] = runtime_tokens
     return out
 
 
@@ -211,23 +211,66 @@ def _adapter_section_fields() -> list[dict[str, Any]]:
 
 
 def _preview_section() -> dict[str, Any]:
+    from renga_flow_ui.preview_form import WHEN_COSMOS_PREVIEW
+
     preview_models = [c.type_id for c in model_capability_registry.values() if c.preview]
     when_preview = _when_model(*preview_models) if preview_models else {"field": "model.type", "in": []}
     return {
         "id": "preview",
         "title": "Previews",
-        "description": "Sample images during training (supported models only).",
+        "description": (
+            "Sample images during training. Add one or more preview configurations below; "
+            "each row is a separate prompt (and optional overrides). Global settings apply "
+            "to all previews unless overridden on a row."
+        ),
         "when_any_model": preview_models,
         "fields": [
-            _field("preview.enabled", "Enabled", "boolean", default=True, when=when_preview),
-                _field(
-                    "preview.prompts",
-                    "Prompts",
-                    "string_list",
-                    when=when_preview,
-                    description="Preview captions. Named {name, prompt} tables stay as JSON in TOML.",
-                    placeholder="Type a prompt, then Enter",
-                ),
+            _field(
+                "preview.prompts",
+                "Preview configurations",
+                "preview_entries",
+                when=when_preview,
+                importance="recommended",
+                description="Each entry becomes one item under preview.prompts in TOML.",
+            ),
+            _field(
+                "preview.enabled",
+                "Enabled",
+                "boolean",
+                default=True,
+                when=when_preview,
+                importance="recommended",
+            ),
+            _field(
+                "preview.preview_every_n_steps",
+                "Preview every N steps",
+                "integer",
+                min_value=1,
+                when=when_preview,
+                importance="recommended",
+            ),
+            _field(
+                "preview.preview_every_n_epochs",
+                "Preview every N epochs",
+                "integer",
+                min_value=1,
+                when=when_preview,
+                importance="recommended",
+            ),
+            _field(
+                "preview.preview_before_first_step",
+                "Preview before first step",
+                "boolean",
+                when=when_preview,
+                importance="recommended",
+            ),
+            _field(
+                "disable_block_swap_for_preview",
+                "Disable block swap for preview",
+                "boolean",
+                when=when_preview,
+                when_capability="block_swap",
+            ),
             _field("preview.negative_prompt", "Negative prompt", "string", when=when_preview),
             _field("preview.width", "Width", "integer", default=1024, when=when_preview),
             _field("preview.height", "Height", "integer", default=1024, when=when_preview),
@@ -235,15 +278,27 @@ def _preview_section() -> dict[str, Any]:
             _field("preview.guidance_scale", "Guidance scale", "number", default=7.0, when=when_preview),
             _field("preview.seed", "Seed", "integer", default=0, when=when_preview),
             _field("preview.seed_stride", "Seed stride", "integer", default=1, when=when_preview),
-            _field("preview.preview_every_n_steps", "Preview every N steps", "integer", min_value=1, when=when_preview),
-            _field("preview.preview_every_n_epochs", "Preview every N epochs", "integer", min_value=1, when=when_preview),
-            _field("preview.preview_before_first_step", "Preview before first step", "boolean", when=when_preview),
             _field(
-                "disable_block_swap_for_preview",
-                "Disable block swap for preview",
+                "preview.preview_offload_text_encoder",
+                "Offload text encoder during preview",
                 "boolean",
-                when=when_preview,
-                when_capability="block_swap",
+                default=True,
+                when=WHEN_COSMOS_PREVIEW,
+            ),
+            _field(
+                "preview.preview_blocks_to_swap",
+                "Preview blocks to swap",
+                "integer",
+                default=0,
+                min_value=0,
+                when=WHEN_COSMOS_PREVIEW,
+            ),
+            _field(
+                "preview.preview_save_png",
+                "Save preview PNGs",
+                "boolean",
+                default=False,
+                when=WHEN_COSMOS_PREVIEW,
             ),
         ],
     }
@@ -258,12 +313,15 @@ def get_registries() -> dict[str, Any]:
         | set(VENDOR_OPTIMIZER_ALIASES.keys())
         | set(OPTIMIZER_ALIASES.keys())
     )
+    from renga_flow_ui.preview_form import get_preview_entry_fields
+
     return {
         "models": get_canonical_model_types(),
         "model_capabilities": capabilities_for_api(),
+        "preview_entry_fields": get_preview_entry_fields(),
         "optimizers": optimizers,
         "optimizer_allow_custom": True,
-        "schedulers": sorted(scheduler_registry.keys()),
+        "schedulers": sorted(set(scheduler_registry.keys()) | set(SUGGESTED_SCHEDULER_FQNS)),
         "scheduler_allow_custom": True,
         "dtypes": DTYPE_OPTIONS,
         "activation_checkpointing": ACTIVATION_CHECKPOINTING_OPTIONS,
@@ -296,7 +354,7 @@ def get_sections() -> list[dict[str, Any]]:
                     "Output directory",
                     "string",
                     default="output",
-                    recommended=True,
+                    importance="advanced",
                     description="Root folder for run outputs.",
                 ),
                 _field(
@@ -337,33 +395,18 @@ def get_sections() -> list[dict[str, Any]]:
                     "select",
                     required=True,
                     allow_custom=True,
-                    description="Built-in names, optional deps (adamw8bit, …), pytorch_optimizer classes, or module.Class path.",
+                    description="Built-in registry names, pytorch_optimizer classes, or module.Class path.",
                 ),
                 _field(
-                    "optimizer.lr",
-                    "Learning rate",
-                    "number",
-                    default=1e-4,
-                    recommended=True,
+                    "optimizer.extra_params",
+                    "Optimizer parameters",
+                    "key_value_list",
+                    importance="advanced",
+                    description=(
+                        "All [optimizer] keys (lr, betas, weight_decay, gradient_release, …). "
+                        "Pre-filled when you change optimizer type; see docs for per-type tables."
+                    ),
                 ),
-                _field("optimizer.weight_decay", "Weight decay", "number"),
-                _field(
-                    "optimizer.betas",
-                    "Adam betas",
-                    "number_list",
-                    default=[0.9, 0.999],
-                    description="Two floats for Adam-style optimizers.",
-                    options=[0.9, 0.99, 0.999, 0.95],
-                ),
-                _field("optimizer.momentum", "Momentum (SGD)", "number"),
-                _field(
-                    "optimizer.gradient_release",
-                    "Gradient release",
-                    "boolean",
-                    description="Requires pipeline_stages = 1.",
-                ),
-                _field("optimizer.beta2_half_life", "Beta2 half-life", "number"),
-                _field("optimizer.kahan_buffer_offload", "Kahan buffer offload", "boolean"),
             ],
         },
         {
@@ -379,13 +422,28 @@ def get_sections() -> list[dict[str, Any]]:
                     allow_custom=True,
                     description="Registry name (cosine, linear, …) or fully-qualified scheduler class.",
                 ),
-                _field("warmup_steps", "Warmup steps", "integer", default=0, min_value=0, recommended=True),
                 _field(
-                    "lr_scheduler_args.lr_min",
-                    "Cosine lr_min",
-                    "number",
-                    default=0.0,
-                    recommended=True,
+                    "warmup_steps",
+                    "Warmup steps",
+                    "integer",
+                    default=0,
+                    min_value=0,
+                    importance="advanced",
+                    description=(
+                        "Trainer-level linear LR warmup before the main scheduler (not a "
+                        "[lr_scheduler_args] constructor kwarg)."
+                    ),
+                ),
+                _field(
+                    "lr_scheduler_args.extra_params",
+                    "Scheduler parameters",
+                    "key_value_list",
+                    importance="advanced",
+                    runtime_tokens=list(SCHEDULER_RUNTIME_TOKENS),
+                    description=(
+                        "Scheduler constructor kwargs (lr_min, total_iters, T_max, …) under "
+                        "[lr_scheduler_args]."
+                    ),
                 ),
             ],
         },
@@ -429,7 +487,6 @@ def get_sections() -> list[dict[str, Any]]:
                     "Gradient clipping",
                     "number",
                     default=1.0,
-                    recommended=True,
                 ),
                 _field(
                     "logging_steps",
@@ -437,7 +494,6 @@ def get_sections() -> list[dict[str, Any]]:
                     "integer",
                     default=1,
                     min_value=1,
-                    recommended=True,
                 ),
                 _field(
                     "steps_per_print",
@@ -458,7 +514,6 @@ def get_sections() -> list[dict[str, Any]]:
                     "integer",
                     default=1,
                     min_value=1,
-                    recommended=True,
                 ),
                 _field("partition_method", "Partition method", "select", options=PARTITION_METHODS),
                 _field("partition_split", "Partition split (manual)", "json"),
@@ -467,7 +522,6 @@ def get_sections() -> list[dict[str, Any]]:
                     "Activation checkpointing",
                     "select",
                     options=[False, True, "unsloth"],
-                    recommended=True,
                 ),
                 _field(
                     "reentrant_activation_checkpointing",
@@ -481,7 +535,6 @@ def get_sections() -> list[dict[str, Any]]:
                     "integer",
                     default=0,
                     min_value=0,
-                    recommended=True,
                     when_capability="block_swap",
                 ),
                 _field("compile", "torch.compile", "boolean", default=False, importance="advanced"),
@@ -523,7 +576,6 @@ def get_sections() -> list[dict[str, Any]]:
                     "integer",
                     default=1,
                     min_value=1,
-                    recommended=True,
                 ),
                 _field("save_every_n_steps", "Save model every N steps", "integer", min_value=1),
                 _field("save_every_n_examples", "Save every N examples", "integer", min_value=1),
@@ -534,7 +586,6 @@ def get_sections() -> list[dict[str, Any]]:
         {
             "id": "eval",
             "title": "Evaluation",
-            "flat_optional": True,
             "fields": [
                 _field(
                     "eval_datasets",
@@ -559,7 +610,6 @@ def get_sections() -> list[dict[str, Any]]:
         {
             "id": "monitoring",
             "title": "Monitoring",
-            "flat_optional": True,
             "fields": [
                 _field("monitoring.enable_wandb", "Enable WandB", "boolean", default=False),
                 _field("monitoring.enable_status_file", "Enable status.json for UI", "boolean", default=False),
@@ -578,6 +628,12 @@ def get_schema() -> dict[str, Any]:
     registries = get_registries()
     sections = get_sections()
     for section in sections:
+        if section["id"] == "model":
+            attach_model_section_visibility(section["fields"])
+        if section["id"] == "optimizer":
+            attach_optimizer_visibility(section["fields"])
+        if section["id"] == "scheduler":
+            attach_scheduler_visibility(section["fields"])
         for field in section["fields"]:
             if field["path"] == "model.type":
                 field["options"] = registries["models"]
@@ -592,7 +648,15 @@ def get_schema() -> dict[str, Any]:
                 ]
                 field["option_values"] = [p["path"] for p in registries.get("dataset_paths", [])]
             _finalize_field_importance(field)
-    schema = enrich_schema({"registries": registries, "sections": sections})
+    from renga_flow_ui.default_config_template import default_new_config_toml
+
+    schema = enrich_schema(
+        {
+            "registries": registries,
+            "sections": sections,
+            "default_new_config_toml": default_new_config_toml(),
+        }
+    )
     return attach_visibility_to_schema(schema)
 
 

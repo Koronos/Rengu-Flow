@@ -35,23 +35,34 @@
         <template #header>
           <div class="sec-header">
             <span class="section-title">{{ sec.title }}</span>
-            <div v-if="attentionCount(sec)" class="sec-badges">
-              <el-tag v-if="unfilledCount(sec).required" type="danger" size="small" effect="plain">
-                {{ unfilledCount(sec).required }} required
-              </el-tag>
-              <el-tag
-                v-if="unfilledCount(sec).recommended"
-                type="warning"
-                size="small"
-                effect="plain"
+            <div v-if="attentionCount(sec)" class="sec-attention">
+              <span
+                v-if="unfilledRequiredCount(sec)"
+                class="sec-attention-item"
+                :title="`${unfilledRequiredCount(sec)} required field(s) empty`"
               >
-                {{ unfilledCount(sec).recommended }} important
-              </el-tag>
+                <span class="rf-label-required" aria-hidden="true">*</span>
+                {{ unfilledRequiredCount(sec) }}
+              </span>
             </div>
           </div>
         </template>
 
         <p v-if="sec.description" class="sec-desc">{{ sec.description }}</p>
+
+        <template v-if="sec.id === 'preview'">
+          <PreviewEntriesField
+            :model-value="previewPromptsValue"
+            :entry-fields="previewEntryFields"
+            :parent-form="formValues"
+            :capabilities="modelCapabilities"
+            @update:model-value="onPreviewPromptsUpdate"
+          />
+          <div class="group-title">Global preview settings</div>
+          <p class="sec-desc preview-global-hint">
+            Defaults for all preview rows (schedule, size, seeds). Override per row in the dialog.
+          </p>
+        </template>
 
         <div v-if="adapterModeField(sec)" class="adapter-mode-row">
           <ConfigFormField
@@ -94,11 +105,11 @@
         </el-alert>
 
         <el-form label-position="top" class="config-form">
-          <template v-if="partition(sec).required.length">
+          <template v-if="sectionFields(sec, 'required').length">
             <div class="group-title">Required</div>
             <el-row :gutter="16">
               <el-col
-                v-for="field in partition(sec).required"
+                v-for="field in sectionFields(sec, 'required')"
                 :key="field.path"
                 :xs="24"
                 :sm="fieldColSpan(field)"
@@ -113,16 +124,19 @@
             </el-row>
           </template>
 
-          <template v-if="partition(sec).recommended.length">
+          <template v-if="sectionFields(sec, 'recommended').length">
             <div class="group-title group-title--important">
-              Important
-              <el-text type="info" size="small" class="group-hint">
-                Has a default in the trainer — review before running
-              </el-text>
+              <template v-if="sec.id === 'preview'">Schedule &amp; toggles</template>
+              <template v-else>
+                Important
+                <el-text type="info" size="small" class="group-hint">
+                  Has a default in the trainer — review before running
+                </el-text>
+              </template>
             </div>
             <el-row :gutter="16">
               <el-col
-                v-for="field in partition(sec).recommended"
+                v-for="field in sectionFields(sec, 'recommended')"
                 :key="field.path"
                 :xs="24"
                 :sm="fieldColSpan(field)"
@@ -137,49 +151,25 @@
             </el-row>
           </template>
 
-          <template v-if="partition(sec).advanced.length">
-            <template v-if="sec.flat_optional">
-              <div class="group-title optional-title">Optional</div>
-              <el-row :gutter="16">
-                <el-col
-                  v-for="field in partition(sec).advanced"
-                  :key="field.path"
-                  :xs="24"
-                  :sm="fieldColSpan(field)"
-                >
-                  <ConfigFormField
-                    :field="field"
-                    :form="formValues"
-                    :capabilities="modelCapabilities"
-                    @update:path="onFieldUpdate"
-                  />
-                </el-col>
-              </el-row>
-            </template>
-            <el-collapse v-else v-model="advancedOpen[sec.id]" class="optional-collapse">
-              <el-collapse-item :name="sec.id">
-                <template #title>
-                  <span class="group-title optional-title">
-                    Advanced / optional ({{ partition(sec).advanced.length }})
-                  </span>
-                </template>
-                <el-row :gutter="16">
-                  <el-col
-                    v-for="field in partition(sec).advanced"
-                    :key="field.path"
-                    :xs="24"
-                    :sm="fieldColSpan(field)"
-                  >
-                    <ConfigFormField
-                      :field="field"
-                      :form="formValues"
-                      :capabilities="modelCapabilities"
-                      @update:path="onFieldUpdate"
-                    />
-                  </el-col>
-                </el-row>
-              </el-collapse-item>
-            </el-collapse>
+          <template v-if="sectionFields(sec, 'advanced').length">
+            <div v-if="sec.id === 'preview'" class="group-title optional-title">
+              Generation defaults
+            </div>
+            <el-row :gutter="16">
+              <el-col
+                v-for="field in sectionFields(sec, 'advanced')"
+                :key="field.path"
+                :xs="24"
+                :sm="fieldColSpan(field)"
+              >
+                <ConfigFormField
+                  :field="field"
+                  :form="formValues"
+                  :capabilities="modelCapabilities"
+                  @update:path="onFieldUpdate"
+                />
+              </el-col>
+            </el-row>
           </template>
         </el-form>
             </el-card>
@@ -191,10 +181,16 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
 import ConfigFormField from "./ConfigFormField.vue";
-import { buildConfigFormTabs, configFieldColSpan } from "../lib/configFormSections";
+import PreviewEntriesField from "./PreviewEntriesField.vue";
+import type { PreviewEntry } from "../lib/previewEntries";
+import {
+  buildConfigFormTabs,
+  configFieldColSpan,
+  type ConfigSchemaSection,
+} from "../lib/configFormSections";
 import {
   fieldIsFilled,
   fieldVisible,
@@ -205,25 +201,16 @@ import {
 import { useConfigEditorStore } from "../stores/configEditor";
 import type { FormValues, SchemaField } from "../types/forms";
 
-interface SchemaSection {
-  id: string;
-  title?: string;
-  description?: string;
-  fields?: SchemaField[];
-  flat_optional?: boolean;
-}
-
 interface ConfigFormTab {
   id: string;
   label: string;
   description?: string;
-  sections: SchemaSection[];
+  sections: ConfigSchemaSection[];
 }
 
 const editor = useConfigEditorStore();
-const { form, schema, parseError, modelCapabilities, formVersion } = storeToRefs(editor);
+const { form, schema, parseError, modelCapabilities } = storeToRefs(editor);
 
-const advancedOpen = reactive<Record<string, string[]>>({});
 const activeTab = ref("setup");
 
 const formValues = computed(() => form.value ?? ({} as FormValues));
@@ -236,7 +223,7 @@ const trainingModesText = computed(() => trainingModesLabel(selectedCapability.v
 
 const visibleTabs = computed(() => {
   if (!schema.value) return [];
-  return buildConfigFormTabs(schema.value.sections as SchemaSection[] | undefined, sectionHasVisibleFields);
+  return buildConfigFormTabs(schema.value.sections as ConfigSchemaSection[] | undefined, sectionHasVisibleFields);
 });
 
 function tabAttention(tab: ConfigFormTab): number {
@@ -247,8 +234,19 @@ function tabAttention(tab: ConfigFormTab): number {
   return n;
 }
 
-function sectionHasVisibleFields(sec: SchemaSection): boolean {
+const sectionPartitions = computed(() => {
+  const map = new Map<string, ReturnType<typeof partition>>();
+  for (const tab of visibleTabs.value) {
+    for (const sec of tab.sections) {
+      map.set(sec.id, partition(sec));
+    }
+  }
+  return map;
+});
+
+function sectionHasVisibleFields(sec: ConfigSchemaSection): boolean {
   if (adapterModeField(sec)) return true;
+  if (sec.id === "preview") return true;
   const p = partition(sec);
   return p.required.length + p.recommended.length + p.advanced.length > 0;
 }
@@ -266,12 +264,28 @@ function fieldImportance(field: SchemaField): "required" | "recommended" | "adva
 const ADAPTER_MODE_PATH = "_has_adapter";
 /** Shown at top of config editor page, not in the Setup tab. */
 const PINNED_TOP_FIELD_PATH = "run_name";
+const PREVIEW_PROMPTS_PATH = "preview.prompts";
 
-function isPinnedAdapterField(sec: SchemaSection, field: SchemaField): boolean {
+const previewEntryFields = computed(() => {
+  const reg = schema.value?.registries as { preview_entry_fields?: SchemaField[] } | undefined;
+  return reg?.preview_entry_fields ?? [];
+});
+
+const previewPromptsValue = computed(() => formValues.value[PREVIEW_PROMPTS_PATH]);
+
+function onPreviewPromptsUpdate(entries: PreviewEntry[]): void {
+  editor.patchFormField(PREVIEW_PROMPTS_PATH, entries.length ? entries : null);
+}
+
+function isPreviewListField(field: SchemaField): boolean {
+  return field.path === PREVIEW_PROMPTS_PATH || field.type === "preview_entries";
+}
+
+function isPinnedAdapterField(sec: ConfigSchemaSection, field: SchemaField): boolean {
   return sec.id === "adapter" && field.path === ADAPTER_MODE_PATH;
 }
 
-function adapterModeField(sec: SchemaSection): SchemaField | null {
+function adapterModeField(sec: ConfigSchemaSection): SchemaField | null {
   if (sec.id !== "adapter") return null;
   const caps = modelCapabilities.value;
   const field = (sec.fields || []).find((f) => f.path === ADAPTER_MODE_PATH);
@@ -279,14 +293,15 @@ function adapterModeField(sec: SchemaSection): SchemaField | null {
   return field;
 }
 
-function partition(sec: SchemaSection) {
+function partition(sec: ConfigSchemaSection) {
   const caps = modelCapabilities.value;
   const values = formValues.value;
   const visible = (sec.fields || []).filter(
     (f) =>
       fieldVisible(f, values, caps) &&
       !isPinnedAdapterField(sec, f) &&
-      f.path !== PINNED_TOP_FIELD_PATH
+      f.path !== PINNED_TOP_FIELD_PATH &&
+      !isPreviewListField(f)
   );
   const required = visible.filter((f) => fieldImportance(f) === "required");
   const recommended = visible.filter((f) => fieldImportance(f) === "recommended");
@@ -294,18 +309,30 @@ function partition(sec: SchemaSection) {
   return { required, recommended, advanced };
 }
 
-function unfilledCount(sec: SchemaSection) {
-  const p = partition(sec);
-  const values = formValues.value;
-  return {
-    required: p.required.filter((f) => !fieldIsFilled(f, values)).length,
-    recommended: p.recommended.filter((f) => !fieldIsFilled(f, values)).length,
-  };
+function sectionFields(
+  sec: ConfigSchemaSection,
+  tier: "required" | "recommended" | "advanced"
+): SchemaField[] {
+  return sectionPartitions.value.get(sec.id)?.[tier] ?? [];
 }
 
-function attentionCount(sec: SchemaSection): number {
-  const u = unfilledCount(sec);
-  return u.required + u.recommended;
+function unfilledRequiredCount(sec: ConfigSchemaSection): number {
+  const p = sectionPartitions.value.get(sec.id);
+  if (!p) return 0;
+  const values = formValues.value;
+  return p.required.filter((f) => !fieldIsFilled(f, values)).length;
+}
+
+function attentionCount(sec: ConfigSchemaSection): number {
+  const requiredEmpty = unfilledRequiredCount(sec);
+  let extra = 0;
+  if (sec.id === "preview") {
+    const prompts = formValues.value[PREVIEW_PROMPTS_PATH];
+    if (!Array.isArray(prompts) || prompts.length === 0) {
+      extra = 1;
+    }
+  }
+  return requiredEmpty + extra;
 }
 
 function fieldColSpan(field: SchemaField): number {
@@ -316,29 +343,10 @@ function onFieldUpdate({ path, value }: { path: string; value: unknown }): void 
   editor.patchFormField(path, value);
 }
 
-function initAdvancedOpen() {
-  if (!schema.value) return;
-  const sections = (schema.value.sections as { id: string; flat_optional?: boolean }[]) || [];
-  for (const sec of sections) {
-    if (partition(sec).advanced.length && !sec.flat_optional) {
-      advancedOpen[sec.id] = [];
-    }
-  }
-}
-
 onMounted(async () => {
   if (!schema.value) {
     await editor.fetchSchema();
   }
-  initAdvancedOpen();
-});
-
-watch(schema, () => {
-  initAdvancedOpen();
-});
-
-watch(formVersion, () => {
-  initAdvancedOpen();
 });
 
 watch(
@@ -407,10 +415,18 @@ watch(
 .section-title {
   font-weight: 600;
 }
-.sec-badges {
+.sec-attention {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+.sec-attention-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
 }
 .sec-desc {
   margin: 0 0 12px;
@@ -452,7 +468,7 @@ watch(
   margin-top: 0;
 }
 .group-title--important {
-  color: var(--el-color-warning);
+  color: var(--el-text-color-primary);
 }
 .group-hint {
   margin-left: 8px;
@@ -462,16 +478,7 @@ watch(
   font-weight: 500;
   color: var(--el-text-color-secondary);
 }
-.optional-collapse {
-  border: none;
-  margin-top: 4px;
-}
-.optional-collapse :deep(.el-collapse-item__header) {
-  border: none;
-  height: 36px;
-  line-height: 36px;
-}
-.optional-collapse :deep(.el-collapse-item__wrap) {
-  border: none;
+.preview-global-hint {
+  margin-top: -4px;
 }
 </style>

@@ -288,7 +288,11 @@ export const api = {
     });
   },
 
-  listDatasets: () => request<DatasetSearchItem[]>("/datasets"),
+  /** Full library list (non-paginated); use {@link searchDatasets} for list UIs. */
+  listDatasets: async () => {
+    const data = await request<{ datasets?: DatasetSearchItem[] }>("/datasets");
+    return data.datasets ?? [];
+  },
 
   searchDatasets: (params: QueryParams) => {
     const q = withDefaultPagination(params, { page: "1", page_size: "20" });

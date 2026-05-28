@@ -89,10 +89,12 @@ def probe_resolution(config: dict[str, Any]) -> dict[str, Any]:
 
 
 def resolution_errors(resolution: dict[str, Any]) -> list[str]:
+    """Validation issues from registry probe (scheduler only).
+
+    Optimizer optional deps are installed automatically when training starts
+    (see ``renga_flow.cli.training_extras``); do not block save/validate here.
+    """
     errors: list[str] = []
-    opt = resolution.get("optimizer")
-    if opt and not opt.get("available"):
-        errors.append(f"Optimizer: {opt.get('error', 'not available')}")
     sched = resolution.get("scheduler")
     if sched and not sched.get("available"):
         errors.append(f"LR scheduler: {sched.get('error', 'not available')}")

@@ -11,6 +11,14 @@
     @update:model-value="$emit('update:modelValue', $event)"
   >
     <div v-loading="loading" class="dataset-gallery-dialog__body">
+      <el-alert
+        v-if="error"
+        type="error"
+        :title="error"
+        show-icon
+        :closable="false"
+        class="gallery-load-error"
+      />
       <DatasetImageGallery :content="content" :directory-index="directoryIndex" expanded />
     </div>
   </el-dialog>
@@ -29,6 +37,7 @@ defineProps({
   /** When set, only images from that [[directory]] index are shown. */
   directoryIndex: { type: Number, default: null },
   loading: { type: Boolean, default: false },
+  error: { type: String, default: "" },
 });
 
 defineEmits(["update:modelValue"]);
@@ -36,8 +45,11 @@ defineEmits(["update:modelValue"]);
 
 <style scoped>
 .dataset-gallery-dialog__body {
+  display: flex;
+  flex-direction: column;
   min-height: 280px;
   max-height: calc(92vh - 7rem);
+  overflow: hidden;
 }
 </style>
 

@@ -177,18 +177,18 @@ def all_model_specific_paths() -> frozenset[str]:
 
 def prune_form_for_model(form: dict[str, Any], capabilities: dict[str, Any] | None = None) -> dict[str, Any]:
     """Drop model.* keys that do not belong to the selected model.type."""
+    from renga_flow_ui.model_form import prune_toml_only_model_keys
+
     model_type = normalize_model_type(form.get("model.type"))
     if not model_type:
         return form
     owned = model_specific_paths()
     allowed = owned.get(model_type, frozenset()) | frozenset({"model.type", "model.dtype"})
     stale = all_model_specific_paths() - allowed
-    if not stale:
-        return form
     out = dict(form)
     for path in stale:
         out.pop(path, None)
-    return out
+    return prune_toml_only_model_keys(out, model_type)
 
 
 def models_with_feature(feature: str) -> list[str]:

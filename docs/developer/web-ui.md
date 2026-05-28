@@ -120,6 +120,14 @@ On `POST /api/v1/jobs`:
 - **`db.create_imported_job`** — finished job row with `run_dir` set; duplicate detection via `find_job_by_run_dir`
 - Optional library copy: training config + `dataset.toml` (or path from config) → `renga-flow-dataset:` ref in stored config
 
+## Default template for **New config**
+
+Canonical file: **`renga_flow_ui/templates/default_new_config.toml`** (loaded by **`default_config_template.default_new_config_toml()`**).
+
+- Exposed on **`GET /api/v1/schema`** as **`default_new_config_toml`** so the Vue editor (`configEditor.ts`) stays in sync with the server.
+- Production-style SDXL LoRA: `dataset`, `[model]` + `checkpoint_path`, `[adapter]`, `[optimizer]`, `lr_scheduler` / `[lr_scheduler_args]`, epochs, micro-batch, `output_dir`. No **`synthetic_num_batches`** or other smoke-only keys.
+- Offline fallback string in **`ui/web/src/stores/configEditor.ts`** (`FALLBACK_DEFAULT_CONFIG_TOML`) must parse to the same table as the `.toml` file — enforced by **`tests/test_default_new_config_template.py`**.
+
 ## Form schema and field help
 
 1. **`get_schema()`** (`config_schema.py`) builds sections/fields from **`model_capability_registry`** and static training keys.
@@ -175,7 +183,7 @@ Dataset form: same pattern in **`dataset_field_help.py`** and **`tests/test_data
 - **New API route**: add handler in `app.py`, mirror in `ui/web/src/api.ts`
 - **Trainer status fields**: extend `write_status_file()` payload and UI reader
 - **New model in UI**: `@register_model("my_type")` adds the type to the model picker. Optional: `register_model_capability(ModelCapability(...))` in `renga_flow/registry/model_capabilities.py` for LoRA/LoKr/full, preview, per-model form fields. `GET /api/v1/schema` exposes `registries.model_capabilities`
-- **Section without Advanced collapse**: set `"flat_optional": true` on the section dict in `get_sections()` (used for Evaluation, Monitoring)
+- **Optional config fields**: set `importance="advanced"` on the field in `config_schema.py`; the form shows them inline with muted labels and a small “(optional)” hint (no collapse)
 
 ## Tests
 

@@ -18,6 +18,7 @@ from renga_flow.config.validation import (
 )
 from renga_flow_ui import library_db
 from renga_flow_ui.config_form import _dtype_to_str
+from renga_flow_ui.optimizer_form import collect_optimizer_betas_validation_errors
 from renga_flow_ui.registry_probe import probe_resolution, resolution_errors
 from renga_flow_ui.settings import ensure_data_dirs, staging_dir
 
@@ -86,6 +87,7 @@ def validate_toml_text(content: str) -> dict[str, Any]:
         return _validation_failure([f"Could not parse TOML: {e}"])
 
     issues = collect_validation_errors(config)
+    issues.extend(collect_optimizer_betas_validation_errors(config))
     if issues:
         return _validation_failure(issues)
 

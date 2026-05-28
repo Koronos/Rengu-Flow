@@ -21,7 +21,6 @@ lr = 1.0e-4
 
 epochs = 1
 micro_batch_size_per_gpu = 1
-synthetic_num_batches = 50
 """
 
 

@@ -33,6 +33,30 @@ def test_probe_scheduler_qualified_bad() -> None:
     assert r["available"] is False
 
 
+def test_resolution_errors_ignores_missing_optimizer_extra() -> None:
+    r = probe_optimizer("adamw8bit")
+    if r["available"]:
+        pytest.skip("bitsandbytes already installed")
+    res = {"optimizer": r}
+    assert resolution_errors(res) == []
+
+
+def test_probe_optimizer_prodigy() -> None:
+    pytest.importorskip("pytorch_optimizer")
+    r = probe_optimizer("prodigy")
+    assert r["available"] is True
+    assert r["source"] == "optional_dependency"
+    assert "Prodigy" in r["resolved_class"]
+
+
+def test_resolution_errors_ignores_missing_prodigy_extra() -> None:
+    r = probe_optimizer("prodigy")
+    if r["available"]:
+        pytest.skip("pytorch-optimizer already installed")
+    res = {"optimizer": r}
+    assert resolution_errors(res) == []
+
+
 def test_probe_resolution_minimal_config() -> None:
     config = {
         "optimizer": {"type": "adamw"},

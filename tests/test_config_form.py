@@ -41,10 +41,51 @@ def test_schema_training_core_importance() -> None:
     training = next(s for s in schema["sections"] if s["id"] == "training")
     epochs = next(f for f in training["fields"] if f["path"] == "epochs")
     micro = next(f for f in training["fields"] if f["path"] == "micro_batch_size_per_gpu")
+    accum = next(f for f in training["fields"] if f["path"] == "gradient_accumulation_steps")
+    logging = next(f for f in training["fields"] if f["path"] == "logging_steps")
     synthetic = next(f for f in training["fields"] if f["path"] == "synthetic_num_batches")
     assert epochs["importance"] == "recommended"
     assert micro["importance"] == "recommended"
+    assert accum["importance"] == "recommended"
+    assert logging["importance"] == "advanced"
     assert synthetic["importance"] == "advanced"
+
+
+def test_schema_training_tab_importance_not_over_tagged() -> None:
+    """Training tab: only a few knobs are Important; optimizer extras stay visible."""
+    schema = get_schema()
+    training_ids = {"optimizer", "scheduler", "training", "checkpoint"}
+    recommended = []
+    for sec in schema["sections"]:
+        if sec["id"] not in training_ids:
+            continue
+        for field in sec["fields"]:
+            if field.get("importance") == "recommended":
+                recommended.append(field["path"])
+    assert set(recommended) == {
+        "lr_scheduler",
+        "epochs",
+        "micro_batch_size_per_gpu",
+        "gradient_accumulation_steps",
+    }
+
+
+def test_schema_scheduler_section_has_extra_params() -> None:
+    schema = get_schema()
+    sched_sec = next(s for s in schema["sections"] if s["id"] == "scheduler")
+    paths = {f["path"] for f in sched_sec["fields"]}
+    assert "lr_scheduler_args.extra_params" in paths
+
+
+def test_schema_optimizer_extra_params_advanced() -> None:
+    schema = get_schema()
+    opt_sec = next(s for s in schema["sections"] if s["id"] == "optimizer")
+    paths = {f["path"] for f in opt_sec["fields"]}
+    by_path = {f["path"]: f for f in opt_sec["fields"]}
+    assert paths == {"optimizer.type", "optimizer.extra_params"}
+    assert by_path["optimizer.type"]["importance"] == "required"
+    assert by_path["optimizer.extra_params"]["importance"] == "advanced"
+    assert "flat_optional" not in opt_sec
 
 
 def test_schema_optimizer_scheduler_allow_custom() -> None:
@@ -109,9 +150,9 @@ def test_schema_sections_nonempty() -> None:
     adapter_type = next(f for f in adapter_sec["fields"] if f["path"] == "adapter.type")
     assert adapter_type.get("options_from_model") is True
     eval_sec = next(s for s in schema["sections"] if s["id"] == "eval")
-    assert eval_sec.get("flat_optional") is True
     mon_sec = next(s for s in schema["sections"] if s["id"] == "monitoring")
-    assert mon_sec.get("flat_optional") is True
+    assert "flat_optional" not in eval_sec
+    assert "flat_optional" not in mon_sec
 
 
 def test_all_config_fields_have_help() -> None:
@@ -139,7 +180,7 @@ type = "adamw"
 betas = [0.9, 0.95]
 """
     form = parse_toml(toml_in)
-    assert form["optimizer.betas"] == [0.9, 0.95]
+    assert form["optimizer.extra_params"]["betas"] == [0.9, 0.95]
     out = form_to_toml(form)
     assert "[0.9, 0.95]" in out or "0.9" in out
 
@@ -163,8 +204,6 @@ type = "adamw"
     filled = form_values_for_ui(form, schema)
     assert filled["model.cache_text_embeddings"] is True
     assert filled["eval_before_first_step"] is True
-    assert filled["optimizer.lr"] == 1e-4
-    assert filled["optimizer.betas"] == [0.9, 0.999]
     assert filled["epochs"] == 1
 
 
@@ -252,6 +291,19 @@ def test_schema_checkpoint_export_retention_fields() -> None:
     assert "keep_exports_from_step" in config_field_help.FIELD_HELP["max_model_exports_to_keep"]["detail"].lower()
 
 
+def test_scheduler_warmup_field_help_documents_trainer_wrap() -> None:
+    from renga_flow_ui import config_field_help
+
+    kv_detail = config_field_help.FIELD_HELP["lr_scheduler_args.extra_params"]["detail"]
+    warmup_detail = config_field_help.FIELD_HELP["warmup_steps"]["detail"]
+    assert "warmup steps" in kv_detail.lower()
+    assert "total_steps" in kv_detail
+    assert "runtime token" in kv_detail.lower()
+    assert "list below" not in kv_detail.lower()
+    assert "trainer" in warmup_detail.lower() or "wrap" in warmup_detail.lower()
+    assert "constructor" in warmup_detail.lower()
+
+
 def test_form_to_toml_with_base_preserves_orphan_keys() -> None:
     """Rendering from a sparse form must not drop keys that exist only in the base TOML."""
     base_toml = """
@@ -280,6 +332,47 @@ type = "adamw"
     assert "lr_scheduler" in out
     assert "checkpoint_path" in out
     assert "lr_min" in out
+
+
+def test_preview_prompts_toml_roundtrip() -> None:
+    toml_in = """
+dataset = "x.toml"
+[model]
+type = "sdxl"
+dtype = "bfloat16"
+checkpoint_path = "/t"
+[optimizer]
+type = "adamw"
+[preview]
+enabled = true
+prompts = ["a cat on a mat"]
+
+[[preview.prompts]]
+name = "portrait"
+prompt = "1woman, soft light"
+seed = 42
+preview_every_n_steps = 500
+"""
+    form = parse_toml(toml_in)
+    assert form["preview.prompts"][0] == "a cat on a mat"
+    assert form["preview.prompts"][1]["name"] == "portrait"
+    out = form_to_toml(form)
+    form2 = parse_toml(out)
+    assert len(form2["preview.prompts"]) == 2
+    first = form2["preview.prompts"][0]
+    assert first == "a cat on a mat" or first.get("prompt") == "a cat on a mat"
+    assert form2["preview.prompts"][1]["seed"] == 42
+
+
+def test_schema_preview_section() -> None:
+    schema = get_schema()
+    preview = next(s for s in schema["sections"] if s["id"] == "preview")
+    assert "flat_optional" not in preview
+    paths = {f["path"] for f in preview["fields"]}
+    assert "preview.prompts" in paths
+    prompts_field = next(f for f in preview["fields"] if f["path"] == "preview.prompts")
+    assert prompts_field["type"] == "preview_entries"
+    assert schema["registries"].get("preview_entry_fields")
 
 
 def test_merge_form_into_config_drops_adapter_when_disabled() -> None:

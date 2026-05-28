@@ -17,7 +17,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from renga_flow_ui import configs_store, datasets_store, db, jobs, metrics_tb, runs_scanner, signals
+from renga_flow_ui import configs_store, datasets_store, db, jobs, live_stream, metrics_tb, runs_scanner, signals
 from renga_flow_ui.dataset_form import form_to_toml as dataset_form_to_toml
 from renga_flow_ui.dataset_form import parse_toml_to_form
 from renga_flow_ui.dataset_image_preview import (
@@ -25,6 +25,7 @@ from renga_flow_ui.dataset_image_preview import (
     resolve_image_token,
 )
 from renga_flow_ui.dataset_scan import scan_folder
+from renga_flow_ui.fs_stat import stat_path
 from renga_flow_ui.dataset_schema import get_dataset_schema
 from renga_flow_ui.config_form import form_to_toml, toml_to_form
 from renga_flow_ui.config_schema import get_schema
@@ -131,6 +132,7 @@ class TomlParseBody(BaseModel):
 
 class TomlRenderBody(BaseModel):
     form: dict[str, Any]
+    base_content: str | None = None
 
 
 class RegistryProbeBody(BaseModel):
@@ -154,6 +156,11 @@ class DatasetComposeBody(BaseModel):
 
 class DatasetScanBody(BaseModel):
     path: str
+
+
+class FsStatBody(BaseModel):
+    path: str
+    expect: str | None = Field(default=None, description="file | dir")
 
 
 class DatasetPreviewImagesBody(BaseModel):
@@ -361,6 +368,12 @@ def create_app() -> FastAPI:
     def dataset_schema() -> dict[str, Any]:
         return get_dataset_schema()
 
+    @app.get(f"{API_PREFIX}/augmentations")
+    def augmentation_catalog() -> dict[str, Any]:
+        from renga_flow.data.augmentation.ui_schema import get_augmentation_catalog
+
+        return get_augmentation_catalog()
+
     @app.get(f"{API_PREFIX}/datasets/folder-suggestions")
     def dataset_folder_suggestions(
         exclude: str | None = Query(None, description="Dataset id to omit when collecting paths"),
@@ -493,6 +506,19 @@ def create_app() -> FastAPI:
         if not val.get("ok"):
             return val
         return {"ok": True, "preview": val["preview"]}
+
+    @app.post(f"{API_PREFIX}/fs/stat")
+    def fs_stat_post(body: FsStatBody) -> dict[str, Any]:
+        expect = body.expect if body.expect in ("file", "dir") else None
+        return stat_path(body.path, expect=expect)
+
+    @app.get(f"{API_PREFIX}/fs/stat")
+    def fs_stat_get(
+        path: str = Query(...),
+        expect: str | None = Query(None, description="file | dir"),
+    ) -> dict[str, Any]:
+        kind = expect if expect in ("file", "dir") else None
+        return stat_path(path, expect=kind)
 
     @app.post(f"{API_PREFIX}/datasets/scan-path")
     def dataset_scan_path(body: DatasetScanBody) -> dict[str, Any]:
@@ -829,6 +855,18 @@ def create_app() -> FastAPI:
         except WebSocketDisconnect:
             pass
 
+    @app.websocket(f"{API_PREFIX}/jobs/{{job_id}}/live/ws")
+    async def job_live_ws(websocket: WebSocket, job_id: str):
+        await websocket.accept()
+
+        async def send_json(payload: dict[str, Any]) -> None:
+            await websocket.send_text(json.dumps(payload, default=str))
+
+        try:
+            await live_stream.run_job_live_ws(send_json, job_id)
+        except WebSocketDisconnect:
+            pass
+
     @app.post(f"{API_PREFIX}/jobs/{{job_id}}/signals")
     def job_signal(job_id: str, body: SignalBody) -> dict[str, str]:
         job = db.get_job(job_id)
@@ -985,7 +1023,7 @@ def create_app() -> FastAPI:
     @app.post(f"{API_PREFIX}/configs/render-toml")
     def render_toml_endpoint(payload: TomlRenderBody) -> dict[str, Any]:
         try:
-            content = form_to_toml(payload.form)
+            content = form_to_toml(payload.form, base_content=payload.base_content)
             return {"ok": True, "content": content}
         except Exception as e:
             return {"ok": False, "error": str(e)}

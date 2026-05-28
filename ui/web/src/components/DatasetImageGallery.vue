@@ -25,11 +25,11 @@
       <el-scrollbar :max-height="scrollbarMaxHeight">
         <div class="thumb-grid">
           <button
-            v-for="img in images"
+            v-for="(img, index) in images"
             :key="`${img.directory_index}-${img.name}`"
             type="button"
             class="thumb-cell"
-            @click="openViewer(previewIndex(img))"
+            @click="openViewer(index)"
           >
             <PreviewImage
               :src="imageUrl(img.token)"
@@ -50,22 +50,13 @@
         Load more
       </el-button>
     </template>
-    <el-image-viewer
-      v-if="viewerOpen"
-      :key="viewerIndex"
-      :url-list="previewList"
-      :initial-index="viewerIndex"
-      teleported
-      :z-index="4000"
-      @close="viewerOpen = false"
-    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import { ElImageViewer } from "element-plus";
 import PreviewImage from "./PreviewImage.vue";
+import { useDatasetImageViewer } from "../composables/useDatasetImageViewer";
 import { api } from "../api";
 import { formatError } from "../lib/formatError";
 import { formatMediaCount } from "../lib/formatMediaCount";
@@ -78,8 +69,9 @@ const props = defineProps({
   expanded: { type: Boolean, default: false },
 });
 
+/** In dialog: leave room for summary + Load more below the scroll area. */
 const scrollbarMaxHeight = computed(() =>
-  props.expanded ? "calc(100vh - 11rem)" : "42vh"
+  props.expanded ? "min(62vh, calc(92vh - 14rem))" : "42vh"
 );
 
 const loading = ref(false);
@@ -103,27 +95,18 @@ const summary = computed(() => {
 
 const canLoadMore = computed(() => images.value.length < total.value);
 
-const viewerOpen = ref(false);
-const viewerIndex = ref(0);
-
 const previewList = computed(() =>
   images.value.map((img) => imageUrl(img.token))
 );
 
+const { openDatasetImageViewer, closeDatasetImageViewer } = useDatasetImageViewer();
+
 function openViewer(index: number) {
-  if (index < 0 || index >= previewList.value.length) return;
-  viewerIndex.value = index;
-  viewerOpen.value = true;
+  openDatasetImageViewer(previewList.value, index);
 }
 
 function imageUrl(token: string): string {
   return api.datasetPreviewImageUrl(token);
-}
-
-function previewIndex(img: DatasetPreviewImage): number {
-  return images.value.findIndex(
-    (i) => i.directory_index === img.directory_index && i.name === img.name
-  );
 }
 
 async function fetchImages({ append = false } = {}) {
@@ -198,7 +181,7 @@ function loadMore() {
 watch(
   () => [props.content, props.directoryIndex],
   () => {
-    viewerOpen.value = false;
+    closeDatasetImageViewer();
     fetchImages();
   },
   { immediate: true }
@@ -208,6 +191,16 @@ watch(
 <style scoped>
 .image-gallery {
   margin-top: 12px;
+}
+.image-gallery--expanded {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.image-gallery--expanded :deep(.el-scrollbar) {
+  flex: 1;
+  min-height: 0;
 }
 .gallery-summary {
   margin: 0 0 8px;
@@ -256,6 +249,10 @@ watch(
 .load-more {
   margin-top: 8px;
   width: 100%;
+  flex-shrink: 0;
+}
+.image-gallery--expanded .gallery-summary {
+  flex-shrink: 0;
 }
 .gallery-loading {
   padding: 4px 0;

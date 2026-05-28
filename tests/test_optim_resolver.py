@@ -7,6 +7,7 @@ import torch
 
 from renga_flow.optim.resolver import (
     apply_warmup,
+    build_scheduler_runtime_values,
     register_scheduler,
     resolve_optimizer_class,
     resolve_scheduler,
@@ -52,6 +53,14 @@ def test_resolve_pytorch_optimizer_prodigy_if_installed():
     assert klass is pytorch_optimizer.Prodigy
 
 
+def test_resolve_prodigy_alias():
+    pytest.importorskip("pytorch_optimizer")
+    import pytorch_optimizer
+
+    klass = resolve_optimizer_class("prodigy")
+    assert klass is pytorch_optimizer.Prodigy
+
+
 def test_substitute_runtime_tokens_replaces_matching():
     kwargs = {"total_iters": "total_steps", "other": "unchanged"}
     runtime = {"total_steps": 100}
@@ -64,6 +73,14 @@ def test_substitute_runtime_tokens_leaves_non_strings():
     kwargs = {"factor": 0.5}
     result = substitute_runtime_tokens(copy.deepcopy(kwargs), {"factor": 1.0})
     assert result["factor"] == 0.5
+
+
+def test_build_scheduler_runtime_values_without_max_steps():
+    values = build_scheduler_runtime_values(
+        {"epochs": 3}, total_steps=300, steps_per_epoch=100
+    )
+    assert values["effective_total_steps"] == 300
+    assert "max_steps" not in values
 
 
 @pytest.mark.parametrize("scheduler_name, expected_type", [

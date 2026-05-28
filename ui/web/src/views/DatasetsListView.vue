@@ -73,15 +73,6 @@
         </template>
       </template>
 
-      <template #footer>
-        <DatasetGalleryDialog
-          v-model="galleryOpen"
-          :title="galleryTitle"
-          :content="galleryContent"
-          :directory-index="galleryDirectoryIndex"
-          :loading="galleryLoading"
-        />
-      </template>
     </LibraryListPage>
   </div>
 </template>
@@ -91,7 +82,6 @@ import { computed, onMounted, watch } from "vue";
 import { useRouter } from "vue-router";
 import { Picture, Plus, Search } from "@element-plus/icons-vue";
 import { api } from "../api";
-import DatasetGalleryDialog from "../components/DatasetGalleryDialog.vue";
 import DatasetPreviewActions from "../components/DatasetPreviewActions.vue";
 import LibraryItemOverflowMenu from "../components/LibraryItemOverflowMenu.vue";
 import LibraryListPage from "../components/LibraryListPage.vue";
@@ -133,14 +123,7 @@ function onToggleSortOrder() {
 }
 
 watch([sortField, sortOrder], () => load());
-const {
-  galleryOpen,
-  galleryTitle,
-  galleryContent,
-  galleryDirectoryIndex,
-  galleryLoading,
-  showFromLibrary,
-} = useDatasetGallery();
+const { showFromLibrary } = useDatasetGallery();
 
 const basePreviewItems = computed((): DatasetPreviewItem[] =>
   rawItems.value.map((row) => ({

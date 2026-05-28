@@ -115,7 +115,7 @@
 
     <div v-if="showStrategies && (local.enabled || hideEnable)" class="strategies-block">
       <div class="strategies-head">
-        <span class="strategies-title">Strategy overrides</span>
+        <span class="strategies-title">Strategies</span>
         <FieldHelpIcon :field="fieldFor('strategies')" />
         <el-select
           ref="addStrategySelectRef"
@@ -135,15 +135,18 @@
         </el-select>
       </div>
       <p class="strategies-hint">
-        Override preset defaults per strategy. Preset
-        <strong>{{ selectedPreset?.label || local.preset }}</strong>
-        includes:
-        {{ presetStrategyNames.length ? presetStrategyNames.join(", ") : "none" }}.
+        Preset <strong>{{ selectedPreset?.label || local.preset }}</strong>
+        <template v-if="presetStrategyNames.length">
+          — {{ presetStrategyNames.length }} default
+          {{ presetStrategyNames.length === 1 ? "strategy" : "strategies" }}.
+        </template>
+        <template v-else> — pick strategies below or add from the catalog.</template>
+        Edit parameters here; changes are saved under <code>strategies</code> in TOML.
       </p>
 
       <el-empty
-        v-if="!strategyOverrideNames.length"
-        description="No strategy overrides — preset defaults only"
+        v-if="!editableStrategyNames.length"
+        description="No strategies — add from the catalog or choose a preset"
         :image-size="48"
       >
         <el-button
@@ -152,19 +155,27 @@
           :disabled="!addableStrategies.length"
           @click="openAddStrategyPicker"
         >
-          Add strategy override
+          Add strategy
         </el-button>
       </el-empty>
 
       <el-collapse v-else v-model="openStrategies" class="strategy-collapse">
         <el-collapse-item
-          v-for="name in strategyOverrideNames"
+          v-for="name in editableStrategyNames"
           :key="name"
           :name="name"
         >
           <template #title>
             <span class="strategy-collapse-title">
               <span>{{ strategyLabel(name) }}</span>
+              <el-tag
+                v-if="effectiveParams(name).enabled === false"
+                size="small"
+                type="info"
+                class="strategy-disabled-tag"
+              >
+                off
+              </el-tag>
               <FieldHelpIcon
                 v-if="strategyHelpField(name)"
                 :field="strategyHelpField(name)!"
@@ -172,6 +183,7 @@
               />
             </span>
             <el-button
+              v-if="canRemoveStrategy(name)"
               type="danger"
               link
               size="small"
@@ -183,7 +195,7 @@
           </template>
           <StrategyOverrideEditor
             :strategy="strategyMeta(name)"
-            :params="local.strategies?.[name] || {}"
+            :params="effectiveParams(name)"
             @update="(params) => updateStrategy(name, params)"
           />
         </el-collapse-item>
@@ -198,13 +210,19 @@ import { Plus } from "@element-plus/icons-vue";
 import type { ElSelect } from "element-plus";
 import FieldHelpIcon from "./FieldHelpIcon.vue";
 import {
+  applyPresetChange,
   availablePresets,
+  catalogDefaultsForStrategy,
+  effectiveStrategyMap,
+  effectiveStrategyNames,
   emptyAugmentationConfig,
   implementedStrategies,
   lookupSchemaField,
   mergeAugmentationPatch,
+  presetStrategyDefaults,
   schemaFieldsByPath,
   setStrategyOverride,
+  strategyParamsDiff,
   type AugmentationCatalog,
   type AugmentationConfig,
   type AugStrategyCatalogEntry,
@@ -275,15 +293,27 @@ const selectedPreset = computed(() =>
 
 const presetStrategyNames = computed(() => selectedPreset.value?.strategies ?? []);
 
-const strategyOverrideNames = computed(() =>
-  Object.keys(local.value.strategies ?? {}).sort()
+const resolvedStrategies = computed(() =>
+  effectiveStrategyMap(local.value, props.catalog)
+);
+
+const editableStrategyNames = computed(() =>
+  effectiveStrategyNames(local.value, props.catalog)
 );
 
 const addableStrategies = computed(() =>
-  implementedStrategies(props.catalog).filter(
-    (s) => !local.value.strategies?.[s.name]
-  )
+  implementedStrategies(props.catalog).filter((s) => !(s.name in resolvedStrategies.value))
 );
+
+function effectiveParams(name: string): Record<string, unknown> {
+  return resolvedStrategies.value[name] ?? { enabled: true };
+}
+
+function canRemoveStrategy(name: string): boolean {
+  const preset = local.value.preset || "none";
+  if (preset === "none" || preset === "custom") return true;
+  return !(name in presetStrategyDefaults(props.catalog, preset));
+}
 
 function numOrNull(value: unknown): number | null {
   if (value == null || value === "") return null;
@@ -293,7 +323,11 @@ function numOrNull(value: unknown): number | null {
 
 function patch(partial: Partial<AugmentationConfig>) {
   if (props.disabled) return;
-  const next = mergeAugmentationPatch(local.value, partial);
+  let next = mergeAugmentationPatch(local.value, partial);
+  if (partial.preset != null && partial.preset !== local.value.preset) {
+    next = applyPresetChange(next, partial.preset);
+    openStrategies.value = effectiveStrategyNames(next, props.catalog);
+  }
   local.value = next;
   emit("update", next);
 }
@@ -325,12 +359,11 @@ function openAddStrategyPicker(): void {
 
 function onAddStrategy(name: string | null | undefined) {
   if (!name) return;
-  const meta = strategyMeta(name);
-  const defaults: Record<string, unknown> = { enabled: true };
-  for (const field of meta?.parameters ?? []) {
-    if (field.default !== undefined) defaults[field.path] = field.default;
-  }
-  const next = setStrategyOverride(local.value, name, defaults);
+  const defaults = catalogDefaultsForStrategy(props.catalog, name);
+  const preset = local.value.preset || "none";
+  const presetDefaults = presetStrategyDefaults(props.catalog, preset);
+  const stored = strategyParamsDiff(presetDefaults[name], defaults) ?? defaults;
+  const next = setStrategyOverride(local.value, name, stored);
   local.value = next;
   openStrategies.value = [...openStrategies.value, name];
   addStrategyName.value = "";
@@ -338,12 +371,23 @@ function onAddStrategy(name: string | null | undefined) {
 }
 
 function updateStrategy(name: string, params: Record<string, unknown>) {
-  const next = setStrategyOverride(local.value, name, params);
+  const preset = local.value.preset || "none";
+  const presetDefaults = presetStrategyDefaults(props.catalog, preset);
+  const stored = strategyParamsDiff(presetDefaults[name], params);
+  const next = setStrategyOverride(local.value, name, stored);
   local.value = next;
   emit("update", next);
 }
 
 function removeStrategy(name: string) {
+  const preset = local.value.preset || "none";
+  const presetDefaults = presetStrategyDefaults(props.catalog, preset);
+  if (name in presetDefaults) {
+    const next = setStrategyOverride(local.value, name, { enabled: false });
+    local.value = next;
+    emit("update", next);
+    return;
+  }
   const next = setStrategyOverride(local.value, name, null);
   local.value = next;
   openStrategies.value = openStrategies.value.filter((n) => n !== name);
@@ -391,6 +435,14 @@ function removeStrategy(name: string) {
   margin: 0 0 10px;
   font-size: 12px;
   color: var(--el-text-color-secondary);
+  line-height: 1.45;
+}
+.strategies-hint code {
+  font-family: ui-monospace, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+}
+.strategy-disabled-tag {
+  margin-left: 4px;
 }
 .strategy-collapse :deep(.el-collapse-item__header) {
   font-size: 13px;

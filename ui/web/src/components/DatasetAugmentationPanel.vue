@@ -21,6 +21,7 @@
         :catalog="catalog"
         :schema-fields="augmentationSchemaFields"
         show-advanced
+        show-strategies
         @update="onGlobalUpdate"
       />
     </el-card>
@@ -51,7 +52,7 @@
               <span class="folder-title">{{ folderTitle(entry, index) }}</span>
               <span class="folder-path">{{ entry.path || "path not set" }}</span>
             </div>
-            <div v-if="isFolderCustomized(entry)" class="folder-actions">
+            <div v-if="hasDirectoryAugmentationOverride(entry)" class="folder-actions">
               <el-button type="primary" link @click="clearFolderCustomization(index)">
                 Use dataset defaults
               </el-button>
@@ -63,7 +64,7 @@
             </div>
           </div>
 
-          <div v-if="!isFolderCustomized(entry)" class="inherit-line">
+          <div v-if="!hasDirectoryAugmentationOverride(entry)" class="inherit-line">
             <el-text type="info" size="small">
               Inherits: {{ summarizeAugmentation(globalConfig, catalog) }}
             </el-text>
@@ -97,6 +98,7 @@ import { storeToRefs } from "pinia";
 import { api } from "../api";
 import { basenameFromPath } from "../lib/datasetDirectoryForm";
 import {
+  compactStrategiesForStorage,
   directoryAugmentationNeedsFullEditor,
   emptyAugmentationConfig,
   hasDirectoryAugmentationOverride,
@@ -164,10 +166,6 @@ function folderConfig(entry: DirectoryFormRow): AugmentationConfig {
   };
 }
 
-function isFolderCustomized(entry: DirectoryFormRow): boolean {
-  return hasDirectoryAugmentationOverride(entry);
-}
-
 function folderNeedsFullEditor(entry: DirectoryFormRow): boolean {
   return directoryAugmentationNeedsFullEditor(parseDirectoryAugmentation(entry), globalConfig.value);
 }
@@ -184,17 +182,18 @@ function folderTitle(entry: DirectoryFormRow, index: number): string {
 
 function onGlobalUpdate(config: AugmentationConfig) {
   if (!form.value) return;
-  if (!shouldWriteGlobalAugmentation(config)) {
+  const stored = compactStrategiesForStorage(config, catalog.value);
+  if (!shouldWriteGlobalAugmentation(stored)) {
     const next = { ...form.value };
     delete next._dataset_augmentation;
     editor.setForm(next);
-    if (!config.enabled) {
+    if (!stored.enabled) {
       clearAllFolderCustomizations();
     }
     return;
   }
-  editor.patchFormField("_dataset_augmentation", serializeGlobalAugmentation(config)!);
-  if (!config.enabled) {
+  editor.patchFormField("_dataset_augmentation", serializeGlobalAugmentation(stored)!);
+  if (!stored.enabled) {
     clearAllFolderCustomizations();
   }
 }
@@ -230,7 +229,8 @@ function clearFolderCustomization(index: number) {
 function onFolderUpdate(index: number, config: AugmentationConfig) {
   const next = [...directories.value];
   const row = { ...next[index] };
-  const serialized = serializeDirectoryAugmentation(config, { global: globalConfig.value });
+  const stored = compactStrategiesForStorage(config, catalog.value);
+  const serialized = serializeDirectoryAugmentation(stored, { global: globalConfig.value });
   if (!serialized) {
     delete row.augmentation;
   } else {

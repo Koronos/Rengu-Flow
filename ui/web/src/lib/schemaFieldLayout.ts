@@ -5,6 +5,7 @@ export function schemaFieldColSpan(field: SchemaField): number {
   const path = field.path || "";
   if (
     field.type === "json" ||
+    field.type === "key_value_list" ||
     field.type === "integer_list" ||
     field.type === "number_list"
   ) {
@@ -30,6 +31,6 @@ export function schemaFieldColSpan(field: SchemaField): number {
 
 /** Dataset optional-section fields use a simpler layout than the main grid. */
 export function schemaOptionalFieldColSpan(field: SchemaField): number {
-  if (field.type === "json") return 24;
+  if (field.type === "json" || field.type === "key_value_list") return 24;
   return 12;
 }

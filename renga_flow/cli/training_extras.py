@@ -30,6 +30,7 @@ _OPTIMIZER_EXTRA_TYPES = frozenset(
         "offload",
         "adamw_optimi",
         "stableadamw",
+        "prodigy",
     }
 )
 

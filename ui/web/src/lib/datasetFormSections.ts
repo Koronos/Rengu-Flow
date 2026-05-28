@@ -20,8 +20,4 @@ export function sectionOptionalFields(section: DatasetFormSection): SchemaField[
   );
 }
 
-export function optionalFieldActive(field: SchemaField, form: FormValues | null): boolean {
-  return isOverrideEnabled(field, form);
-}
-
 export { isOverrideEnabled, setOverrideEnabled, isFormValueFilled };

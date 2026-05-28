@@ -96,6 +96,8 @@
       </nav>
     </el-drawer>
   </el-container>
+  <DatasetGalleryHost />
+  <DatasetImageViewerHost />
   </el-config-provider>
 </template>
 
@@ -105,6 +107,8 @@ import { useRoute } from "vue-router";
 import { Document, Files, Menu, Setting, Tools, VideoPlay } from "@element-plus/icons-vue";
 import { api } from "./api";
 import { useBreakpoint } from "./composables/useBreakpoint";
+import DatasetGalleryHost from "./components/DatasetGalleryHost.vue";
+import DatasetImageViewerHost from "./components/DatasetImageViewerHost.vue";
 import HostStatsBar from "./components/HostStatsBar.vue";
 
 const route = useRoute();

@@ -12,7 +12,7 @@ This document describes where optimizer and scheduler resolution lives, how reso
   - `scheduler_registry`: dict mapping name (lowercase) → **factory** `(optimizer, config, total_steps, steps_per_epoch) -> LRScheduler | None`
   - `register_scheduler(name)` decorator
   - `resolve_scheduler(...)` — registry lookup first, then fully-qualified path
-  - `substitute_runtime_tokens(kwargs, runtime_values)` for `total_steps` / `steps_per_epoch` / `epochs` in config
+  - `build_scheduler_runtime_values(config, total_steps=…, steps_per_epoch=…)` and `substitute_runtime_tokens(kwargs, runtime_values)` for placeholders in `[lr_scheduler_args]` (`total_steps`, `effective_total_steps`, `steps_per_epoch`, `epochs`, `max_steps`, `gradient_accumulation_steps`)
   - `apply_warmup(optimizer, scheduler, warmup_steps)` — wraps scheduler with LinearLR warmup
 
 The training entry point (`renga_flow/main.py`) uses `resolve_optimizer_class(config["optimizer"]["type"])` and `resolve_scheduler(lr_scheduler, optimizer, config, ...)` from `renga_flow.optim`; it does not call the registry modules directly.
@@ -92,8 +92,8 @@ Then in TOML: `lr_scheduler = "my_cosine"`. Runtime tokens (`total_steps`, etc.)
 ## Built-ins
 
 - **Optimizers** (in `registry/optimizers.py`): `adamw`, `sgd`, `adam` — `torch.optim`; `genericoptim`, `automagic`, `adamw8bitkahan` — lazy-loaded from `renga_flow/vendor/diffusion_pipe_optimizers/` (see NOTICE there).
-- **Optional aliases** (lazy import, `[optim]` extra): `adamw8bit`, `adamw_optimi`, `stableadamw`, `offload` — see `OPTIMIZER_ALIASES` in `registry/optimizers.py`.
-- **Fallback:** names without `.` are also looked up on the `pytorch_optimizer` package (e.g. `Prodigy`).
+- **Optional aliases** (lazy import, `[optim]` extra): `adamw8bit`, `adamw_optimi`, `stableadamw`, `offload`, `prodigy` — see `OPTIMIZER_ALIASES` in `registry/optimizers.py`.
+- **Fallback:** names without `.` are also looked up on the `pytorch_optimizer` package by class name when not registered as an alias.
 - **Schedulers** (in `optim/resolver.py`): `constant`, `linear`, `cosine`, `none`.
 
 ## Third-party optimizers (vendored)
@@ -108,3 +108,19 @@ Do not import that package at module load for all optimizers — `get_optimizer_
 - **`renga_flow/utils/training_metrics.py`**: `log_training_step`, `get_prodigy_d`, `get_automagic_lrs` — used from `main.py`.
 
 Adding more built-in names can be done via `register_optimizer` or by extending `VENDOR_OPTIMIZER_ALIASES` / `OPTIMIZER_ALIASES` in `registry/optimizers.py`.
+
+## Config form (optimizer / scheduler KV)
+
+The training config UI uses a single key-value list per section (parity between optimizer and scheduler):
+
+- **Optimizer**: `optimizer.type` + `optimizer.extra_params` in the flat form; `renga_flow_ui/optimizer_form.py` splits/merges KV ↔ flat `[optimizer]` keys via `split_optimizer_extras` / `merge_optimizer_extras` (same pattern as `scheduler_form.py`).
+- **Scheduler**: `lr_scheduler` + `lr_scheduler_args.extra_params`.
+
+Default KV rows when the user changes type are defined in `renga_flow_ui/optim_kv_defaults.py` (`OPTIMIZER_REGISTRY_KV_DEFAULTS`, `SCHEDULER_BUILTIN_KV_DEFAULTS`, `SCHEDULER_FQN_KV_DEFAULTS`). Keep the TypeScript mirror `ui/web/src/lib/optimKvDefaults.ts` in sync.
+
+When adding a registry optimizer with non-trivial constructor args:
+
+1. Register the class in `registry/optimizers.py`.
+2. Add a row to `OPTIMIZER_REGISTRY_KV_DEFAULTS` (include `lr` / `betas` when applicable).
+3. Document parameters in `docs/user/optimizer-and-scheduler.md` (per-type table + link to upstream docs).
+4. Extend `tests/test_optim_kv_defaults.py` and optimizer/scheduler form tests if behavior changes.

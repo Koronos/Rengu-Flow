@@ -11,8 +11,13 @@
       <div class="editor-header-actions">
         <slot name="actions" />
       </div>
-      <div v-if="$slots.trailing" class="editor-header-trailing">
-        <slot name="trailing" />
+      <div v-if="$slots.trailing || $slots.sync" class="editor-header-trailing">
+        <div class="editor-header-sync-slot" aria-live="polite">
+          <slot name="sync" />
+        </div>
+        <div class="editor-header-trailing-content">
+          <slot name="trailing" />
+        </div>
       </div>
     </div>
   </div>
@@ -51,6 +56,12 @@ defineProps({
   min-width: 0;
 }
 .editor-header-trailing {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.editor-header-trailing-content {
   flex-shrink: 0;
 }
 </style>

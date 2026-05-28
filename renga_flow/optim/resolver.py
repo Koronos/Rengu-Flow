@@ -33,10 +33,43 @@ def register_scheduler(name: str) -> Callable[[SchedulerFactory], SchedulerFacto
 
 def substitute_runtime_tokens(kwargs: dict[str, Any], runtime_values: dict[str, Any]) -> dict[str, Any]:
     """Replace string tokens in config values with runtime values (e.g. 'total_steps' -> int)."""
-    for key, value in kwargs.items():
+    for key, value in list(kwargs.items()):
         if isinstance(value, str) and value in runtime_values:
             kwargs[key] = runtime_values[value]
     return kwargs
+
+
+def build_scheduler_runtime_values(
+    config: dict[str, Any],
+    *,
+    total_steps: int,
+    steps_per_epoch: int,
+) -> dict[str, Any]:
+    """Runtime placeholders for ``[lr_scheduler_args]`` (custom class paths)."""
+    epochs = config.get("epochs", 1)
+    effective = total_steps
+    values: dict[str, Any] = {
+        "total_steps": total_steps,
+        "steps_per_epoch": steps_per_epoch,
+        "epochs": epochs,
+        "effective_total_steps": effective,
+    }
+    max_steps = config.get("max_steps")
+    if max_steps is not None:
+        try:
+            ms = int(max_steps)
+            if ms > 0:
+                values["max_steps"] = ms
+                values["effective_total_steps"] = min(total_steps, ms)
+        except (TypeError, ValueError):
+            pass
+    gas = config.get("gradient_accumulation_steps")
+    if gas is not None:
+        try:
+            values["gradient_accumulation_steps"] = int(gas)
+        except (TypeError, ValueError):
+            pass
+    return values
 
 
 def resolve_optimizer_class(optim_type: str) -> type[torch.optim.Optimizer]:
@@ -80,19 +113,18 @@ def resolve_scheduler(
 ) -> torch.optim.lr_scheduler.LRScheduler | None:
     """Create LR scheduler from type (registry name or qualified path)."""
     scheduler_type_lower = scheduler_type.lower()
-    runtime_values = {
-        "total_steps": total_steps,
-        "steps_per_epoch": steps_per_epoch,
-        "epochs": config["epochs"],
-    }
+    runtime_values = build_scheduler_runtime_values(
+        config, total_steps=total_steps, steps_per_epoch=steps_per_epoch
+    )
     if scheduler_type_lower in scheduler_registry:
         return scheduler_registry[scheduler_type_lower](optimizer, config, total_steps, steps_per_epoch)
     if "." in scheduler_type:
         module_path, class_name = scheduler_type.rsplit(".", 1)
         module = importlib.import_module(module_path)
         scheduler_class = getattr(module, class_name)
-        scheduler_kwargs = dict(config.get("lr_scheduler_args", {}))
-        substitute_runtime_tokens(scheduler_kwargs, runtime_values)
+        scheduler_kwargs = substitute_runtime_tokens(
+            dict(config.get("lr_scheduler_args", {})), runtime_values
+        )
         return scheduler_class(optimizer, **scheduler_kwargs)
     raise ValueError(
         f"Unknown scheduler type '{scheduler_type}'. "

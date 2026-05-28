@@ -189,6 +189,10 @@ Each name maps to one logical transform. Parameters are examples; exact keys and
 | **`scale_translate`**, **`crop_jitter`**, **`random_erasing`** | ranges documented per strategy |
 | **`chromatic_aberration`**, **`vignette`**, **`local_tone_mapping`**, … | see developer catalogue |
 
+## Web UI (dataset editor)
+
+On the **Augmentation** tab, choosing a **preset** expands its default strategies in the form so you can see each transform, toggle **Enabled**, and edit parameters (same controls as per-folder customization). Overrides are stored under `strategies` in TOML; values that match the preset default are omitted on save. Changing the preset clears previous per-strategy overrides. Use **Add strategy** to attach extra transforms from the catalog (`preset = "none"` / `"custom"` starts from an empty list).
+
 ## Presets vs `strategies` (merge rules)
 
 1. Start from the **preset** definition (which strategies are on by default and their default strengths).

@@ -14,6 +14,11 @@ describe("list parsers", () => {
     expect(parseNumberList("0.5, 0.5, 1")).toEqual([0.5, 1]);
   });
 
+  it("parseNumberList respects maxLength in input order", () => {
+    expect(parseNumberList([0.9, 0.999, 0.95], 2)).toEqual([0.9, 0.999]);
+    expect(parseNumberList("0.9, 0.95, 0.99", 2)).toEqual([0.9, 0.95]);
+  });
+
   it("parseStringList splits lines", () => {
     expect(parseStringList("a\nb\n")).toEqual(["a", "b"]);
   });

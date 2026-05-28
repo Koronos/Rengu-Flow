@@ -18,6 +18,7 @@ OPTIMIZER_ALIASES: dict[str, tuple[str, str]] = {
     "adamw_optimi": ("optimi", "AdamW"),
     "stableadamw": ("optimi", "StableAdamW"),
     "offload": ("torchao.prototype.low_bit_optim", "CPUOffloadOptimizer"),
+    "prodigy": ("pytorch_optimizer", "Prodigy"),
 }
 
 

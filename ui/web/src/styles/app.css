@@ -332,6 +332,14 @@ html.dark {
   gap: 8px;
 }
 
+.editor-header-sync-slot {
+  flex: 0 0 auto;
+  min-width: 5.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+}
+
 .field-full {
   width: 100%;
   max-width: 100%;
@@ -356,6 +364,11 @@ html.dark {
 
 .w-full {
   width: 100%;
+}
+
+/* Hover tooltips must not block clicks when left visible (EP enterable / unmount). */
+.el-popper.rf-tooltip-popper {
+  pointer-events: none;
 }
 
 .import-overlay {
@@ -404,6 +417,76 @@ html.dark {
   width: 100%;
   font-family: ui-monospace, monospace;
   font-size: 13px;
+}
+
+/* Config / dataset form field importance (ConfigFormField) */
+.rf-label-required {
+  color: var(--el-color-danger);
+  margin-inline-start: 2px;
+  line-height: 1;
+  font-weight: 500;
+}
+
+.rf-label-optional-hint {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--el-text-color-placeholder);
+}
+
+.el-form-item.field-optional .el-form-item__label {
+  color: var(--el-text-color-secondary);
+  font-weight: 400;
+}
+
+/* ConfigFormField — discreet TOML path under label or control */
+.path-tag {
+  display: block;
+  max-width: 100%;
+  margin-top: 2px;
+  font-family: var(--rf-font-mono);
+  font-size: 11px;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.path-tag--foot {
+  margin-top: 4px;
+}
+
+/* Top-stacked fields in narrow directory override blocks */
+.directory-override-field .directory-override-control-form.el-form--label-top .el-form-item {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.directory-override-field .directory-override-control-form.el-form--label-top .el-form-item__label {
+  width: 100% !important;
+  max-width: 100%;
+  padding-bottom: 4px;
+  line-height: 1.4;
+}
+
+.directory-override-field .directory-override-control-form.el-form--label-top .el-form-item__content {
+  flex: 1 1 auto;
+  min-width: var(--rf-field-narrow);
+  max-width: 100%;
+  margin-left: 0 !important;
+  align-items: flex-start;
+}
+
+.directory-override-field .directory-override-control-form .field-narrow {
+  width: 100%;
+  min-width: var(--rf-field-narrow);
+  max-width: 100%;
+}
+
+.directory-override-field .directory-override-control-form .el-input,
+.directory-override-field .directory-override-control-form .el-input-number {
+  min-width: var(--rf-field-narrow);
+  max-width: 100%;
 }
 
 @media (max-width: 767px) {

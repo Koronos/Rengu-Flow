@@ -1,31 +1,34 @@
 <template>
   <el-dialog
     v-model="visible"
+    class="dataset-folder-dialog"
     :title="isEdit ? 'Edit [[directory]]' : 'Add [[directory]]'"
     width="min(600px, 96vw)"
     destroy-on-close
     @closed="onClosed"
   >
-    <el-form label-position="top" class="folder-dialog-form">
-      <el-card shadow="never" class="section-card">
-        <template #header>
-          <span class="section-title">This directory only</span>
-        </template>
-        <p class="section-desc">
-          Identity of this <code>[[directory]]</code> row: folder path, epoch repeats, and caption
-          prefix. These are not inherited from the dataset defaults tab.
-        </p>
-        <ConfigFormField
-          v-for="field in primaryFields"
-          :key="field.path"
-          :field="field"
-          :form="draft"
-          dataset-form
-          @update:path="onField"
-        />
-      </el-card>
+    <div class="folder-dialog-layout">
+      <el-form label-position="top" class="folder-dialog-primary">
+        <el-card shadow="never" class="section-card">
+          <template #header>
+            <span class="section-title">This directory only</span>
+          </template>
+          <p class="section-desc">
+            Identity of this <code>[[directory]]</code> row: folder path, epoch repeats, and caption
+            prefix. These are not inherited from the dataset defaults tab.
+          </p>
+          <ConfigFormField
+            v-for="field in primaryFields"
+            :key="field.path"
+            :field="field"
+            :form="draft"
+            dataset-form
+            @update:path="onField"
+          />
+        </el-card>
+      </el-form>
 
-      <el-card shadow="never" class="section-card">
+      <el-card shadow="never" class="section-card folder-dialog-overrides">
         <template #header>
           <span class="section-title">Overrides global defaults</span>
         </template>
@@ -94,7 +97,7 @@
           </div>
         </template>
       </el-card>
-    </el-form>
+    </div>
 
     <template #footer>
       <el-button @click="visible = false">Cancel</el-button>
@@ -205,13 +208,17 @@ function onClosed() {
 </script>
 
 <style scoped>
-.folder-dialog-form {
+.folder-dialog-layout {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  max-height: min(70vh, 640px);
-  overflow-y: auto;
-  padding-right: 4px;
+}
+.folder-dialog-primary {
+  flex-shrink: 0;
+}
+.folder-dialog-overrides {
+  flex-shrink: 0;
+  border: 1px solid var(--el-border-color-lighter);
 }
 .section-card {
   border: 1px solid var(--el-border-color-lighter);
@@ -246,5 +253,13 @@ function onClosed() {
 }
 .override-block {
   margin-bottom: 10px;
+}
+</style>
+
+<style>
+.dataset-folder-dialog .el-dialog__body {
+  max-height: min(75vh, 720px);
+  overflow-y: auto;
+  padding-top: 8px;
 }
 </style>

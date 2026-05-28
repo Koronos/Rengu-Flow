@@ -4,9 +4,11 @@
       <div class="page-head editor-head">
         <el-button :icon="ArrowLeft" @click="goList">All configs</el-button>
         <EditorActionBar variant="editor" class="editor-head-bar">
+          <template #sync>
+            <el-text v-if="syncing" type="info" size="small" class="sync-hint">Syncing…</el-text>
+          </template>
           <template #trailing>
             <EditorModeToggle v-model="editorTab" />
-            <el-text v-if="syncing" type="info" size="small" class="sync-hint">Syncing…</el-text>
           </template>
           <template #actions>
             <el-button

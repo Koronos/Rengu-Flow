@@ -2,6 +2,8 @@
 
 import { clonePlain } from "./clonePlain";
 import { pruneFormForModel } from "./formUtils";
+import { pruneOptimizerForm } from "./optimizerForm";
+import { pruneSchedulerForm } from "./schedulerForm";
 import type { FormValues, ModelCapabilities } from "../types/forms";
 
 export function sanitizeConfigForm(
@@ -22,5 +24,5 @@ export function sanitizeConfigForm(
       delete form[key];
     }
   }
-  return pruneFormForModel(form, capabilities);
+  return pruneSchedulerForm(pruneOptimizerForm(pruneFormForModel(form, capabilities)));
 }

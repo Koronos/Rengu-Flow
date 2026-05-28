@@ -534,6 +534,7 @@ export interface AugmentationCatalogResponse {
     available: boolean;
     deferred?: boolean;
     strategies: string[];
+    strategy_defaults?: Record<string, Record<string, unknown>>;
   }[];
   strategies?: {
     name: string;

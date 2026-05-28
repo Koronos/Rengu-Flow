@@ -19,6 +19,24 @@ def test_validate_empty_content_lists_issues() -> None:
     assert not any(e.strip("'\"") == "model" and len(e) < 12 for e in r["errors"])
 
 
+def test_validate_rejects_optimizer_betas_wrong_length() -> None:
+    r = validate_toml_text(
+        """
+dataset = "d.toml"
+[model]
+type = "sdxl"
+dtype = "bfloat16"
+checkpoint_path = "/t"
+[optimizer]
+type = "adamw"
+lr = 1e-4
+betas = [0.9, 0.95, 0.99]
+"""
+    )
+    assert r["ok"] is False
+    assert any("exactly two" in e for e in r["errors"])
+
+
 def test_validate_missing_model_section() -> None:
     r = validate_toml_text('dataset = "d.toml"\n[optimizer]\ntype = "adamw"\n')
     assert r["ok"] is False

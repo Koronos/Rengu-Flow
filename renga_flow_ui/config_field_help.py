@@ -4,6 +4,20 @@ from __future__ import annotations
 
 from typing import Any
 
+from renga_flow_ui.optim_kv_defaults import (
+    SCHEDULER_RUNTIME_TOKEN_HINTS,
+    SCHEDULER_RUNTIME_TOKENS,
+)
+
+
+def scheduler_runtime_tokens_help_detail(*, intro: str) -> str:
+    """Compact runtime-token glossary for FieldHelpIcon (popover / doc drawer)."""
+    lines = [intro, "", "Runtime tokens (string values → integers at train time):"]
+    for token in SCHEDULER_RUNTIME_TOKENS:
+        lines.append(f"• {token} — {SCHEDULER_RUNTIME_TOKEN_HINTS[token]}")
+    return "\n".join(lines)
+
+
 # path -> {summary, detail?, doc?}
 FIELD_HELP: dict[str, dict[str, str]] = {
     "dataset": {
@@ -51,8 +65,11 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "doc": "docs/user/training-sdxl-lora-lokr.md",
     },
     "model.guidance": {
-        "summary": "Guidance strength during SDXL training (CFG scale).",
-        "detail": "How strongly the model follows the text vs unconditional signal. Often 1.0 for LoRA; raise for preview-like behavior.",
+        "summary": "Legacy [model] CFG scale (TOML-only; hidden in UI).",
+        "detail": (
+            "Parsed and defaulted in config but not used by SDXL training. "
+            "Use preview.guidance_scale for sample images during training."
+        ),
     },
     "model.freeze_text_encoders": {
         "summary": "Train UNet only; freeze both CLIP text encoders.",
@@ -150,36 +167,33 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "summary": "LoKr: use full matrix for the second factor.",
     },
     "optimizer.type": {
-        "summary": "Any name the trainer can resolve: built-in, optional deps, pytorch_optimizer, or module.Class.",
-        "detail": "Suggestions are common names only. Type a custom name; the UI checks if it imports in this environment.",
+        "summary": "Any name the trainer can resolve: built-in registry, pytorch_optimizer, or module.Class.",
+        "detail": (
+            "Suggestions list common registry names. Type a custom class name if needed; "
+            "required packages are installed automatically when training starts."
+        ),
         "doc": "docs/user/optimizer-and-scheduler.md",
-    },
-    "optimizer.lr": {
-        "summary": "Base learning rate.",
-        "doc": "docs/user/optimizer-and-scheduler.md",
-    },
-    "optimizer.weight_decay": {
-        "summary": "L2-style weight decay.",
-    },
-    "optimizer.betas": {
-        "summary": "Adam-style beta coefficients as a list.",
-    },
-    "optimizer.momentum": {
-        "summary": "SGD momentum.",
-    },
-    "optimizer.gradient_release": {
-        "summary": "Memory-saving optimizer mode (requires pipeline_stages = 1).",
     },
     "lr_scheduler": {
         "summary": "Registry name (cosine, linear, …) or a fully-qualified scheduler class.",
-        "detail": "Suggestions are built-in schedulers. Custom class paths are validated when you save or on blur in the form.",
+        "detail": (
+            "Built-in names: constant, linear, cosine, none. "
+            "For custom classes, use Scheduler parameters and runtime token string values "
+            "(total_steps, effective_total_steps, …) — open the (i) help on that field for "
+            "meanings; resolved when training starts."
+        ),
         "doc": "docs/user/optimizer-and-scheduler.md",
     },
-    "warmup_steps": {
-        "summary": "Linear LR warmup steps at start of training.",
-    },
-    "lr_scheduler_args.lr_min": {
-        "summary": "Minimum LR for cosine schedules.",
+    "lr_scheduler_args.extra_params": {
+        "summary": "Scheduler parameters (lr_min, constructor kwargs).",
+        "detail": scheduler_runtime_tokens_help_detail(
+            intro=(
+                "Key-value rows map to [lr_scheduler_args] (not top-level warmup_steps — use the "
+                "Warmup steps field). Built-in names and PyTorch class paths are pre-filled when "
+                "you change scheduler type."
+            ),
+        ),
+        "doc": "docs/user/optimizer-and-scheduler.md",
     },
     "epochs": {
         "summary": "Number of passes over the dataset.",
@@ -284,7 +298,8 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "doc": "docs/user/previews.md",
     },
     "preview.prompts": {
-        "summary": "Prompts for preview images (strings or tables).",
+        "summary": "Preview configurations (one prompt or table per row in TOML).",
+        "detail": "Each entry becomes one item in preview.prompts — use Add preview to manage the list.",
         "doc": "docs/user/previews.md",
     },
     "preview.negative_prompt": {
@@ -331,6 +346,18 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "summary": "Disable block swap during preview (full GPU inference).",
         "doc": "docs/user/previews.md",
     },
+    "preview.preview_offload_text_encoder": {
+        "summary": "Move text encoder to CPU during Cosmos preview sampling.",
+        "doc": "docs/user/previews.md",
+    },
+    "preview.preview_blocks_to_swap": {
+        "summary": "DiT blocks on CPU between preview steps (Cosmos only).",
+        "doc": "docs/user/previews.md",
+    },
+    "preview.preview_save_png": {
+        "summary": "Write PNG files under the run preview/ folder.",
+        "doc": "docs/user/previews.md",
+    },
     "monitoring.enable_wandb": {
         "summary": "Log metrics to Weights & Biases.",
         "doc": "docs/user/training-loop-and-eval.md",
@@ -362,19 +389,21 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "doc": "docs/user/training-cosmos-predict2-lora-lokr-finetune.md",
     },
     "model.diffusion_model_dtype": {
-        "summary": "Optional (not used yet): forward-pass dtype.",
+        "summary": "Forward-pass dtype (TOML-only; hidden in UI).",
         "detail": (
-            "Accepted in TOML but not applied by cosmos_predict2 training today. "
+            "Accepted in TOML but not read by cosmos_predict2 training. "
             "Leave unset; use model.dtype (and transformer_dtype only if needed)."
         ),
         "doc": "docs/user/training-cosmos-predict2-lora-lokr-finetune.md",
     },
-    "optimizer.beta2_half_life": {
-        "summary": "Recompute Adam beta2 from global batch size.",
-        "doc": "docs/user/optimizer-and-scheduler.md",
-    },
-    "optimizer.kahan_buffer_offload": {
-        "summary": "Offload GenericOptim Kahan buffer to CPU (saves VRAM).",
+    "optimizer.extra_params": {
+        "summary": "All optimizer parameters (lr, betas, weight_decay, special keys).",
+        "detail": (
+            "Key-value rows merged into [optimizer] in TOML. Built-in registry names are "
+            "pre-filled when you change optimizer type (lr, betas, type-specific keys). "
+            "Custom class paths start empty until you add rows. See the user guide for "
+            "per-optimizer parameter tables and links to PyTorch, bitsandbytes, and Prodigy docs."
+        ),
         "doc": "docs/user/optimizer-and-scheduler.md",
     },
     "image_micro_batch_size_per_gpu": {
@@ -465,7 +494,14 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "detail": "Overrides epoch count when set.",
     },
     "warmup_steps": {
-        "summary": "Linear LR warmup steps at start of training.",
+        "summary": "Trainer-level linear LR warmup before the main scheduler.",
+        "detail": (
+            "Top-level warmup_steps in TOML. When > 0 and lr_scheduler is not none, training wraps "
+            "the resolved scheduler with a short LinearLR warmup phase — for built-in names and "
+            "fully-qualified PyTorch classes alike. Not a [lr_scheduler_args] constructor kwarg; "
+            "use [lr_scheduler_args] only if your class defines its own warmup under a different "
+            "parameter name."
+        ),
         "doc": "docs/user/optimizer-and-scheduler.md",
     },
     "epochs": {
@@ -531,26 +567,6 @@ FIELD_HELP: dict[str, dict[str, str]] = {
     "save_every_n_epochs": {
         "summary": "Export adapter/model files every N epochs.",
         "doc": "docs/user/checkpoint-and-save.md",
-    },
-    "optimizer.weight_decay": {
-        "summary": "L2-style weight decay.",
-        "doc": "docs/user/optimizer-and-scheduler.md",
-    },
-    "optimizer.betas": {
-        "summary": "Adam-style beta coefficients as a list.",
-        "doc": "docs/user/optimizer-and-scheduler.md",
-    },
-    "optimizer.momentum": {
-        "summary": "SGD momentum.",
-        "doc": "docs/user/optimizer-and-scheduler.md",
-    },
-    "optimizer.gradient_release": {
-        "summary": "Memory-saving optimizer mode (requires pipeline_stages = 1).",
-        "doc": "docs/user/optimizer-and-scheduler.md",
-    },
-    "lr_scheduler_args.lr_min": {
-        "summary": "Minimum LR for cosine schedules.",
-        "doc": "docs/user/optimizer-and-scheduler.md",
     },
 }
 

@@ -27,3 +27,6 @@ def test_augmentation_catalog_presets_from_training_code() -> None:
     easy = next(p for p in catalog["presets"] if p["name"] == "easy")
     assert easy["available"] is True
     assert "color_jitter" in easy["strategies"]
+    defaults = easy["strategy_defaults"]
+    assert defaults["color_jitter"]["brightness"] == 0.03
+    assert defaults["gamma"]["gamma_min"] == 0.97

@@ -11,13 +11,30 @@ import {
   modelSupportsAdapters,
   pruneFormForModel,
 } from "../lib/formUtils";
+import { applyOptimizerTypeChange } from "../lib/optimizerForm";
+import { applySchedulerTypeChange } from "../lib/schedulerForm";
 import { useTomlFormSync } from "../composables/useTomlFormSync";
 import { createValidationAlertScheduler } from "../composables/useValidationAlertDismiss";
 import type { FormValues, ModelCapabilities } from "../types/forms";
 
-export const DEFAULT_CONFIG_TOML = `[model]
+/** Offline fallback; keep in sync with renga_flow_ui/templates/default_new_config.toml */
+export const FALLBACK_DEFAULT_CONFIG_TOML = `dataset = ""
+
+epochs = 1
+gradient_accumulation_steps = 1
+micro_batch_size_per_gpu = 1
+logging_steps = 1
+save_every_n_epochs = 1
+output_dir = "output"
+
+lr_scheduler = "cosine"
+[lr_scheduler_args]
+lr_min = 0.0
+
+[model]
 type = "sdxl"
 dtype = "bfloat16"
+checkpoint_path = ""
 
 [adapter]
 type = "lora"
@@ -26,25 +43,14 @@ rank = 16
 [optimizer]
 type = "adamw"
 lr = 1.0e-4
-
-lr_scheduler = "cosine"
-[lr_scheduler_args]
-lr_min = 0.0
-
-epochs = 1
-gradient_accumulation_steps = 1
-micro_batch_size_per_gpu = 1
-synthetic_num_batches = 50
-logging_steps = 1
-save_every_n_epochs = 1
-output_dir = "output"
 `;
 
 export const useConfigEditorStore = defineStore("configEditor", () => {
   const configId = ref<string | null>(null);
   const isNew = ref(false);
   const selectedMeta = ref("");
-  const content = ref(DEFAULT_CONFIG_TOML);
+  const defaultNewConfigToml = ref(FALLBACK_DEFAULT_CONFIG_TOML);
+  const content = ref(FALLBACK_DEFAULT_CONFIG_TOML);
   const form = shallowRef<FormValues | null>({ _has_adapter: true });
   const schema = ref<Record<string, unknown> | null>(null);
 
@@ -156,8 +162,18 @@ export const useConfigEditorStore = defineStore("configEditor", () => {
     },
   });
 
+  function resolveDefaultNewConfigToml(fromSchema?: Record<string, unknown> | null): string {
+    const raw = fromSchema?.default_new_config_toml;
+    if (typeof raw === "string" && raw.trim()) {
+      defaultNewConfigToml.value = raw;
+      return raw;
+    }
+    return defaultNewConfigToml.value;
+  }
+
   async function fetchSchema() {
     schema.value = (await api.getSchema()) as Record<string, unknown>;
+    resolveDefaultNewConfigToml(schema.value);
     return schema.value;
   }
 
@@ -171,6 +187,12 @@ export const useConfigEditorStore = defineStore("configEditor", () => {
     if (path === "model.type") {
       next = pruneFormForModel(next, modelCapabilities.value);
       next = applyModelCapabilityDefaults(next);
+    }
+    if (path === "optimizer.type") {
+      next = applyOptimizerTypeChange(next, value);
+    }
+    if (path === "lr_scheduler") {
+      next = applySchedulerTypeChange(next, value);
     }
     setForm(next);
   }
@@ -188,7 +210,7 @@ export const useConfigEditorStore = defineStore("configEditor", () => {
     selectedMeta.value = "";
     resetEditorState();
     editorTab.value = "form";
-    await tomlSync.applyToml(DEFAULT_CONFIG_TOML);
+    await tomlSync.applyToml(resolveDefaultNewConfigToml(schema.value));
   }
 
   async function openConfig(id: string) {
@@ -444,7 +466,7 @@ export const useConfigEditorStore = defineStore("configEditor", () => {
     configId.value = null;
     isNew.value = false;
     selectedMeta.value = "";
-    content.value = DEFAULT_CONFIG_TOML;
+    content.value = defaultNewConfigToml.value;
     form.value = null;
     schema.value = null;
     loading.value = false;

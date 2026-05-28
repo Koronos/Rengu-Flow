@@ -18,6 +18,8 @@ def test_cosmos_schema_excludes_t5_and_includes_llm() -> None:
     assert "model.llm_path" in paths
     assert "model.transformer_path" in paths
     assert "model.checkpoint_path" in paths
+    assert "model.diffusion_model_dtype" not in paths
+    assert "model.guidance" not in paths
 
 
 def test_blocks_to_swap_only_for_block_swap_models() -> None:

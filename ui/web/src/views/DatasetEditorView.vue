@@ -5,9 +5,11 @@
         All datasets
       </el-button>
       <EditorActionBar variant="editor" class="editor-head-bar">
+        <template #sync>
+          <el-text v-if="editor.syncing" type="info" size="small" class="sync-hint">Syncing…</el-text>
+        </template>
         <template #trailing>
           <EditorModeToggle v-model="editorMode" />
-          <el-text v-if="editor.syncing" type="info" size="small" class="sync-hint">Syncing…</el-text>
         </template>
         <template #actions>
           <el-button :icon="CircleCheck" @click="onValidate">Validate</el-button>

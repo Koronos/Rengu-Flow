@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   directoryFieldWritesToToml,
+  directoryOverrideBlockVisible,
   globalFieldDisplayHint,
   initialValueForOptionalField,
+  isOverrideEnabled,
+  needsDirectoryOverrideToggle,
   setOverrideEnabled,
 } from "./datasetDirectoryForm";
 import type { SchemaField } from "../types/forms";
@@ -48,6 +51,67 @@ describe("subsample_ratio defaults", () => {
   it("does not write directory subsample_ratio when unset (inherits global 1)", () => {
     expect(
       directoryFieldWritesToToml(subsampleField, { path: "/data", num_repeats: 1 })
+    ).toBe(false);
+  });
+});
+
+const shuffleTagsField: SchemaField = {
+  path: "shuffle_tags",
+  label: "Shuffle tags",
+  type: "boolean",
+  default: false,
+};
+
+const cacheShuffleField: SchemaField = {
+  path: "cache_shuffle_num",
+  label: "Cache shuffle count",
+  type: "integer",
+  default: 1,
+  show_when_field: "shuffle_tags",
+};
+
+describe("directory override toggles", () => {
+  it("needs toggle for explicit per-directory fields like shuffle_tags", () => {
+    expect(needsDirectoryOverrideToggle(shuffleTagsField)).toBe(true);
+    expect(needsDirectoryOverrideToggle({ path: "path", label: "Path", type: "string" })).toBe(
+      false
+    );
+  });
+
+  it("isOverrideEnabled is false until the key exists on the row", () => {
+    expect(isOverrideEnabled(shuffleTagsField, { path: "/data", num_repeats: 1 })).toBe(false);
+    expect(
+      isOverrideEnabled(
+        shuffleTagsField,
+        setOverrideEnabled(shuffleTagsField, { path: "/data", num_repeats: 1 }, true)
+      )
+    ).toBe(true);
+  });
+
+  it("setOverrideEnabled(false) removes the key so the row inherits again", () => {
+    const row = setOverrideEnabled(
+      shuffleTagsField,
+      { path: "/data", num_repeats: 1, shuffle_tags: true },
+      false
+    );
+    expect("shuffle_tags" in row).toBe(false);
+    expect(isOverrideEnabled(shuffleTagsField, row)).toBe(false);
+  });
+
+  it("shows cache_shuffle_num when global shuffle_tags is on", () => {
+    expect(
+      directoryOverrideBlockVisible(
+        cacheShuffleField,
+        { path: "/data", num_repeats: 1 },
+        { shuffle_tags: true }
+      )
+    ).toBe(true);
+    expect(
+      directoryOverrideBlockVisible(
+        cacheShuffleField,
+        { path: "/data", num_repeats: 1 },
+        { shuffle_tags: false }
+      )
     ).toBe(false);
   });
 });

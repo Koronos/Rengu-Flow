@@ -61,6 +61,30 @@ def test_resolve_validated_path_relative_under_repo() -> None:
     assert p == (repo_root() / "output").resolve()
 
 
+def test_stat_path_directory_with_spaces(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("renga_flow_ui.fs_stat.repo_root", lambda: tmp_path)
+    d = tmp_path / "my data"
+    d.mkdir()
+
+    result = stat_path("my data", expect="dir")
+    assert result["exists"] is True
+    assert result["is_dir"] is True
+    assert "error" not in result
+
+
+def test_stat_path_symlink_to_directory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("renga_flow_ui.fs_stat.repo_root", lambda: tmp_path)
+    target = tmp_path / "real"
+    target.mkdir()
+    link = tmp_path / "linked"
+    link.symlink_to(target, target_is_directory=True)
+
+    result = stat_path("linked", expect="dir")
+    assert result["exists"] is True
+    assert result["is_dir"] is True
+    assert "error" not in result
+
+
 def test_fs_stat_api(ui_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("renga_flow_ui.fs_stat.repo_root", lambda: tmp_path)
     sample = tmp_path / "examples"
@@ -82,3 +106,12 @@ def test_fs_stat_api(ui_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     )
     assert r2.status_code == 200
     assert r2.json()["is_dir"] is True
+
+    spaced = tmp_path / "folder name"
+    spaced.mkdir()
+    r3 = ui_client.post(
+        "/api/v1/fs/stat",
+        json={"path": "folder name", "expect": "dir"},
+    )
+    assert r3.status_code == 200
+    assert r3.json()["is_dir"] is True

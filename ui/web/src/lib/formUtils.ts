@@ -46,23 +46,37 @@ export function fieldEffectiveValue(field: SchemaField, form: FormValues): unkno
   return undefined;
 }
 
+export interface DatasetFieldVisibleOptions {
+  /** Dataset root form — used to resolve `show_when_field` parents on [[directory]] rows. */
+  inheritForm?: FormValues | null;
+}
+
 /** Dataset-only visibility (flat keys, no model.type). */
-export function datasetFieldVisible(field: SchemaField, form: FormValues): boolean {
+export function datasetFieldVisible(
+  field: SchemaField,
+  form: FormValues,
+  options?: DatasetFieldVisibleOptions
+): boolean {
   const path = field.path;
-  if (field.show_if_set && Object.prototype.hasOwnProperty.call(form, path)) {
-    return true;
-  }
-  if (field.show_if_set && isFormValueFilled(form[path])) {
-    return true;
+  const inheritForm = options?.inheritForm ?? null;
+  if (field.show_if_set) {
+    if (Object.prototype.hasOwnProperty.call(form, path) || isFormValueFilled(form[path])) {
+      return true;
+    }
   }
   if (field.show_when_field) {
-    if (Object.prototype.hasOwnProperty.call(form, path)) {
+    if (Object.prototype.hasOwnProperty.call(form, path) || isFormValueFilled(form[path])) {
       return true;
     }
-    if (isFormValueFilled(form[path])) {
+    const parent = field.show_when_field;
+    if (Object.prototype.hasOwnProperty.call(form, parent) && form[parent]) {
       return true;
     }
-    if (form[field.show_when_field]) {
+    if (
+      inheritForm &&
+      Object.prototype.hasOwnProperty.call(inheritForm, parent) &&
+      inheritForm[parent]
+    ) {
       return true;
     }
     return false;
@@ -99,6 +113,10 @@ export function fieldIsFilled(field: SchemaField, form: FormValues): boolean {
   }
   if (field.type === "string_list") {
     return listFieldIsFilled(field, form, parseStringList);
+  }
+  if (field.type === "preview_entries") {
+    const raw = field.path in form ? form[field.path] : field.default;
+    return Array.isArray(raw) && raw.length > 0;
   }
   if (field.path in form) {
     return isFormValueFilled(form[field.path]);
@@ -251,6 +269,17 @@ export function modelSpecificPaths(capabilities: ModelCapabilities | null): Reco
   return out;
 }
 
+function tomlOnlyModelPaths(
+  capabilities: ModelCapabilities | null,
+  modelType: string | undefined
+): string[] {
+  const cap = modelType ? getModelCapability(capabilities, modelType) : null;
+  if (!cap?.model_fields) return [];
+  return cap.model_fields
+    .filter((spec) => spec.ui === false && spec.path)
+    .map((spec) => spec.path as string);
+}
+
 export function pruneFormForModel(
   form: FormValues,
   capabilities: ModelCapabilities | null
@@ -266,6 +295,9 @@ export function pruneFormForModel(
   const next = { ...form };
   for (const path of all) {
     if (!allowed.has(path)) delete next[path];
+  }
+  for (const path of tomlOnlyModelPaths(capabilities, modelType)) {
+    delete next[path];
   }
   return next;
 }

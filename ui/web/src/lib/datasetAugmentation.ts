@@ -52,6 +52,8 @@ export interface AugPresetCatalogEntry {
   available: boolean;
   deferred?: boolean;
   strategies: string[];
+  /** Full preset strategy map (same as training ``get_preset_strategies``). */
+  strategy_defaults?: Record<string, Record<string, unknown>>;
 }
 
 export interface AugmentationCatalog {
@@ -221,12 +223,6 @@ export function isAugmentationEnabled(config: AugmentationConfig | null | undefi
   return Boolean(config?.enabled);
 }
 
-/** Whether the form stores a global augmentation table (may still be disabled). */
-export function isGlobalAugmentationSet(form: FormValues | null): boolean {
-  const raw = form?._dataset_augmentation;
-  return raw != null && raw !== "";
-}
-
 export function hasDirectoryAugmentationOverride(entry: FormValues | null | undefined): boolean {
   return entry != null && Object.prototype.hasOwnProperty.call(entry, "augmentation");
 }
@@ -294,6 +290,129 @@ export function directoryAugmentationNeedsFullEditor(
   return false;
 }
 
+function cloneStrategyMap(
+  map: Record<string, Record<string, unknown>> | undefined
+): Record<string, Record<string, unknown>> {
+  if (!map) return {};
+  const out: Record<string, Record<string, unknown>> = {};
+  for (const [name, params] of Object.entries(map)) {
+    out[name] = { ...params };
+  }
+  return out;
+}
+
+export function presetStrategyDefaults(
+  catalog: AugmentationCatalog | null,
+  preset: string | undefined
+): Record<string, Record<string, unknown>> {
+  const name = preset || "none";
+  if (name === "none" || name === "custom") return {};
+  const entry = catalog?.presets?.find((p) => p.name === name);
+  return cloneStrategyMap(entry?.strategy_defaults);
+}
+
+export function mergeStrategyParams(
+  base: Record<string, unknown> | undefined,
+  override: Record<string, unknown> | undefined
+): Record<string, unknown> {
+  const out = { ...(base ?? {}) };
+  if (override) {
+    for (const [key, value] of Object.entries(override)) {
+      out[key] = value;
+    }
+  }
+  if (!("enabled" in out)) out.enabled = true;
+  return out;
+}
+
+/** Resolved strategy name → params (preset defaults merged with stored overrides). */
+export function effectiveStrategyMap(
+  config: AugmentationConfig,
+  catalog: AugmentationCatalog | null
+): Record<string, Record<string, unknown>> {
+  const preset = config.preset || "none";
+  const base = presetStrategyDefaults(catalog, preset);
+  const overrides = config.strategies ?? {};
+  const names = new Set([...Object.keys(base), ...Object.keys(overrides)]);
+  const merged: Record<string, Record<string, unknown>> = {};
+  for (const name of names) {
+    merged[name] = mergeStrategyParams(base[name], overrides[name]);
+  }
+  if (config.enable_strategies?.length) {
+    const allow = new Set(config.enable_strategies);
+    for (const name of Object.keys(merged)) {
+      if (!allow.has(name)) delete merged[name];
+    }
+  }
+  return merged;
+}
+
+export function effectiveStrategyNames(
+  config: AugmentationConfig,
+  catalog: AugmentationCatalog | null
+): string[] {
+  return Object.keys(effectiveStrategyMap(config, catalog)).sort();
+}
+
+/** Drop override entries that match preset defaults (compact TOML). */
+export function strategyParamsDiff(
+  presetParams: Record<string, unknown> | undefined,
+  edited: Record<string, unknown>
+): Record<string, unknown> | null {
+  const baseline = mergeStrategyParams(presetParams, undefined);
+  const resolved = mergeStrategyParams(presetParams, edited);
+  const diff: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(resolved)) {
+    if (baseline[key] !== value) diff[key] = value;
+  }
+  return Object.keys(diff).length ? diff : null;
+}
+
+export function compactStrategiesForStorage(
+  config: AugmentationConfig,
+  catalog: AugmentationCatalog | null
+): AugmentationConfig {
+  if (!config.strategies || !Object.keys(config.strategies).length) {
+    return config;
+  }
+  const preset = config.preset || "none";
+  const defaults = presetStrategyDefaults(catalog, preset);
+  const compact: Record<string, Record<string, unknown>> = {};
+  for (const [name, params] of Object.entries(config.strategies)) {
+    const diff = strategyParamsDiff(defaults[name], params);
+    if (diff) compact[name] = diff;
+  }
+  return {
+    ...config,
+    strategies: Object.keys(compact).length ? compact : undefined,
+  };
+}
+
+/** Reset per-strategy overrides when the preset bundle changes. */
+export function applyPresetChange(
+  config: AugmentationConfig,
+  preset: string
+): AugmentationConfig {
+  return {
+    ...config,
+    preset,
+    enable_strategies: undefined,
+    strategies: undefined,
+  };
+}
+
+export function catalogDefaultsForStrategy(
+  catalog: AugmentationCatalog | null,
+  name: string
+): Record<string, unknown> {
+  const meta = catalog?.strategies?.find((s) => s.name === name);
+  const defaults: Record<string, unknown> = { enabled: true };
+  for (const field of meta?.parameters ?? []) {
+    if (field.default !== undefined) defaults[field.path] = field.default;
+  }
+  return defaults;
+}
+
 export function summarizeAugmentation(
   config: AugmentationConfig | null | undefined,
   catalog: AugmentationCatalog | null
@@ -303,8 +422,8 @@ export function summarizeAugmentation(
   const presetLabel =
     catalog?.presets?.find((p) => p.name === preset)?.label || preset;
   if (!config.enabled) return `Off · preset ${presetLabel}`;
-  const strategyCount = config.strategies ? Object.keys(config.strategies).length : 0;
-  const extra = strategyCount ? ` · ${strategyCount} override${strategyCount === 1 ? "" : "s"}` : "";
+  const strategyCount = effectiveStrategyNames(config, catalog).length;
+  const extra = strategyCount ? ` · ${strategyCount} strateg${strategyCount === 1 ? "y" : "ies"}` : "";
   return `On · ${presetLabel}${extra}`;
 }
 

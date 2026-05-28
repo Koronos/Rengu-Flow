@@ -49,7 +49,11 @@ import { computed, ref } from "vue";
 import { Plus } from "@element-plus/icons-vue";
 import DatasetPickerModal from "./DatasetPickerModal.vue";
 import PathFieldControl from "./PathFieldControl.vue";
-import { appendUniqueDatasetPaths } from "../lib/datasetLibraryRef";
+import {
+  appendUniqueDatasetPaths,
+  coerceTrainingDatasetEntries,
+  trainingDatasetFormValue,
+} from "../lib/datasetLibraryRef";
 import { useResolvedDatasetLabels } from "../composables/useResolvedDatasetLabels";
 import type { PropType } from "vue";
 
@@ -62,16 +66,7 @@ const emit = defineEmits(["update:modelValue"]);
 const pickerOpen = ref(false);
 const pathDraft = ref("");
 
-const entries = computed(() => {
-  const v = props.modelValue;
-  if (Array.isArray(v)) {
-    return v.filter((e) => typeof e === "string" && e.trim());
-  }
-  if (typeof v === "string" && v.trim()) {
-    return [v.trim()];
-  }
-  return [];
-});
+const entries = computed(() => coerceTrainingDatasetEntries(props.modelValue));
 
 const { labelFor } = useResolvedDatasetLabels(entries);
 
@@ -79,15 +74,8 @@ function entryLabel(entry: string): string {
   return labelFor(entry);
 }
 
-function normalizeEmit(paths: string[]): string | string[] {
-  const clean = paths.filter((p) => typeof p === "string" && p.trim()).map((p) => p.trim());
-  if (clean.length === 0) return "";
-  if (clean.length === 1) return clean[0];
-  return clean;
-}
-
 function emitPaths(paths: string[]): void {
-  emit("update:modelValue", normalizeEmit(paths));
+  emit("update:modelValue", trainingDatasetFormValue(paths));
 }
 
 function removeAt(idx: number): void {

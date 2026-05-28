@@ -9,7 +9,6 @@ export interface ConfigSchemaSection {
   title?: string;
   description?: string;
   fields?: SchemaField[];
-  flat_optional?: boolean;
 }
 
 export interface ConfigFormTabGroup {
@@ -37,10 +36,16 @@ export const CONFIG_FORM_TAB_GROUPS: ConfigFormTabGroup[] = [
     sectionIds: ["optimizer", "scheduler", "training", "checkpoint"],
   },
   {
+    id: "previews",
+    label: "Previews",
+    description: "Sample images during training (prompt list + global preview settings).",
+    sectionIds: ["preview"],
+  },
+  {
     id: "extras",
     label: "Eval & more",
-    description: "Evaluation, sample previews, and experiment tracking.",
-    sectionIds: ["eval", "preview", "monitoring"],
+    description: "Evaluation datasets and experiment tracking.",
+    sectionIds: ["eval", "monitoring"],
   },
 ];
 

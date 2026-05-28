@@ -3,24 +3,19 @@
     v-if="visible"
     :class="{
       'field-required': field.required,
-      'field-recommended': field.importance === 'recommended' || field.recommended,
+      'field-optional': isOptionalField,
     }"
   >
-    <template #label>
+    <template v-if="!hideLabel" #label>
       <span class="label-row">
         <span>{{ field.label }}</span>
-        <el-tag v-if="field.required" type="danger" size="small" effect="plain" class="req-tag">
-          required
-        </el-tag>
-        <el-tag
-          v-else-if="field.importance === 'recommended' || field.recommended"
-          type="warning"
-          size="small"
-          effect="plain"
-          class="req-tag"
-        >
-          important
-        </el-tag>
+        <span
+          v-if="field.required"
+          class="rf-label-required"
+          aria-hidden="true"
+          title="Required"
+        >*</span>
+        <span v-if="isOptionalField" class="rf-label-optional-hint">(optional)</span>
         <el-text
           v-if="hasDefault"
           type="info"
@@ -29,9 +24,9 @@
         >
           default: {{ formatDefault(field.default) }}
         </el-text>
-        <FieldHelpIcon :field="field" />
+        <FieldHelpIcon v-if="!hideLabelHelp" :field="field" />
       </span>
-      <el-text type="info" size="small" class="path-tag">{{ field.path }}</el-text>
+      <FieldPathTag v-if="pathTagPlacement === 'label'" :path="fieldPathTag" />
     </template>
 
     <TrainingDatasetsField
@@ -121,6 +116,7 @@
       :placeholder="field.placeholder || 'Type a number, then Enter'"
       :min="field.min"
       :max="field.max"
+      :max-length="field.max_length"
       @update:model-value="onListInput"
     />
 
@@ -130,13 +126,21 @@
       :preset-options="(field.options || []) as Array<string | number>"
       :placeholder="field.placeholder || 'Type text, then Enter'"
       :hint="field.string_list_hint || ''"
-      @update:model-value="onStringListInput"
+      @update:model-value="onListInput"
     />
 
     <SizeBucketsField
       v-else-if="field.path === 'size_buckets'"
       :model-value="sizeBucketsModel"
       @update:model-value="onSizeBucketsInput"
+    />
+
+    <KeyValueListField
+      v-else-if="field.type === 'key_value_list'"
+      :model-value="effectiveValue"
+      :runtime-tokens="field.runtime_tokens || []"
+      :hint="field.string_list_hint || ''"
+      @update:model-value="onKvInput"
     />
 
     <el-input
@@ -171,6 +175,12 @@
       </el-text>
       <el-text v-else type="danger" size="small">{{ resolveHint.text }}</el-text>
     </div>
+
+    <FieldPathTag
+      v-if="pathTagPlacement === 'foot'"
+      :path="fieldPathTag"
+      class="path-tag--foot"
+    />
   </el-form-item>
 </template>
 
@@ -188,14 +198,21 @@ import { usePathValidation } from "../composables/usePathValidation";
 import { api } from "../api";
 import { formatError } from "../lib/formatError";
 import FieldHelpIcon from "./FieldHelpIcon.vue";
+import FieldPathTag from "./FieldPathTag.vue";
 import PathValidationFeedback from "./PathValidationFeedback.vue";
 import TrainingDatasetsField from "./TrainingDatasetsField.vue";
+import {
+  coerceTrainingDatasetEntries,
+  trainingDatasetFormValue,
+} from "../lib/datasetLibraryRef";
 import EvalDatasetsField, { type EvalDatasetEntry } from "./EvalDatasetsField.vue";
 import NumericListField from "./NumericListField.vue";
 import SizeBucketsField from "./SizeBucketsField.vue";
 import StringListField from "./StringListField.vue";
+import KeyValueListField from "./KeyValueListField.vue";
 import type { SizeBucket } from "../lib/sizeBuckets";
 import { listToFormValue } from "../lib/listToFormValue";
+import { formatDefaultValue } from "../lib/defaultFormat";
 import { stringListNeedsJsonEditor } from "../lib/stringList";
 import type { PropType } from "vue";
 import type { FormValues, ModelCapabilities, RawListInput, SchemaField } from "../types/forms";
@@ -208,6 +225,17 @@ const props = defineProps({
   alwaysVisible: { type: Boolean, default: false },
   /** Dataset TOML form (flat keys, no training config visibility). */
   datasetForm: { type: Boolean, default: false },
+  /** Dataset root values for directory-row `show_when_field` parents. */
+  directoryInheritForm: { type: Object as PropType<FormValues>, default: null },
+  /** Parent row already shows the field label (directory override toggle). */
+  hideLabel: { type: Boolean, default: false },
+  /** Suppress help icon in the label slot when the parent shows it. */
+  hideLabelHelp: { type: Boolean, default: false },
+  /** Where to render the TOML path hint (`label` = under title, `foot` = below control). */
+  pathTagPlacement: {
+    type: String as PropType<"label" | "foot" | "none">,
+    default: "label",
+  },
 });
 
 const emit = defineEmits(["update:path"]);
@@ -216,7 +244,9 @@ const visible = computed(() => {
   if (props.alwaysVisible) return true;
   const f = props.field;
   if (props.datasetForm) {
-    return datasetFieldVisible(f, props.form);
+    const inherit =
+      props.directoryInheritForm != null ? props.directoryInheritForm : undefined;
+    return datasetFieldVisible(f, props.form, inherit ? { inheritForm: inherit } : undefined);
   }
   return fieldVisible(f, props.form, props.capabilities);
 });
@@ -236,6 +266,13 @@ const hasDefault = computed(
     props.field.default !== ""
 );
 
+const isOptionalField = computed(() => {
+  const f = props.field;
+  if (f.required || f.importance === "required") return false;
+  if (f.importance === "recommended" || f.recommended) return false;
+  return f.importance === "advanced";
+});
+
 const effectiveValue = computed(() => fieldEffectiveValue(props.field, props.form));
 
 const listModelValue = computed(
@@ -254,10 +291,9 @@ const evalDatasetsModel = computed(
   () => effectiveValue.value as EvalDatasetEntry[] | EvalDatasetEntry | null | undefined
 );
 
-const trainingDatasetModel = computed(() => {
-  const v = effectiveValue.value;
-  return v === undefined || v === null ? "" : String(v);
-});
+const trainingDatasetModel = computed(() =>
+  trainingDatasetFormValue(coerceTrainingDatasetEntries(effectiveValue.value))
+);
 
 const selectOptions = computed(() => {
   if (props.field.options_from_model) {
@@ -297,6 +333,18 @@ const numberValue = computed(() => {
 
 const isSubsampleRatio = computed(() => props.field.path === "subsample_ratio");
 
+/** Shorter path hint for KV fields (TOML target differs from form path). */
+const fieldPathTag = computed(() => {
+  const path = props.field.path;
+  if (path === "lr_scheduler_args.extra_params") {
+    return "lr_scheduler_args";
+  }
+  if (path === "optimizer.extra_params") {
+    return "merged into [optimizer] in TOML";
+  }
+  return path;
+});
+
 const numberMin = computed(() => {
   if (isSubsampleRatio.value) return 0.0001;
   return props.field.min ?? undefined;
@@ -323,10 +371,7 @@ interface ResolveHint {
 }
 
 function isRegistryProbeField(field: SchemaField): boolean {
-  return (
-    !!field.allow_custom &&
-    (field.path === "optimizer.type" || field.path === "lr_scheduler")
-  );
+  return !!field.allow_custom && field.path === "lr_scheduler";
 }
 
 const pathValidationEnabled = computed(
@@ -357,8 +402,7 @@ const resolveHint = ref<ResolveHint | null>(null);
 let probeTimer: ReturnType<typeof setTimeout> | null = null;
 
 function formatDefault(val: unknown): string {
-  if (typeof val === "boolean") return val ? "true" : "false";
-  return String(val);
+  return formatDefaultValue(val);
 }
 
 function onInput(val: string | number | undefined | null): void {
@@ -366,18 +410,15 @@ function onInput(val: string | number | undefined | null): void {
   emit("update:path", { path: props.field.path, value: next });
 }
 
+function onKvInput(val: unknown): void {
+  emit("update:path", { path: props.field.path, value: val });
+}
+
 function onBooleanInput(val: boolean): void {
   emit("update:path", { path: props.field.path, value: !!val });
 }
 
 function onListInput(val: unknown[]): void {
-  emit("update:path", {
-    path: props.field.path,
-    value: listToFormValue(val),
-  });
-}
-
-function onStringListInput(val: unknown[]): void {
   emit("update:path", {
     path: props.field.path,
     value: listToFormValue(val),
@@ -392,8 +433,11 @@ function onEvalDatasetsInput(val: EvalDatasetEntry[] | EvalDatasetEntry | null):
   emit("update:path", { path: props.field.path, value: val });
 }
 
-function onTrainingDatasetsInput(val: string): void {
-  emit("update:path", { path: props.field.path, value: val });
+function onTrainingDatasetsInput(val: string | string[]): void {
+  emit("update:path", {
+    path: props.field.path,
+    value: trainingDatasetFormValue(coerceTrainingDatasetEntries(val)),
+  });
 }
 
 function onClear() {
@@ -425,12 +469,8 @@ async function runProbe(name: string): Promise<void> {
   }
   resolveHint.value = { loading: true, text: "" };
   try {
-    const body =
-      props.field.path === "optimizer.type"
-        ? { optimizer: name.trim() }
-        : props.field.path === "lr_scheduler"
-          ? { scheduler: name.trim() }
-          : null;
+    const trimmed = name.trim();
+    const body = props.field.path === "lr_scheduler" ? { scheduler: trimmed } : null;
     if (!body) {
       resolveHint.value = null;
       return;
@@ -468,7 +508,7 @@ watch(stringValue, (v) => {
     schedulePathValidation(v);
     return;
   }
-  if (!props.field.allow_custom) return;
+  if (!isRegistryProbeField(props.field)) return;
   if (probeTimer) clearTimeout(probeTimer);
   probeTimer = setTimeout(() => runProbe(v), 450);
 });
@@ -480,18 +520,6 @@ watch(stringValue, (v) => {
   align-items: center;
   flex-wrap: wrap;
   gap: 4px;
-}
-.req-tag {
-  margin-left: 2px;
-}
-.path-tag {
-  display: block;
-  font-family: ui-monospace, monospace;
-  margin-top: 2px;
-}
-.field-required :deep(.el-form-item__label),
-.field-recommended :deep(.el-form-item__label) {
-  font-weight: 600;
 }
 .default-hint {
   font-family: ui-monospace, monospace;

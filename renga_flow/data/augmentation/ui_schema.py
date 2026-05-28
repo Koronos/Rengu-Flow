@@ -195,6 +195,7 @@ def get_augmentation_catalog() -> dict[str, Any]:
                 "available": name in MVP_PRESET_NAMES,
                 "deferred": name in DEFERRED_PRESET_NAMES,
                 "strategies": sorted(body.keys()),
+                "strategy_defaults": body,
             }
         )
 

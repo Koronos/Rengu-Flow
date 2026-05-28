@@ -9,7 +9,19 @@ import toml
 
 from renga_flow.config import set_config_defaults
 from renga_flow.registry.model_capabilities import normalize_model_type
-from renga_flow_ui.field_visibility import prune_form_for_model
+from renga_flow_ui.field_visibility import field_visible, prune_form_for_model
+from renga_flow_ui.optimizer_form import (
+    KNOWN_BUILTIN_OPTIMIZER_TYPES,
+    merge_optimizer_extras,
+    prune_optimizer_form,
+    split_optimizer_extras,
+)
+from renga_flow_ui.scheduler_form import (
+    KNOWN_BUILTIN_SCHEDULER_TYPES,
+    merge_scheduler_extras,
+    prune_scheduler_form,
+    split_scheduler_extras,
+)
 
 
 def _get_nested(data: dict[str, Any], path: str) -> Any:
@@ -102,7 +114,13 @@ def parse_toml(content: str) -> dict[str, Any]:
         config["model"]["type"] = normalize_model_type(config["model"]["type"]) or config["model"]["type"]
     form = flatten_config(config)
     form["_has_adapter"] = "adapter" in config and bool(config.get("adapter"))
-    return form
+    opt_type = form.get("optimizer.type")
+    if isinstance(opt_type, str) and opt_type.lower() in KNOWN_BUILTIN_OPTIMIZER_TYPES:
+        form["optimizer.type"] = opt_type.lower()
+    sched_type = form.get("lr_scheduler")
+    if isinstance(sched_type, str) and sched_type.lower() in KNOWN_BUILTIN_SCHEDULER_TYPES:
+        form["lr_scheduler"] = sched_type.lower()
+    return split_scheduler_extras(split_optimizer_extras(form))
 
 
 def normalize_dataset_value(value: Any) -> Any:
@@ -120,19 +138,61 @@ def normalize_dataset_value(value: Any) -> Any:
     return value
 
 
+def _coerce_preview_prompts_for_toml(config: dict[str, Any]) -> None:
+    """toml.dumps cannot encode a mixed list of strings and tables under preview.prompts."""
+    preview = config.get("preview")
+    if not isinstance(preview, dict):
+        return
+    prompts = preview.get("prompts")
+    if not isinstance(prompts, list) or not prompts:
+        return
+    if all(isinstance(p, str) for p in prompts):
+        return
+    out: list[Any] = []
+    for item in prompts:
+        if isinstance(item, str):
+            out.append({"prompt": item})
+        else:
+            out.append(item)
+    preview["prompts"] = out
+
+
 def form_to_config(form: dict[str, Any]) -> dict[str, Any]:
-    config = unflatten_form(form)
+    merged = merge_scheduler_extras(
+        merge_optimizer_extras(prune_scheduler_form(prune_optimizer_form(form)))
+    )
+    config = unflatten_form(merged)
     if "dataset" in config:
         normalized = normalize_dataset_value(config["dataset"])
         if normalized is None:
             config.pop("dataset", None)
         else:
             config["dataset"] = normalized
+    _coerce_preview_prompts_for_toml(config)
     return config
 
 
-def form_to_toml(form: dict[str, Any]) -> str:
-    config = form_to_config(prune_form_for_model(form))
+def merge_form_into_config(base: dict[str, Any], form: dict[str, Any]) -> dict[str, Any]:
+    """Overlay flat form onto a nested config dict (e.g. library save)."""
+    import copy
+
+    merged = copy.deepcopy(base)
+    updated = form_to_config(form)
+    for key, value in updated.items():
+        merged[key] = value
+    if not form.get("_has_adapter"):
+        merged.pop("adapter", None)
+    return merged
+
+
+def form_to_toml(form: dict[str, Any], base_content: str | None = None) -> str:
+    merged = dict(form)
+    if base_content and base_content.strip():
+        base_form = parse_toml(base_content)
+        for key, value in base_form.items():
+            if key not in merged:
+                merged[key] = value
+    config = form_to_config(prune_form_for_model(merged))
     return toml.dumps(config)
 
 
@@ -142,12 +202,14 @@ def toml_to_form(content: str) -> dict[str, Any]:
 
 def form_values_for_ui(form: dict[str, Any], schema: dict[str, Any]) -> dict[str, Any]:
     """Copy flat form dict and fill schema defaults for keys absent from TOML."""
-    out = dict(form)
+    out = split_scheduler_extras(split_optimizer_extras(dict(form)))
+    capabilities = schema.get("registries", {}).get("model_capabilities")
     for section in schema.get("sections", []):
         for field in section.get("fields", []):
             path = field["path"]
             if path not in out and "default" in field:
-                out[path] = field["default"]
+                if field_visible(field, out, capabilities):
+                    out[path] = field["default"]
     if "_has_adapter" not in out:
         out["_has_adapter"] = bool(form.get("adapter"))
     return out

@@ -63,10 +63,10 @@ In Docker, mount that folder (set `data_dir` in `renga.local.toml` to the mount 
 | Area | Description |
 |------|-------------|
 | **Docs** | In-app guide index (`docs/user/*.md`) from the **Docs** nav item |
-| **Training** | **Form** editor (all major TOML sections: model, adapter/network, optimizer, scheduler, training, checkpoints, eval, preview, monitoring) plus raw **TOML** tab; lists registered models, adapters, and optimizers from the framework |
+| **Training** | **Form** editor (model, adapter, training, **Previews** tab with list+modal for `preview.prompts`, eval, monitoring) plus raw **TOML** tab; lists registered models, adapters, and optimizers from the framework |
 | **Datasets** | Library of dataset TOMLs: multiple `[[directory]]` folders per file, per-folder **Scan**, live **Dataset preview** (folder stats plus thumbnail gallery), **Compose** to merge library datasets into one file (OneTrainer-style packs); **Augmentation** tab for global and per-folder diversity settings (presets and strategy overrides loaded from the training catalog); in-app links to [dataset config](dataset-config.md) docs |
 | **Train** | Queue runs after choosing a config in the **Training** library (edit/validate there first); tab **Runs on disk** lists output folders; **Import script run** registers an existing `output/…` folder from terminal training |
-| **Config form** | Required fields first; visual dataset picker; click the **i** icon to open in-app help (loads `docs/**/*.md` from the repo) |
+| **Config form** | Required fields first; visual dataset picker; **Previews** tab separates global settings from per-prompt rows (Add/Edit/Duplicate/Remove); click the **i** icon to open in-app help (loads `docs/**/*.md` from the repo) |
 | **Runs** | List folders under `output_dir`, view metrics, send signals to active runs |
 | **TensorBoard** | **Open TensorBoard** on the run detail or Output runs page — starts TensorBoard via `uv` (no extra pip install); compares all runs under the same `output_dir` |
 | **Signals** | Same files as [signal files](signal-files.md): `save`, `save_quit`, `export_model`, `export_model_quit`, `preview` |
@@ -78,6 +78,8 @@ In Docker, mount that folder (set `data_dir` in `renga.local.toml` to the mount 
 1. **Datasets** (optional) — build or import dataset TOMLs with your image folders.
 2. **Training** — create or import a training config; set `dataset = ...` via the dataset picker; validate.
 3. **Train** — click **Choose config in library** to open Training, edit if needed, then **Use for training job**; set GPUs/resume and queue or start.
+
+**New config** seeds an SDXL LoRA template (dataset path, checkpoint path, optimizer, scheduler, epochs, batch size, `output_dir`). It does **not** include `synthetic_num_batches` or other debug-only smoke settings — point `dataset` at your dataset TOML and set `model.checkpoint_path` before you validate or train. Use **Import TOML…** on the config list if you already have a file on disk.
 
 To **continue a run** with new settings (e.g. more epochs), open the job or filesystem run detail and click **Continue training…**. That loads the TOML from the run folder into **Training**; after editing, queue a continuation job. Training resumes in the same output folder and updates the TOML snapshot there.
 

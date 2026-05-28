@@ -2,11 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   appendUniqueDatasetPaths,
   canonicalDatasetRef,
+  coerceTrainingDatasetEntries,
   datasetRefDisplayLabel,
   formatDatasetLibraryRef,
   isLibraryDatasetRef,
   libraryDatasetIdFromRef,
   parseDatasetLibraryRef,
+  trainingDatasetFormValue,
 } from "./datasetLibraryRef";
 
 describe("datasetLibraryRef", () => {
@@ -55,5 +57,29 @@ describe("datasetLibraryRef", () => {
     const p = parseDatasetLibraryRef("examples/minimal_dataset.toml");
     expect(p.isRef).toBe(false);
     expect(p.canonical).toBe("examples/minimal_dataset.toml");
+  });
+
+  it("coerceTrainingDatasetEntries keeps arrays", () => {
+    const paths = ["renga-flow-dataset:1:Dataset 1", "renga-flow-dataset:9:Dataset 9"];
+    expect(coerceTrainingDatasetEntries(paths)).toEqual(paths);
+  });
+
+  it("coerceTrainingDatasetEntries recovers String(array) merge", () => {
+    const merged =
+      "renga-flow-dataset:1:Dataset 1,renga-flow-dataset:9:Dataset 9";
+    expect(coerceTrainingDatasetEntries(merged)).toEqual([
+      "renga-flow-dataset:1:Dataset 1",
+      "renga-flow-dataset:9:Dataset 9",
+    ]);
+  });
+
+  it("coerceTrainingDatasetEntries leaves single path alone", () => {
+    expect(coerceTrainingDatasetEntries("/data/foo.toml")).toEqual(["/data/foo.toml"]);
+  });
+
+  it("trainingDatasetFormValue matches backend single-vs-list", () => {
+    expect(trainingDatasetFormValue([])).toBe("");
+    expect(trainingDatasetFormValue(["a.toml"])).toBe("a.toml");
+    expect(trainingDatasetFormValue(["a.toml", "b.toml"])).toEqual(["a.toml", "b.toml"]);
   });
 });

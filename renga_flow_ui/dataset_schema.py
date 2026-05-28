@@ -77,7 +77,8 @@ def get_directory_fields() -> list[dict[str, Any]]:
             "cache_shuffle_num",
             "Cache shuffle count",
             "integer",
-            default=0,
+            default=1,
+            show_when_field="shuffle_tags",
             description="Caption shuffle/repeat count for cache augmentation (0 = off).",
         ),
         _field(
@@ -85,6 +86,7 @@ def get_directory_fields() -> list[dict[str, Any]]:
             "Tag delimiter",
             "string",
             default=", ",
+            show_when_field="shuffle_tags",
             description="Delimiter between tags when shuffle tags is enabled.",
         ),
         _field(
@@ -283,8 +285,20 @@ def get_dataset_schema() -> dict[str, Any]:
             "description": "Default caption/shuffle behaviour for all folders. Override per folder in Directories.",
             "fields": [
                 _field("shuffle_tags", "Shuffle tags", "boolean", default=False),
-                _field("cache_shuffle_num", "Cache shuffle num", "integer", default=0),
-                _field("cache_shuffle_delimiter", "Tag delimiter", "string", default=", "),
+                _field(
+                    "cache_shuffle_num",
+                    "Cache shuffle num",
+                    "integer",
+                    default=1,
+                    show_when_field="shuffle_tags",
+                ),
+                _field(
+                    "cache_shuffle_delimiter",
+                    "Tag delimiter",
+                    "string",
+                    default=", ",
+                    show_when_field="shuffle_tags",
+                ),
                 _field("shuffle_metadata", "Shuffle metadata order", "boolean", default=True),
                 _field("online_captions", "Online captions.json", "boolean", default=False),
                 _field("subsample_ratio", "Subsample ratio", "number"),
