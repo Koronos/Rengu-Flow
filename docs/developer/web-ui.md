@@ -36,11 +36,28 @@ User guide: **`docs/user/web-ui.md`**.
 | `renga_flow/control/status_file.py` | Opt-in `status.json` writer (trainer hook in `main.py`) |
 | `ui/web/` | Vite + Vue 3 + Element Plus SPA; build output `ui/web/dist/` |
 | `start-ui.sh` | User entrypoint: install `[ui]`, build web, `renga-flow-ui serve` |
-| `start-ui-dev.sh` | Dev: API `--reload` + Vite on port 5173 (proxies `/api`) |
+| `scripts/start-ui-dev.sh` | Developer-only: API `--reload` + Vite on port 5173 (proxies `/api`) |
+
+## Local development (UI)
+
+End users run `./start-ui.sh` (built SPA from `ui/web/dist/`). While editing the Vue app or `renga_flow_ui/`:
+
+```bash
+./scripts/start-ui-dev.sh [--no-open]
+```
+
+| Process | URL |
+|---------|-----|
+| Vite | [http://127.0.0.1:5173](http://127.0.0.1:5173) (proxies `/api`) |
+| API | [http://127.0.0.1:8765](http://127.0.0.1:8765) (`uvicorn --reload`) |
+
+Ctrl+C stops both. No frontend build required.
 
 ## API prefix
 
 All JSON routes: `/api/v1`. Static SPA mounted at `/` when `ui/web/dist/index.html` exists.
+
+**Maintenance** (dev only, `RENGAFLOW_MAINTENANCE=1`): `GET /maintenance/enabled`, `GET /maintenance/status`, `POST /maintenance/database/reset`, `POST /maintenance/submodules/update`, `POST /maintenance/deps/install`. Implemented in `renga_flow_ui/maintenance.py`; UI route `/maintenance`. See **`docs/user/maintenance.md`**.
 
 Authentication: optional `RENGA_FLOW_UI_TOKEN` middleware checks `X-Renga-Flow-Token` or `Authorization: Bearer`.
 
@@ -64,8 +81,18 @@ On `POST /api/v1/jobs`:
 
 1. Load TOML from library or inline body
 2. `materialize_staging()` writes `{RENGA_FLOW_UI_DATA}/staging/{job_id}/train.toml` (default `<repo>/.renga-flow-ui`); `renga-flow-dataset:<id>` refs become `{staging}/{job_id}/{id}.dataset.toml` with absolute `[[directory]]` paths
-3. Subprocess: `--config <staging>/train.toml`
+3. Subprocess: `--config <staging>/train.toml` plus optional CLI flags from the request body (stored in `jobs.extra_args`)
 4. Trainer copies config into `run_dir` (unchanged `main.py` behavior)
+
+**Cache vs training (Train `/jobs` page):**
+
+| JSON field | CLI flag | Default | Purpose |
+|------------|----------|---------|---------|
+| `cache_only` | `--cache_only` | `false` | Build dataset cache only; process exits before training. |
+| `trust_cache` | `--trust_cache` | `false` | Skip cache rebuild when existing cache is valid. |
+| `regenerate_cache` | `--regenerate_cache` | `false` | Force full cache rebuild. |
+
+`cache_only` and `trust_cache` cannot both be true. The UI exposes **Build cache** actions (`cache_only`) and a **Use existing cache** checkbox on normal training launches (`trust_cache`).
 
 ## Config / dataset library (SQLite)
 
@@ -121,7 +148,7 @@ To add help for a new config key:
 
 1. Add TOML field to `config_schema.py` (or `ADAPTER_FIELD_TEMPLATES` / model capability `model_fields`).
 2. Add entry to **`FIELD_HELP`** in `config_field_help.py` (`summary`, optional `detail`, optional `doc`).
-3. Extend **`docs/user/*.md`** with a table row (purpose, values, default) per [doc-two-audiences](../../.cursor/rules/doc-two-audiences.mdc).
+3. Extend **`docs/user/*.md`** with a table row (purpose, values, default) per `.cursor/rules/doc-two-audiences.mdc`.
 4. Add or extend **`docs/developer/*.md`** with code location (this guide + topic page).
 5. Extend **`tests/test_config_form.py::test_all_config_fields_have_help`** if the field is in the schema.
 

@@ -1,7 +1,8 @@
 import { ref } from "vue";
 import { ElMessage } from "element-plus";
 import { api } from "../api";
-import type { TensorboardStatus } from "../types/runtime";
+import { formatError } from "../lib/formatError";
+import type { TensorboardStartResult, TensorboardStatus } from "../types/api";
 
 export function useTensorboard(getOutputDir: () => string | undefined) {
   const tbLoading = ref(false);
@@ -19,12 +20,14 @@ export function useTensorboard(getOutputDir: () => string | undefined) {
     const outputDir = getOutputDir();
     tbLoading.value = true;
     try {
-      const r = (await api.tensorboardStart({ output_dir: outputDir || "output" })) as TensorboardStatus;
+      const r = (await api.tensorboardStart({
+        output_dir: outputDir || "output",
+      })) as TensorboardStartResult & { reused?: boolean };
       tbStatus.value = r;
       if (r.url) window.open(String(r.url), "_blank", "noopener,noreferrer");
       ElMessage.success(r.reused ? "TensorBoard already running" : "TensorBoard started");
     } catch (e) {
-      const msg = String(e);
+      const msg = formatError(e);
       onError?.(msg);
       ElMessage.error(msg);
       throw e;
@@ -40,7 +43,7 @@ export function useTensorboard(getOutputDir: () => string | undefined) {
       tbStatus.value = { running: false };
       ElMessage.success("TensorBoard stopped");
     } catch (e) {
-      const msg = String(e);
+      const msg = formatError(e);
       onError?.(msg);
       ElMessage.error(msg);
       throw e;

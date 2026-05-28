@@ -77,6 +77,22 @@ def test_validate_dataset_config_missing_path():
         })
 
 
+def test_validate_tag_dropout_probability_range():
+    with pytest.raises(DatasetConfigError, match="tag_dropout_probability"):
+        validate_dataset_config_for_real_data({
+            "directory": [{"path": "/tmp/x", "num_repeats": 1}],
+            "tag_dropout_probability": 1.5,
+        })
+
+
+def test_validate_uncond_fraction_range():
+    with pytest.raises(DatasetConfigError, match="uncond_fraction"):
+        validate_dataset_config_for_real_data({
+            "directory": [{"path": "/tmp/x", "num_repeats": 1}],
+            "uncond_fraction": -0.1,
+        })
+
+
 def test_validate_dataset_config_missing_num_repeats():
     """validate_dataset_config_for_real_data raises when an entry has no 'num_repeats'."""
     with pytest.raises(DatasetConfigError, match="num_repeats"):

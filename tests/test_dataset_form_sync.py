@@ -104,6 +104,50 @@ def test_directory_boolean_and_ar_overrides_roundtrip() -> None:
     assert d["ar_buckets"] == [1.0, 1.5]
 
 
+def test_directory_subsample_ratio_override_roundtrip() -> None:
+    form, _ = parse_toml_to_form(
+        "resolutions = [1024]\nframe_buckets = [1]\n\n"
+        "[[directory]]\npath = '/data/x'\nnum_repeats = 1\n"
+    )
+    form["_directories"] = [
+        {
+            "path": "/my/images",
+            "num_repeats": 1,
+            "subsample_ratio": 0.5,
+        }
+    ]
+    cfg = _roundtrip(form)
+    assert cfg["directory"][0]["subsample_ratio"] == 0.5
+
+
+def test_directory_subsample_ratio_omitted_when_same_as_global() -> None:
+    form, _ = parse_toml_to_form(
+        "resolutions = [1024]\nframe_buckets = [1]\nsubsample_ratio = 0.25\n\n"
+        "[[directory]]\npath = '/data/x'\nnum_repeats = 1\n"
+    )
+    form["subsample_ratio"] = 0.25
+    form["_directories"] = [
+        {
+            "path": "/my/images",
+            "num_repeats": 1,
+            "subsample_ratio": 0.25,
+        }
+    ]
+    cfg = _roundtrip(form)
+    assert cfg["subsample_ratio"] == 0.25
+    assert "subsample_ratio" not in cfg["directory"][0]
+
+
+def test_subsample_ratio_omitted_from_toml_when_full_dataset() -> None:
+    form, _ = parse_toml_to_form(
+        "resolutions = [1024]\nframe_buckets = [1]\n\n"
+        "[[directory]]\npath = '/data/x'\nnum_repeats = 1\n"
+    )
+    form["subsample_ratio"] = 1
+    cfg = _roundtrip(form)
+    assert "subsample_ratio" not in cfg
+
+
 def test_directory_path_and_overrides_roundtrip() -> None:
     form, _ = parse_toml_to_form(
         "resolutions = [1024]\nframe_buckets = [1]\n\n"

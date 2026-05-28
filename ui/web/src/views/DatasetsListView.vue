@@ -11,82 +11,108 @@
       </div>
     </div>
 
-    <div class="page-toolbar">
-      <el-input
-        v-model="query"
-        clearable
-        placeholder="Search by name or ID…"
-        class="page-toolbar-search"
-        :prefix-icon="Search"
-        @input="scheduleSearch"
-        @clear="load"
-      />
-      <LibrarySortControls
-        v-model:sort-field="sortField"
-        :sort-order="sortOrder"
-        :field-options="fieldOptions"
-        :order-button-label="orderButtonLabel"
-        @toggle-order="onToggleSortOrder"
-      />
-      <DatasetViewModeToggle v-model="viewMode" />
-    </div>
+    <LibraryListPage
+      :loading="loading"
+      :error="error"
+      :items="previewItems"
+      :view-mode="viewMode"
+      :table-actions-column-width="tableActionsWidth"
+      empty-description="No datasets yet"
+      @item-click="onItemClick"
+    >
+      <template #empty-action>
+        <el-button type="primary" :icon="Plus" @click="router.push({ name: 'datasets-new' })">
+          New dataset
+        </el-button>
+      </template>
 
-    <el-alert v-if="error" type="error" :title="error" show-icon class="mb-12" />
+      <template #toolbar>
+        <el-input
+          v-model="query"
+          clearable
+          placeholder="Search by name or ID…"
+          class="page-toolbar-search"
+          :prefix-icon="Search"
+          @input="scheduleSearch"
+          @clear="load"
+        />
+        <LibrarySortControls
+          v-model:sort-field="sortField"
+          :sort-order="sortOrder"
+          :field-options="fieldOptions"
+          :order-button-label="orderButtonLabel"
+          @toggle-order="onToggleSortOrder"
+        />
+        <LibraryViewModeToggle v-model="viewMode" />
+      </template>
 
-    <div v-loading="loading" class="list-body">
-      <el-empty v-if="!loading && !previewItems.length" description="No datasets yet" :image-size="64" />
-      <DatasetPreviewCollection
-        v-else
-        :items="previewItems"
-        :view-mode="viewMode"
-        table-subtitle-label="Summary"
-        @item-click="openItem"
-      >
-        <template #actions="{ item }">
-          <DatasetPreviewActions
-            :show-delete="false"
-            @gallery="openGallery(item)"
-          />
+      <template #actions="{ item }">
+        <template v-if="viewMode === 'cards'">
+          <LibraryItemOverflowMenu
+            :loading="crudBusy"
+            @duplicate="duplicateSelected(item.id ?? null)"
+            @delete="deleteSelected(item.id ?? null)"
+          >
+            <el-dropdown-item @click.stop="openGallery(item)">
+              <span class="rf-dropdown-item-label">
+                <el-icon><Picture /></el-icon>
+                <span>Image gallery</span>
+              </span>
+            </el-dropdown-item>
+          </LibraryItemOverflowMenu>
         </template>
-      </DatasetPreviewCollection>
-    </div>
+        <template v-else>
+          <div class="library-list-row-actions" @click.stop>
+            <DatasetPreviewActions :show-delete="false" @gallery="openGallery(item)" />
+            <LibraryRowCrudButtons
+              :loading="crudBusy"
+              @duplicate="duplicateSelected(item.id ?? null)"
+              @delete="deleteSelected(item.id ?? null)"
+            />
+          </div>
+        </template>
+      </template>
 
-    <DatasetGalleryDialog
-      v-model="galleryOpen"
-      :title="galleryTitle"
-      :content="galleryContent"
-      :directory-index="galleryDirectoryIndex"
-    />
+      <template #footer>
+        <DatasetGalleryDialog
+          v-model="galleryOpen"
+          :title="galleryTitle"
+          :content="galleryContent"
+          :directory-index="galleryDirectoryIndex"
+          :loading="galleryLoading"
+        />
+      </template>
+    </LibraryListPage>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, watch } from "vue";
 import { useRouter } from "vue-router";
-import { Plus, Search } from "@element-plus/icons-vue";
+import { Picture, Plus, Search } from "@element-plus/icons-vue";
 import { api } from "../api";
 import DatasetGalleryDialog from "../components/DatasetGalleryDialog.vue";
 import DatasetPreviewActions from "../components/DatasetPreviewActions.vue";
-import DatasetPreviewCollection from "../components/DatasetPreviewCollection.vue";
-import DatasetViewModeToggle from "../components/DatasetViewModeToggle.vue";
+import LibraryItemOverflowMenu from "../components/LibraryItemOverflowMenu.vue";
+import LibraryListPage from "../components/LibraryListPage.vue";
+import LibraryRowCrudButtons from "../components/LibraryRowCrudButtons.vue";
 import LibrarySortControls from "../components/LibrarySortControls.vue";
+import LibraryViewModeToggle from "../components/LibraryViewModeToggle.vue";
 import { useDatasetGallery } from "../composables/useDatasetGallery";
+import { useDebouncedLibrarySearch } from "../composables/useDebouncedLibrarySearch";
+import { useLibraryCrudActions } from "../composables/useLibraryCrudActions";
+import { useLibraryListSelection } from "../composables/useLibraryListSelection";
 import {
   DATASET_LIBRARY_VIEW_KEY,
   useDatasetViewMode,
 } from "../composables/useDatasetViewMode";
 import { useLibraryListSort } from "../composables/useLibraryListSort";
-import { formatError } from "../lib/formatError";
 import { formatLibraryTimestamp } from "../lib/formatLibraryTime";
 import { libraryThumbSource } from "../lib/previewThumbs";
-import type { JsonRecord } from "../types/runtime";
+import type { DatasetSearchItem } from "../types/api";
 import type { DatasetPreviewItem } from "../components/DatasetPreviewCollection.vue";
 
 const router = useRouter();
-const rawItems = ref<JsonRecord[]>([]);
-const loading = ref(false);
-const error = ref("");
-const query = ref("");
 const { viewMode } = useDatasetViewMode(DATASET_LIBRARY_VIEW_KEY);
 const {
   sortField,
@@ -96,6 +122,10 @@ const {
   toggleSortOrder,
   orderButtonLabel,
 } = useLibraryListSort("renga-flow-dataset-list-sort", { kind: "dataset" });
+const { rawItems, loading, error, query, load, scheduleSearch } = useDebouncedLibrarySearch(
+  api.searchDatasets,
+  sortParams
+);
 
 function onToggleSortOrder() {
   toggleSortOrder();
@@ -103,11 +133,16 @@ function onToggleSortOrder() {
 }
 
 watch([sortField, sortOrder], () => load());
-const { galleryOpen, galleryTitle, galleryContent, galleryDirectoryIndex, showFromLibrary } =
-  useDatasetGallery();
-let searchTimer: ReturnType<typeof setTimeout> | undefined;
+const {
+  galleryOpen,
+  galleryTitle,
+  galleryContent,
+  galleryDirectoryIndex,
+  galleryLoading,
+  showFromLibrary,
+} = useDatasetGallery();
 
-const previewItems = computed((): DatasetPreviewItem[] =>
+const basePreviewItems = computed((): DatasetPreviewItem[] =>
   rawItems.value.map((row) => ({
     key: String(row.id),
     id: row.id as string | number,
@@ -118,7 +153,22 @@ const previewItems = computed((): DatasetPreviewItem[] =>
   }))
 );
 
-function formatSubtitle(row) {
+const { selectedId, previewItems, selectItem, clearSelection } =
+  useLibraryListSelection(basePreviewItems);
+
+const {
+  busy: crudBusy,
+  duplicateSelected,
+  deleteSelected,
+} = useLibraryCrudActions("dataset", {
+  router,
+  onDeleted: () => {
+    clearSelection();
+    load();
+  },
+});
+
+function formatSubtitle(row: DatasetSearchItem): string {
   const parts = [`#${row.id}`];
   if (row.directory_count != null) {
     parts.push(`${row.directory_count} ${row.directory_count === 1 ? "folder" : "folders"}`);
@@ -127,11 +177,18 @@ function formatSubtitle(row) {
   return parts.join(" · ");
 }
 
-function openItem(item) {
+const tableActionsWidth = computed(() => (viewMode.value === "table" ? 248 : 220));
+
+function onItemClick(item: DatasetPreviewItem) {
+  selectItem(item);
+  openItem(item);
+}
+
+function openItem(item: DatasetPreviewItem) {
   if (item?.id) router.push({ name: "datasets-detail", params: { datasetId: String(item.id) } });
 }
 
-function openGallery(item) {
+function openGallery(item: DatasetPreviewItem) {
   if (!item?.id) return;
   showFromLibrary({
     id: item.id,
@@ -140,35 +197,5 @@ function openGallery(item) {
   });
 }
 
-async function load() {
-  loading.value = true;
-  error.value = "";
-  try {
-    const data = (await api.searchDatasets({
-      q: query.value.trim(),
-      page: 1,
-      page_size: 100,
-      ...sortParams(),
-    })) as { items?: JsonRecord[] };
-    rawItems.value = data.items || [];
-  } catch (e) {
-    error.value = formatError(e);
-    rawItems.value = [];
-  } finally {
-    loading.value = false;
-  }
-}
-
-function scheduleSearch() {
-  clearTimeout(searchTimer);
-  searchTimer = setTimeout(load, 300);
-}
-
-onMounted(load);
+onMounted(() => load());
 </script>
-
-<style scoped>
-.list-body {
-  min-height: 120px;
-}
-</style>

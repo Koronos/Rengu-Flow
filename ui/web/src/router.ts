@@ -9,6 +9,7 @@ import ConfigsListView from "./views/ConfigsListView.vue";
 import DatasetsListView from "./views/DatasetsListView.vue";
 import DatasetEditorView from "./views/DatasetEditorView.vue";
 import DocsView from "./views/DocsView.vue";
+import MaintenanceView from "./views/MaintenanceView.vue";
 import JobsView from "./views/JobsView.vue";
 import RunDetailView from "./views/RunDetailView.vue";
 
@@ -42,6 +43,7 @@ const router = createRouter({
   routes: [
     { path: "/", redirect: "/configs" },
     { path: "/docs", name: "docs", component: DocsView },
+    { path: "/maintenance", name: "maintenance", component: MaintenanceView },
     { path: "/runs/jobs/:id", name: "job-detail", component: RunDetailView, props: { mode: "job" } },
     { path: "/runs", name: "jobs", component: JobsView },
     {

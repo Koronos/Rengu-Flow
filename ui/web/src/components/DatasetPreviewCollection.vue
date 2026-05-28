@@ -4,7 +4,6 @@
       <DatasetPreviewCard
         v-for="item in items"
         :key="item.key"
-        role="listitem"
         :title="item.title"
         :subtitle="item.subtitle"
         :thumbs="item.thumbs"
@@ -29,12 +28,12 @@
       <DatasetPreviewRow
         v-for="item in items"
         :key="item.key"
-        role="listitem"
         :title="item.title"
         :subtitle="item.subtitle"
         :thumbs="item.thumbs"
         :thumb-source="item.thumbSource"
         :warning="item.warning"
+        :active="item.active"
         :fallback-text="item.fallbackText || '…'"
         @click="$emit('item-click', item)"
       >
@@ -54,12 +53,9 @@
       :show-check="showCheck"
       :title-label="tableTitleLabel"
       :subtitle-label="tableSubtitleLabel"
-      :tags-label="tableTagsLabel"
+      :actions-column-width="tableActionsColumnWidth"
       @item-click="$emit('item-click', $event)"
     >
-      <template v-if="$slots.tags" #tags="slotProps">
-        <slot name="tags" v-bind="slotProps" />
-      </template>
       <template v-if="$slots.actions" #actions="slotProps">
         <slot name="actions" v-bind="slotProps" />
       </template>
@@ -75,6 +71,7 @@ import DatasetPreviewList from "./DatasetPreviewList.vue";
 import DatasetPreviewRow from "./DatasetPreviewRow.vue";
 import DatasetPreviewTable from "./DatasetPreviewTable.vue";
 import type { ThumbSource } from "../lib/previewThumbs";
+import type { DirectoryFormRow } from "../lib/datasetDirectoryForm";
 
 export interface DatasetPreviewItem {
   key: string;
@@ -87,6 +84,10 @@ export interface DatasetPreviewItem {
   warning?: boolean;
   active?: boolean;
   stacked?: boolean;
+  /** Directory tab rows (edit dialog, tags, folder stats). */
+  dir?: DirectoryFormRow;
+  index?: number;
+  overrideCount?: number;
 }
 
 defineProps({
@@ -97,7 +98,7 @@ defineProps({
   showCheck: { type: Boolean, default: false },
   tableTitleLabel: { type: String, default: "Name" },
   tableSubtitleLabel: { type: String, default: "Details" },
-  tableTagsLabel: { type: String, default: "Info" },
+  tableActionsColumnWidth: { type: Number, default: 112 },
 });
 
 defineEmits(["item-click"]);

@@ -3,13 +3,17 @@
 from pathlib import Path
 
 from renga_flow.utils.signal_files import (
+    SIGNAL_CONTINUE,
     SIGNAL_EXPORT_MODEL,
     SIGNAL_EXPORT_MODEL_QUIT,
     SIGNAL_PREVIEW,
+    SIGNAL_QUIT,
     SIGNAL_SAVE,
     SIGNAL_SAVE_QUIT,
+    ExportRecoveryAction,
     SignalResult,
     process_signals,
+    wait_for_export_recovery,
 )
 
 
@@ -57,6 +61,13 @@ def test_process_signals_preview(tmp_path):
     result = process_signals(tmp_path)
     assert result.should_preview is True
     assert not (tmp_path / SIGNAL_PREVIEW).exists()
+
+
+def test_wait_for_export_recovery_continue(tmp_path):
+    (tmp_path / SIGNAL_CONTINUE).touch()
+    action = wait_for_export_recovery(tmp_path)
+    assert action == ExportRecoveryAction.CONTINUE
+    assert not (tmp_path / SIGNAL_CONTINUE).exists()
 
 
 def test_process_signals_save_quit_takes_priority_over_save(tmp_path):

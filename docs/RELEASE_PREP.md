@@ -12,7 +12,7 @@
 | Architecture | [developer/architecture.md](developer/architecture.md) — from former executive report (design + flow) |
 | Removed from git | `EXECUTIVE_REPORT.md`, `docs/package-upgrade-journal.md`, `docs/training-tuning-journal.md`, `requirements-pinned.txt`, `scripts/debug_euler_preview.py`, `scripts/run_upgrade_smoke.sh` |
 | Local copies | Former journals + executive report copied to **`tmp/journals/`** (gitignored) |
-| License | Root [LICENSE](../LICENSE) (GPL-3.0-or-later), [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md), `pyproject.toml` `license` field |
+| License | Root `LICENSE` (GPL-3.0-or-later), `THIRD_PARTY_NOTICES.md`, `pyproject.toml` `license` field |
 
 ---
 

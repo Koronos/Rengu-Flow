@@ -108,7 +108,7 @@ def set_config_defaults(config: dict[str, Any]) -> None:
     config.setdefault("caching_batch_size", 1)
     config.setdefault("cache_num_proc", min(8, os.cpu_count() or 1))
     config.setdefault("cache_keep_in_memory", False)
-    config.setdefault("cache_format", "v2")
+    config.setdefault("train_seed", 42)
     config.setdefault("dataloader_num_workers", 0)
     config.setdefault("dataloader_prefetch", False)
     config.setdefault("dataloader_pin_memory", False)

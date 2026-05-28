@@ -10,7 +10,7 @@ Signal files are empty files (or any file) placed in the **run directory**. The 
 
 The run directory is a subfolder of `output_dir` (set in your config; default is `output`).
 
-- **New run**: The framework creates a timestamped folder, e.g. `output/20250217_14-30-00` or `output/20250217_14-30-00_my_run` if you set `run_name` in config.
+- **New run**: The framework creates a timestamped folder, e.g. `output/20250217_14-30-00`, or `output/my_experiment_20250217_14-30-00` if you set `run_name` in config (optional label for folders and TensorBoard).
 - **Resume**: The run directory is the checkpoint folder you are resuming from (e.g. the same timestamped folder or one you pass via `--resume_from_checkpoint <folder_name>`).
 
 To find the current run directory:
@@ -28,8 +28,10 @@ To find the current run directory:
 | Export model | `export_model` | On the next step: export adapter or full model to `signal_step<N>/` (usable weights), then remove the file. |
 | Export & quit | `export_model_quit` | Same as `export_model`, then exit. |
 | Preview | `preview` | On the next step: run configured [previews](previews.md) and log images to TensorBoard, then remove the file. |
+| Continue export | `continue` | While paused after disk-full export: retry that export, then resume training. |
+| Quit without save | `quit` | While paused after disk-full export: exit without checkpoint or export. |
 
-Signals are processed **once per step**. There is no reaction between steps (e.g. no immediate pause mid-step).
+Signals are processed **once per step** during normal training. During an export wait loop, `continue` / `quit` / `save*` are polled every few seconds.
 
 **Checkpoint vs model export:** `save` / `save_quit` only create **resume checkpoints** (optimizer, scheduler, dataloader state). They do **not** write `model.safetensors` or adapter files for inference. For that, use `export_model` or configure `save_every_n_epochs` / `save_every_n_steps` in TOML. See [Checkpoints, model export, and retention](checkpoint-and-save.md).
 
@@ -54,7 +56,15 @@ touch /path/to/output/20250217_14-30-00/export_model_quit
 
 # Generate preview images (TensorBoard)
 touch /path/to/output/20250217_14-30-00/preview
+
+# After disk-full export pause: retry export and resume training
+touch /path/to/output/20250217_14-30-00/continue
+
+# Exit without saving while paused
+touch /path/to/output/20250217_14-30-00/quit
 ```
+
+**From the web UI:** Open a run under **Runs** (job or folder on disk). The **Signals** section lists the same actions as above; hover a button for a short hint, or open **Signal files guide** for this page. The **Train** live panel shows **Continue export** when `status.json` reports `waiting_disk_export`.
 
 **From a script or manager:**
 

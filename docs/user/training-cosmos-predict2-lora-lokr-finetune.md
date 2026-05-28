@@ -98,7 +98,7 @@ With `cache_text_embeddings = true` (default), text embeddings are cached once; 
 
 ## Performance and VRAM (Anima / Cosmos)
 
-Guidance for **real runs (typically ≥1000 steps)** on **LoKR** with ~16 GB VRAM (e.g. RTX 4080). Install deps with `pip install -e ".[cosmos_predict2]"` or `uv sync --extra cosmos_predict2` (see [pyproject.toml](../../pyproject.toml)).
+Guidance for **real runs (typically ≥1000 steps)** on **LoKR** with ~16 GB VRAM (e.g. RTX 4080). Install deps with `pip install -e ".[cosmos_predict2]"` or `uv sync --extra cosmos_predict2` (see `pyproject.toml`).
 
 Short tuning smokes (30 steps) are only **previews** for CI and quick regressions. They mix in `torch.compile` warmup and are **not** representative of per-step time on long jobs — ignore smoke averages for `compile`; judge steady-state iter time after warmup on your own run.
 
@@ -108,7 +108,7 @@ Short tuning smokes (30 steps) are only **previews** for CI and quick regression
 |---------|----------------|
 | **`cache_text_embeddings = true`** | Run `--cache_only` once; training should not re-encode captions every step. |
 | **`activation_checkpointing = true`** | Required for typical VRAM on 16 GB; `false` caused **OOM** in tuning (~16 GB peak). |
-| **`reentrant_activation_checkpointing = true`** | Default for `cosmos_predict2` when AC is on ([`defaults.py`](../../renga_flow/config/defaults.py)); modest steady-state gain vs `false`. |
+| **`reentrant_activation_checkpointing = true`** | Default for `cosmos_predict2` when AC is on (`renga_flow/config/defaults.py`); modest steady-state gain vs `false`. |
 | **`compile = true`** | Enables **`pipeline_model.compile()`** (diffusion-pipe parity). After Inductor warmup, steady steps were ~**0.51 s** vs ~**0.68–0.70 s** without compile on the same LoKR setup — worthwhile when the run is long enough to amortize slower early steps. Optional: `compile_mode = "reduce-overhead"`. |
 | **`micro_batch_size_per_gpu`** | Set from VRAM; use **`gradient_accumulation_steps`** for effective batch without OOM. |
 

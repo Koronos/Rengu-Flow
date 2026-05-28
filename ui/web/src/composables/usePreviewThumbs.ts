@@ -1,5 +1,12 @@
-import { onUnmounted, ref, unref, watch, type MaybeRefOrGetter, toValue } from "vue";
+import { onUnmounted, ref, type MaybeRefOrGetter, toValue, watch } from "vue";
 import { loadPreviewThumbs, type ThumbSource } from "../lib/previewThumbs";
+
+const DEBOUNCE_MS = 200;
+
+function thumbSourceKey(src: ThumbSource | null | undefined): string {
+  if (!src) return "";
+  return src.kind === "library" ? `library:${src.id}` : `path:${src.path}`;
+}
 
 /** Load preview image URLs from a library id or folder path. */
 export function usePreviewThumbs(
@@ -9,6 +16,8 @@ export function usePreviewThumbs(
   const thumbs = ref<string[]>([]);
   const loading = ref(false);
   let requestId = 0;
+  let debounceTimer: ReturnType<typeof setTimeout> | undefined;
+  let lastWatchKey = "";
 
   async function load() {
     const src = toValue(source);
@@ -25,10 +34,25 @@ export function usePreviewThumbs(
     }
   }
 
-  watch(() => [toValue(source), toValue(limit)], load, { immediate: true, deep: true });
+  function scheduleLoad() {
+    const watchKey = `${thumbSourceKey(toValue(source))}\0${toValue(limit)}`;
+    if (watchKey === lastWatchKey) {
+      return;
+    }
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      lastWatchKey = watchKey;
+      load();
+    }, DEBOUNCE_MS);
+  }
+
+  watch(() => `${thumbSourceKey(toValue(source))}\0${toValue(limit)}`, scheduleLoad, {
+    immediate: true,
+  });
 
   onUnmounted(() => {
     requestId += 1;
+    if (debounceTimer) clearTimeout(debounceTimer);
   });
 
   return { thumbs, loading };

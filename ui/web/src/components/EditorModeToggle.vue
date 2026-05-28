@@ -22,7 +22,7 @@ defineProps({
 
 const emit = defineEmits(["update:modelValue"]);
 
-function setMode(mode) {
+function setMode(mode: "form" | "toml") {
   if (mode !== "form" && mode !== "toml") return;
   emit("update:modelValue", mode);
 }

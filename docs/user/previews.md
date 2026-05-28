@@ -12,8 +12,12 @@ Add a `[preview]` section with at least one prompt:
 [preview]
 prompts = [
   "photo of a red sports car, studio lighting",
-  { name = "portrait", prompt = "1woman, soft light, detailed face" },
 ]
+
+[[preview.prompts]]
+name = "portrait"
+prompt = "1woman, soft light, detailed face"
+
 negative_prompt = "blurry, low quality"
 width = 1024
 height = 1024
@@ -65,7 +69,7 @@ With `preview_save_png = true`, PNGs are also on disk at `output/<run_dir>/previ
 
 Previews appear under the **`preview/`** namespace, e.g. `preview/prompt_0`, `preview/portrait`.
 
-**Important:** point TensorBoard at the **parent `output/` directory**, not the run folder. If you use `--logdir output/20250217_14-30-00_my_run`, the sidebar shows only a dot (`.`) as the run name.
+**Important:** point TensorBoard at the **parent `output/` directory**, not the run folder. If you use `--logdir output/my_experiment_20250217_14-30-00`, the sidebar shows only a dot (`.`) as the run name.
 
 ```bash
 tensorboard --logdir output

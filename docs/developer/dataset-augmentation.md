@@ -17,7 +17,7 @@ Do **not** expose numeric strategy indices in config files or user docs.
 ## Scope
 
 - **Goal:** In-distribution variation (reduce memorisation) without inventing new scenes.
-- **Hook point:** RGB (and masks with the same geometric transform) should be augmented inside the same path as `preprocess_media_file_fn` in [`renga_flow/data/manager.py`](../../renga_flow/data/manager.py) (`_cache_fn` → `latents_map_fn`), **before** VAE encode, unless a mode explicitly decodes latents each step (unusual).
+- **Hook point:** RGB (and masks with the same geometric transform) should be augmented inside the same path as `preprocess_media_file_fn` in `renga_flow/data/manager.py` (`_cache_fn` → `latents_map_fn`), **before** VAE encode, unless a mode explicitly decodes latents each step (unusual).
 - **Masks:** Any geometric augmentation must apply consistently to image and mask; photometric augments typically apply to image only.
 
 ## Cache and seed modes
@@ -95,13 +95,13 @@ This section defines the **implementation contract** for discrete augmentation b
 
 | Module | Role |
 |--------|------|
-| [`renga_flow/data/augmentation/config.py`](../../renga_flow/data/augmentation/config.py) | Merge, validate, fingerprint |
-| [`renga_flow/data/augmentation/presets.py`](../../renga_flow/data/augmentation/presets.py) | Preset → default strategies |
-| [`renga_flow/data/augmentation/registry.py`](../../renga_flow/data/augmentation/registry.py) | PIL implementations |
-| [`renga_flow/data/augmentation/apply.py`](../../renga_flow/data/augmentation/apply.py) | `apply_augmentation()` |
-| [`renga_flow/data/augmentation/branches.py`](../../renga_flow/data/augmentation/branches.py) | Enumerated variant keys |
-| [`renga_flow/data/preprocess_media.py`](../../renga_flow/data/preprocess_media.py) | Hook before crop/resize |
-| [`renga_flow/data/dataset.py`](../../renga_flow/data/dataset.py) | Metadata rows + latent fingerprint |
+| `renga_flow/data/augmentation/config.py` | Merge, validate, fingerprint |
+| `renga_flow/data/augmentation/presets.py` | Preset → default strategies |
+| `renga_flow/data/augmentation/registry.py` | PIL implementations |
+| `renga_flow/data/augmentation/apply.py` | `apply_augmentation()` |
+| `renga_flow/data/augmentation/branches.py` | Enumerated variant keys |
+| `renga_flow/data/preprocess_media.py` | Hook before crop/resize |
+| `renga_flow/data/dataset.py` | Metadata rows + latent fingerprint |
 
 **MVP strategy names:** `horizontal_flip`, `color_jitter`, `gamma`, `jpeg_simulation`, `temperature_tint`, `chromatic_aberration`, `gaussian_noise`, `crop_jitter`, `small_rotation`, `film_grain`, `lab_jitter`, `split_toning`.
 
@@ -207,10 +207,10 @@ Presets are defined as **enabled strategy names (strings) + default parameter st
 
 1. **Done (MVP)** Parse `augmentation` with **`strategies`** as named maps; validate keys against canonical names.
 2. **Done (MVP)** Preset → default strategy map merge with user `strategies`.
-3. **Done (MVP)** `apply_augmentation()` in [`PreprocessMediaFile`](../../renga_flow/data/preprocess_media.py) before crop/resize.
+3. **Done (MVP)** `apply_augmentation()` in `PreprocessMediaFile` (`renga_flow/data/preprocess_media.py`) before crop/resize.
 4. **Done (MVP)** Fingerprint resolved config in `SizeBucketDataset.cache_latents` (`aug_mvp=1` + JSON fingerprint).
 5. **Done (MVP)** Metadata expansion with `image_spec` variant suffix; separate latent rows per branch.
-6. **Done (MVP)** Tests in [`tests/test_augmentation.py`](../../tests/test_augmentation.py).
+6. **Done (MVP)** Tests in `tests/test_augmentation.py`.
 7. **Future** Remaining catalogue strategies; video per-frame augmentation; deferred presets.
 
 ## References

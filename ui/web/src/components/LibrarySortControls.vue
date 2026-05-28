@@ -12,19 +12,19 @@
         :value="opt.value"
       />
     </el-select>
-    <el-button
-      circle
-      size="small"
-      class="library-sort-order"
-      :title="orderButtonLabel"
-      :aria-label="orderButtonLabel"
-      @click="$emit('toggle-order')"
-    >
-      <el-icon>
-        <ArrowDown v-if="sortOrder === 'desc'" />
-        <ArrowUp v-else />
-      </el-icon>
-    </el-button>
+    <el-tooltip :content="orderButtonLabel">
+      <el-button
+        circle
+        size="small"
+        class="library-sort-order"
+        @click="$emit('toggle-order')"
+      >
+        <el-icon>
+          <ArrowDown v-if="sortOrder === 'desc'" />
+          <ArrowUp v-else />
+        </el-icon>
+      </el-button>
+    </el-tooltip>
   </div>
 </template>
 

@@ -11,8 +11,8 @@ A **TOML-driven training framework** for diffusion models. You define a config f
 
 ## Requirements
 
-- **Python** ≥ 3.10
-- **OS**: Linux (recommended for DeepSpeed and CUDA). May work on other platforms with a compatible PyTorch/DeepSpeed setup.
+- **OS**: Linux (required for the `renga` CLI and recommended for DeepSpeed/CUDA).
+- **uv**: Required for `./renga`, `./start-ui.sh`, and documented setup ([CLI guide](docs/user/cli.md)). uv installs Python ≥ 3.10 into `.venv` when needed.
 - **GPU**: NVIDIA GPU with CUDA for training; see [pyproject.toml](pyproject.toml) for Python dependencies (PyTorch, DeepSpeed, etc.).
 
 ## Models and adapters
@@ -26,58 +26,48 @@ Set `[model] type = "sdxl"` or `type = "cosmos_predict2"` and `[adapter] type = 
 
 ## Installation
 
-From the project root:
+From the project root (Linux):
 
 ```bash
-pip install -e .
+./renga init          # renga.local.toml + uv sync
+./renga init ui       # optional web UI dependencies
 ```
 
-For development you can use **uv**: `uv sync` then `uv run python -m renga_flow.main ...`.
+Advanced: run `uv sync` yourself, then `.venv/bin/renga`. The `./renga` wrapper runs `uv sync` on first use. See [CLI guide](docs/user/cli.md).
 
-Optional: LoRA/Lycoris-style adapters can use the `lycoris` extra: `pip install -e ".[lycoris]"`.
+Optional extras: `./renga init cosmos`, `./renga init lycoris`, etc.
 
 ## Quick start
 
-1. **Install** (see above).
+1. **Setup:** `./renga init` (and `./renga init ui` if you use the web UI).
 
-2. **Local model paths (optional).** Copy `.env.example` to `.env` (gitignored) and set `RENGA_SDXL_CHECKPOINT_PATH` or `RENGA_COSMOS_*` paths. Training loads `.env` automatically and overrides `[model]` checkpoint keys when those variables are set.
+2. **Local settings (optional).** Copy `renga.local.toml.example` to `renga.local.toml` (created automatically by `renga init`) for UI host/port and training launcher defaults. Model checkpoint paths go in the **training TOML**, not here.
 
-3. **Prepare a config.** Copy an example and set your paths:
+3. **Prepare a training config:**
 
    ```bash
    cp examples/minimal_config_lora_sdxl.toml my_train.toml
    ```
 
-   Edit `my_train.toml`: set `dataset` to your dataset TOML path, and under `[model]` set `checkpoint_path` (or use `.env` as above).
+   Edit `my_train.toml`: set `dataset` and `[model]` paths (e.g. `checkpoint_path` for SDXL).
 
-4. **Run training** with DeepSpeed:
+4. **Run training:**
 
    ```bash
-   deepspeed --num_gpus=1 -m renga_flow.main --config my_train.toml
+   ./renga train --config my_train.toml
    ```
 
-   For a single GPU you can use `--num_gpus=1`. Use more GPUs or a launcher (e.g. `torchrun`) for multi-GPU. Output and checkpoints go to `output_dir` (default `output`); each run gets a timestamped subfolder.
+   Or with DeepSpeed directly: `deepspeed --num_gpus=1 -m renga_flow.main --config my_train.toml`
 
-To only validate the config without training (e.g. if DeepSpeed is not set up), run:
-
-```bash
-python -m renga_flow.main --config my_train.toml
-```
-
-The script will load and validate the config then exit.
+   Validate only: `./renga validate --config my_train.toml`
 
 ## Web UI (optional)
 
-Local control panel for configs, jobs, logs, and signal files:
-
 ```bash
-./start-ui.sh          # keep the terminal open
-./start-ui-dev.sh      # development: Vite HMR + API reload
+./renga ui start
 ```
 
-Use Linux or WSL (training stack is not supported on native Windows).
-
-See [Web UI user guide](docs/user/web-ui.md). Training without the UI is unchanged (`pip install -e .` only).
+See [Web UI user guide](docs/user/web-ui.md) and [CLI guide](docs/user/cli.md).
 
 ## Documentation
 

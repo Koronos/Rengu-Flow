@@ -15,12 +15,5 @@ export function parseNumberList(value: RawListInput): number[] {
     if (!Number.isFinite(n)) continue;
     out.push(roundNumber(n));
   }
-  return uniqueSorted(out.map((n) => roundNumber(n)), (a, b) => a - b);
-}
-
-export function numberListToFormValue(numbers: number[]): number[] | "" {
-  if (!Array.isArray(numbers) || numbers.length === 0) {
-    return "";
-  }
-  return numbers;
+  return uniqueSorted(out, (a, b) => a - b);
 }

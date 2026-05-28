@@ -5,14 +5,16 @@ This page describes the **technical contract** and **implementation** of the fil
 ## Contract
 
 - **Location**: Signal files live in the **root** of the run directory (`run_dir`). There is no `signals/` subdirectory; `save` / `save_quit` match diffusion-pipe for manager/script compatibility.
-- **Names**: `save`, `save_quit`, `export_model`, `export_model_quit`, `preview` (see constants below).
-- **Consumption**: Checked once per training step via `Saver.process_step` → `process_signals()`. Only rank 0 reads and removes files; result is broadcast to all ranks.
+- **Names**: `save`, `save_quit`, `export_model`, `export_model_quit`, `preview`, `continue`, `quit` (see constants below).
+- **Consumption**: Normal step — `Saver.process_step` → `process_signals()`. Export wait — `wait_for_export_recovery(run_dir)` polls `continue` / `quit` / `save*` / `export_model*` every 2s.
+- Only rank 0 reads and removes files; result is broadcast to all ranks.
 - **Barriers**: Barriers keep ranks aligned before/after file removal.
 
 ## Where the code lives
 
 - **Module**: `renga_flow.utils.signal_files`
-- **Constants**: `SIGNAL_SAVE`, `SIGNAL_SAVE_QUIT`, `SIGNAL_EXPORT_MODEL`, `SIGNAL_EXPORT_MODEL_QUIT`, `SIGNAL_PREVIEW`
+- **Constants**: `SIGNAL_SAVE`, `SIGNAL_SAVE_QUIT`, `SIGNAL_EXPORT_MODEL`, `SIGNAL_EXPORT_MODEL_QUIT`, `SIGNAL_PREVIEW`, `SIGNAL_CONTINUE`, `SIGNAL_QUIT`
+- **Export wait**: `ExportRecoveryAction`, `wait_for_export_recovery(run_dir) -> ExportRecoveryAction`
 - **Return type**: `SignalResult(should_checkpoint, should_quit, should_export_model, should_export_quit, should_preview)`
 - **Function**: `process_signals(run_dir: str | Path) -> SignalResult`
 - **Call site**: `renga_flow.utils.saver.Saver.process_step` — reacts to export signals with `save_model(f"signal_step{step}")`, checkpoint signals with `save_checkpoint`, and `sys.exit(0)` when `should_quit` or `should_export_quit`.
@@ -58,7 +60,7 @@ Keeping `save` / `save_quit` names and the run_dir root preserves diffusion-pipe
 
 - `tests/test_signal_files.py` — `process_signals` for each file name and `save_quit` vs `save` priority.
 - `tests/test_saver_signals.py` — `Saver.process_step` with mocked DeepSpeed engine.
-- `tests/test_ui_signals.py` — `renga_flow_ui.signals.send_signal` and `POST /api/v1/jobs/{id}/signals`.
+- `tests/test_ui_signals.py` — `renga_flow_ui.signals.send_signal` and `POST /api/v1/jobs/{id}/signals` (includes `continue`, `quit`).
 - `tests/test_genericoptim_cpu_state.py` — `GenericOptim` + `kahan_buffer_offload` state on CPU after `step` / `load_state_dict`.
 
 **GPU smoke (Cosmos Predict2, manual):**

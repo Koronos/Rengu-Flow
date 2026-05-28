@@ -55,8 +55,8 @@
 
         <div v-if="adapterModeField(sec)" class="adapter-mode-row">
           <ConfigFormField
-            :field="adapterModeField(sec)"
-            :form="form"
+            :field="adapterModeField(sec)!"
+            :form="formValues"
             :capabilities="modelCapabilities"
             @update:path="onFieldUpdate"
           />
@@ -85,7 +85,7 @@
           class="registry-alert"
         >
           <template v-if="modelSupportsAdapters(selectedCapability)">
-            Adapter types: <strong>{{ selectedCapability.adapters.join(", ") }}</strong>
+            Adapter types: <strong>{{ selectedCapability.adapters?.join(", ") }}</strong>
             <span v-if="selectedCapability.full_finetune"> — or disable adapter for full finetune.</span>
           </template>
           <template v-else-if="selectedCapability.full_finetune">
@@ -105,7 +105,7 @@
               >
                 <ConfigFormField
                   :field="field"
-                  :form="form"
+                  :form="formValues"
                   :capabilities="modelCapabilities"
                   @update:path="onFieldUpdate"
                 />
@@ -129,7 +129,7 @@
               >
                 <ConfigFormField
                   :field="field"
-                  :form="form"
+                  :form="formValues"
                   :capabilities="modelCapabilities"
                   @update:path="onFieldUpdate"
                 />
@@ -149,7 +149,7 @@
                 >
                   <ConfigFormField
                     :field="field"
-                    :form="form"
+                    :form="formValues"
                     :capabilities="modelCapabilities"
                     @update:path="onFieldUpdate"
                   />
@@ -172,7 +172,7 @@
                   >
                     <ConfigFormField
                       :field="field"
-                      :form="form"
+                      :form="formValues"
                       :capabilities="modelCapabilities"
                       @update:path="onFieldUpdate"
                     />
@@ -203,25 +203,43 @@ import {
   trainingModesLabel,
 } from "../lib/formUtils";
 import { useConfigEditorStore } from "../stores/configEditor";
+import type { FormValues, SchemaField } from "../types/forms";
+
+interface SchemaSection {
+  id: string;
+  title?: string;
+  description?: string;
+  fields?: SchemaField[];
+  flat_optional?: boolean;
+}
+
+interface ConfigFormTab {
+  id: string;
+  label: string;
+  description?: string;
+  sections: SchemaSection[];
+}
 
 const editor = useConfigEditorStore();
 const { form, schema, parseError, modelCapabilities, formVersion } = storeToRefs(editor);
 
-const advancedOpen = reactive({});
+const advancedOpen = reactive<Record<string, string[]>>({});
 const activeTab = ref("setup");
 
+const formValues = computed(() => form.value ?? ({} as FormValues));
+
 const selectedCapability = computed(() =>
-  getModelCapability(modelCapabilities.value, form.value?.["model.type"])
+  getModelCapability(modelCapabilities.value, formValues.value["model.type"])
 );
 
 const trainingModesText = computed(() => trainingModesLabel(selectedCapability.value));
 
 const visibleTabs = computed(() => {
   if (!schema.value) return [];
-  return buildConfigFormTabs(schema.value.sections, sectionHasVisibleFields);
+  return buildConfigFormTabs(schema.value.sections as SchemaSection[] | undefined, sectionHasVisibleFields);
 });
 
-function tabAttention(tab) {
+function tabAttention(tab: ConfigFormTab): number {
   let n = 0;
   for (const sec of tab.sections) {
     n += attentionCount(sec);
@@ -229,39 +247,46 @@ function tabAttention(tab) {
   return n;
 }
 
-function sectionHasVisibleFields(sec) {
+function sectionHasVisibleFields(sec: SchemaSection): boolean {
   if (adapterModeField(sec)) return true;
   const p = partition(sec);
   return p.required.length + p.recommended.length + p.advanced.length > 0;
 }
 
-function fieldImportance(field) {
+function fieldImportance(field: SchemaField): "required" | "recommended" | "advanced" {
   if (field.path === "output_dir") return "advanced";
-  if (field.importance) return field.importance;
+  if (field.importance === "required" || field.importance === "recommended" || field.importance === "advanced") {
+    return field.importance;
+  }
   if (field.required) return "required";
   if (field.recommended) return "recommended";
   return "advanced";
 }
 
 const ADAPTER_MODE_PATH = "_has_adapter";
+/** Shown at top of config editor page, not in the Setup tab. */
+const PINNED_TOP_FIELD_PATH = "run_name";
 
-function isPinnedAdapterField(sec, field) {
+function isPinnedAdapterField(sec: SchemaSection, field: SchemaField): boolean {
   return sec.id === "adapter" && field.path === ADAPTER_MODE_PATH;
 }
 
-function adapterModeField(sec) {
+function adapterModeField(sec: SchemaSection): SchemaField | null {
   if (sec.id !== "adapter") return null;
   const caps = modelCapabilities.value;
   const field = (sec.fields || []).find((f) => f.path === ADAPTER_MODE_PATH);
-  if (!field || !fieldVisible(field, form.value, caps)) return null;
+  if (!field || !fieldVisible(field, formValues.value, caps)) return null;
   return field;
 }
 
-function partition(sec) {
+function partition(sec: SchemaSection) {
   const caps = modelCapabilities.value;
-  const values = form.value || {};
+  const values = formValues.value;
   const visible = (sec.fields || []).filter(
-    (f) => fieldVisible(f, values, caps) && !isPinnedAdapterField(sec, f)
+    (f) =>
+      fieldVisible(f, values, caps) &&
+      !isPinnedAdapterField(sec, f) &&
+      f.path !== PINNED_TOP_FIELD_PATH
   );
   const required = visible.filter((f) => fieldImportance(f) === "required");
   const recommended = visible.filter((f) => fieldImportance(f) === "recommended");
@@ -269,25 +294,25 @@ function partition(sec) {
   return { required, recommended, advanced };
 }
 
-function unfilledCount(sec) {
+function unfilledCount(sec: SchemaSection) {
   const p = partition(sec);
-  const values = form.value || {};
+  const values = formValues.value;
   return {
     required: p.required.filter((f) => !fieldIsFilled(f, values)).length,
     recommended: p.recommended.filter((f) => !fieldIsFilled(f, values)).length,
   };
 }
 
-function attentionCount(sec) {
+function attentionCount(sec: SchemaSection): number {
   const u = unfilledCount(sec);
   return u.required + u.recommended;
 }
 
-function fieldColSpan(field) {
+function fieldColSpan(field: SchemaField): number {
   return configFieldColSpan(field);
 }
 
-function onFieldUpdate({ path, value }) {
+function onFieldUpdate({ path, value }: { path: string; value: unknown }): void {
   editor.patchFormField(path, value);
 }
 

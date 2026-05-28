@@ -7,6 +7,25 @@
     </el-page-header>
 
     <el-alert v-if="error" type="error" :title="error" show-icon class="mt-12" />
+    <el-alert
+      v-if="streamError"
+      type="warning"
+      :title="streamError"
+      show-icon
+      class="mt-12"
+    />
+
+    <el-alert
+      v-if="diskExportWait"
+      type="warning"
+      show-icon
+      class="mt-12"
+      title="Training paused — disk full during model export"
+    >
+      Free disk space on the run directory, then use <strong>Continue export</strong> below.
+      Weights stay loaded on the GPU until the export succeeds or you quit.
+      See <router-link to="/docs/checkpoint-and-save">Checkpoints &amp; export</router-link>.
+    </el-alert>
 
     <el-card shadow="never" class="mt-12">
       <el-descriptions :column="isMobile ? 1 : 2" border size="small">
@@ -55,27 +74,47 @@
         </el-text>
       </div>
 
-      <el-divider content-position="left">Signals</el-divider>
-      <div class="signal-grid">
-        <el-button
-          v-for="s in SIGNALS"
-          :key="s[0]"
-          size="small"
-          @click="sendSignal(s[0])"
-        >
-          {{ s[1] }}
+      <p v-if="signalsAvailable" class="signals-intro">
+        <el-text type="info" size="small">{{ signalSectionHint }}</el-text>
+        <el-button type="primary" link size="small" @click="signalDocOpen = true">
+          Signal files guide
         </el-button>
-      </div>
+      </p>
+      <RunSignalActions
+        :available="signalsAvailable"
+        :disk-export-wait="diskExportWait"
+        :show-unavailable-hint="true"
+        @send="sendSignal"
+      />
+      <DocMarkdownDrawer v-model="signalDocOpen" :doc-path="signalDocPath" />
     </el-card>
 
     <el-card shadow="never" class="mt-12">
-      <template #header>Loss</template>
-      <ScalarLineChart :scalars="metrics" tag="train/loss" />
+      <template #header>
+        <div class="loss-card-head">
+          <span>Loss</span>
+          <AutoRefreshBar
+            :interval-sec="intervalSec"
+            :refreshing="metricsRefreshing"
+            :polling="metricsPolling"
+            :last-updated="metricsLastUpdated"
+            :paused="metricsPaused"
+            @update:interval-sec="setMetricsInterval"
+            @refresh="refreshMetricsNow"
+          />
+        </div>
+      </template>
+      <RunLossMonitor
+        :scalars="metrics"
+        :preview-images="previewImages"
+        :loading="metricsLoading"
+        :loading-strong="metricsRefreshing"
+      />
     </el-card>
 
     <el-card v-if="mode === 'job'" shadow="never" class="mt-12">
       <template #header>Log</template>
-      <pre class="log-pre">{{ log || "(waiting for output…)" }}</pre>
+      <pre class="log-pre">{{ logText || "(waiting for output…)" }}</pre>
     </el-card>
 
     <el-card v-if="artifacts.length" shadow="never" class="mt-12">
@@ -89,14 +128,24 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { api } from "../api";
+import AutoRefreshBar from "../components/AutoRefreshBar.vue";
+import { useAutoRefresh } from "../composables/useAutoRefresh";
 import { useBreakpoint } from "../composables/useBreakpoint";
+import { useJobLogStream } from "../composables/useJobLogStream";
 import { useTensorboard } from "../composables/useTensorboard";
-import ScalarLineChart from "../components/ScalarLineChart.vue";
-import type { FsRunRecord, JobRecord, JsonRecord } from "../types/runtime";
+import { formatError } from "../lib/formatError";
+import RunLossMonitor from "../components/RunLossMonitor.vue";
+import type { ScalarPoint } from "../lib/scalarChart";
+import type { RunPreviewImageRef } from "../types/api";
+import DocMarkdownDrawer from "../components/DocMarkdownDrawer.vue";
+import RunSignalActions from "../components/RunSignalActions.vue";
+import { SIGNAL_DOC_PATH, SIGNAL_SECTION_HINT } from "../lib/signalHelp";
+import { fsRunSignalsAvailable, jobSignalsAvailable } from "../lib/trainingSignals";
+import type { FsRunRecord, JobRecord } from "../types/api";
 
 const props = defineProps({
   mode: { type: String, required: true },
@@ -107,40 +156,49 @@ const route = useRoute();
 const router = useRouter();
 const { isMobile } = useBreakpoint();
 
-const SIGNALS = [
-  ["save", "Checkpoint"],
-  ["save_quit", "Checkpoint + quit"],
-  ["export_model", "Export model"],
-  ["export_model_quit", "Export + quit"],
-  ["preview", "Preview"],
-];
+const signalSectionHint = SIGNAL_SECTION_HINT;
+const signalDocPath = SIGNAL_DOC_PATH;
+const signalDocOpen = ref(false);
 
 const job = ref<JobRecord | null>(null);
 const fsRun = ref<FsRunRecord | null>(null);
-const jobArtifacts = ref<JsonRecord[]>([]);
-const log = ref("");
-const metrics = ref<Record<string, unknown>>({});
+const jobArtifacts = ref<Record<string, unknown>[]>([]);
+const metrics = ref<Record<string, ScalarPoint[]>>({});
+const previewImages = ref<RunPreviewImageRef[]>([]);
 const error = ref("");
 const outputDir = ref("output");
 const { tbLoading, tbStatus, refreshTbStatus, openTensorboard, stopTensorboard } = useTensorboard(
   () => String(job.value?.output_dir || outputDir.value || "output")
 );
-let pollTimer: ReturnType<typeof setInterval> | null = null;
-let logTimer: ReturnType<typeof setInterval> | null = null;
-let logOffset = 0;
 let cachedPreviewRunDir: string | null = null;
 
 const key = computed(() => (props.mode === "job" ? route.params.id : route.params.name));
+const jobId = computed(() => {
+  const runKey = key.value;
+  return props.mode === "job" && runKey != null ? String(Array.isArray(runKey) ? runKey[0] : runKey) : "";
+});
+const { logText, streamError } = useJobLogStream(jobId);
 
 const title = computed(() =>
   props.mode === "job" ? `Job ${key.value}` : `Run ${key.value}`
 );
 
 const runDir = computed(() => job.value?.run_dir || fsRun.value?.path);
-const status = computed(() => fsRun.value?.status || null);
+const status = computed(() => job.value?.status || fsRun.value?.status || null);
+const diskExportWait = computed(() => status.value?.phase === "waiting_disk_export");
+const signalsAvailable = computed(() =>
+  props.mode === "job" ? jobSignalsAvailable(job.value) : fsRunSignalsAvailable(fsRun.value)
+);
 const artifacts = computed(() => fsRun.value?.artifacts?.length ? fsRun.value.artifacts : jobArtifacts.value);
+const runIsActive = computed(() => {
+  if (props.mode === "job") {
+    const s = job.value?.state;
+    return s === "running" || s === "stopping";
+  }
+  return false;
+});
 
-function formatLoss(v) {
+function formatLoss(v: number | null | undefined): string | number | null | undefined {
   return typeof v === "number" ? v.toFixed(6) : v;
 }
 
@@ -153,114 +211,138 @@ function goContinueTraining() {
   router.push({ name: "configs-new", query: { continue_run: runDir.value } });
 }
 
-function openTensorboardForRun() {
-  openTensorboard({ onError: (msg) => { error.value = msg; } }).catch(() => {});
+async function openTensorboardForRun() {
+  try {
+    await openTensorboard({ onError: (msg) => { error.value = msg; } });
+    await refreshTbStatus();
+  } catch {
+    /* ElMessage already shown */
+  }
 }
 
-function stopTensorboardForRun() {
-  stopTensorboard({ onError: (msg) => { error.value = msg; } }).catch(() => {});
+async function stopTensorboardForRun() {
+  try {
+    await stopTensorboard({ onError: (msg) => { error.value = msg; } });
+    await refreshTbStatus();
+  } catch {
+    /* ElMessage already shown */
+  }
 }
 
-async function poll() {
+async function loadJobMetadata(runKey: string): Promise<void> {
+  if (!job.value?.run_dir) {
+    fsRun.value = null;
+    jobArtifacts.value = [];
+    return;
+  }
+  if (job.value.run_dir !== cachedPreviewRunDir || job.value.state === "running") {
+    cachedPreviewRunDir = job.value.run_dir;
+    const [previewResult, artifactsResult] = await Promise.allSettled([
+      api.previewJobImport(job.value.run_dir),
+      api.jobArtifacts(runKey),
+    ]);
+    if (previewResult.status === "fulfilled") {
+      const preview = previewResult.value as { run?: FsRunRecord };
+      fsRun.value = preview.run || null;
+    }
+    if (artifactsResult.status === "fulfilled") {
+      const art = artifactsResult.value as { artifacts?: Record<string, unknown>[] };
+      jobArtifacts.value = art.artifacts || [];
+    }
+  }
+}
+
+async function poll(signal: AbortSignal) {
   try {
     if (props.mode === "job") {
-      job.value = (await api.getJob(String(key.value))) as JobRecord;
-      const m = (await api.jobMetrics(String(key.value))) as { scalars?: Record<string, unknown> };
-      metrics.value = m.scalars || {};
-      fsRun.value = null;
-      jobArtifacts.value = [];
-      if (job.value?.run_dir) {
-        if (job.value.run_dir !== cachedPreviewRunDir) {
-          cachedPreviewRunDir = job.value.run_dir;
-          jobArtifacts.value = [];
-          try {
-            const preview = (await api.previewJobImport(job.value.run_dir)) as {
-              run?: FsRunRecord;
-            };
-            fsRun.value = preview.run || null;
-          } catch {
-            /* optional metadata */
-          }
-          try {
-            const art = (await api.jobArtifacts(String(key.value))) as {
-              artifacts?: JsonRecord[];
-            };
-            jobArtifacts.value = art.artifacts || [];
-          } catch {
-            /* ignore */
-          }
-        }
-      }
-    } else {
-      fsRun.value = (await api.getFsRun(String(key.value), outputDir.value)) as FsRunRecord;
-      const m = (await api.fsMetrics(String(key.value), outputDir.value)) as {
-        scalars?: Record<string, unknown>;
+      const runKey = jobId.value;
+      if (!runKey) return;
+      const [jobResult, metricsResult] = await Promise.all([
+        api.getJob(runKey),
+        api.jobMetrics(runKey),
+      ]);
+      if (signal.aborted) return;
+      job.value = jobResult as JobRecord;
+      const m = metricsResult as {
+        scalars?: Record<string, ScalarPoint[]>;
+        preview_images?: RunPreviewImageRef[];
       };
       metrics.value = m.scalars || {};
+      previewImages.value = m.preview_images || [];
+      await loadJobMetadata(runKey);
+    } else {
+      const runName = Array.isArray(key.value) ? key.value[0] : key.value;
+      if (!runName) return;
+      const [runResult, metricsResult] = await Promise.all([
+        api.getFsRun(String(runName), outputDir.value),
+        api.fsMetrics(String(runName), outputDir.value),
+      ]);
+      if (signal.aborted) return;
+      fsRun.value = runResult as FsRunRecord;
+      const m = metricsResult as {
+        scalars?: Record<string, ScalarPoint[]>;
+        preview_images?: RunPreviewImageRef[];
+      };
+      metrics.value = m.scalars || {};
+      previewImages.value = m.preview_images || [];
     }
+    if (signal.aborted) return;
+    error.value = "";
   } catch (e) {
-    error.value = String(e);
-  }
-  refreshTbStatus();
-}
-
-async function loadLog() {
-  if (props.mode !== "job") return;
-  try {
-    const res = await fetch(`/api/v1/jobs/${key.value}/logs?offset=${logOffset}`);
-    const data = await res.json();
-    if (data.chunk) {
-      log.value += data.chunk;
-      logOffset = data.offset;
-    }
-  } catch {
-    /* ignore */
+    if (signal.aborted) return;
+    error.value = formatError(e);
   }
 }
 
-async function sendSignal(type) {
+const {
+  intervalSec,
+  isLoading: metricsLoading,
+  refreshing: metricsRefreshing,
+  polling: metricsPolling,
+  lastUpdated: metricsLastUpdated,
+  paused: metricsPaused,
+  setIntervalSec: setMetricsInterval,
+  refreshNow: refreshMetricsNow,
+} = useAutoRefresh({
+  refresh: poll,
+  isActive: () => runIsActive.value,
+});
+
+async function sendSignal(type: string) {
+  if (!signalsAvailable.value) {
+    ElMessage.warning("Signals are only available while training is active.");
+    return;
+  }
   error.value = "";
   try {
+    const runKey = Array.isArray(key.value) ? key.value[0] : key.value;
+    if (!runKey) return;
     if (props.mode === "job") {
-      await api.sendJobSignal(key.value, type);
+      await api.sendJobSignal(runKey, type);
     } else {
-      await api.fsSignal(key.value, type, outputDir.value);
+      await api.fsSignal(runKey, type, outputDir.value);
     }
     ElMessage.success(`Signal "${type}" sent`);
+    void refreshMetricsNow();
   } catch (e) {
-    error.value = String(e);
-    ElMessage.error(String(e));
+    const msg = formatError(e);
+    error.value = msg;
+    ElMessage.error(msg);
   }
 }
 
-function startTimers() {
-  log.value = "";
-  logOffset = 0;
+onMounted(() => {
+  refreshTbStatus();
+});
+
+watch(key, () => {
   cachedPreviewRunDir = null;
   jobArtifacts.value = [];
-  refreshTbStatus();
-  poll();
-  pollTimer = setInterval(poll, 4000);
-  if (props.mode === "job") {
-    loadLog();
-    logTimer = setInterval(loadLog, 1500);
-  }
-}
-
-function stopTimers() {
-  if (pollTimer) clearInterval(pollTimer);
-  if (logTimer) clearInterval(logTimer);
-  pollTimer = null;
-  logTimer = null;
-}
-
-onMounted(startTimers);
-onUnmounted(stopTimers);
-watch(key, () => {
-  stopTimers();
   job.value = null;
   fsRun.value = null;
-  startTimers();
+  previewImages.value = [];
+  metrics.value = {};
+  void refreshMetricsNow();
 });
 </script>
 
@@ -278,13 +360,32 @@ watch(key, () => {
   gap: 12px;
   margin-bottom: 12px;
 }
-.signal-grid {
+.signals-intro {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  align-items: center;
+  gap: 4px 8px;
+  margin: 8px 0 0;
 }
 .mono {
   font-family: ui-monospace, monospace;
   font-size: 12px;
+}
+.loss-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.log-pre {
+  margin: 0;
+  max-height: 420px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  line-height: 1.45;
 }
 </style>

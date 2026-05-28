@@ -1,30 +1,28 @@
 <template>
   <div class="dataset-thumb-grid" :class="{ 'dataset-thumb-grid--flush': flush }">
-    <el-image
-      v-for="(url, i) in urls"
-      :key="i"
-      :src="url"
-      fit="cover"
-      class="dataset-thumb-grid-cell"
-      lazy
-    >
-      <template #error>
-        <div class="dataset-thumb-grid-fallback" />
-      </template>
-    </el-image>
-    <div
-      v-if="!urls.length"
-      class="dataset-thumb-grid-fallback dataset-thumb-grid-fallback--solo"
-    >
-      {{ fallbackText }}
+    <div v-for="slot in 4" :key="slot" class="dataset-thumb-grid-cell">
+      <PreviewImage
+        v-if="urls[slot - 1]"
+        :src="urls[slot - 1]"
+        class="dataset-thumb-grid-img"
+      >
+        <template #error>
+          <DatasetThumbEmptySlot :label="emptyLabel" />
+        </template>
+      </PreviewImage>
+      <DatasetThumbEmptySlot v-else :label="emptyLabel" />
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import type { PropType } from "vue";
+import DatasetThumbEmptySlot from "./DatasetThumbEmptySlot.vue";
+import PreviewImage from "./PreviewImage.vue";
+
 defineProps({
-  urls: { type: Array, default: () => [] },
-  fallbackText: { type: String, default: "DS" },
+  urls: { type: Array as PropType<string[]>, default: () => [] },
+  emptyLabel: { type: String, default: "Not found" },
   /** No bottom margin (embedded in directory cards). */
   flush: { type: Boolean, default: false },
 });
@@ -40,22 +38,15 @@ defineProps({
 .dataset-thumb-grid--flush {
   margin-bottom: 0;
 }
-.dataset-thumb-grid-cell,
-.dataset-thumb-grid-fallback {
+.dataset-thumb-grid-cell {
   aspect-ratio: 1;
   border-radius: 4px;
   overflow: hidden;
   background: var(--el-fill-color-darker);
 }
-.dataset-thumb-grid-fallback {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 11px;
-  color: var(--el-text-color-secondary);
-}
-.dataset-thumb-grid-fallback--solo {
-  grid-column: span 2;
-  aspect-ratio: 2 / 1;
+.dataset-thumb-grid-img {
+  width: 100%;
+  height: 100%;
+  display: block;
 }
 </style>

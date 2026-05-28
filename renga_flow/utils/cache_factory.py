@@ -1,17 +1,16 @@
-"""Open on-disk cache in v1 (pickle shards) or v2 (mmap tensor stacks)."""
+"""Open on-disk cache (v2 mmap tensor stacks only)."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from renga_flow.utils.cache import Cache
 from renga_flow.utils.cache_v2 import FORMAT_VERSION, MANIFEST_NAME, CacheV2
 
-CACHE_FORMAT_V1 = "v1"
 CACHE_FORMAT_V2 = "v2"
 
 
 def detect_cache_format(path: Path) -> str | None:
+    """Return ``v2`` if a v2 manifest exists; ``None`` if empty; raise if legacy v1."""
     path = Path(path)
     manifest = path / MANIFEST_NAME
     if manifest.is_file():
@@ -21,25 +20,18 @@ def detect_cache_format(path: Path) -> str | None:
         if data.get("format_version") == FORMAT_VERSION:
             return CACHE_FORMAT_V2
     if (path / "metadata.db").is_file():
-        return CACHE_FORMAT_V1
+        raise ValueError(
+            f"Legacy cache v1 at {path}; regenerate cache (v2 only). "
+            "Delete the old cache directory or run with --regenerate_cache."
+        )
     return None
 
 
-def open_disk_cache(
-    path: str | Path,
-    fingerprint: str,
-    *,
-    cache_format: str = CACHE_FORMAT_V2,
-    shard_size_gb: float = 10.0,
-):
-    """Return a cache instance (v1 ``Cache`` or v2 ``CacheV2``) for *path*."""
+def open_disk_cache(path: str | Path, fingerprint: str, *, shard_size_gb: float = 10.0):
+    """Return a v2 ``CacheV2`` instance for *path*."""
+    del shard_size_gb  # v1-only parameter; kept for call-site compatibility
     path = Path(path)
     detected = detect_cache_format(path)
-    if detected is not None:
-        cache_format = detected
-    elif cache_format not in (CACHE_FORMAT_V1, CACHE_FORMAT_V2):
-        raise ValueError(f"Unknown cache_format: {cache_format}")
-
-    if cache_format == CACHE_FORMAT_V2:
-        return CacheV2(path, fingerprint)
-    return Cache(path, fingerprint, shard_size_gb=shard_size_gb)
+    if detected is not None and detected != CACHE_FORMAT_V2:
+        raise ValueError(f"Unsupported cache format at {path}")
+    return CacheV2(path, fingerprint)

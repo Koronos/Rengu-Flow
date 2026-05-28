@@ -1,5 +1,9 @@
 """Signal files for external control of training (save, save_quit, export_model). Compatible with diffusion-pipe."""
 
+from __future__ import annotations
+
+import time
+from enum import Enum
 from pathlib import Path
 from typing import NamedTuple
 
@@ -13,6 +17,10 @@ SIGNAL_SAVE_QUIT = "save_quit"
 SIGNAL_EXPORT_MODEL = "export_model"
 SIGNAL_EXPORT_MODEL_QUIT = "export_model_quit"
 SIGNAL_PREVIEW = "preview"
+SIGNAL_CONTINUE = "continue"
+SIGNAL_QUIT = "quit"
+
+_EXPORT_RECOVERY_POLL_SEC = 2.0
 
 
 class SignalResult(NamedTuple):
@@ -25,20 +33,45 @@ class SignalResult(NamedTuple):
     should_preview: bool
 
 
+class ExportRecoveryAction(Enum):
+    """Action chosen while training is paused waiting for disk space during export."""
+
+    CONTINUE = "continue"
+    QUIT = "quit"
+    CHECKPOINT_AND_QUIT = "checkpoint_and_quit"
+    EXPORT_AND_QUIT = "export_and_quit"
+    CHECKPOINT = "checkpoint"
+
+
+def _dist_module():
+    try:
+        from deepspeed import comm as dist
+        return dist
+    except ImportError:
+        return None
+
+
+def _broadcast_object_list(values: list, src: int = 0) -> list:
+    dist = _dist_module()
+    if dist is not None and dist.is_initialized():
+        dist.barrier()
+        torch.distributed.broadcast_object_list(values, src=src)
+        dist.barrier()
+    return values
+
+
+def _sync_ranks_after_rank0() -> None:
+    """Barrier so non-main ranks wait after rank 0 touches the filesystem."""
+    dist = _dist_module()
+    if dist is not None and dist.is_initialized():
+        dist.barrier()
+
+
 def process_signals(run_dir: str | Path) -> SignalResult:
     """Check for signal files in run_dir, consume them, and return requested actions.
 
     Only rank 0 reads and removes files; barriers keep all ranks in sync.
-    - should_checkpoint: write a DeepSpeed resume checkpoint (``save`` / ``save_quit``).
-    - should_quit: exit after handling other signals (``save_quit`` / ``export_model_quit``).
-    - should_export_model: export adapter or full model weights (``export_model`` / ``export_model_quit``).
-    - should_preview: run image previews and log to TensorBoard (``preview``).
     """
-    try:
-        from deepspeed import comm as dist
-    except ImportError:
-        dist = None
-
     root = Path(run_dir)
     save_path = root / SIGNAL_SAVE
     save_quit_path = root / SIGNAL_SAVE_QUIT
@@ -66,21 +99,17 @@ def process_signals(run_dir: str | Path) -> SignalResult:
         if preview_path.exists() and preview_path.is_file():
             should_preview = True
 
-    use_dist = dist is not None and dist.is_initialized()
-    if use_dist:
-        result = [should_checkpoint, should_quit, should_export_model, should_export_quit, should_preview]
-        dist.barrier()
-        torch.distributed.broadcast_object_list(result, src=0)
-        should_checkpoint, should_quit, should_export_model, should_export_quit, should_preview = result
-        dist.barrier()
+    result = _broadcast_object_list(
+        [should_checkpoint, should_quit, should_export_model, should_export_quit, should_preview]
+    )
+    should_checkpoint, should_quit, should_export_model, should_export_quit, should_preview = result
 
     if is_main_process():
         for path in (save_quit_path, save_path, export_quit_path, export_path, preview_path):
             if path.exists() and path.is_file():
                 path.unlink()
 
-    if use_dist:
-        dist.barrier()
+    _sync_ranks_after_rank0()
 
     return SignalResult(
         should_checkpoint=should_checkpoint,
@@ -89,3 +118,53 @@ def process_signals(run_dir: str | Path) -> SignalResult:
         should_export_quit=should_export_quit,
         should_preview=should_preview,
     )
+
+
+def _read_export_recovery_signals(run_dir: Path) -> ExportRecoveryAction | None:
+    """Rank-0 only: peek recovery signals without consuming unrelated training signals."""
+    if (run_dir / SIGNAL_QUIT).is_file():
+        return ExportRecoveryAction.QUIT
+    if (run_dir / SIGNAL_SAVE_QUIT).is_file():
+        return ExportRecoveryAction.CHECKPOINT_AND_QUIT
+    if (run_dir / SIGNAL_EXPORT_MODEL_QUIT).is_file():
+        return ExportRecoveryAction.EXPORT_AND_QUIT
+    if (run_dir / SIGNAL_CONTINUE).is_file():
+        return ExportRecoveryAction.CONTINUE
+    if (run_dir / SIGNAL_SAVE).is_file():
+        return ExportRecoveryAction.CHECKPOINT
+    if (run_dir / SIGNAL_EXPORT_MODEL).is_file():
+        return ExportRecoveryAction.CONTINUE
+    return None
+
+
+def _consume_export_recovery_signal(run_dir: Path, action: ExportRecoveryAction) -> None:
+    if not is_main_process():
+        return
+    mapping = {
+        ExportRecoveryAction.CONTINUE: (SIGNAL_CONTINUE, SIGNAL_EXPORT_MODEL),
+        ExportRecoveryAction.QUIT: (SIGNAL_QUIT,),
+        ExportRecoveryAction.CHECKPOINT_AND_QUIT: (SIGNAL_SAVE_QUIT,),
+        ExportRecoveryAction.EXPORT_AND_QUIT: (SIGNAL_EXPORT_MODEL_QUIT,),
+        ExportRecoveryAction.CHECKPOINT: (SIGNAL_SAVE,),
+    }
+    for name in mapping.get(action, ()):
+        path = run_dir / name
+        if path.is_file():
+            path.unlink()
+
+
+def wait_for_export_recovery(run_dir: str | Path) -> ExportRecoveryAction:
+    """Block all ranks until rank 0 sees a recovery signal; broadcast the chosen action."""
+    root = Path(run_dir)
+    while True:
+        found: ExportRecoveryAction | None = None
+        if is_main_process():
+            found = _read_export_recovery_signals(root)
+            if found is not None:
+                _consume_export_recovery_signal(root, found)
+        payload = _broadcast_object_list([found.value if found is not None else None])
+        if payload[0] is not None:
+            return ExportRecoveryAction(payload[0])
+        if is_main_process():
+            time.sleep(_EXPORT_RECOVERY_POLL_SEC)
+        _sync_ranks_after_rank0()

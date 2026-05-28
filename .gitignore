@@ -19,10 +19,10 @@ build/
 venv/
 env/
 
-# Secrets and local env (track .env.example only)
+# Secrets and local env (legacy .env; prefer renga.local.toml)
 .env
 .env.local
-!.env.example
+renga.local.toml
 
 # Web UI local state (configs library, jobs.db, staging, logs)
 .renga-flow-ui/
@@ -33,7 +33,8 @@ tmp/
 # Training runs and exports (output_dir default)
 output/
 
-# Dataset caches (per-directory under dataset paths)
+# Dataset caches (default root: cache/; legacy per-directory paths)
+/cache/
 **/cache/
 
 # Logs and experiment trackers

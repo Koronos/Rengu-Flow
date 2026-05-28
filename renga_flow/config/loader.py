@@ -65,9 +65,13 @@ def load_dataset_config(config: dict[str, Any]) -> dict[str, Any] | None:
         with open(dataset_path, encoding="utf-8") as f:
             loaded.append(toml.load(f))
     if len(loaded) == 1:
-        return json.loads(json.dumps(loaded[0]))
+        out = json.loads(json.dumps(loaded[0]))
+        out["_dataset_toml_path"] = str(Path(paths[0]).resolve())
+        return out
     merged = merge_dataset_configs(loaded)
-    return json.loads(json.dumps(merged))
+    out = json.loads(json.dumps(merged))
+    out["_dataset_toml_path"] = str(Path(paths[0]).resolve())
+    return out
 
 
 def load_eval_dataset_config(eval_entry: str | dict[str, Any]) -> tuple[str, dict[str, Any]]:

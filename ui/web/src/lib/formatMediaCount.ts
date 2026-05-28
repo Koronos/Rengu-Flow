@@ -1,5 +1,5 @@
 /** Format image/video counts; append + when scan was capped. */
-export function formatMediaCount(count, capped) {
+export function formatMediaCount(count: number | string | null | undefined, capped: boolean): string {
   if (count == null || count === "") return "—";
   const n = Number(count);
   if (Number.isNaN(n)) return String(count);

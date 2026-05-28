@@ -15,6 +15,7 @@ from renga_flow.data.preprocess_media import PreprocessMediaFile
 from renga_flow.model.base import BasePipeline, make_contiguous
 from renga_flow.registry.models import register_model
 from renga_flow.utils.common import cuda_autocast, is_main_process
+from renga_flow.utils.save_io import atomic_save_safetensors
 from renga_flow.utils.diffusers_tf5_compat import apply_diffusers_transformers_v5_single_file_patch
 
 # Optional: import network adapters (lora_sdxl always; lokr_sdxl may use LyCORIS or vendored)
@@ -354,12 +355,15 @@ class SDXLPipeline(BasePipeline):
         if self.adapter_type == "lora" and adapter_config.get("init_from_existing"):
             return
         if self.adapter_type == "lora":
-            networks_module.lora_sdxl.configure(
+            unet, te, te2 = networks_module.lora_sdxl.configure(
                 self.unet,
                 self.text_encoder,
                 self.text_encoder_2,
                 adapter_config,
             )
+            self._pipeline.unet = unet
+            self._pipeline.text_encoder = te
+            self._pipeline.text_encoder_2 = te2
         elif self.adapter_type == "lokr":
             networks_module.lokr_sdxl.configure(
                 self.unet,
@@ -462,7 +466,7 @@ class SDXLPipeline(BasePipeline):
             "conditioner.embedders.1.model.text_projection.weight"
         ).T.contiguous()
         state_dict = {**unet_state_dict, **vae_state_dict, **text_enc_dict, **text_enc_2_dict}
-        save_file(state_dict, save_dir / "model.safetensors", metadata={"format": "pt"})
+        atomic_save_safetensors(save_dir / "model.safetensors", state_dict)
 
     def get_preprocess_media_file_fn(self, augmentation_resolver=None):
         return PreprocessMediaFile(

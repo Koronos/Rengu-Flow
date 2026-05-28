@@ -47,12 +47,15 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { ElLoadingDirective } from "element-plus";
 import { api } from "../api";
+import { formatError } from "../lib/formatError";
 import { renderMarkdown } from "../lib/markdown";
-import type { DocIndexItem } from "../types/runtime";
+import type { DocContentResult, DocIndexItem, DocsIndexResult } from "../types/api";
 
 const route = useRoute();
 const router = useRouter();
+const vLoading = ElLoadingDirective;
 
 const loadingIndex = ref(true);
 const loadingDoc = ref(false);
@@ -65,7 +68,7 @@ async function loadIndex() {
   loadingIndex.value = true;
   error.value = "";
   try {
-    const data = (await api.getDocsIndex()) as { items?: DocIndexItem[] };
+    const data = (await api.getDocsIndex()) as DocsIndexResult;
     indexItems.value = data.items || [];
     const q = route.query.doc;
     if (typeof q === "string" && q) {
@@ -74,7 +77,7 @@ async function loadIndex() {
       await loadDoc(indexItems.value[0].path);
     }
   } catch (e) {
-    error.value = String(e);
+    error.value = formatError(e);
   } finally {
     loadingIndex.value = false;
   }
@@ -85,12 +88,12 @@ async function loadDoc(path: string) {
   error.value = "";
   html.value = "";
   try {
-    const data = (await api.getDoc(path)) as { path?: string; content?: string };
+    const data = (await api.getDoc(path)) as DocContentResult;
     activePath.value = data.path || path;
     html.value = renderMarkdown(data.content || "", { docPath: activePath.value });
     router.replace({ name: "docs", query: { doc: activePath.value } });
   } catch (e) {
-    error.value = String(e);
+    error.value = formatError(e);
   } finally {
     loadingDoc.value = false;
   }
@@ -100,8 +103,10 @@ function onSelectDoc(path: string) {
   loadDoc(path);
 }
 
-function onArticleClick(event) {
-  const link = event.target.closest("a.md-doc-link");
+function onArticleClick(event: MouseEvent) {
+  const target = event.target;
+  if (!(target instanceof Element)) return;
+  const link = target.closest("a.md-doc-link");
   if (!link) return;
   event.preventDefault();
   const next = link.getAttribute("data-doc-path");
@@ -125,6 +130,10 @@ onMounted(() => {
 @media (min-width: 768px) {
   .docs-index-card {
     margin-bottom: 0;
+    position: sticky;
+    top: var(--rf-space-md);
+    align-self: flex-start;
+    z-index: 2;
   }
 }
 .docs-index-list {

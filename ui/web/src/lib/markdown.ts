@@ -33,7 +33,7 @@ marked.use({
  * @param {string} baseDocPath e.g. docs/user/web-ui.md
  * @returns {string|null}
  */
-export function resolveDocLink(href, baseDocPath) {
+export function resolveDocLink(href: string | null | undefined, baseDocPath: string): string | null {
   if (!href || /^https?:\/\//i.test(href) || /^mailto:/i.test(href)) {
     return null;
   }
@@ -82,7 +82,7 @@ export function renderMarkdown(md: string, ctx: { docPath?: string } = {}): stri
   return DOMPurify.sanitize(raw, SANITIZE_OPTS);
 }
 
-function escapeAttr(s) {
+function escapeAttr(s: unknown): string {
   return String(s)
     .replace(/&/g, "&amp;")
     .replace(/"/g, "&quot;")

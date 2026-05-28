@@ -27,7 +27,9 @@ from renga_flow.model.cosmos_predict2.layers import (
 from renga_flow.model.cosmos_predict2.text import compute_text_embeddings, load_text_stack, tokenize
 from renga_flow.model.cosmos_predict2.vae import WanVAE, vae_encode
 from renga_flow.networks import adapter_dit
-from renga_flow.registry.models import register_model, register_model_alias
+from renga_flow.registry.models import register_model
+from renga_flow.registry.models import register_model_alias
+from renga_flow.utils.save_io import atomic_save_safetensors
 from renga_flow.utils.common import is_main_process, load_state_dict
 
 KEEP_IN_HIGH_PRECISION = ["x_embedder", "t_embedder", "t_embedding_norm", "final_layer"]
@@ -185,9 +187,7 @@ class CosmosPredict2Pipeline(BasePipeline):
     def save_model(self, save_dir, state_dict):
         save_dir = Path(save_dir)
         state_dict = {"net." + k: v for k, v in state_dict.items()}
-        safetensors.torch.save_file(
-            state_dict, save_dir / "model.safetensors", metadata={"format": "pt"}
-        )
+        atomic_save_safetensors(save_dir / "model.safetensors", state_dict)
 
     def get_preprocess_media_file_fn(self, augmentation_resolver=None):
         return PreprocessMediaFile(

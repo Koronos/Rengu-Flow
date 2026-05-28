@@ -52,6 +52,30 @@ def test_form_values_for_ui_fills_dataset_defaults() -> None:
     filled = form_values_for_ui(form, schema)
     assert filled["enable_ar_bucket"] is False
     assert filled["frame_buckets"] == [1]
+    assert filled["cache_shuffle_num"] == 1
+    assert filled["subsample_ratio"] == 1
+
+
+def test_subsample_ratio_schema_default_is_full_dataset() -> None:
+    schema = get_dataset_schema()
+    captions = next(s for s in schema["sections"] if s["id"] == "captions")
+    by_path = {f["path"]: f for f in captions["fields"]}
+    assert by_path["subsample_ratio"]["default"] == 1
+    assert "show_if_set" not in by_path["subsample_ratio"]
+    dir_by_path = {f["path"]: f for f in schema["directory_fields"]}
+    assert dir_by_path["subsample_ratio"]["default"] == 1
+
+
+def test_cache_shuffle_schema_default_and_shuffle_tags_gating() -> None:
+    schema = get_dataset_schema()
+    captions = next(s for s in schema["sections"] if s["id"] == "captions")
+    by_path = {f["path"]: f for f in captions["fields"]}
+    assert by_path["cache_shuffle_num"]["default"] == 1
+    assert by_path["cache_shuffle_num"]["show_when_field"] == "shuffle_tags"
+    assert by_path["cache_shuffle_delimiter"]["show_when_field"] == "shuffle_tags"
+    dir_by_path = {f["path"]: f for f in schema["directory_fields"]}
+    assert dir_by_path["cache_shuffle_num"]["default"] == 1
+    assert dir_by_path["cache_shuffle_num"]["show_when_field"] == "shuffle_tags"
 
 
 def test_parse_toml_to_form_skips_defaults_by_default() -> None:
@@ -110,3 +134,57 @@ def test_no_adapter_key_in_dataset_toml() -> None:
     assert "_has_adapter" not in form
     rendered = form_to_toml(form)
     assert "adapter" not in rendered
+
+
+def test_tag_dropout_rules_roundtrip() -> None:
+    raw = """
+resolutions = [1024]
+frame_buckets = [1]
+tag_dropout_enabled = true
+tag_dropout_probability = 0.25
+
+[[tag_dropout_rules]]
+tags = ["hero", "sidekick"]
+drop_probability = 0.1
+
+[[tag_dropout_rules]]
+tags_file = "extras.txt"
+drop_probability = 0.5
+
+[[directory]]
+path = "/data/a"
+num_repeats = 1
+"""
+    form = parse_toml(raw)
+    assert form["tag_dropout_enabled"] is True
+    rules_raw = form["tag_dropout_rules"]
+    if isinstance(rules_raw, str):
+        import json
+
+        rules = json.loads(rules_raw)
+    else:
+        rules = rules_raw
+    assert len(rules) == 2
+    assert rules[0]["tags"] == ["hero", "sidekick"]
+    assert rules[1]["tags_file"] == "extras.txt"
+
+    form["tag_dropout_rules"] = [
+        {"tags": ["hero", "sidekick"], "drop_probability": 0.1},
+        {"tags_file": "extras.txt", "drop_probability": 0.5},
+    ]
+    cfg = toml.loads(form_to_toml(form))
+    assert len(cfg["tag_dropout_rules"]) == 2
+    assert cfg["tag_dropout_rules"][0]["drop_probability"] == 0.1
+
+
+def test_form_to_toml_omits_incomplete_tag_dropout_rules() -> None:
+    form = parse_toml(
+        """
+resolutions = [1024]
+frame_buckets = [1]
+tag_dropout_enabled = true
+"""
+    )
+    form["tag_dropout_rules"] = [{"tags": [], "drop_probability": 0.1}]
+    cfg = toml.loads(form_to_toml(form))
+    assert "tag_dropout_rules" not in cfg

@@ -7,62 +7,42 @@ Renga Flow includes an **optional** local web interface to manage training confi
 From the repository root:
 
 ```bash
-./start-ui.sh
+./renga init ui    # first time: local config + .venv with [ui] extra
+./renga ui start
 ```
 
-### Development mode (hot reload)
+Or double-click **`start-ui.sh`** in the repo root — it runs `uv sync --extra ui` (creates `.venv` if needed) and starts the UI. You need **[uv](https://docs.astral.sh/uv/)** on `PATH`; you do **not** need a separate system `python3` or `source .venv/bin/activate`.
 
-While editing the UI or Python API, use dev mode so you do not rebuild or restart manually:
+Run from Linux or WSL. See [CLI guide](cli.md) for all commands.
 
-```bash
-./start-ui-dev.sh
-```
+**Important:** leave the terminal open while the UI runs. Closing the window stops the server.
 
-Run it **from a terminal** in the repo root (not by double-clicking the file — the window would close when the script exits). If something fails, the script waits for Enter so you can read the error.
+`renga ui start`:
 
-This starts (Linux or WSL — same environment as training):
-
-
-| Process | URL | Behavior |
-|---------|-----|----------|
-| Vite dev server | [http://127.0.0.1:5173](http://127.0.0.1:5173) | Vue HMR — save a `.vue` file and the browser updates |
-| API (`renga-flow-ui`) | [http://127.0.0.1:8765](http://127.0.0.1:8765) | `uvicorn --reload` on `renga_flow_ui/` |
-
-Open the **5173** URL in the browser (Vite proxies `/api` to the API). Press **Ctrl+C** in the terminal to stop both.
-
-Use `./start-ui.sh` when you want production-like serving from `ui/web/dist/` (no separate Vite process).
-
-Run from a Linux environment or WSL (training dependencies are not supported on native Windows).
-
-**Important:** leave the terminal window open while the UI runs. Closing the window stops the server.
-
-The web client uses **Element Plus** (Vue 3) with a responsive layout: on phones, navigation opens in a side drawer and tables/forms stack for monitoring jobs, runs, and signals on the go.
-
-This script:
-
-1. Installs Python dependencies (`renga-flow` with the `[ui]` extra) via **uv** (if `uv.lock` is present) or **pip** in `.venv`
-2. Builds the web frontend with **npm** when `ui/web/dist/` is missing (or pass `--rebuild-web`)
-3. Starts the control server (default [http://127.0.0.1:8765](http://127.0.0.1:8765)) and opens your browser once `/api/v1/health` responds
-
-### Script options
+1. Runs `uv venv` (if needed) and `uv sync --extra ui` unless `--skip-sync`
+2. Builds `ui/web/dist/` with npm when missing (`--rebuild-web` to force)
+3. Starts the API (default [http://127.0.0.1:8765](http://127.0.0.1:8765)) and opens the browser when `/api/v1/health` responds
 
 | Flag | Description |
 |------|-------------|
 | `--no-open` | Do not open a browser tab |
 | `--rebuild-web` | Force `npm ci` and `npm run build` in `ui/web/` |
+| `--skip-sync` | Skip `uv sync` (launcher scripts use this after `uv sync --extra ui`) |
 
-### Settings (`start-ui.sh`)
+### Optional dependencies (Cosmos, LyCORIS, optimizers)
 
-Edit the config block near the top of [`start-ui.sh`](../../start-ui.sh):
+When you **start training** from the UI or run `renga train` / `renga validate` / `renga cache`, Renga reads your training TOML and runs `uv sync` for any missing extras (for example **Cosmos Predict2** when `[model] type = "cosmos_predict2"`). You do not need maintenance mode or a separate install step.
 
-| Setting | Default in script | Description |
-|---------|-------------------|-------------|
-| `RENGA_FLOW_UI_HOST` | `127.0.0.1` | Bind address |
-| `RENGA_FLOW_UI_PORT` | `8765` | HTTP port |
-| `RENGA_FLOW_UI_DATA` | `$ROOT/.renga-flow-ui` | Config library, job DB, logs (gitignored) |
-| `RENGA_FLOW_UI_TOKEN` | (commented out) | If set, API requests need `X-Renga-Flow-Token` |
+### Settings (`renga.local.toml`)
 
-The script exports those variables for the server. To drive them from the shell environment instead, change the block (see the comment in the script).
+Copy `renga.local.toml.example` to `renga.local.toml` (or run `./renga init`). Edit the `[ui]` section:
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `host` | `127.0.0.1` | Bind address |
+| `port` | `8765` | HTTP port |
+| `data_dir` | `.renga-flow-ui` | Config library, job DB, logs (gitignored) |
+| `token` | (optional) | If set, API requests need `X-Renga-Flow-Token` |
 
 The script does **not** install CUDA, PyTorch, or DeepSpeed. Use your existing training environment for GPU jobs.
 
@@ -76,7 +56,7 @@ By default the UI keeps its library under **`.renga-flow-ui/`** at the repositor
 
 Configs and datasets are stored as **TOML text in the database** (not as separate `.toml` files). Use **Export TOML** or drag-drop import when you need files on disk. Training still receives real `.toml` paths in `staging/` and copies them into the run folder.
 
-In Docker, mount that folder (adjust `RENGA_FLOW_UI_DATA` in `start-ui.sh` to the mount path inside the container).
+In Docker, mount that folder (set `data_dir` in `renga.local.toml` to the mount path inside the container).
 
 ## What you can do in the UI
 
@@ -84,13 +64,14 @@ In Docker, mount that folder (adjust `RENGA_FLOW_UI_DATA` in `start-ui.sh` to th
 |------|-------------|
 | **Docs** | In-app guide index (`docs/user/*.md`) from the **Docs** nav item |
 | **Training** | **Form** editor (all major TOML sections: model, adapter/network, optimizer, scheduler, training, checkpoints, eval, preview, monitoring) plus raw **TOML** tab; lists registered models, adapters, and optimizers from the framework |
-| **Datasets** | Library of dataset TOMLs: multiple `[[directory]]` folders per file, per-folder **Scan**, live **Dataset preview** (folder stats plus thumbnail gallery), **Compose** to merge library datasets into one file (OneTrainer-style packs); in-app links to [dataset config](dataset-config.md) docs |
+| **Datasets** | Library of dataset TOMLs: multiple `[[directory]]` folders per file, per-folder **Scan**, live **Dataset preview** (folder stats plus thumbnail gallery), **Compose** to merge library datasets into one file (OneTrainer-style packs); **Augmentation** tab for global and per-folder diversity settings (presets and strategy overrides loaded from the training catalog); in-app links to [dataset config](dataset-config.md) docs |
 | **Train** | Queue runs after choosing a config in the **Training** library (edit/validate there first); tab **Runs on disk** lists output folders; **Import script run** registers an existing `output/…` folder from terminal training |
 | **Config form** | Required fields first; visual dataset picker; click the **i** icon to open in-app help (loads `docs/**/*.md` from the repo) |
 | **Runs** | List folders under `output_dir`, view metrics, send signals to active runs |
 | **TensorBoard** | **Open TensorBoard** on the run detail or Output runs page — starts TensorBoard via `uv` (no extra pip install); compares all runs under the same `output_dir` |
 | **Signals** | Same files as [signal files](signal-files.md): `save`, `save_quit`, `export_model`, `export_model_quit`, `preview` |
 | **Host bar** | Top bar shows live CPU/RAM/GPU load, temperatures, and VRAM; click for per-core CPU, sensors, swap, and full GPU details (via `nvidia-smi` when available) |
+| **Maintenance** | Optional dev page: recreate `jobs.db`, submodule update, dependency install commands — see [Maintenance](maintenance.md) (`RENGAFLOW_MAINTENANCE=1`) |
 
 ### Suggested workflow
 
@@ -117,7 +98,11 @@ If Validate fails on a field you do not see, switch to the **TOML** tab or chang
 ## Resume vs new run
 
 - **Resume**: In Jobs, set **Resume folder** to an existing run directory (e.g. `output/20250217_14-30-00`) and start. The UI passes `--resume_from_checkpoint` to the trainer. Prefer the TOML snapshot copied into that run folder over an edited library config.
-- **New run**: Leave resume empty; a new timestamped folder is created under `output_dir`.
+- **New run**: Leave resume empty; a new folder is created under `output_dir`. By default the folder name is a UTC timestamp only (e.g. `20250217_14-30-00`). Set optional **`run_name`** in the training config (Training → Form, **Run name**) to prefix the folder and TensorBoard sidebar entry, e.g. `my_experiment_20250217_14-30-00`. This is not the dataset library name.
+
+| Key | Purpose | Values | Default |
+|-----|---------|--------|---------|
+| **`run_name`** | Human-readable label for output folders and TensorBoard | Non-empty string; letters, digits, `.`, `_`, `-` (no `/` or `\`); max 80 characters | Omitted → timestamp-only folder |
 
 ## Optional status file (low overhead)
 
@@ -132,15 +117,14 @@ When enabled, rank 0 writes `status.json` in the run directory every `logging_st
 
 ## Advanced: run server only
 
-If dependencies are already installed, export the same variables as in `start-ui.sh` (or rely on the Python fallback path `<repo>/.renga-flow-ui`):
+If dependencies are already installed:
 
 ```bash
-pip install -e ".[ui]"
-export RENGA_FLOW_UI_DATA="$(pwd)/.renga-flow-ui"
-renga-flow-ui serve --host 127.0.0.1 --port 8765
+./renga ui build
+./renga ui serve --host 127.0.0.1 --port 8765
 ```
 
-Serve the built SPA from `ui/web/dist/` (run `./start-ui.sh` once to build, or `cd ui/web && npm ci && npm run build`).
+Developer mode: `./renga ui dev` (Vite HMR on port 5173, API on 8765 with Python auto-reload). Use `--no-reload-api` for a faster API-only startup.
 
 ## TensorBoard from the UI
 

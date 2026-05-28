@@ -1,5 +1,5 @@
 <template>
-  <div class="image-gallery">
+  <div class="image-gallery" :class="{ 'image-gallery--expanded': expanded }">
     <div v-if="loading" class="gallery-loading">
       <el-skeleton :rows="2" animated />
     </div>
@@ -22,24 +22,22 @@
     />
     <template v-else>
       <p v-if="summary" class="gallery-summary">{{ summary }}</p>
-      <el-scrollbar max-height="42vh">
+      <el-scrollbar :max-height="scrollbarMaxHeight">
         <div class="thumb-grid">
-          <div
+          <button
             v-for="img in images"
             :key="`${img.directory_index}-${img.name}`"
+            type="button"
             class="thumb-cell"
+            @click="openViewer(previewIndex(img))"
           >
-            <el-image
+            <PreviewImage
               :src="imageUrl(img.token)"
-              :alt="img.name"
-              fit="cover"
-              lazy
               class="thumb-img"
-              :preview-src-list="previewList"
-              :initial-index="previewIndex(img)"
+              :lazy="false"
             />
             <span class="thumb-label" :title="img.name">{{ img.name }}</span>
-          </div>
+          </button>
         </div>
       </el-scrollbar>
       <el-button
@@ -52,23 +50,42 @@
         Load more
       </el-button>
     </template>
+    <el-image-viewer
+      v-if="viewerOpen"
+      :key="viewerIndex"
+      :url-list="previewList"
+      :initial-index="viewerIndex"
+      teleported
+      :z-index="4000"
+      @close="viewerOpen = false"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
+import { ElImageViewer } from "element-plus";
+import PreviewImage from "./PreviewImage.vue";
 import { api } from "../api";
+import { formatError } from "../lib/formatError";
 import { formatMediaCount } from "../lib/formatMediaCount";
+import type { DatasetPreviewImage } from "../types/api";
 
 const props = defineProps({
   content: { type: String, default: "" },
   directoryIndex: { type: Number, default: null },
+  /** Taller grid when opened in fullscreen gallery dialog. */
+  expanded: { type: Boolean, default: false },
 });
+
+const scrollbarMaxHeight = computed(() =>
+  props.expanded ? "calc(100vh - 11rem)" : "42vh"
+);
 
 const loading = ref(false);
 const loadingMore = ref(false);
 const error = ref("");
-const images = ref([]);
+const images = ref<DatasetPreviewImage[]>([]);
 const total = ref(0);
 const totalCapped = ref(false);
 const hasConfiguredPaths = ref(false);
@@ -86,15 +103,24 @@ const summary = computed(() => {
 
 const canLoadMore = computed(() => images.value.length < total.value);
 
+const viewerOpen = ref(false);
+const viewerIndex = ref(0);
+
 const previewList = computed(() =>
   images.value.map((img) => imageUrl(img.token))
 );
 
-function imageUrl(token) {
+function openViewer(index: number) {
+  if (index < 0 || index >= previewList.value.length) return;
+  viewerIndex.value = index;
+  viewerOpen.value = true;
+}
+
+function imageUrl(token: string): string {
   return api.datasetPreviewImageUrl(token);
 }
 
-function previewIndex(img) {
+function previewIndex(img: DatasetPreviewImage): number {
   return images.value.findIndex(
     (i) => i.directory_index === img.directory_index && i.name === img.name
   );
@@ -135,7 +161,7 @@ async function fetchImages({ append = false } = {}) {
       directories?: { path?: string; ok?: boolean; error?: string }[];
       total?: number;
       total_capped?: boolean;
-      images?: { token: string; name?: string; directory_index?: number }[];
+      images?: DatasetPreviewImage[];
     };
     if (!r.ok) {
       error.value = r.error || "Could not load images";
@@ -156,7 +182,7 @@ async function fetchImages({ append = false } = {}) {
       }
     }
   } catch (e) {
-    error.value = String(e);
+    error.value = formatError(e);
     if (!append) images.value = [];
   } finally {
     loading.value = false;
@@ -172,6 +198,7 @@ function loadMore() {
 watch(
   () => [props.content, props.directoryIndex],
   () => {
+    viewerOpen.value = false;
     fetchImages();
   },
   { immediate: true }
@@ -192,11 +219,25 @@ watch(
   grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
   gap: 8px;
 }
+.image-gallery--expanded .thumb-grid {
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 10px;
+}
 .thumb-cell {
   display: flex;
   flex-direction: column;
   gap: 4px;
   min-width: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: zoom-in;
+}
+.thumb-cell:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: 2px;
+  border-radius: 4px;
 }
 .thumb-img {
   width: 100%;
@@ -204,11 +245,6 @@ watch(
   border-radius: 4px;
   overflow: hidden;
   background: var(--el-fill-color-light);
-}
-.thumb-img :deep(.el-image__inner) {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
 }
 .thumb-label {
   font-size: 10px;

@@ -12,10 +12,3 @@ export function parseIntegerList(value: RawListInput): number[] {
   }
   return uniqueSorted(out, (a, b) => a - b);
 }
-
-export function integerListToFormValue(numbers: number[]): number[] | "" {
-  if (!Array.isArray(numbers) || numbers.length === 0) {
-    return "";
-  }
-  return numbers;
-}

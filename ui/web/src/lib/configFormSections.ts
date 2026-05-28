@@ -2,7 +2,28 @@
  * Fewer form tabs: each tab merges related schema sections.
  * Section ids must match renga_flow_ui/config_schema.py get_sections().
  */
-export const CONFIG_FORM_TAB_GROUPS = [
+import type { SchemaField } from "../types/forms";
+
+export interface ConfigSchemaSection {
+  id: string;
+  title?: string;
+  description?: string;
+  fields?: SchemaField[];
+  flat_optional?: boolean;
+}
+
+export interface ConfigFormTabGroup {
+  id: string;
+  label: string;
+  description: string;
+  sectionIds: string[];
+}
+
+export interface ConfigFormTab extends ConfigFormTabGroup {
+  sections: ConfigSchemaSection[];
+}
+
+export const CONFIG_FORM_TAB_GROUPS: ConfigFormTabGroup[] = [
   {
     id: "setup",
     label: "Setup",
@@ -23,41 +44,18 @@ export const CONFIG_FORM_TAB_GROUPS = [
   },
 ];
 
-/** @param {object[]} schemaSections */
-export function buildConfigFormTabs(schemaSections, isSectionVisible) {
-  const byId = Object.fromEntries((schemaSections || []).map((s) => [s.id, s]));
+export function buildConfigFormTabs(
+  schemaSections: ConfigSchemaSection[] = [],
+  isSectionVisible: (section: ConfigSchemaSection) => boolean
+): ConfigFormTab[] {
+  const byId = Object.fromEntries(schemaSections.map((s) => [s.id, s]));
   return CONFIG_FORM_TAB_GROUPS.map((tab) => ({
     ...tab,
     sections: tab.sectionIds
       .map((id) => byId[id])
       .filter(Boolean)
-      .filter((sec) => isSectionVisible(sec)),
+      .filter((sec) => isSectionVisible(sec as ConfigSchemaSection)),
   })).filter((tab) => tab.sections.length > 0);
 }
 
-export function configFieldColSpan(field) {
-  const path = field.path || "";
-  if (
-    field.type === "json" ||
-    field.type === "integer_list" ||
-    field.type === "number_list"
-  ) {
-    return 24;
-  }
-  if (field.type === "boolean") {
-    return 12;
-  }
-  if (
-    path === "dataset" ||
-    path === "eval_datasets" ||
-    path === "output_dir" ||
-    path.includes("path") ||
-    path.endsWith("_dir")
-  ) {
-    return 24;
-  }
-  if (field.type === "string" && (field.allow_custom || (field.options?.length ?? 0) > 6)) {
-    return 24;
-  }
-  return 12;
-}
+export { schemaFieldColSpan as configFieldColSpan } from "./schemaFieldLayout";

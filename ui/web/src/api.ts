@@ -1,13 +1,64 @@
-import { formatApiDetail } from "./lib/formatError";
+import { errorMessageFromResponseBody } from "./lib/formatError";
 import { filenameFromContentDisposition } from "./lib/downloadBlob";
 import type { FormValues } from "./types/forms";
+import type {
+  ConfigDetail,
+  ConfigSchemaResponse,
+  ConfigSearchItem,
+  ContinueRunBody,
+  DatasetComposeResult,
+  DatasetDetail,
+  DatasetFolderSuggestion,
+  DatasetPreviewImagesResult,
+  DatasetPreviewResult,
+  DatasetSavePayload,
+  DatasetScanPathResult,
+  DatasetSchemaResponse,
+  DatasetSearchItem,
+  DocContentResult,
+  DocsIndexResult,
+  DuplicateConfigResult,
+  ExportBundleResult,
+  FsRunRecord,
+  FsRunsListResult,
+  FsStatResult,
+  ImportCandidatesResult,
+  ImportConfigResult,
+  ImportExampleResult,
+  ImportRunPreview,
+  JobImportBody,
+  JobListResult,
+  JobMetricsResult,
+  JobPatchBody,
+  JobRecord,
+  JobStartBody,
+  Paginated,
+  ParseTomlResult,
+  QueryParams,
+  RegistryProbeBody,
+  RegistryProbeResult,
+  RenderTomlResult,
+  RunConfigResult,
+  SystemStatsResponse,
+  TensorboardStartBody,
+  TensorboardStartResult,
+  TensorboardStatus,
+  TrainActiveResult,
+  TrainingRunRow,
+  TrainingSignalsResult,
+  TrainRunsResult,
+  ValidateResult,
+  AugmentationCatalogResponse,
+  MaintenanceCommandOutput,
+  MaintenanceDbResetResult,
+  MaintenanceEnabledResult,
+  MaintenanceStatus,
+} from "./types/api";
+import { withDefaultPagination } from "./types/api";
 
 const API = "/api/v1";
 
-async function request<T = unknown>(
-  path: string,
-  options: RequestInit = {}
-): Promise<T> {
+async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(`${API}${path}`, {
     headers: { "Content-Type": "application/json", ...options.headers },
     ...options,
@@ -20,45 +71,60 @@ async function request<T = unknown>(
     data = { detail: text };
   }
   if (!res.ok) {
-    const body = data as Record<string, unknown> | null;
-    const msg =
-      formatApiDetail(body?.detail) ||
-      (typeof body?.error === "string" ? body.error : formatApiDetail(body?.error)) ||
-      res.statusText;
+    const msg = errorMessageFromResponseBody(data, res.statusText);
     throw new Error(msg || `HTTP ${res.status}`);
   }
   return data as T;
 }
 
 export const api = {
-  listConfigs: () => request("/configs"),
-  searchConfigs: (params) => {
-    const q = params instanceof URLSearchParams ? params : new URLSearchParams(params);
-    if (!q.has("page")) q.set("page", "1");
-    if (!q.has("page_size")) q.set("page_size", "20");
-    return request(`/configs?${q.toString()}`);
+  listConfigs: () => request<ConfigSearchItem[]>("/configs"),
+
+  searchConfigs: (params: QueryParams) => {
+    const q = withDefaultPagination(params, { page: "1", page_size: "20" });
+    return request<Paginated<ConfigSearchItem>>(`/configs?${q.toString()}`);
   },
-  getConfig: (id) => request(`/configs/${id}`),
-  saveConfig: (id, content) =>
-    request(`/configs/${id}`, { method: "PUT", body: JSON.stringify({ content }) }),
-  createConfig: (id, content) =>
-    request("/configs", { method: "POST", body: JSON.stringify({ id, content }) }),
-  deleteConfig: (id) => request(`/configs/${id}`, { method: "DELETE" }),
-  validate: (content) =>
-    request("/validate", { method: "POST", body: JSON.stringify({ content }) }),
-  duplicate: (id) => request(`/configs/${id}/duplicate`, { method: "POST" }),
-  importExample: (path, configId) =>
-    request(
-      `/configs/import-example?path=${encodeURIComponent(path)}${configId ? `&config_id=${encodeURIComponent(configId)}` : ""}`,
-      { method: "POST" }
-    ),
-  importConfig: (content, id) =>
-    request("/configs/import", { method: "POST", body: JSON.stringify({ id, content }) }),
-  async exportConfigBundle(configId, content) {
+
+  getConfig: (id: number | string) => request<ConfigDetail>(`/configs/${id}`),
+
+  saveConfig: (id: number | string, content: string) =>
+    request<ConfigDetail>(`/configs/${id}`, {
+      method: "PUT",
+      body: JSON.stringify({ content }),
+    }),
+
+  createConfig: (id: number | string, content: string) =>
+    request<ConfigDetail>("/configs", {
+      method: "POST",
+      body: JSON.stringify({ id, content }),
+    }),
+
+  deleteConfig: (id: number | string) =>
+    request<void>(`/configs/${id}`, { method: "DELETE" }),
+
+  validate: (content: string) =>
+    request<ValidateResult>("/validate", {
+      method: "POST",
+      body: JSON.stringify({ content }),
+    }),
+
+  duplicate: (id: number | string) =>
+    request<DuplicateConfigResult>(`/configs/${id}/duplicate`, { method: "POST" }),
+
+  importConfig: (content: string, id?: number | string) =>
+    request<ImportConfigResult>("/configs/import", {
+      method: "POST",
+      body: JSON.stringify({ id, content }),
+    }),
+
+  async exportConfigBundle(
+    configId: number | string,
+    content?: string
+  ): Promise<ExportBundleResult> {
     const hasInline = typeof content === "string";
     const url = hasInline
       ? `${API}/configs/export-bundle`
-      : `${API}/configs/${encodeURIComponent(configId)}/export`;
+      : `${API}/configs/${encodeURIComponent(String(configId))}/export`;
     const res = await fetch(url, {
       method: hasInline ? "POST" : "GET",
       headers: hasInline ? { "Content-Type": "application/json" } : {},
@@ -66,18 +132,15 @@ export const api = {
         ? JSON.stringify({ content, name: configId || "training_export" })
         : undefined,
     });
-    const text = await res.text();
     if (!res.ok) {
-      let data = null;
+      const text = await res.text();
+      let data: unknown = null;
       try {
         data = text ? JSON.parse(text) : null;
       } catch {
         data = { detail: text };
       }
-      const msg =
-        formatApiDetail(data?.detail) ||
-        (typeof data?.error === "string" ? data.error : formatApiDetail(data?.error)) ||
-        res.statusText;
+      const msg = errorMessageFromResponseBody(data, res.statusText);
       throw new Error(msg || `HTTP ${res.status}`);
     }
     const blob = await res.blob();
@@ -86,139 +149,293 @@ export const api = {
       `${configId || "training_export"}.zip`;
     return { blob, filename };
   },
-  listJobs: () => request("/jobs"),
-  trainRuns: (params) => {
-    const q = params instanceof URLSearchParams ? params : new URLSearchParams(params);
-    if (!q.has("page")) q.set("page", "1");
-    if (!q.has("page_size")) q.set("page_size", "20");
-    return request(`/train/runs?${q.toString()}`);
+
+  listJobs: () => request<JobListResult>("/jobs"),
+
+  trainRuns: (params: QueryParams) => {
+    const q = withDefaultPagination(params, { page: "1", page_size: "20" });
+    return request<TrainRunsResult>(`/train/runs?${q.toString()}`);
   },
-  trainActive: () => request("/train/active"),
+
+  trainActive: () => request<TrainActiveResult>("/train/active"),
+
   listImportCandidates: (outputDir = "output") =>
-    request(`/jobs/import/candidates?output_dir=${encodeURIComponent(outputDir)}`),
-  previewJobImport: (runPath) =>
-    request("/jobs/import/preview", {
+    request<ImportCandidatesResult>(
+      `/jobs/import/candidates?output_dir=${encodeURIComponent(outputDir)}`
+    ),
+
+  previewJobImport: (runPath: string) =>
+    request<ImportRunPreview>("/jobs/import/preview", {
       method: "POST",
       body: JSON.stringify({ run_path: runPath }),
     }),
-  importJobFromRun: (body) =>
-    request("/jobs/import", { method: "POST", body: JSON.stringify(body) }),
-  getRunConfig: (runPath) =>
-    request(`/runs/config?run_path=${encodeURIComponent(runPath)}`),
-  continueRun: (body) =>
-    request("/jobs/continue-run", { method: "POST", body: JSON.stringify(body) }),
-  getJob: (id) => request(`/jobs/${id}`),
-  jobArtifacts: (id) => request(`/jobs/${id}/artifacts`),
-  startJob: (body) => request("/jobs", { method: "POST", body: JSON.stringify(body) }),
-  updateJob: (id, body) =>
-    request(`/jobs/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
-  deleteJob: (id) => request(`/jobs/${id}`, { method: "DELETE" }),
-  moveJobQueue: (id, direction) =>
-    request(`/jobs/${id}/queue/move?direction=${direction}`, { method: "POST" }),
-  startJobNow: (id) => request(`/jobs/${id}/queue/start-now`, { method: "POST" }),
-  stopJob: (id) => request(`/jobs/${id}/stop`, { method: "POST" }),
-  sendJobSignal: (id, type) =>
-    request(`/jobs/${id}/signals`, { method: "POST", body: JSON.stringify({ type }) }),
-  jobMetrics: (id) => request(`/jobs/${id}/metrics`),
+
+  importJobFromRun: (body: JobImportBody) =>
+    request<JobRecord>("/jobs/import", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  getRunConfig: (runPath: string) =>
+    request<RunConfigResult>(`/runs/config?run_path=${encodeURIComponent(runPath)}`),
+
+  continueRun: (body: ContinueRunBody) =>
+    request<JobRecord>("/jobs/continue-run", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  getJob: (id: string) => request<JobRecord>(`/jobs/${id}`),
+
+  jobArtifacts: (id: string) =>
+    request<{ artifacts?: Record<string, unknown>[] }>(`/jobs/${id}/artifacts`),
+
+  startJob: (body: JobStartBody) =>
+    request<JobRecord>("/jobs", { method: "POST", body: JSON.stringify(body) }),
+
+  updateJob: (id: string, body: JobPatchBody) =>
+    request<JobRecord>(`/jobs/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+
+  deleteJob: (id: string) => request<void>(`/jobs/${id}`, { method: "DELETE" }),
+
+  moveJobQueue: (id: string, direction: "up" | "down") =>
+    request<JobRecord>(`/jobs/${id}/queue/move?direction=${direction}`, {
+      method: "POST",
+    }),
+
+  startJobNow: (id: string) =>
+    request<JobRecord>(`/jobs/${id}/queue/start-now`, { method: "POST" }),
+
+  stopJob: (id: string) => request<JobRecord>(`/jobs/${id}/stop`, { method: "POST" }),
+
+  sendJobSignal: (id: string, type: string) =>
+    request<void>(`/jobs/${id}/signals`, {
+      method: "POST",
+      body: JSON.stringify({ type }),
+    }),
+
+  listSignals: () => request<TrainingSignalsResult>("/signals"),
+
+  jobMetrics: (id: string) => request<JobMetricsResult>(`/jobs/${id}/metrics`),
+
+  jobLogs: (id: string, offset = 0) =>
+    request<{ chunk: string; offset: number }>(`/jobs/${id}/logs?offset=${offset}`),
+
   listFsRuns: (outputDir = "output") =>
-    request(`/runs?output_dir=${encodeURIComponent(outputDir)}`),
-  getFsRun: (name, outputDir = "output") =>
-    request(`/runs/${encodeURIComponent(name)}?output_dir=${encodeURIComponent(outputDir)}`),
-  fsSignal: (name, type, outputDir = "output") =>
-    request(
+    request<FsRunsListResult>(`/runs?output_dir=${encodeURIComponent(outputDir)}`),
+
+  getFsRun: (name: string, outputDir = "output") =>
+    request<FsRunRecord>(
+      `/runs/${encodeURIComponent(name)}?output_dir=${encodeURIComponent(outputDir)}`
+    ),
+
+  fsSignal: (name: string, type: string, outputDir = "output") =>
+    request<void>(
       `/runs/${encodeURIComponent(name)}/signals?output_dir=${encodeURIComponent(outputDir)}`,
       { method: "POST", body: JSON.stringify({ type }) }
     ),
-  fsMetrics: (name, outputDir = "output") =>
-    request(`/runs/${encodeURIComponent(name)}/metrics?output_dir=${encodeURIComponent(outputDir)}`),
-  getSchema: () => request("/schema"),
-  getSystemStats: () => request("/system/stats"),
-  tensorboardStatus: () => request("/tensorboard/status"),
-  tensorboardStart: (body = {}) =>
-    request("/tensorboard/start", { method: "POST", body: JSON.stringify(body) }),
-  tensorboardStop: () => request("/tensorboard/stop", { method: "POST" }),
-  probeRegistry: (body) =>
-    request("/registry/probe", { method: "POST", body: JSON.stringify(body) }),
-  getDoc: (path) => request(`/docs?path=${encodeURIComponent(path)}`),
-  getDocsIndex: () => request("/docs/index"),
-  parseToml: (content) =>
-    request("/configs/parse-toml", { method: "POST", body: JSON.stringify({ content }) }),
-  renderToml: (form: FormValues) => {
+
+  fsMetrics: (name: string, outputDir = "output") =>
+    request<JobMetricsResult>(
+      `/runs/${encodeURIComponent(name)}/metrics?output_dir=${encodeURIComponent(outputDir)}`
+    ),
+
+  getSchema: () => request<ConfigSchemaResponse>("/schema"),
+
+  getSystemStats: () => request<SystemStatsResponse>("/system/stats"),
+
+  tensorboardStatus: () => request<TensorboardStatus>("/tensorboard/status"),
+
+  tensorboardStart: (body: TensorboardStartBody = {}) =>
+    request<TensorboardStartResult>("/tensorboard/start", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  tensorboardStop: () => request<TensorboardStatus>("/tensorboard/stop", { method: "POST" }),
+
+  probeRegistry: (body: RegistryProbeBody) =>
+    request<RegistryProbeResult>("/registry/probe", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  getDoc: (path: string) =>
+    request<DocContentResult>(`/docs?path=${encodeURIComponent(path)}`),
+
+  getDocsIndex: () => request<DocsIndexResult>("/docs/index"),
+
+  parseToml: (content: string) =>
+    request<ParseTomlResult>("/configs/parse-toml", {
+      method: "POST",
+      body: JSON.stringify({ content }),
+    }),
+
+  renderToml: (form: FormValues, baseContent?: string) => {
     if (!form || typeof form !== "object" || Array.isArray(form)) {
       return Promise.reject(new Error("Config form is not ready yet."));
     }
-    return request("/configs/render-toml", {
+    const body: { form: FormValues; base_content?: string } = { form };
+    if (baseContent?.trim()) {
+      body.base_content = baseContent;
+    }
+    return request<RenderTomlResult>("/configs/render-toml", {
       method: "POST",
-      body: JSON.stringify({ form }),
+      body: JSON.stringify(body),
     });
   },
 
-  listDatasets: () => request("/datasets"),
-  searchDatasets: (params) => {
-    const q = params instanceof URLSearchParams ? params : new URLSearchParams(params);
-    if (!q.has("page")) q.set("page", "1");
-    if (!q.has("page_size")) q.set("page_size", "20");
-    return request(`/datasets?${q.toString()}`);
+  listDatasets: () => request<DatasetSearchItem[]>("/datasets"),
+
+  searchDatasets: (params: QueryParams) => {
+    const q = withDefaultPagination(params, { page: "1", page_size: "20" });
+    return request<Paginated<DatasetSearchItem>>(`/datasets?${q.toString()}`);
   },
-  getDataset: (id) => request(`/datasets/${id}`),
-  saveDataset: (id, payload) =>
-    request(`/datasets/${id}`, {
+
+  getDataset: (id: number | string) => request<DatasetDetail>(`/datasets/${id}`),
+
+  saveDataset: (id: number | string, payload: string | DatasetSavePayload) =>
+    request<DatasetDetail>(`/datasets/${id}`, {
       method: "PUT",
       body: JSON.stringify(
         typeof payload === "string" ? { content: payload } : payload
       ),
     }),
-  createDataset: (payload) => {
+
+  createDataset: (payload: string | DatasetSavePayload) => {
     const body =
       typeof payload === "string" ? { content: payload } : { ...payload };
-    return request("/datasets", { method: "POST", body: JSON.stringify(body) });
+    return request<DatasetDetail>("/datasets", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
   },
-  deleteDataset: (id) => request(`/datasets/${id}`, { method: "DELETE" }),
-  duplicateDataset: (id, newId) =>
-    request(
+
+  deleteDataset: (id: number | string) =>
+    request<void>(`/datasets/${id}`, { method: "DELETE" }),
+
+  duplicateDataset: (id: number | string, newId?: string) =>
+    request<DuplicateConfigResult>(
       `/datasets/${id}/duplicate${newId ? `?new_id=${encodeURIComponent(newId)}` : ""}`,
       { method: "POST" }
     ),
-  validateDataset: (content) =>
-    request("/datasets/validate", { method: "POST", body: JSON.stringify({ content }) }),
-  importDatasetExample: (path, datasetId) =>
-    request(
-      `/datasets/import-example?path=${encodeURIComponent(path)}${datasetId ? `&dataset_id=${encodeURIComponent(datasetId)}` : ""}`,
+
+  validateDataset: (content: string) =>
+    request<ValidateResult>("/datasets/validate", {
+      method: "POST",
+      body: JSON.stringify({ content }),
+    }),
+
+  importDatasetExample: (path: string, datasetId?: number | string) =>
+    request<ImportExampleResult>(
+      `/datasets/import-example?path=${encodeURIComponent(path)}${
+        datasetId ? `&dataset_id=${encodeURIComponent(String(datasetId))}` : ""
+      }`,
       { method: "POST" }
     ),
+
   importDataset: (content: string, id?: string) => {
     const body: { content: string; id?: string } = { content };
     if (id) body.id = id;
-    return request("/datasets/import", { method: "POST", body: JSON.stringify(body) });
+    return request<ImportConfigResult>("/datasets/import", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
   },
-  exportDataset: (id) => request(`/datasets/${encodeURIComponent(id)}/export`),
-  getDatasetSchema: () => request("/datasets/schema"),
-  getDatasetFolderSuggestions: (excludeId) => {
-    const q = excludeId ? `?exclude=${encodeURIComponent(excludeId)}` : "";
-    return request(`/datasets/folder-suggestions${q}`);
+
+  exportDataset: (id: number | string) =>
+    request<{ content?: string }>(`/datasets/${encodeURIComponent(String(id))}/export`),
+
+  getDatasetSchema: () => request<DatasetSchemaResponse>("/datasets/schema"),
+
+  getAugmentationCatalog: () => request<AugmentationCatalogResponse>("/augmentations"),
+
+  getDatasetFolderSuggestions: (excludeId?: number | string) => {
+    const q = excludeId ? `?exclude=${encodeURIComponent(String(excludeId))}` : "";
+    return request<{ suggestions?: DatasetFolderSuggestion[] }>(
+      `/datasets/folder-suggestions${q}`
+    );
   },
-  parseDatasetToml: (content) =>
-    request("/datasets/parse-toml", { method: "POST", body: JSON.stringify({ content }) }),
+
+  parseDatasetToml: (content: string) =>
+    request<ParseTomlResult>("/datasets/parse-toml", {
+      method: "POST",
+      body: JSON.stringify({ content }),
+    }),
+
   renderDatasetToml: (form: FormValues) => {
     if (!form || typeof form !== "object" || Array.isArray(form)) {
       return Promise.reject(new Error("Dataset form is not ready yet."));
     }
-    return request("/datasets/render-toml", {
+    return request<RenderTomlResult>("/datasets/render-toml", {
       method: "POST",
       body: JSON.stringify({ form }),
     });
   },
-  previewDataset: (content) =>
-    request("/datasets/preview", { method: "POST", body: JSON.stringify({ content }) }),
-  listDatasetPreviewImages: (body) =>
-    request("/datasets/preview-images", { method: "POST", body: JSON.stringify(body) }),
-  datasetPreviewImageUrl: (token) =>
+
+  previewDataset: (content: string) =>
+    request<DatasetPreviewResult>("/datasets/preview", {
+      method: "POST",
+      body: JSON.stringify({ content }),
+    }),
+
+  listDatasetPreviewImages: (body: {
+    content: string;
+    directory_index?: number;
+    limit?: number;
+    offset?: number;
+  }) =>
+    request<DatasetPreviewImagesResult>("/datasets/preview-images", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  datasetPreviewImageUrl: (token: string) =>
     `${API}/datasets/preview-image?t=${encodeURIComponent(token)}`,
-  scanDatasetPath: (path) =>
-    request("/datasets/scan-path", { method: "POST", body: JSON.stringify({ path }) }),
+
+  scanDatasetPath: (path: string) =>
+    request<DatasetScanPathResult>("/datasets/scan-path", {
+      method: "POST",
+      body: JSON.stringify({ path }),
+    }),
+
+  fsStat: (path: string, expect?: "file" | "dir") =>
+    request<FsStatResult>("/fs/stat", {
+      method: "POST",
+      body: JSON.stringify({ path, expect: expect ?? null }),
+    }),
+
   composeDatasets: (sourceIds: string[], targetId?: string) => {
     const body: { source_ids: string[]; target_id?: string } = { source_ids: sourceIds };
     if (targetId) body.target_id = targetId;
-    return request("/datasets/compose", { method: "POST", body: JSON.stringify(body) });
+    return request<DatasetComposeResult>("/datasets/compose", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
   },
+
+  maintenanceEnabled: () => request<MaintenanceEnabledResult>("/maintenance/enabled"),
+
+  maintenanceStatus: () => request<MaintenanceStatus>("/maintenance/status"),
+
+  maintenanceDatabaseReset: () =>
+    request<MaintenanceDbResetResult>("/maintenance/database/reset", {
+      method: "POST",
+      body: JSON.stringify({ confirmation: "RESET" }),
+    }),
+
+  maintenanceSubmodulesUpdate: () =>
+    request<MaintenanceCommandOutput>("/maintenance/submodules/update", {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
+
+  maintenanceDepsInstall: (profile: string, execute: boolean) =>
+    request<MaintenanceCommandOutput>("/maintenance/deps/install", {
+      method: "POST",
+      body: JSON.stringify({ profile, execute, confirm: execute }),
+    }),
 };

@@ -38,6 +38,18 @@ export function formatApiDetail(detail: unknown): string {
   return String(detail);
 }
 
+export function errorMessageFromResponseBody(
+  data: unknown,
+  fallbackStatus = ""
+): string {
+  const body = data as Record<string, unknown> | null;
+  return (
+    formatApiDetail(body?.detail) ||
+    (typeof body?.error === "string" ? body.error : formatApiDetail(body?.error)) ||
+    fallbackStatus
+  );
+}
+
 export function formatError(err: unknown): string {
   if (err == null) return "Unknown error";
   if (typeof err === "string") return err;

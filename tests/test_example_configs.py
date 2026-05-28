@@ -18,6 +18,9 @@ EXAMPLE_CONFIGS = [
     "minimal_config_cosmos_predict2_lora.toml",
     "minimal_config_cosmos_predict2_lokr.toml",
     "minimal_config_cosmos_predict2_finetune.toml",
+    "config_with_preview.toml",
+    "config_with_eval_and_monitoring.toml",
+    "config_oom_skip.toml",
 ]
 
 

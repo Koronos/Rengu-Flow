@@ -14,8 +14,6 @@
           circle
           size="small"
           text
-          tabindex="-1"
-          aria-label="Field help"
           @click.stop="openDoc"
         />
       </template>
@@ -39,7 +37,6 @@
       circle
       size="small"
       text
-      aria-label="Open documentation"
       @click.stop="openDoc"
     />
     <DocMarkdownDrawer v-model="drawerOpen" :doc-path="docPath" />
@@ -50,15 +47,14 @@
 import { computed, ref } from "vue";
 import { InfoFilled } from "@element-plus/icons-vue";
 import DocMarkdownDrawer from "./DocMarkdownDrawer.vue";
+import type { SchemaField } from "../types/forms";
 
-const props = defineProps({
-  field: { type: Object, required: true },
-});
+const props = defineProps<{ field: SchemaField }>();
 
 const drawerOpen = ref(false);
 
 const helpText = computed(
-  () => props.field.help || props.field.description || ""
+  () => props.field.help || ""
 );
 
 const docPath = computed(() => props.field.doc_path || "");

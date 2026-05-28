@@ -46,6 +46,13 @@ def test_schema_and_dataset_schema(ui_client) -> None:
     assert "directory_fields" in schema
     assert any(s["id"] == "resolutions" for s in schema["sections"])
 
+    r3 = ui_client.get("/api/v1/augmentations")
+    assert r3.status_code == 200
+    aug = r3.json()
+    assert "presets" in aug
+    assert "strategies" in aug
+    assert any(p["name"] == "easy" for p in aug["presets"])
+
 
 def test_configs_search_paginated(ui_client, ui_data_tmp: Path) -> None:
     for _ in range(3):
@@ -89,6 +96,36 @@ def test_config_crud_via_api(ui_client, ui_data_tmp: Path) -> None:
     assert r.status_code == 200
 
 
+def test_config_import_preserves_full_toml(ui_client) -> None:
+    example = (Path(__file__).resolve().parents[1] / "examples" / "minimal_config_lora_sdxl.toml").read_text(
+        encoding="utf-8"
+    )
+    r = ui_client.post("/api/v1/configs/import", json={"content": example})
+    assert r.status_code == 200
+    cid = r.json()["id"]
+    stored = ui_client.get(f"/api/v1/configs/{cid}").json()["content"]
+    assert "lr_scheduler" in stored
+    assert "checkpoint_path" in stored
+    assert "[lr_scheduler_args]" in stored
+
+
+def test_config_render_toml_merge_preserves_scheduler(ui_client) -> None:
+    example = (Path(__file__).resolve().parents[1] / "examples" / "minimal_config_lora_sdxl.toml").read_text(
+        encoding="utf-8"
+    )
+    parse_r = ui_client.post("/api/v1/configs/parse-toml", json={"content": example})
+    assert parse_r.status_code == 200
+    form = parse_r.json()["form"]
+    render_r = ui_client.post(
+        "/api/v1/configs/render-toml",
+        json={"form": form, "base_content": example},
+    )
+    assert render_r.status_code == 200
+    rendered = render_r.json()["content"]
+    assert "lr_scheduler" in rendered
+    assert "checkpoint_path" in rendered
+
+
 def test_config_parse_render_toml(ui_client) -> None:
     r = ui_client.post("/api/v1/configs/parse-toml", json={"content": MINIMAL_TOML})
     assert r.status_code == 200
@@ -117,6 +154,21 @@ def test_docs_endpoint(ui_client) -> None:
     r = ui_client.get("/api/v1/docs", params={"path": "docs/user/web-ui.md"})
     assert r.status_code == 200
     assert "Web UI" in r.json()["content"]
+
+
+def test_docs_path_traversal_returns_404(ui_client) -> None:
+    r = ui_client.get("/api/v1/docs", params={"path": "docs/../../../etc/passwd"})
+    assert r.status_code == 404
+    assert r.json()["detail"] == "Documentation file not found"
+
+
+def test_docs_encoded_traversal_returns_404(ui_client) -> None:
+    r = ui_client.get(
+        "/api/v1/docs",
+        params={"path": "docs/user/%2e%2e/%2e%2e/README.md"},
+    )
+    assert r.status_code == 404
+    assert r.json()["detail"] == "Documentation file not found"
 
 
 def test_system_stats(ui_client) -> None:
@@ -168,6 +220,23 @@ def test_dataset_library_api(ui_client, ui_data_tmp: Path) -> None:
     assert "missing" in body
 
 
+def test_dataset_scan_path(ui_client, tmp_path: Path) -> None:
+    (tmp_path / "a.jpg").write_bytes(b"x")
+    (tmp_path / "a.txt").write_text("caption")
+    r = ui_client.post("/api/v1/datasets/scan-path", json={"path": str(tmp_path)})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is True
+    assert body["image_count"] == 1
+    assert body["caption_txt_files"] == 1
+
+    r2 = ui_client.post(
+        "/api/v1/datasets/scan-path", json={"path": "/nonexistent/renga_flow_scan"}
+    )
+    assert r2.status_code == 200
+    assert r2.json()["ok"] is False
+
+
 def test_registry_probe(ui_client) -> None:
     r = ui_client.post(
         "/api/v1/registry/probe",
@@ -197,6 +266,13 @@ def test_jobs_enqueue_mocked(ui_client, ui_data_tmp: Path, monkeypatch: pytest.M
     job = r.json()
     assert job["state"] in ("running", "pending")
     assert job["config_id"] == job_cfg
+
+    r_cache = ui_client.post(
+        "/api/v1/jobs",
+        json={"config_id": job_cfg, "num_gpus": 1, "cache_only": True, "enqueue": True},
+    )
+    assert r_cache.status_code == 200
+    assert "--cache_only" in r_cache.json()["extra_args"]
 
     r2 = ui_client.get(f"/api/v1/jobs/{job['id']}")
     assert r2.status_code == 200

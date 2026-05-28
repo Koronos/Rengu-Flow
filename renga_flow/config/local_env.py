@@ -1,4 +1,4 @@
-"""Load optional repo-root `.env` and apply local model paths to config."""
+"""Legacy dotenv helpers and optional env-based model path overrides (smoke/CI only)."""
 
 from __future__ import annotations
 
@@ -7,7 +7,9 @@ import sys
 from pathlib import Path
 from typing import Any
 
-# Env var name -> config['model'] key per model type
+from renga_flow.config.local_config import load_local_config, repo_root
+
+# Env var name -> config['model'] key per model type (optional override when env is set externally).
 _MODEL_PATH_ENV: dict[str, dict[str, str]] = {
     "sdxl": {"checkpoint_path": "RENGA_SDXL_CHECKPOINT_PATH"},
     "cosmos_predict2": {
@@ -16,10 +18,6 @@ _MODEL_PATH_ENV: dict[str, dict[str, str]] = {
         "llm_path": "RENGA_COSMOS_LLM_PATH",
     },
 }
-
-
-def repo_root() -> Path:
-    return Path(__file__).resolve().parents[2]
 
 
 def parse_dotenv_line(line: str) -> tuple[str, str] | None:
@@ -41,7 +39,7 @@ def parse_dotenv_line(line: str) -> tuple[str, str] | None:
 
 
 def load_repo_dotenv(path: Path | None = None, *, override: bool = False) -> bool:
-    """Load ``.env`` from repo root into ``os.environ``. Returns True if file was read."""
+    """Deprecated: load ``.env`` from repo root. Prefer ``renga.local.toml`` via ``load_local_config``."""
     env_path = path if path is not None else repo_root() / ".env"
     if not env_path.is_file():
         return False
@@ -58,10 +56,7 @@ def load_repo_dotenv(path: Path | None = None, *, override: bool = False) -> boo
 
 
 def apply_model_paths_from_env(config: dict[str, Any]) -> list[str]:
-    """Set ``[model]`` checkpoint paths from env vars when present.
-
-    Returns list of env var names that were applied.
-    """
+    """Override ``[model]`` paths only when matching env vars are already set (CI/smoke)."""
     model = config.get("model")
     if not isinstance(model, dict):
         return []
@@ -77,27 +72,28 @@ def apply_model_paths_from_env(config: dict[str, Any]) -> list[str]:
 
 
 def model_path_errors(config: dict[str, Any]) -> list[str]:
-    """Human-readable errors for missing or invalid model paths (after env apply)."""
+    """Human-readable errors for missing or invalid model paths in the training config."""
     model = config.get("model")
     if not isinstance(model, dict):
         return []
     model_type = str(model.get("type", "")).lower()
     mapping = _MODEL_PATH_ENV.get(model_type, {})
     errors: list[str] = []
-    for model_key, env_name in mapping.items():
+    for model_key in mapping:
         path = str(model.get(model_key, "")).strip()
         if not path:
-            errors.append(f"Set {env_name} in .env (or [model].{model_key} in config)")
+            errors.append(f"Set [model].{model_key} in your training config")
             continue
         if not Path(path).is_file():
-            errors.append(f"{env_name} not found: {path}")
+            errors.append(f"[model].{model_key} not found: {path}")
     return errors
 
 
 def check_config_model_paths(config_path: str | Path) -> None:
-    """Load config + .env and exit non-zero if model paths are missing (for smoke scripts)."""
+    """Load config and exit non-zero if model paths are missing (for smoke scripts)."""
     from renga_flow.config.loader import load_config
 
+    load_local_config()
     load_repo_dotenv()
     config = load_config(config_path)
     apply_model_paths_from_env(config)

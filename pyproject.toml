@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Modular training framework derived from diffusion-pipe; TOML-driven, registry-based components."
 readme = "README.md"
 license = "GPL-3.0-or-later"
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.14"
 dependencies = [
     "toml>=0.10.2",
     "torch>=2.0",
@@ -35,7 +35,7 @@ cosmos_predict2 = [
 optim = [
     "bitsandbytes",
     "pytorch-optimizer",
-    "optimi",
+    "torch-optimi",
     "torchao",
     "optimum-quanto",
     "transformers>=4.0",
@@ -52,7 +52,8 @@ ui = [
 ]
 
 [project.scripts]
-renga-flow = "renga_flow.main:main"
+renga = "renga_flow.cli:main"
+renga-flow = "renga_flow.cli:main"
 renga-flow-ui = "renga_flow_ui.cli:main"
 
 [tool.setuptools.packages.find]

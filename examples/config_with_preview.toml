@@ -26,10 +26,15 @@ save_every_n_epochs = 1
 output_dir = "output"
 
 [preview]
+# Use [[preview.prompts]] for named TensorBoard tags (mixed inline tables in
+# `prompts = [...]` are not supported by the TOML parser).
 prompts = [
   "a photo of a cat sitting on a windowsill, soft daylight",
-  { name = "landscape", prompt = "mountain lake at sunset, detailed, 4k" },
 ]
+
+[[preview.prompts]]
+name = "landscape"
+prompt = "mountain lake at sunset, detailed, 4k"
 negative_prompt = "blurry, low quality, watermark"
 preview_every_n_steps = 100
 num_inference_steps = 20

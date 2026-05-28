@@ -3,7 +3,7 @@
     :model-value="modelValue"
     :title="multiple ? 'Choose datasets' : 'Choose dataset'"
     width="92%"
-    style="max-width: 720px"
+    class="dataset-picker-dialog"
     destroy-on-close
     @update:model-value="$emit('update:modelValue', $event)"
     @open="loadItems"
@@ -13,7 +13,7 @@
         <el-input
           v-model="filterText"
           clearable
-          placeholder="Filter datasets…"
+          placeholder="Filter by name or ID…"
           class="picker-filter"
         />
         <DatasetViewModeToggle v-model="viewMode" />
@@ -28,6 +28,9 @@
         :view-mode="viewMode"
         scrollable
         show-check
+        table-title-label="Name"
+        table-subtitle-label="Library ref"
+        :table-actions-column-width="148"
         @item-click="onItemClick"
       >
         <template #actions="{ item }">
@@ -35,7 +38,11 @@
             :show-delete="false"
             :gallery-disabled="!item.libraryId"
             @gallery="openGallery(item)"
-          />
+          >
+            <el-tooltip v-if="item.libraryId" content="Edit dataset (new tab)" :show-after="300">
+              <el-button size="small" circle :icon="Edit" @click="openEdit(item)" />
+            </el-tooltip>
+          </DatasetPreviewActions>
         </template>
       </DatasetPreviewCollection>
       <p v-if="!multiple" class="picker-compose-hint">
@@ -61,12 +68,16 @@
       :title="galleryTitle"
       :content="galleryContent"
       :directory-index="galleryDirectoryIndex"
+      :loading="galleryLoading"
     />
   </el-dialog>
 </template>
 
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
+import { useRouter } from "vue-router";
+import { Edit } from "@element-plus/icons-vue";
+import { ElLoadingDirective } from "element-plus";
 import { api } from "../api";
 import DatasetGalleryDialog from "./DatasetGalleryDialog.vue";
 import DatasetPreviewActions from "./DatasetPreviewActions.vue";
@@ -74,23 +85,43 @@ import DatasetPreviewCollection from "./DatasetPreviewCollection.vue";
 import DatasetViewModeToggle from "./DatasetViewModeToggle.vue";
 import { useDatasetGallery } from "../composables/useDatasetGallery";
 import { useDatasetViewMode } from "../composables/useDatasetViewMode";
-import { canonicalDatasetRef } from "../lib/datasetLibraryRef";
+import { canonicalDatasetRef, formatDatasetLibraryRef } from "../lib/datasetLibraryRef";
+import { cacheDatasetDisplayLabel } from "../lib/resolveDatasetLabels";
 import { libraryThumbSource } from "../lib/previewThumbs";
+import type { DatasetSearchItem } from "../types/api";
+import type { DatasetPreviewItem } from "./DatasetPreviewCollection.vue";
 
-const props = defineProps({
-  modelValue: { type: Boolean, default: false },
-  multiple: { type: Boolean, default: false },
-  selected: { type: [String, Array], default: "" },
+type DatasetPickerItem = DatasetPreviewItem & {
+  path: string;
+  libraryId: string | null;
+};
+
+interface DatasetPickerModalProps {
+  modelValue: boolean;
+  multiple: boolean;
+  selected: string | string[];
+}
+
+const props = withDefaults(defineProps<DatasetPickerModalProps>(), {
+  modelValue: false,
+  multiple: false,
+  selected: "",
 });
 
-const emit = defineEmits(["update:modelValue", "select", "select-multiple"]);
+const emit = defineEmits<{
+  (e: "update:modelValue", value: boolean): void;
+  (e: "select", value: string): void;
+  (e: "select-multiple", value: string[]): void;
+}>();
+const vLoading = ElLoadingDirective;
+const router = useRouter();
 
 const loading = ref(false);
 const filterText = ref("");
-const items = ref([]);
-const selectedPaths = ref([]);
-const { viewMode } = useDatasetViewMode("renga-flow-dataset-picker-view");
-const { galleryOpen, galleryTitle, galleryContent, galleryDirectoryIndex, showFromLibrary } =
+const items = ref<DatasetPickerItem[]>([]);
+const selectedPaths = ref<string[]>([]);
+const { viewMode } = useDatasetViewMode("renga-flow-dataset-picker-view", "table");
+const { galleryOpen, galleryTitle, galleryContent, galleryDirectoryIndex, galleryLoading, showFromLibrary } =
   useDatasetGallery();
 
 const filteredItems = computed(() => {
@@ -98,7 +129,9 @@ const filteredItems = computed(() => {
   const list = q
     ? items.value.filter(
         (item) =>
-          item.title.toLowerCase().includes(q) || item.subtitle.toLowerCase().includes(q)
+          (item.title || "").toLowerCase().includes(q) ||
+          (item.subtitle || "").toLowerCase().includes(q) ||
+          String(item.id ?? "").includes(q)
       )
     : items.value;
   return list.map((item) => ({
@@ -107,28 +140,34 @@ const filteredItems = computed(() => {
   }));
 });
 
-function parseLibraryId(path) {
-  const key = canonicalDatasetRef(path);
-  const m = key.match(/^renga-flow-dataset:(\d+)$/);
-  return m ? m[1] : null;
+function formatRowSubtitle(row: DatasetSearchItem): string {
+  const parts: string[] = [formatDatasetLibraryRef(row.id, row.name)];
+  if (row.directory_count != null) {
+    parts.push(
+      `${row.directory_count} ${row.directory_count === 1 ? "folder" : "folders"}`
+    );
+  }
+  return parts.join(" · ");
 }
 
 async function loadItems() {
   loading.value = true;
   try {
-    const schema = (await api.getSchema()) as {
-      registries?: { dataset_paths?: { path: string; label?: string; id?: string }[] };
-    };
-    const picker = schema?.registries?.dataset_paths || [];
-    items.value = picker.map((entry) => {
-        const libraryId = parseLibraryId(entry.path);
+    const rows = (await api.listDatasets()) as DatasetSearchItem[];
+    items.value = rows.map((row): DatasetPickerItem => {
+      const libraryId = String(row.id);
+      const name = String(row.name || `Dataset #${row.id}`);
+      const path = formatDatasetLibraryRef(row.id, name);
+      const display = `${name} (#${row.id})`;
+      cacheDatasetDisplayLabel(path, display);
       return {
-        key: entry.path,
-        path: entry.path,
+        key: path,
+        id: row.id,
+        path,
         libraryId,
-        title: entry.label || entry.id || entry.path,
-        subtitle: entry.path,
-        thumbSource: libraryId ? libraryThumbSource(libraryId) : null,
+        title: name,
+        subtitle: formatRowSubtitle(row),
+        thumbSource: libraryThumbSource(libraryId),
         fallbackText: "DS",
       };
     });
@@ -139,7 +178,7 @@ async function loadItems() {
   }
 }
 
-function isSelected(path) {
+function isSelected(path: string): boolean {
   const key = canonicalDatasetRef(path);
   if (props.multiple) {
     return selectedPaths.value.some((p) => canonicalDatasetRef(p) === key);
@@ -147,11 +186,11 @@ function isSelected(path) {
   return canonicalDatasetRef(props.selected) === key;
 }
 
-function onItemClick(item) {
+function onItemClick(item: DatasetPickerItem) {
   toggle(item.path);
 }
 
-function openGallery(item) {
+function openGallery(item: DatasetPickerItem) {
   if (!item.libraryId) return;
   showFromLibrary({
     id: item.libraryId,
@@ -160,7 +199,16 @@ function openGallery(item) {
   });
 }
 
-function toggle(path) {
+function openEdit(item: DatasetPickerItem) {
+  if (!item.libraryId) return;
+  const href = router.resolve({
+    name: "datasets-detail",
+    params: { datasetId: item.libraryId },
+  }).href;
+  window.open(href, "_blank", "noopener,noreferrer");
+}
+
+function toggle(path: string) {
   if (props.multiple) {
     const key = canonicalDatasetRef(path);
     const idx = selectedPaths.value.findIndex((p) => canonicalDatasetRef(p) === key);
@@ -190,6 +238,9 @@ watch(
 </script>
 
 <style scoped>
+:global(.dataset-picker-dialog) {
+  max-width: 920px;
+}
 .picker-body {
   min-height: 200px;
 }

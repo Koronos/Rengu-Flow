@@ -9,14 +9,26 @@
     >
       {{ entryLabel(entry) }}
     </el-tag>
-    <el-space wrap class="training-datasets-field__row">
-      <el-button size="small" @click="pickerOpen = true">Add dataset…</el-button>
-      <el-input
+    <template v-if="!entries.length">
+      <el-empty description="No training datasets yet" :image-size="56">
+        <el-button type="primary" :icon="Plus" @click="pickerOpen = true">Add dataset</el-button>
+      </el-empty>
+      <PathFieldControl
         v-model="pathDraft"
-        clearable
         placeholder="Or type a .toml path, Enter to add"
-        class="path-draft"
-        @keyup.enter="addDraftPath"
+        expect="file"
+        input-class="path-draft path-draft--empty"
+        @enter="addDraftPath"
+      />
+    </template>
+    <el-space v-else wrap class="training-datasets-field__row">
+      <el-button size="small" @click="pickerOpen = true">Add dataset…</el-button>
+      <PathFieldControl
+        v-model="pathDraft"
+        placeholder="Or type a .toml path, Enter to add"
+        expect="file"
+        input-class="path-draft"
+        @enter="addDraftPath"
       />
     </el-space>
     <p class="field-hint">
@@ -34,11 +46,15 @@
 
 <script setup lang="ts">
 import { computed, ref } from "vue";
+import { Plus } from "@element-plus/icons-vue";
 import DatasetPickerModal from "./DatasetPickerModal.vue";
-import { canonicalDatasetRef, datasetRefDisplayLabel } from "../lib/datasetLibraryRef";
+import PathFieldControl from "./PathFieldControl.vue";
+import { appendUniqueDatasetPaths } from "../lib/datasetLibraryRef";
+import { useResolvedDatasetLabels } from "../composables/useResolvedDatasetLabels";
+import type { PropType } from "vue";
 
 const props = defineProps({
-  modelValue: { default: "" },
+  modelValue: { type: [Array, String] as PropType<string | string[]>, default: "" },
 });
 
 const emit = defineEmits(["update:modelValue"]);
@@ -57,36 +73,29 @@ const entries = computed(() => {
   return [];
 });
 
-function entryLabel(entry) {
-  return datasetRefDisplayLabel(entry);
+const { labelFor } = useResolvedDatasetLabels(entries);
+
+function entryLabel(entry: string): string {
+  return labelFor(entry);
 }
 
-function normalizeEmit(paths) {
+function normalizeEmit(paths: string[]): string | string[] {
   const clean = paths.filter((p) => typeof p === "string" && p.trim()).map((p) => p.trim());
   if (clean.length === 0) return "";
   if (clean.length === 1) return clean[0];
   return clean;
 }
 
-function emitPaths(paths) {
+function emitPaths(paths: string[]): void {
   emit("update:modelValue", normalizeEmit(paths));
 }
 
-function removeAt(idx) {
+function removeAt(idx: number): void {
   emitPaths(entries.value.filter((_, i) => i !== idx));
 }
 
-function onAddMultiple(paths) {
-  const existing = new Set(entries.value.map(canonicalDatasetRef));
-  const next = [...entries.value];
-  for (const p of paths) {
-    const key = canonicalDatasetRef(p);
-    if (!existing.has(key)) {
-      next.push(p);
-      existing.add(key);
-    }
-  }
-  emitPaths(next);
+function onAddMultiple(paths: string[]): void {
+  emitPaths(appendUniqueDatasetPaths(entries.value, paths));
 }
 
 function addDraftPath() {
@@ -108,6 +117,11 @@ function addDraftPath() {
 .path-draft {
   flex: 1 1 180px;
   min-width: 0;
+  max-width: 100%;
+}
+.path-draft--empty {
+  display: block;
+  margin-top: 8px;
   max-width: 100%;
 }
 .field-hint {

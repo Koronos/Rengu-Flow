@@ -1,18 +1,16 @@
 /** Normalize dataset editor form before API render/parse (plain JSON-safe objects). */
 
+import { clonePlain } from "./clonePlain";
+import type { FormValues } from "../types/forms";
+
 const INTEGER_LIST_KEYS = new Set(["resolutions", "frame_buckets"]);
 const NUMBER_LIST_KEYS = new Set(["ar_buckets"]);
 const JSON_KEYS = new Set(["size_buckets", "_dataset_augmentation"]);
 
-function clonePlain(raw) {
-  try {
-    return structuredClone(raw);
-  } catch {
-    return JSON.parse(JSON.stringify(raw));
-  }
-}
+type DirectoryRow = FormValues & { path: string; num_repeats: number };
+type DatasetFormValues = FormValues & { _directories?: DirectoryRow[] | string };
 
-function cleanListFieldValue(key, value) {
+function cleanListFieldValue(key: string, value: unknown): unknown {
   if (value === undefined || value === null || value === "") {
     return undefined;
   }
@@ -29,11 +27,11 @@ function cleanListFieldValue(key, value) {
   return value;
 }
 
-function cleanDirectoryRow(entry) {
+function cleanDirectoryRow(entry: unknown): DirectoryRow {
   if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
     return { path: "", num_repeats: 1 };
   }
-  const row = { ...entry };
+  const row = { ...(entry as FormValues) } as DirectoryRow;
   row.path = typeof row.path === "string" ? row.path : "";
   row.num_repeats = Number(row.num_repeats) || 1;
   for (const key of Object.keys(row)) {
@@ -47,31 +45,27 @@ function cleanDirectoryRow(entry) {
   return row;
 }
 
-/**
- * @param {unknown} raw
- * @returns {Record<string, unknown> | null}
- */
-export function sanitizeDatasetForm(raw) {
+export function sanitizeDatasetForm(raw: unknown): FormValues | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return null;
   }
-  let form;
+  let form: DatasetFormValues;
   try {
-    form = clonePlain(raw);
+    form = clonePlain(raw) as DatasetFormValues;
   } catch {
     return null;
   }
 
-  let directories = form._directories;
+  let directories: unknown = form._directories;
   if (directories === undefined) {
     form._directories = [];
   } else if (typeof directories === "string") {
     try {
-      directories = JSON.parse(directories);
+      directories = JSON.parse(directories) as unknown;
     } catch {
       directories = [];
     }
-    form._directories = Array.isArray(directories) ? directories : [];
+    form._directories = Array.isArray(directories) ? directories.map(cleanDirectoryRow) : [];
   } else if (!Array.isArray(directories)) {
     form._directories = [];
   } else {

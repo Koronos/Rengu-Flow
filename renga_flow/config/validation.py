@@ -6,6 +6,7 @@ from typing import Any
 
 from renga_flow.config.dataset_library_ref import collect_script_dataset_library_ref_issues
 from renga_flow.registry.model_config_rules import validate_config_model_rules
+from renga_flow.run_naming import collect_run_name_validation_errors
 
 
 class ConfigValidationError(ValueError):
@@ -104,9 +105,23 @@ def collect_validation_errors(
                 "optimizer.gradient_release requires pipeline_stages = 1 (single-GPU pipeline)."
             )
 
-    cache_format = config.get("cache_format")
-    if cache_format is not None and cache_format not in ("v1", "v2"):
-        issues.append("cache_format must be `v1` or `v2`.")
+    if config.get("cache_format") not in (None, "v2"):
+        issues.append(
+            "cache_format v1 is removed; omit cache_format or set cache_format = \"v2\"."
+        )
+
+    train_seed = config.get("train_seed")
+    if train_seed is not None:
+        try:
+            int(train_seed)
+        except (TypeError, ValueError):
+            issues.append("train_seed must be an integer.")
+
+    cache_root = config.get("cache_root")
+    if cache_root is not None and (
+        not isinstance(cache_root, str) or not str(cache_root).strip()
+    ):
+        issues.append("cache_root must be a non-empty path string when set.")
 
     adapter = config.get("adapter")
     if adapter is not None:
@@ -121,6 +136,24 @@ def collect_validation_errors(
                 )
             elif "rank" not in adapter and "dim" not in adapter:
                 issues.append("adapter.rank (or adapter.dim) is required for LoRA / LoKr training.")
+
+    max_exports = config.get("max_model_exports_to_keep")
+    if max_exports is not None:
+        try:
+            if int(max_exports) < 1:
+                issues.append("max_model_exports_to_keep must be a positive integer.")
+        except (TypeError, ValueError):
+            issues.append("max_model_exports_to_keep must be a positive integer.")
+
+    min_export_step = config.get("keep_exports_from_step")
+    if min_export_step is not None:
+        try:
+            if int(min_export_step) < 0:
+                issues.append("keep_exports_from_step must be >= 0.")
+        except (TypeError, ValueError):
+            issues.append("keep_exports_from_step must be an integer.")
+
+    issues.extend(collect_run_name_validation_errors(config))
 
     if for_script:
         issues.extend(collect_script_dataset_library_ref_issues(config))

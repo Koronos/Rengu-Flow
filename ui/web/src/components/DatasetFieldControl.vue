@@ -1,17 +1,16 @@
 <template>
   <div class="dataset-field">
     <div v-if="modelValue" class="dataset-field-row">
-      <el-image
+      <PreviewImage
         v-if="thumbUrl"
         :src="thumbUrl"
-        fit="cover"
         class="dataset-field-thumb"
-        lazy
       >
         <template #error>
-          <div class="dataset-field-thumb-fallback" />
+          <DatasetThumbEmptySlot icon-only />
         </template>
-      </el-image>
+      </PreviewImage>
+      <DatasetThumbEmptySlot v-else-if="modelValue" icon-only class="dataset-field-thumb" />
       <div class="dataset-field-meta">
         <code>{{ displayLabel }}</code>
       </div>
@@ -19,16 +18,16 @@
     </div>
     <el-space wrap>
       <el-button @click="pickerOpen = true">Choose dataset…</el-button>
-      <el-input
+      <PathFieldControl
         :model-value="modelValue"
         placeholder="Or type a path to a .toml file"
-        clearable
-        class="field-path"
+        expect="file"
         @update:model-value="emit('update:modelValue', $event ?? '')"
       />
     </el-space>
     <DatasetPickerModal
       v-model="pickerOpen"
+      :multiple="false"
       :selected="modelValue"
       @select="onSelect"
     />
@@ -37,9 +36,13 @@
 
 <script setup lang="ts">
 import { ref, watch } from "vue";
-import { api } from "../api";
 import DatasetPickerModal from "./DatasetPickerModal.vue";
-import { parseDatasetLibraryRef } from "../lib/datasetLibraryRef";
+import DatasetThumbEmptySlot from "./DatasetThumbEmptySlot.vue";
+import PreviewImage from "./PreviewImage.vue";
+import PathFieldControl from "./PathFieldControl.vue";
+import { libraryDatasetIdFromRef } from "../lib/datasetLibraryRef";
+import { peekDatasetDisplayLabel, resolveDatasetDisplayLabel } from "../lib/resolveDatasetLabels";
+import { libraryThumbSource, loadPreviewThumbs } from "../lib/previewThumbs";
 
 const props = defineProps({
   modelValue: { type: String, default: "" },
@@ -51,32 +54,30 @@ const pickerOpen = ref(false);
 const thumbUrl = ref("");
 const displayLabel = ref("");
 
-function parseLibraryId(path) {
-  const p = parseDatasetLibraryRef(path);
-  return p.isRef && p.id && /^\d+$/.test(p.id) ? p.id : null;
-}
-
-async function loadThumb(path) {
-  const libraryId = parseLibraryId(path);
-  const parsed = parseDatasetLibraryRef(path);
-  displayLabel.value = parsed.isRef ? parsed.label || parsed.id || path : path;
+async function loadThumb(path: string) {
+  if (!path.trim()) {
+    displayLabel.value = "";
+    thumbUrl.value = "";
+    return;
+  }
+  displayLabel.value = peekDatasetDisplayLabel(path);
+  resolveDatasetDisplayLabel(path).then((label) => {
+    if (props.modelValue === path) displayLabel.value = label;
+  });
+  const libraryId = libraryDatasetIdFromRef(path);
   if (!libraryId) {
     thumbUrl.value = "";
     return;
   }
   try {
-    const { content } = (await api.getDataset(libraryId)) as { content: string };
-    const r = (await api.listDatasetPreviewImages({ content, limit: 1, offset: 0 })) as {
-      images?: { token: string }[];
-    };
-    const img = r.images?.[0];
-    thumbUrl.value = img ? api.datasetPreviewImageUrl(img.token) : "";
+    const urls = await loadPreviewThumbs(libraryThumbSource(libraryId), 1);
+    thumbUrl.value = urls[0] || "";
   } catch {
     thumbUrl.value = "";
   }
 }
 
-function onSelect(path) {
+function onSelect(path: string) {
   emit("update:modelValue", path);
 }
 
@@ -94,12 +95,12 @@ watch(
   gap: 10px;
   margin-bottom: 8px;
 }
-.dataset-field-thumb,
-.dataset-field-thumb-fallback {
+.dataset-field-thumb {
   width: 40px;
   height: 40px;
   border-radius: 4px;
   flex-shrink: 0;
+  overflow: hidden;
   background: var(--el-fill-color-darker);
 }
 .dataset-field-meta {

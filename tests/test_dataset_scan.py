@@ -20,12 +20,23 @@ def test_scan_folder_samples_multiple_images(tmp_path: Path) -> None:
 def test_scan_folder_counts_images(tmp_path: Path) -> None:
     (tmp_path / "a.jpg").write_bytes(b"x")
     (tmp_path / "b.png").write_bytes(b"x")
-    (tmp_path / "note.txt").write_text("caption")
+    (tmp_path / "a.txt").write_text("caption for a")
+    (tmp_path / "note.txt").write_text("orphan caption file")
     r = scan_folder(tmp_path)
     assert r["ok"] is True
     assert r["image_count"] == 2
     assert r["caption_txt_files"] == 1
     assert r["count_capped"] is False
+
+
+def test_scan_folder_paired_caption_txt(tmp_path: Path) -> None:
+    (tmp_path / "img.jpg").write_bytes(b"x")
+    (tmp_path / "img.txt").write_text("line one")
+    r = scan_folder(tmp_path)
+    assert r["caption_txt_files"] == 1
+    (tmp_path / "img.txt").unlink()
+    r2 = scan_folder(tmp_path)
+    assert r2["caption_txt_files"] == 0
 
 
 def test_scan_missing_dir() -> None:

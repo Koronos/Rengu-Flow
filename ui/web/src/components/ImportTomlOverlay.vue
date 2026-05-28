@@ -33,16 +33,16 @@ const fileInput = ref<HTMLInputElement | null>(null);
 const dragActive = ref(false);
 let dragDepth = 0;
 
-function isTomlFile(file) {
-  return file && (file.name.endsWith(".toml") || file.type === "application/toml");
+function isTomlFile(file: File | null | undefined): file is File {
+  return !!file && (file.name.endsWith(".toml") || file.type === "application/toml");
 }
 
-function emitFile(file) {
+function emitFile(file: File | null | undefined): void {
   if (!isTomlFile(file)) return;
   emit("import", file);
 }
 
-function onDragEnter(e) {
+function onDragEnter(e: DragEvent): void {
   if (!hasToml(e)) return;
   dragDepth += 1;
   dragActive.value = true;
@@ -53,22 +53,23 @@ function onDragLeave() {
   if (dragDepth === 0) dragActive.value = false;
 }
 
-function onDrop(e) {
+function onDrop(e: DragEvent): void {
   dragDepth = 0;
   dragActive.value = false;
   const file = e.dataTransfer?.files?.[0];
   if (file) emitFile(file);
 }
 
-function hasToml(e) {
+function hasToml(e: DragEvent): boolean {
   const types = e.dataTransfer?.types || [];
   return types.includes("Files");
 }
 
-function onFileInput(e) {
-  const file = e.target.files?.[0];
+function onFileInput(e: Event): void {
+  const input = e.target as HTMLInputElement | null;
+  const file = input?.files?.[0];
   if (file) emitFile(file);
-  e.target.value = "";
+  if (input) input.value = "";
 }
 
 function openFilePicker() {

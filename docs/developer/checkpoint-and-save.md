@@ -8,50 +8,56 @@ User-facing option tables: `docs/user/checkpoint-and-save.md`.
 
 | Method | Role |
 |--------|------|
-| `save_checkpoint` | `model_engine.save_checkpoint(..., save_latest=True)` + `_prune_old_checkpoints` when `max_checkpoints_to_keep` is set. |
-| `save_model` / `save_adapter` / `save_full_model` | Gather pipeline parameters and delegate to `model.save_adapter` or `model.save_model`. |
-| `process_epoch` | Epoch-bound checkpoint (`checkpoint_every_n_epochs`) and export (`save_every_n_epochs`). |
-| `process_step` | Step-bound export, signals via `process_signals`, time-based checkpoint (`checkpoint_every_n_minutes`). |
+| `save_checkpoint` | DeepSpeed checkpoint; returns `False` on ENOSPC after rollback; `_prune_old_checkpoints` on success. |
+| `save_model` | Export with ENOSPC wait loop (`wait_for_export_recovery`); `_prune_old_exports` on success. |
+| `save_adapter` / `save_full_model` | Gather shards via `prepare_export_tmp`; delegate to model/network save (atomic safetensors). |
+| `process_epoch` / `process_step` | Scheduled saves + `process_signals`. |
+
+**Helpers**: `renga_flow.utils.save_io` — `is_disk_full_error`, `atomic_save_safetensors`, `rollback_failed_checkpoint`, `cleanup_export_dir`, export retention parsing.
+
+## Export retention (`_prune_old_exports`)
+
+1. Eligible dirs: `step*`, `epoch*` only (`signal_step*` exempt).
+2. If `keep_exports_from_step` set: remove dirs below threshold (epoch → `epoch * steps_per_epoch`).
+3. If `max_model_exports_to_keep` set: remove oldest among survivors until count ≤ N.
+
+Both keys optional; intersection policy (see user doc).
+
+## Disk full
+
+- **Checkpoint**: `save_checkpoint` catches ENOSPC, rank 0 calls `rollback_failed_checkpoint`, training continues.
+- **Export**: `save_model` catches ENOSPC, `cleanup_export_dir`, `write_status_file(phase="waiting_disk_export")`, `wait_for_export_recovery` until `continue` (or related signals), then retries `_save_model_once`.
+
+`main.py` calls `saver.set_status_context(step, examples, epoch, loss)` each step for status during wait.
 
 ## Export paths and dtypes
 
-**`save_model(name)`** branches on `self.is_adapter` (set from `bool(config.get("adapter"))` in `main.py`):
+Unchanged from prior doc: adapter vs full via `is_adapter`; `save_dtype` via `DTYPE_MAP` in defaults.
 
-- **Adapter training:** `save_adapter(name)` — gathers `pipeline_model` parameters with `requires_grad` and `original_name`, merges stage shards on rank 0, optional **`save_dtype`** cast via `_convert_state_dict_dtype`, then `model.save_adapter(save_dir, state_dict)`.
-- **Full finetune:** `save_full_model(name)` — gathers all parameters with `original_name`, same dtype cast, then `model.save_model(save_dir, state_dict)`.
+## Async model export (POC)
 
-**`save_dtype`:** String key in main TOML (e.g. `bfloat16`). Resolved to `torch.dtype` in **`renga_flow.config.defaults.set_config_defaults`** via `DTYPE_MAP`. Applied only at export time in `saver.py`, not during training.
+Config key: `async_model_export = true` (default off). Requires `pipeline_stages = 1`.
 
-**Scheduled export triggers** (`process_epoch` / `process_step`):
+| Phase | Behavior |
+|-------|----------|
+| Gather | Rank 0 estimates snapshot size; if it fits in available RAM (see below), clones weights to CPU (`clone_state_dict_to_cpu`). Otherwise falls back to synchronous export for that save. |
+| Train | Ranks resume; rank 0 queues safetensors write on a background thread (`AsyncModelExportWriter`). |
+| Sync points | `save_model` / `save_checkpoint` call `_wait_async_export()` first; end of training calls `shutdown_async_exports()` in `main.py`. |
 
-| Config key | Handler |
-|------------|---------|
-| `save_every_n_epochs` | `save_model(f"epoch{epoch}")` at epoch boundary |
-| `save_every_n_steps` | `save_model(f"step{step}")` when `step % N == 0` |
-| `save_every_n_examples` | Converted to step interval using global batch size, then same as steps |
+Optional TOML keys (RAM guard for async snapshot):
 
-There is no separate `save_full_model` config flag in code: full vs adapter export is implicit from presence of `[adapter]`. User doc describes **`save_full_model`** as documentation for “export backbone weights” intent; the trainer uses `is_adapter` only.
+| Key | Default | Role |
+|-----|---------|------|
+| `async_model_export_ram_margin` | `0.25` | Fraction of reported available RAM held back as headroom. |
+| `async_model_export_min_free_ram_gb` | unset | Extra GiB to keep free after the snapshot. |
+| `async_model_export_max_snapshot_gb` | unset | Force sync export when estimated snapshot exceeds this size. |
 
-**`save_full_model` (TOML):** Not read by `Saver` today; omit `[adapter]` for full-model export. If a future flag is added, wire it in `Saver.save_model` and `config/validation.py`.
+DeepSpeed checkpoints stay synchronous. Disk-full retry loop applies to synchronous export only; async write errors surface on the next `wait_done`.
 
-## Checkpoint retention
-
-```python
-def _prune_old_checkpoints(save_root: Path, max_keep: int | None) -> None:
-```
-
-- Lists directories under `save_root` whose names start with `global_step`.
-- Sorts by numeric step suffix.
-- Deletes oldest directories until at most `max_keep` remain.
-- Called on rank 0 only, bracketed by `dist.barrier()` after `save_checkpoint` (all ranks must participate in DeepSpeed save first).
-
-Config key: `max_checkpoints_to_keep` (optional int). No default in `set_config_defaults` — omitted means no pruning.
-
-## Export signal naming
-
-On-demand export uses folder name `signal_step{step}` to avoid colliding with scheduled `step{N}` or `epoch{N}` exports.
+GPU smoke: `./scripts/smoke_async_export_poc.sh` — single train run (cache inline), 20 steps, checks `step10/` and `step20/` LoRA exports.
 
 ## Tests
 
-- `tests/test_signal_files.py` — `process_signals` without distributed init.
-- `tests/test_checkpoint_prune.py` — `_prune_old_checkpoints` directory pruning.
+- `tests/test_async_model_export.py` — CPU snapshot helper
+- `tests/test_save_io.py`, `tests/test_export_retention.py`, `tests/test_checkpoint_rollback.py`, `tests/test_saver_export_wait.py`
+- `tests/test_signal_files.py`, `tests/test_checkpoint_prune.py`, `tests/test_saver_signals.py`

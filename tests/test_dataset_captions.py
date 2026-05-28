@@ -167,6 +167,75 @@ def test_metadata_map_fn_uses_embedded_json_caption_field(tmp_path, img_dir):
     assert out["caption"] == [["from preloaded json", "second variant"]]
 
 
+def test_cache_shuffle_ignored_when_shuffle_tags_off(tmp_path, img_dir):
+    img = _copy_fixture_image(img_dir, "tags")
+    (img_dir / "tags.txt").write_text("alpha, beta, gamma\n", encoding="utf-8")
+    dd = DirectoryDataset(
+        {
+            "path": str(img_dir),
+            "num_repeats": 1,
+            "shuffle_metadata": False,
+            "shuffle_tags": False,
+            "cache_shuffle_num": 3,
+        },
+        {**MINIMAL_DATASET_CONFIG, "cache_shuffle_num": 3},
+        "sdxl",
+        skip_dataset_validation=True,
+    )
+    assert dd.shuffle == 0
+    fn = dd._metadata_map_fn()
+    batch = {
+        "image_spec": [[None, str(img)]],
+        "caption_file": [str(img_dir / "tags.txt")],
+        "mask_file": [None],
+    }
+    out = fn(batch)
+    assert len(out["caption"][0]) == 1
+    assert out["caption"][0][0] == "alpha, beta, gamma"
+
+
+def test_cache_shuffle_defaults_to_one_when_shuffle_tags_on(tmp_path, img_dir):
+    dd = DirectoryDataset(
+        {
+            "path": str(img_dir),
+            "num_repeats": 1,
+            "shuffle_metadata": False,
+            "shuffle_tags": True,
+            "cache_shuffle_num": 0,
+        },
+        MINIMAL_DATASET_CONFIG,
+        "sdxl",
+        skip_dataset_validation=True,
+    )
+    assert dd.shuffle == 1
+
+
+def test_cache_shuffle_applied_when_shuffle_tags_on(tmp_path, img_dir):
+    img = _copy_fixture_image(img_dir, "shuffled")
+    (img_dir / "shuffled.txt").write_text("one, two\n", encoding="utf-8")
+    dd = DirectoryDataset(
+        {
+            "path": str(img_dir),
+            "num_repeats": 1,
+            "shuffle_metadata": False,
+            "shuffle_tags": True,
+            "cache_shuffle_num": 2,
+        },
+        MINIMAL_DATASET_CONFIG,
+        "sdxl",
+        skip_dataset_validation=True,
+    )
+    assert dd.shuffle == 2
+    fn = dd._metadata_map_fn()
+    batch = {
+        "image_spec": [[None, str(img)]],
+        "caption_file": [str(img_dir / "shuffled.txt")],
+        "mask_file": [None],
+    }
+    out = fn(batch)
+    assert len(out["caption"][0]) == 2
+
+
 def test_metadata_map_fn_directory_caption_fallback(tmp_path, img_dir):
     img = _copy_fixture_image(img_dir, "fallback")
     dd = DirectoryDataset(
@@ -222,6 +291,38 @@ def test_size_bucket_iteration_order_one_row_per_caption(tmp_path):
     assert numbers == [0, 0, 1, 1]
     captions = sorted(row["caption"] for row in sb.iteration_order)
     assert captions == ["cap a1", "cap a2", "cap b1", "cap b2"]
+
+
+def test_size_bucket_directory_subsample_ratio(tmp_path):
+    metadata = datasets.Dataset.from_dict(
+        {
+            "image_spec": [[None, f"img{i}.jpg"] for i in range(8)],
+            "caption": [[f"cap {i}"] for i in range(8)],
+        }
+    )
+    dir_cfg = {
+        "path": str(tmp_path),
+        "num_repeats": 1,
+        "subsample_ratio": 0.25,
+    }
+    sb = SizeBucketDataset(
+        metadata,
+        dir_cfg,
+        (512, 512, 1),
+        tmp_path / "cache",
+        None,
+    )
+
+    def fake_latent_map(example, rank):
+        n = len(example["image_spec"])
+        return {"latents": torch.zeros(n, 4)}
+
+    sb.cache_latents(
+        fake_latent_map,
+        regenerate_cache=True,
+        trust_cache=False,
+    )
+    assert len(sb.iteration_order) == 2
 
 
 def test_size_bucket_online_captions_selects_caption_number(tmp_path):

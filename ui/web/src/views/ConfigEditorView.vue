@@ -1,54 +1,81 @@
 <template>
-  <ImportTomlOverlay ref="importOverlay" @import="onImportFile">
+  <ImportTomlOverlay ref="importOverlay" @import="importConfigFile">
     <div class="page-shell">
       <div class="page-head editor-head">
         <el-button :icon="ArrowLeft" @click="goList">All configs</el-button>
-        <div class="page-head-actions editor-head-actions">
-          <EditorModeToggle v-model="editorTab" />
-          <el-text v-if="syncing" type="info" size="small" class="sync-hint">Syncing…</el-text>
-          <el-button
-            v-if="pickForJob && configId"
-            type="success"
-            :icon="VideoPlay"
-            @click="useConfigForJob"
-          >
-            Use for training job
-          </el-button>
-          <el-button type="primary" :icon="Check" :loading="saving" @click="save">
-            Save
-          </el-button>
-          <el-button :icon="CircleCheck" @click="onValidate">Validate</el-button>
-          <el-dropdown trigger="click" @command="onEditorCommand">
-            <el-button>
-              More
-              <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+        <EditorActionBar variant="editor" class="editor-head-bar">
+          <template #trailing>
+            <EditorModeToggle v-model="editorTab" />
+            <el-text v-if="syncing" type="info" size="small" class="sync-hint">Syncing…</el-text>
+          </template>
+          <template #actions>
+            <el-button
+              v-if="pickForJob && configId"
+              type="success"
+              :icon="VideoPlay"
+              @click="useConfigForJob"
+            >
+              Use for training job
             </el-button>
-            <template #dropdown>
-              <el-dropdown-item command="import">Import TOML…</el-dropdown-item>
-              <el-dropdown-item command="import-example">Import example</el-dropdown-item>
-              <el-dropdown-item v-if="configId" command="duplicate" divided>Duplicate</el-dropdown-item>
-              <el-dropdown-item v-if="configId" command="delete">Delete</el-dropdown-item>
-            </template>
-          </el-dropdown>
-        </div>
+            <el-button type="primary" :icon="Check" :loading="saving" @click="save">
+              Save
+            </el-button>
+            <el-button :icon="CircleCheck" @click="onValidate">Validate</el-button>
+            <el-button @click="triggerImport">Import TOML…</el-button>
+          </template>
+        </EditorActionBar>
       </div>
 
-      <el-text v-if="selectedMeta" type="info" size="small" class="meta-row">{{ selectedMeta }}</el-text>
+      <div class="title-row">
+        <div class="run-name-field">
+          <span class="run-name-label">
+            Run name
+            <FieldHelpIcon v-if="runNameField" :field="runNameField" />
+          </span>
+          <el-input
+            v-model="runNameModel"
+            class="config-run-name-input"
+            placeholder="Optional — timestamp-only folder if empty"
+            maxlength="120"
+            show-word-limit
+          />
+        </div>
+        <el-text v-if="configId" type="info" size="small" class="config-id-hint">
+          Config #{{ configId }}
+        </el-text>
+      </div>
+      <el-text v-if="selectedMeta" type="info" size="small" class="config-meta-hint">
+        {{ selectedMeta }}
+      </el-text>
 
       <el-alert
         v-if="validationErrors.length"
         type="error"
         show-icon
         class="mb-12 validation-alert"
-        @close="editor.validationErrors = []"
+        @close="editor.clearValidationFeedback()"
       >
         <template #title>Configuration is not valid</template>
         <ul class="validation-errors">
           <li v-for="(msg, idx) in validationErrors" :key="idx">{{ msg }}</li>
         </ul>
       </el-alert>
-      <el-alert v-else-if="error" type="error" :title="error" show-icon class="mb-12" />
-      <el-alert v-if="message" type="success" :title="message" show-icon class="mb-12" />
+      <el-alert
+        v-else-if="error"
+        type="error"
+        :title="error"
+        show-icon
+        class="mb-12"
+        @close="editor.clearValidationErrorBar()"
+      />
+      <el-alert
+        v-if="message"
+        type="success"
+        :title="message"
+        show-icon
+        class="mb-12"
+        @close="editor.clearValidationFeedback()"
+      />
 
       <el-alert
         v-if="continuation"
@@ -77,18 +104,7 @@
         </el-space>
       </el-alert>
 
-      <el-alert
-        v-if="pickForJob"
-        type="warning"
-        :closable="false"
-        show-icon
-        class="mb-12 pick-banner"
-      >
-        <template #title>Choosing config for a training job</template>
-        Validate if needed, then click <strong>Use for training job</strong>. You can also
-        <el-button type="primary" link @click="cancelPick">return to Runs</el-button>
-        without selecting.
-      </el-alert>
+      <PickForJobBanner v-if="pickForJob" variant="editor" @cancel="cancelPick" />
 
       <div v-loading="loading || (syncing && !form)" class="editor-body">
         <div v-show="editorTab === 'form'" class="editor-pane">
@@ -109,13 +125,12 @@
             type="textarea"
             :rows="isMobile ? 16 : 24"
             class="toml-editor"
-            spellcheck="false"
           />
         </div>
       </div>
 
       <el-dialog v-model="newDialogVisible" title="New config id" width="90%" style="max-width: 400px">
-        <el-input v-model="newConfigId" placeholder="my_config" @keyup.enter="confirmNew" />
+        <el-input v-model="newConfigId" placeholder="my_config" />
         <template #footer>
           <el-button @click="newDialogVisible = false">Cancel</el-button>
           <el-button type="primary" :loading="saving" @click="confirmNew">Create</el-button>
@@ -129,30 +144,30 @@
 import { computed, onUnmounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { storeToRefs } from "pinia";
-import { ElMessage, ElMessageBox } from "element-plus";
-import {
-  ArrowDown,
-  ArrowLeft,
-  Check,
-  CircleCheck,
-  VideoPlay,
-} from "@element-plus/icons-vue";
+import { ElLoadingDirective, ElMessage, ElMessageBox } from "element-plus";
+import { ArrowLeft, Check, CircleCheck, VideoPlay } from "@element-plus/icons-vue";
 import { api } from "../api";
 import { downloadBlob } from "../lib/downloadBlob";
 import { formatError } from "../lib/formatError";
 import { useBreakpoint } from "../composables/useBreakpoint";
 import ConfigFormEditor from "../components/ConfigFormEditor.vue";
+import EditorActionBar from "../components/EditorActionBar.vue";
 import EditorModeToggle from "../components/EditorModeToggle.vue";
 import ImportTomlOverlay from "../components/ImportTomlOverlay.vue";
+import FieldHelpIcon from "../components/FieldHelpIcon.vue";
+import PickForJobBanner from "../components/PickForJobBanner.vue";
+import { useImportConfigToml } from "../composables/useImportConfigToml";
 import { getJobConfigId, setJobConfigId } from "../lib/jobConfigPick";
 import { useConfigEditorStore } from "../stores/configEditor";
-import type { JsonRecord } from "../types/runtime";
+import type { JobRecord } from "../types/api";
+import type { SchemaField } from "../types/forms";
 import type ImportTomlOverlayType from "../components/ImportTomlOverlay.vue";
 
 const { isMobile } = useBreakpoint();
 const route = useRoute();
 const router = useRouter();
 const editor = useConfigEditorStore();
+const vLoading = ElLoadingDirective;
 
 const {
   configId,
@@ -170,10 +185,12 @@ const {
   continuation,
   continuationSaveToLibrary,
   continuationLibraryId,
+  schema,
 } = storeToRefs(editor);
 
 const pickForJob = computed(() => route.query.pick === "job");
 const importOverlay = ref<InstanceType<typeof ImportTomlOverlayType> | null>(null);
+const { importConfigFile } = useImportConfigToml({ onError: (msg) => { editor.error = msg; } });
 const newDialogVisible = ref(false);
 const newConfigId = ref("my_config");
 const exporting = ref(false);
@@ -181,6 +198,20 @@ const exporting = ref(false);
 const tomlModel = computed({
   get: () => content.value,
   set: (value) => editor.setContent(value),
+});
+
+const runNameModel = computed({
+  get: () => (typeof form.value?.run_name === "string" ? form.value.run_name : ""),
+  set: (value: string) => editor.patchFormField("run_name", value.trim()),
+});
+
+const runNameField = computed<SchemaField | null>(() => {
+  const sections = (schema.value?.sections as { fields?: SchemaField[] }[] | undefined) ?? [];
+  for (const sec of sections) {
+    const field = sec.fields?.find((f) => f.path === "run_name");
+    if (field) return field;
+  }
+  return null;
 });
 
 function goList() {
@@ -244,7 +275,7 @@ async function queueContinuation(startNow: boolean) {
       startNow,
       saveToLibrary: continuationSaveToLibrary.value,
       libraryId: continuationLibraryId.value,
-    })) as JsonRecord & { id?: string } | null;
+    })) as (JobRecord & { id?: string }) | null;
     if (job?.id) router.push({ name: "job-detail", params: { id: String(job.id) } });
   } catch {
     /* store shows error */
@@ -278,47 +309,6 @@ async function useConfigForJob() {
   router.push({ name: "jobs" });
 }
 
-async function duplicateCurrent() {
-  if (!configId.value) return;
-  try {
-    const r = (await api.duplicate(configId.value)) as { id: string };
-    ElMessage.success(`Duplicated as ${r.id}`);
-    await router.push({ name: "configs-detail", params: { configId: String(r.id) } });
-  } catch (e) {
-    editor.error = formatError(e);
-    ElMessage.error(editor.error);
-  }
-}
-
-async function removeCurrent() {
-  if (!configId.value) return;
-  try {
-    await ElMessageBox.confirm(`Delete config "${configId.value}"?`, "Confirm", { type: "warning" });
-    await api.deleteConfig(configId.value);
-    ElMessage.success("Deleted");
-    goList();
-  } catch (e) {
-    if (e !== "cancel") {
-      editor.error = formatError(e);
-      ElMessage.error(editor.error);
-    }
-  }
-}
-
-async function importExample() {
-  try {
-    const r = (await api.importExample("examples/minimal_config_lora_sdxl.toml", undefined)) as {
-      id: string;
-    };
-    editor.message = `Imported ${r.id}`;
-    ElMessage.success(editor.message);
-    await router.push({ name: "configs-detail", params: { configId: String(r.id) } });
-  } catch (e) {
-    editor.error = formatError(e);
-    ElMessage.error(editor.error);
-  }
-}
-
 async function exportTrainingBundle() {
   const text = (content.value || "").trim();
   if (!text) {
@@ -339,28 +329,8 @@ async function exportTrainingBundle() {
   }
 }
 
-function onEditorCommand(cmd) {
-  if (cmd === "import") triggerImport();
-  else if (cmd === "import-example") importExample();
-  else if (cmd === "duplicate") duplicateCurrent();
-  else if (cmd === "delete") removeCurrent();
-}
-
 function triggerImport() {
   importOverlay.value?.openFilePicker?.();
-}
-
-async function onImportFile(file) {
-  try {
-    const text = await file.text();
-    const base = file.name.replace(/\.toml$/i, "") || "imported";
-    const r = (await api.importConfig(text, base)) as { id: string };
-    await router.push({ name: "configs-detail", params: { configId: String(r.id) } });
-    ElMessage.success(`Imported as ${r.id}`);
-  } catch (e) {
-    editor.error = formatError(e);
-    ElMessage.error(editor.error);
-  }
 }
 </script>
 
@@ -368,13 +338,46 @@ async function onImportFile(file) {
 .editor-head {
   margin-bottom: 0;
 }
-.editor-head-actions {
-  gap: var(--rf-space-xs);
+.editor-head-bar {
+  flex: 1;
+  min-width: 0;
 }
 .sync-hint {
   flex-shrink: 0;
 }
-.meta-row {
+.title-row {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--rf-space-sm);
+  margin: var(--rf-space-md) 0 var(--rf-space-xs);
+  flex-wrap: wrap;
+}
+.run-name-field {
+  flex: 1;
+  min-width: 200px;
+  max-width: 480px;
+}
+.run-name-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--el-text-color-regular);
+}
+.config-run-name-input {
+  width: 100%;
+}
+.config-run-name-input :deep(.el-input__inner) {
+  font-size: 20px;
+  font-weight: 600;
+}
+.config-id-hint {
+  flex-shrink: 0;
+  font-family: var(--rf-font-mono, ui-monospace, monospace);
+}
+.config-meta-hint {
   display: block;
   margin: 0 0 var(--rf-space-sm);
 }

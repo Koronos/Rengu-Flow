@@ -11,13 +11,37 @@
     </div>
 
     <el-alert v-if="error" type="error" :title="error" show-icon class="mb-12" />
+    <el-alert
+      v-if="pollWarning && !error"
+      type="warning"
+      :title="pollWarning"
+      show-icon
+      class="mb-12"
+    />
 
     <TrainLivePanel
       class="page-section"
       :run="activeRun ?? undefined"
+      :metrics-loading="liveMetricsLoading && liveUseHttpFallback"
+      :log-text="liveLogText"
+      :stream-status="liveStreamStatus"
+      :stream-error="liveStreamError"
       @open-detail="openRun"
       @stop="stop"
-    />
+      @signal="sendRunSignal"
+    >
+      <template v-if="hasLiveRun" #header-extra>
+        <AutoRefreshBar
+          :interval-sec="liveIntervalSec"
+          :refreshing="liveRefreshing"
+          :polling="livePolling"
+          :last-updated="liveLastUpdated"
+          :paused="livePaused"
+          @update:interval-sec="setLiveInterval"
+          @refresh="refreshLiveNow"
+        />
+      </template>
+    </TrainLivePanel>
 
     <el-card shadow="never" class="page-section">
       <template #header>
@@ -71,6 +95,21 @@
             </el-form-item>
           </el-col>
         </el-row>
+
+        <el-form-item class="cache-options">
+          <el-checkbox v-model="trustCache" :disabled="regenerateCache">
+            Use existing cache (skip rebuild)
+          </el-checkbox>
+          <el-checkbox v-model="regenerateCache" class="cache-option-second">
+            Regenerate cache
+          </el-checkbox>
+          <el-text type="info" size="small" class="page-hint hint block-hint">
+            Default: build or refresh cache as needed. Enable “Use existing cache” after a
+            successful <strong>Build cache</strong> run (<code>--trust_cache</code>). Use
+            “Regenerate cache” after changing images or captions.
+          </el-text>
+        </el-form-item>
+
         <div class="launch-actions">
           <el-button type="primary" :icon="Plus" :disabled="!canLaunch" @click="enqueue">
             Add to queue
@@ -82,6 +121,20 @@
         <el-text type="info" size="small" class="page-hint hint">
           One job runs at a time. Queued jobs start automatically when the current run finishes.
         </el-text>
+
+        <el-divider content-position="left">Dataset cache only</el-divider>
+        <div class="launch-actions">
+          <el-button :disabled="!canLaunch" @click="enqueueCache">
+            Build cache / Generar caché (queue)
+          </el-button>
+          <el-button :icon="VideoPlay" :disabled="!canLaunch" @click="startCacheNow">
+            Build cache (start now)
+          </el-button>
+        </div>
+        <el-text type="info" size="small" class="page-hint hint">
+          Pre-compute latents and text embeddings without training (<code>--cache_only</code>).
+          Recommended before long Cosmos runs. Does not use the resume folder.
+        </el-text>
       </el-form>
     </el-card>
 
@@ -91,7 +144,6 @@
         clearable
         placeholder="Search config, run folder…"
         class="page-toolbar-search"
-        @keyup.enter="loadRuns(1)"
         @clear="loadRuns(1)"
       />
       <el-select v-model="stateFilter" clearable placeholder="All states" class="page-toolbar-filter" @change="loadRuns(1)">
@@ -100,6 +152,15 @@
         <el-option label="Finished" value="finished" />
         <el-option label="On disk only" value="disk" />
       </el-select>
+      <el-tooltip content="Refresh runs list" :show-after="300">
+        <el-button
+          size="small"
+          :icon="Refresh"
+          circle
+          :loading="listRefreshing"
+          @click="refreshFull"
+        />
+      </el-tooltip>
     </div>
 
     <div class="runs-table-wrap">
@@ -123,20 +184,32 @@
           {{ row.label || row.run_name || "—" }}
         </template>
       </el-table-column>
-      <el-table-column prop="config_id" label="Config" width="72" show-overflow-tooltip class-name="col-config" />
-      <el-table-column label="Progress" min-width="96" show-overflow-tooltip class-name="col-progress">
+      <el-table-column prop="config_id" label="Config" min-width="120" show-overflow-tooltip class-name="col-config" />
+      <el-table-column label="Progress" min-width="120" show-overflow-tooltip class-name="col-progress">
         <template #default="{ row }">
+          <el-tag
+            v-if="row.progress?.phase === 'waiting_disk_export'"
+            type="warning"
+            size="small"
+            class="phase-tag"
+          >
+            Disk wait
+          </el-tag>
           <template v-if="row.progress?.step != null">
             step {{ row.progress.step }}
             <template v-if="row.progress.max_steps">/ {{ row.progress.max_steps }}</template>
+            <template v-if="row.progress.percent != null"> ({{ row.progress.percent }}%)</template>
             <span v-if="row.progress.loss != null" class="loss-cell">
               · {{ Number(row.progress.loss).toFixed(4) }}
             </span>
+            <span v-if="formatRunProgressHint(row.progress)" class="loss-cell">
+              · {{ formatRunProgressHint(row.progress) }}
+            </span>
           </template>
-          <span v-else>—</span>
+          <span v-else-if="row.progress?.phase !== 'waiting_disk_export'">—</span>
         </template>
       </el-table-column>
-      <el-table-column label="Updated" width="108" show-overflow-tooltip class-name="col-updated">
+      <el-table-column label="Updated" min-width="132" show-overflow-tooltip class-name="col-updated">
         <template #default="{ row }">
           {{ formatTime(row.progress?.updated_at || row.finished_at || row.started_at) }}
         </template>
@@ -201,11 +274,17 @@
     >
       <el-form label-position="top">
         <el-form-item label="Output directory (browse runs)">
-          <el-input v-model="importOutputDir" placeholder="output" class="w-full" @change="loadImportCandidates">
+          <PathFieldControl
+            v-model="importOutputDir"
+            placeholder="output"
+            expect="dir"
+            input-class="w-full"
+            @change="loadImportCandidates"
+          >
             <template #append>
               <el-button @click="loadImportCandidates">Scan</el-button>
             </template>
-          </el-input>
+          </PathFieldControl>
         </el-form-item>
         <el-form-item v-if="importCandidates.length" label="Runs under output dir">
           <el-select
@@ -225,10 +304,12 @@
           </el-select>
         </el-form-item>
         <el-form-item label="Run folder path" required>
-          <el-input
+          <PathFieldControl
             v-model="importRunPath"
             placeholder="output/20250217_14-30-00 or absolute path"
-            class="w-full"
+            expect="dir"
+            required
+            input-class="w-full"
           />
         </el-form-item>
         <el-button :loading="importPreviewLoading" @click="previewImportRun">Preview</el-button>
@@ -307,7 +388,12 @@
           <el-input-number v-model="editForm.num_gpus" :min="1" :max="64" class="w-full" />
         </el-form-item>
         <el-form-item label="Resume folder">
-          <el-input v-model="editForm.resume_from" clearable placeholder="optional" />
+          <PathFieldControl
+            v-model="editForm.resume_from"
+            placeholder="optional"
+            expect="dir"
+            input-class="w-full"
+          />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -319,9 +405,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 import { useRouter } from "vue-router";
-import { ElMessage, ElMessageBox } from "element-plus";
+import { ElLoadingDirective, ElMessage, ElMessageBox } from "element-plus";
 import {
   Bottom,
   CircleCheck,
@@ -331,39 +417,58 @@ import {
   Plus,
   Top,
   View,
+  Refresh,
   VideoPause,
   VideoPlay,
 } from "@element-plus/icons-vue";
 import { api } from "../api";
+import AutoRefreshBar from "../components/AutoRefreshBar.vue";
 import TrainLivePanel from "../components/TrainLivePanel.vue";
+import PathFieldControl from "../components/PathFieldControl.vue";
+import { useAutoRefresh } from "../composables/useAutoRefresh";
+import { useTrainLiveStream } from "../composables/useTrainLiveStream";
+import { TRAIN_LIVE_REFRESH_STORAGE_KEY } from "../lib/autoRefresh";
+import { formatError } from "../lib/formatError";
+import { formatRunProgressHint } from "../lib/formatRunProgress";
 import { getJobConfigId, setJobConfigId } from "../lib/jobConfigPick";
-import type { ImportRunPreview, JsonRecord } from "../types/runtime";
+import type {
+  ConfigSearchItem,
+  ImportCandidatesResult,
+  ImportRunPreview,
+  JobRecord,
+  JobStartBody,
+  TrainingRunRow,
+} from "../types/api";
 
 const router = useRouter();
+const vLoading = ElLoadingDirective;
 
-const runs = ref<JsonRecord[]>([]);
+const runs = ref<TrainingRunRow[]>([]);
 const runsTotal = ref(0);
 const listPage = ref(1);
 const listPageSize = ref(20);
 const listQuery = ref("");
 const stateFilter = ref("");
 const listLoading = ref(false);
-const activeRun = ref<JsonRecord | null>(null);
+const listRefreshing = ref(false);
+const activeRun = ref<TrainingRunRow | null>(null);
 const stats = ref({ running: 0, pending: 0 });
 const hasAnyConfig = ref(false);
-const configOptions = ref<JsonRecord[]>([]);
-const configId = ref(getJobConfigId());
+const configOptions = ref<ConfigSearchItem[]>([]);
+const configId = ref<string | null>(getJobConfigId());
 const configValid = ref<boolean | null>(null);
 const validating = ref(false);
 const numGpus = ref(1);
 const resumeFrom = ref("");
+const trustCache = ref(false);
+const regenerateCache = ref(false);
 const error = ref("");
-let timer: ReturnType<typeof setInterval> | null = null;
+const pollWarning = ref("");
 
 const importOpen = ref(false);
 const importRunPath = ref("");
 const importOutputDir = ref("output");
-const importCandidates = ref<JsonRecord[]>([]);
+const importCandidates = ref<NonNullable<ImportCandidatesResult["runs"]>>([]);
 const importPreview = ref<ImportRunPreview | null>(null);
 const importPreviewLoading = ref(false);
 const importSaving = ref(false);
@@ -388,21 +493,22 @@ const runningJobs = computed(() =>
 
 const canLaunch = computed(() => Boolean(configId.value && hasAnyConfig.value));
 
-function stateTag(state) {
+function stateTag(state: string | undefined): "primary" | "success" | "warning" | "info" | "danger" {
   if (state === "running" || state === "stopping") return "success";
   if (state === "pending") return "warning";
   if (state === "finished") return "info";
-  if (state === "on_disk") return "";
+  if (state === "on_disk") return "primary";
   if (state === "stopped") return "warning";
   if (state === "failed") return "danger";
-  return "";
+  return "info";
 }
 
-function formatTime(iso) {
-  return (iso || "").slice(0, 19).replace("T", " ");
+function formatTime(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  return String(iso).slice(0, 19).replace("T", " ");
 }
 
-function runFolderLabel(row) {
+function runFolderLabel(row: TrainingRunRow): string {
   if (!row.run_dir) return "—";
   const parts = String(row.run_dir).replace(/\\/g, "/").split("/");
   return parts[parts.length - 1] || row.run_dir;
@@ -422,14 +528,12 @@ function resetImportDialog() {
   importForm.dataset_id = "";
 }
 
-async function loadImportCandidates() {
-  const data = (await api.listImportCandidates(importOutputDir.value || "output")) as {
-    runs?: JsonRecord[];
-  };
+async function loadImportCandidates(): Promise<void> {
+  const data = await api.listImportCandidates(importOutputDir.value || "output");
   importCandidates.value = data.runs || [];
 }
 
-function onImportPathPicked(path) {
+function onImportPathPicked(path: string): void {
   importRunPath.value = path;
   previewImportRun();
 }
@@ -440,7 +544,7 @@ async function previewImportRun() {
   importPreviewLoading.value = true;
   importPreview.value = null;
   try {
-    const data = (await api.previewJobImport(path)) as ImportRunPreview;
+    const data = await api.previewJobImport(path);
     importPreview.value = data;
     if (!importForm.config_id) {
       importForm.config_id = String(data.suggested_config_id || "");
@@ -449,7 +553,7 @@ async function previewImportRun() {
       importForm.dataset_id = String(data.suggested_dataset_id || "");
     }
   } catch (e) {
-    ElMessage.error(String(e));
+    ElMessage.error(formatError(e));
   } finally {
     importPreviewLoading.value = false;
   }
@@ -460,38 +564,36 @@ async function confirmImportRun() {
   if (!path) return;
   importSaving.value = true;
   try {
-    const job = (await api.importJobFromRun({
+    const job = await api.importJobFromRun({
       run_path: path,
       import_config: importForm.import_config,
       config_id: importForm.config_id.trim() || undefined,
       import_dataset: importForm.import_dataset,
       dataset_id: importForm.dataset_id.trim() || undefined,
-    })) as JsonRecord & { id: string };
+    });
     ElMessage.success("Run imported");
     importOpen.value = false;
-    await refresh();
+    await refreshFull();
     router.push({ name: "job-detail", params: { id: job.id } });
   } catch (e) {
-    ElMessage.error(String(e));
+    ElMessage.error(formatError(e));
   } finally {
     importSaving.value = false;
   }
 }
 
-async function refreshConfigAvailability() {
+async function refreshConfigAvailability(): Promise<void> {
   try {
-    const r = (await api.searchConfigs({ q: "", page: 1, page_size: 1 })) as { total?: number };
+    const r = await api.searchConfigs({ q: "", page: 1, page_size: 1 });
     hasAnyConfig.value = (r.total ?? 0) > 0;
   } catch {
     hasAnyConfig.value = false;
   }
 }
 
-async function searchConfigOptions(query) {
+async function searchConfigOptions(query: string): Promise<void> {
   try {
-    const r = (await api.searchConfigs({ q: query || "", page: 1, page_size: 30 })) as {
-      items?: JsonRecord[];
-    };
+    const r = await api.searchConfigs({ q: query || "", page: 1, page_size: 30 });
     configOptions.value = r.items || [];
   } catch {
     configOptions.value = [];
@@ -505,46 +607,142 @@ function syncConfigSelection() {
   }
 }
 
-async function loadRuns(page = listPage.value) {
+async function loadRuns(page = listPage.value): Promise<void> {
   listLoading.value = true;
   listPage.value = page;
   try {
-    const data = (await api.trainRuns({
+    const data = await api.trainRuns({
       page: listPage.value,
       page_size: listPageSize.value,
       q: listQuery.value.trim(),
       state: stateFilter.value || "",
       include_disk: true,
-    })) as {
-      items?: JsonRecord[];
-      total?: number;
-      stats?: { running: number; pending: number };
-    };
+    });
     runs.value = data.items || [];
     runsTotal.value = data.total ?? 0;
     stats.value = data.stats || { running: 0, pending: 0 };
   } catch (e) {
-    error.value = String(e);
+    error.value = formatError(e);
     runs.value = [];
   } finally {
     listLoading.value = false;
   }
 }
 
-async function refreshActive() {
+async function refreshActive(): Promise<boolean> {
   try {
-    const data = (await api.trainActive()) as { active?: JsonRecord | null };
+    const data = await api.trainActive();
     activeRun.value = data.active || null;
-  } catch {
-    activeRun.value = null;
+    pollWarning.value = "";
+    return true;
+  } catch (e) {
+    pollWarning.value = formatError(e);
+    return false;
   }
 }
 
-async function refresh() {
-  await Promise.all([loadRuns(listPage.value), refreshActive(), refreshConfigAvailability()]);
-  syncConfigSelection();
-  if (configId.value) checkConfig();
+async function refreshFull(): Promise<void> {
+  listRefreshing.value = true;
+  try {
+    await Promise.all([loadRuns(listPage.value), refreshActive(), refreshConfigAvailability()]);
+    syncConfigSelection();
+    pollWarning.value = "";
+  } catch (e) {
+    pollWarning.value = formatError(e);
+  } finally {
+    listRefreshing.value = false;
+  }
 }
+
+const hasLiveRun = computed(
+  () => !!activeRun.value || (stats.value.running ?? 0) > 0
+);
+
+const activeJobId = computed(() => {
+  const id = activeRun.value?.job_id;
+  return id != null && id !== "" ? String(id) : "";
+});
+
+const liveStream = useTrainLiveStream(activeJobId, {
+  onRunFinished: () => {
+    void refreshActive().then((ok) => {
+      if (ok && !activeRun.value) void loadRuns(listPage.value);
+    });
+  },
+});
+
+const {
+  logText: liveLogText,
+  streamStatus: liveStreamStatus,
+  streamError: liveStreamError,
+  useHttpFallback: liveUseHttpFallback,
+  progress: liveProgress,
+  scalars: liveScalars,
+  previewImages: livePreviewImages,
+} = liveStream;
+
+function mergeLiveIntoActiveRun(): void {
+  const row = activeRun.value;
+  if (!row) return;
+  const next = { ...row };
+  if (liveProgress.value) {
+    next.progress = liveProgress.value;
+  }
+  if (Object.keys(liveScalars.value).length) {
+    next.scalars = liveScalars.value;
+  }
+  if (livePreviewImages.value.length) {
+    next.preview_images = livePreviewImages.value;
+  }
+  activeRun.value = next;
+}
+
+watch(
+  () => [liveProgress.value, liveScalars.value, livePreviewImages.value] as const,
+  () => {
+    if (activeRun.value && !liveUseHttpFallback.value) {
+      mergeLiveIntoActiveRun();
+    }
+  },
+  { deep: true }
+);
+
+watch(activeJobId, (id, prev) => {
+  if (id && id !== prev) {
+    void refreshActive();
+  }
+});
+
+const {
+  intervalSec: liveIntervalSec,
+  isLoading: liveMetricsLoading,
+  refreshing: liveRefreshing,
+  polling: livePolling,
+  lastUpdated: liveLastUpdated,
+  paused: livePaused,
+  setIntervalSec: setLiveInterval,
+  refreshNow: refreshLiveNow,
+} = useAutoRefresh({
+  storageKey: TRAIN_LIVE_REFRESH_STORAGE_KEY,
+  immediate: false,
+  refresh: async (signal) => {
+    const hadActive = !!activeRun.value;
+    const ok = await refreshActive();
+    if (signal?.aborted) return;
+    if (!ok) return;
+    if (activeRun.value && !liveUseHttpFallback.value && liveProgress.value) {
+      mergeLiveIntoActiveRun();
+    }
+    if (hadActive && !activeRun.value) {
+      await loadRuns(listPage.value);
+    }
+  },
+  isActive: () => hasLiveRun.value && liveUseHttpFallback.value,
+});
+
+onMounted(() => {
+  void refreshFull();
+});
 
 function goPickConfig() {
   router.push({ name: "configs-list", query: { pick: "job" } });
@@ -559,39 +757,40 @@ function goCreateConfig() {
   router.push({ name: "configs-new" });
 }
 
-async function checkConfig() {
+async function checkConfig(): Promise<void> {
   if (!configId.value) return;
   validating.value = true;
   configValid.value = null;
   try {
-    const cfg = (await api.getConfig(configId.value)) as { content: string };
-    const r = (await api.validate(cfg.content)) as { ok?: boolean; error?: string };
+    const cfg = await api.getConfig(configId.value);
+    const r = await api.validate(cfg.content);
     configValid.value = !!r.ok;
     if (!r.ok) {
       ElMessage.warning(r.error || "Config is not valid yet");
     }
   } catch (e) {
     configValid.value = false;
-    ElMessage.error(String(e));
+    ElMessage.error(formatError(e));
   } finally {
     validating.value = false;
   }
 }
 
-onMounted(() => {
-  refresh().catch((e) => { error.value = String(e); });
-  timer = setInterval(() => refresh().catch(() => {}), 3000);
+watch(configId, (id, prev) => {
+  if (id && id !== prev) {
+    void checkConfig();
+  }
 });
 
-onUnmounted(() => {
-  if (timer) clearInterval(timer);
+watch(regenerateCache, (on) => {
+  if (on) trustCache.value = false;
 });
 
-function goJob(id) {
+function goJob(id: string) {
   router.push({ name: "job-detail", params: { id } });
 }
 
-function openRun(row) {
+function openRun(row: TrainingRunRow) {
   if (!row) return;
   if (row.kind === "job" && row.job_id != null) {
     goJob(row.job_id);
@@ -602,86 +801,127 @@ function openRun(row) {
   }
 }
 
-function goEditConfigId(id) {
+function goEditConfigId(id: string | number | null | undefined) {
   if (!id) return;
   router.push({ name: "configs-detail", params: { configId: String(id) } });
 }
 
-function goContinue(row) {
+function goContinue(row: TrainingRunRow) {
   if (!row?.run_dir) return;
   router.push({ name: "configs-new", query: { continue_run: row.run_dir } });
 }
 
-async function enqueue() {
+function trainingJobBody(cacheOnly: boolean): JobStartBody | null {
+  const selectedConfigId = configId.value;
+  if (!selectedConfigId) return null;
+  return {
+    config_id: selectedConfigId,
+    num_gpus: numGpus.value,
+    resume_from: cacheOnly ? undefined : resumeFrom.value || undefined,
+    cache_only: cacheOnly,
+    trust_cache: cacheOnly ? false : trustCache.value,
+    regenerate_cache: regenerateCache.value,
+    enqueue: !cacheOnly,
+    start_immediately: false,
+  };
+}
+
+async function submitJob(body: JobStartBody, successMessage: string) {
   error.value = "";
-  if (!canLaunch.value) return;
-  setJobConfigId(configId.value);
+  setJobConfigId(String(body.config_id));
   try {
-    await api.startJob({
-      config_id: configId.value,
-      num_gpus: numGpus.value,
-      resume_from: resumeFrom.value || undefined,
-      enqueue: true,
-      start_immediately: false,
-    });
-    ElMessage.success("Added to queue");
-    await refresh();
+    await api.startJob(body);
+    ElMessage.success(successMessage);
+    await refreshFull();
   } catch (e) {
-    error.value = String(e);
-    ElMessage.error(String(e));
+    error.value = formatError(e);
+    ElMessage.error(formatError(e));
   }
+}
+
+async function enqueue() {
+  if (!canLaunch.value) return;
+  const body = trainingJobBody(false);
+  if (!body) return;
+  await submitJob({ ...body, enqueue: true, start_immediately: false }, "Added to queue");
 }
 
 async function startNow() {
-  error.value = "";
   if (!canLaunch.value) return;
-  setJobConfigId(configId.value);
+  const body = trainingJobBody(false);
+  if (!body) return;
+  await submitJob(
+    { ...body, enqueue: false, start_immediately: true },
+    "Job started or queued at front"
+  );
+}
+
+async function enqueueCache() {
+  if (!canLaunch.value) return;
+  const body = trainingJobBody(true);
+  if (!body) return;
+  await submitJob({ ...body, enqueue: true, start_immediately: false }, "Cache build queued");
+}
+
+async function startCacheNow() {
+  if (!canLaunch.value) return;
+  const body = trainingJobBody(true);
+  if (!body) return;
+  await submitJob(
+    { ...body, enqueue: false, start_immediately: true },
+    "Cache build started or queued at front"
+  );
+}
+
+async function stop(id: string | null | undefined) {
+  if (!id) return;
+  await api.stopJob(id);
+  ElMessage.info("Stop requested");
+  await refreshFull();
+}
+
+async function sendRunSignal(
+  row: { job_id?: string | null },
+  type: string
+) {
+  const id = row?.job_id;
+  if (!id) return;
   try {
-    await api.startJob({
-      config_id: configId.value,
-      num_gpus: numGpus.value,
-      resume_from: resumeFrom.value || undefined,
-      enqueue: false,
-      start_immediately: true,
-    });
-    ElMessage.success("Job started or queued at front");
-    await refresh();
+    await api.sendJobSignal(id, type);
+    ElMessage.success(`Signal "${type}" sent`);
+    await refreshFull();
   } catch (e) {
-    error.value = String(e);
-    ElMessage.error(String(e));
+    ElMessage.error(formatError(e));
   }
 }
 
-async function stop(id) {
-  await api.stopJob(id);
-  ElMessage.info("Stop requested");
-  await refresh();
-}
-
-async function move(id, direction) {
+async function move(id: string | null | undefined, direction: "up" | "down") {
+  if (!id) return;
   await api.moveJobQueue(id, direction);
-  await refresh();
+  await refreshFull();
 }
 
-async function startQueuedNow(id) {
+async function startQueuedNow(id: string | null | undefined) {
+  if (!id) return;
   await api.startJobNow(id);
   ElMessage.success("Moved to front");
-  await refresh();
+  await refreshFull();
 }
 
-async function removeQueued(id) {
+async function removeQueued(id: string | null | undefined) {
+  if (!id) return;
   await ElMessageBox.confirm("Remove this job from the queue?", "Confirm", { type: "warning" });
   await api.deleteJob(id);
   ElMessage.success("Removed");
-  await refresh();
+  await refreshFull();
 }
 
-function openEdit(row) {
+function openEdit(row: JobRecord) {
   editJobId.value = row.id;
-  editForm.config_id = row.config_id || "";
+  editForm.config_id = row.config_id != null ? String(row.config_id) : "";
   editForm.num_gpus = row.num_gpus || 1;
   editForm.resume_from = row.resume_from || "";
-  searchConfigOptions(row.config_id || "");
+  searchConfigOptions(String(row.config_id || ""));
   editOpen.value = true;
 }
 
@@ -693,7 +933,7 @@ async function saveEdit() {
   });
   editOpen.value = false;
   ElMessage.success("Queue job updated");
-  await refresh();
+  await refreshFull();
 }
 </script>
 
@@ -737,6 +977,18 @@ async function saveEdit() {
 }
 .hint {
   display: block;
+}
+.block-hint {
+  margin-top: 4px;
+}
+.cache-options :deep(.el-form-item__content) {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+.cache-option-second {
+  margin-left: 0;
 }
 .config-block--compact {
   display: flex;

@@ -127,6 +127,7 @@ Checkpoint restores model, optimizer, LR scheduler, and dataloader state (epoch 
 | **`steps_per_print`** | How often DeepSpeed prints step timing to the console. | Positive integer. | `1` |
 | **`synthetic_num_batches`** | Train on in-memory fake SDXL batches (no real dataset). | Positive integer or omit. | Omitted (use real data). |
 | **`caching_batch_size`** | Batch size during the dataset cache phase (latents + text embeddings). | Positive integer. | `1` |
+| **`cache_root`** | Root folder for all v2 dataset caches (metadata, latents, text embeddings). | Path string. | `cache/` under the install directory (gitignored). |
 | **`cache_num_proc`** | CPU worker processes for metadata map and latent/embedding cache (`pool.imap`). | Positive integer. | `min(8, CPU count)` |
 | **`cache_keep_in_memory`** | Keep the HuggingFace dataset slice in RAM while resuming cache. | `true` / `false`. | `false` (lower RAM; OS page cache still helps train reads) |
 | **`cache_format`** | On-disk layout for latent and text-embedding cache. | `v2` (mmap bf16 tensor stacks + SQLite metadata) or `v1` (legacy pickle shards). | `v2` |
@@ -137,7 +138,7 @@ Checkpoint restores model, optimizer, LR scheduler, and dataloader state (epoch 
 | **`dataloader_persistent_workers`** | Keep DataLoader worker processes alive between epochs. | `true` / `false`. | `true` |
 | **`image_micro_batch_size_per_gpu`** | Micro-batch for image-only steps when mixing modalities. | Integer or dict, or omit to use `micro_batch_size_per_gpu`. | Same as `micro_batch_size_per_gpu` |
 
-**Disk hygiene:** Dataset cache lives under each `[[directory]].path/cache/<model>/`. With **`cache_format = "v2"`**, each bucket stores `manifest.json`, `tensors/*.bin`, and `meta.db` under `latents/` and `text_embeddings_*` (no automatic migration from v1 — use `--regenerate_cache` after switching format). GPU smokes via [`scripts/run_model_smoke.sh`](../../scripts/run_model_smoke.sh) delete `output/` and `tests/fixtures/smoke_cc0/images/cache/` by default. Set `KEEP_SMOKE_ARTIFACTS=1` to keep them for inspection. Remove a production cache manually with `rm -rf <dataset_path>/cache/<model_name>`.
+**Disk hygiene:** Dataset cache lives under **`cache_root`** / `<dataset_id>` / `<directory_id>` / `<model_name>/` (see **`cache_root`** above). With **`cache_format = "v2"`**, each bucket stores `manifest.json`, `tensors/*.bin`, and `meta.db` under `latents/` and `text_embeddings_*` (no automatic migration from v1 — use `--regenerate_cache` after switching format). GPU smokes via `scripts/run_model_smoke.sh` delete `output/` and fixture caches under the default **`cache_root`** by default. Set `KEEP_SMOKE_ARTIFACTS=1` to keep them for inspection.
 
 Developer notes (POC benchmarks, v2 layout): [performance-cpu-ram](../developer/performance-cpu-ram.md), [dataset and cache](../developer/dataset-and-cache.md).
 

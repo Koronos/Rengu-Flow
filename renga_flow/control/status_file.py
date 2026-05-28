@@ -29,6 +29,7 @@ def write_status_file(
     epoch: int,
     loss: float,
     phase: str = "training",
+    progress: dict[str, Any] | None = None,
 ) -> None:
     """Atomically write run_dir/status.json (caller gates on monitoring.enable_status_file)."""
     root = Path(run_dir)
@@ -40,6 +41,8 @@ def write_status_file(
         "phase": phase,
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
+    if progress:
+        payload.update(progress)
     target = root / "status.json"
     fd, tmp = tempfile.mkstemp(dir=root, prefix=".status_", suffix=".json")
     try:

@@ -167,7 +167,7 @@ Dataset-related tests (config, loader, captions, cache hooks, smoke fixture):
 | `tests/test_ui_signals.py` | `send_signal` and job signals API. |
 | `tests/test_genericoptim_cpu_state.py` | `GenericOptim` + `kahan_buffer_offload` CPU state roundtrip. |
 
-**GPU smokes (optional, local):** Copy [`.env.example`](../.env.example) to `.env` (gitignored) and set `RENGA_SDXL_CHECKPOINT_PATH` / `RENGA_COSMOS_*`. Configs live under `tests/fixtures/smoke/` (not `examples/`). `scripts/run_model_smoke.sh sdxl|cosmos` vendors fixtures if needed, runs `--cache_only`, then **30** training steps. `scripts/smoke_training_signals.sh` exercises every signal file plus `genericoptim` resume (requires `pip install -e ".[optim]"`). `renga_flow.config.local_env` applies env vars before validation. Scripts **purge** `output/`, fixture caches, and `tmp/smoke_*.log` by default (`KEEP_SMOKE_ARTIFACTS=1` / `KEEP_SMOKE_LOG=1` to retain).
+**GPU smokes (optional, local):** Copy `.env.example` to `.env` (gitignored) and set `RENGA_SDXL_CHECKPOINT_PATH` / `RENGA_COSMOS_*`. Configs live under `tests/fixtures/smoke/` (not `examples/`). `scripts/run_model_smoke.sh sdxl|cosmos` vendors fixtures if needed, runs `--cache_only`, then **30** training steps. `scripts/smoke_training_signals.sh` exercises every signal file plus `genericoptim` resume (requires `pip install -e ".[optim]"`). `renga_flow.config.local_env` applies env vars before validation. Scripts **purge** `output/`, fixture caches, and `tmp/smoke_*.log` by default (`KEEP_SMOKE_ARTIFACTS=1` / `KEEP_SMOKE_LOG=1` to retain).
 
 **GPU smoke A/B (dataloader/cache flags):** After unit tests pass, run `scripts/smoke_perf_ab.sh sdxl` for baseline `iter_sec_mean` (steps ≥ 6 from `bench_steps.csv`), then e.g. `scripts/smoke_perf_ab.sh sdxl prefetch` to compare `dataloader_prefetch=true`. Presets: `prefetch`, `workers2`. See [performance-cpu-ram](performance-cpu-ram.md).
 
@@ -176,7 +176,7 @@ Dataset-related tests (config, loader, captions, cache hooks, smoke fixture):
 **Not covered:**
 
 - **Real-data training E2E on GPU** (full `DatasetManager.cache()` + train) — hook unit tests and `smoke_cc0` fixture cover the data path without checkpoints.
-- **Dataset augmentation:** [`tests/test_augmentation.py`](../tests/test_augmentation.py), [`tests/test_dataset_form_augmentation.py`](../tests/test_dataset_form_augmentation.py).
+- **Dataset augmentation:** `tests/test_augmentation.py`, `tests/test_dataset_form_augmentation.py`.
 
 ## Adding tests
 

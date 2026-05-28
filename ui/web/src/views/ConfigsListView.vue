@@ -1,85 +1,107 @@
 <template>
-  <ImportTomlOverlay ref="importOverlay" @import="onImportFile">
+  <ImportTomlOverlay ref="importOverlay" @import="importConfigFile">
     <div class="configs-page page-shell">
       <div class="page-head">
         <div class="page-head-text">
           <p class="page-subtitle">Model training TOML library</p>
         </div>
         <div class="page-head-actions">
-          <el-button @click="triggerImport">Import TOML…</el-button>
           <el-button type="primary" :icon="Plus" @click="router.push({ name: 'configs-new' })">
             New config
           </el-button>
+          <el-button @click="triggerImport">Import TOML…</el-button>
         </div>
       </div>
 
-      <el-alert
-        v-if="pickForJob"
-        type="warning"
-        :closable="false"
-        show-icon
-        class="mb-12 pick-banner"
+      <LibraryListPage
+        :loading="loading"
+        :error="error"
+        :items="previewItems"
+        :view-mode="viewMode"
+        :table-actions-column-width="tableActionsWidth"
+        empty-description="No configs yet"
+        @item-click="onItemClick"
       >
-        <template #title>Choosing config for a training job</template>
-        Open a config below, edit if needed, validate, then click
-        <strong>Use for training job</strong> in the editor. You can also
-        <el-button type="primary" link @click="cancelPick">return to Runs</el-button>
-        without selecting.
-      </el-alert>
+        <template #empty-action>
+          <el-button type="primary" :icon="Plus" @click="router.push({ name: 'configs-new' })">
+            New config
+          </el-button>
+        </template>
 
-      <div class="page-toolbar">
-        <el-input
-          v-model="query"
-          clearable
-          placeholder="Search by ID, model, or dataset…"
-          class="page-toolbar-search"
-          :prefix-icon="Search"
-          @input="scheduleSearch"
-          @clear="load"
-        />
-        <LibrarySortControls
-          v-model:sort-field="sortField"
-          :sort-order="sortOrder"
-          :field-options="fieldOptions"
-          :order-button-label="orderButtonLabel"
-          @toggle-order="onToggleSortOrder"
-        />
-        <DatasetViewModeToggle v-model="viewMode" />
-      </div>
+        <template #banner>
+          <PickForJobBanner v-if="pickForJob" variant="list" @cancel="cancelPick" />
+        </template>
 
-      <el-alert v-if="error" type="error" :title="error" show-icon class="mb-12" />
+        <template #toolbar>
+          <el-input
+            v-model="query"
+            clearable
+            placeholder="Search by ID, run name, model, or dataset…"
+            class="page-toolbar-search"
+            :prefix-icon="Search"
+            @input="scheduleSearch"
+            @clear="load"
+          />
+          <LibrarySortControls
+            v-model:sort-field="sortField"
+            :sort-order="sortOrder"
+            :field-options="fieldOptions"
+            :order-button-label="orderButtonLabel"
+            @toggle-order="onToggleSortOrder"
+          />
+          <LibraryViewModeToggle v-model="viewMode" />
+        </template>
 
-      <div v-loading="loading" class="list-body">
-        <el-empty v-if="!loading && !previewItems.length" description="No configs yet" :image-size="64" />
-        <DatasetPreviewCollection
-          v-else
-          :items="previewItems"
-          :view-mode="viewMode"
-          table-subtitle-label="Summary"
-          @item-click="openItem"
-        >
-          <template #actions="{ item }">
-            <el-button
-              v-if="pickForJob"
-              type="primary"
-              size="small"
-              plain
-              @click.stop="openItem(item)"
+        <template #actions="{ item }">
+          <template v-if="viewMode === 'cards'">
+            <LibraryItemOverflowMenu
+              :loading="crudBusy"
+              @duplicate="duplicateSelected(item.id ?? null)"
+              @delete="deleteSelected(item.id ?? null)"
             >
-              Open
-            </el-button>
-            <el-button
-              v-else
-              type="primary"
-              size="small"
-              plain
-              @click.stop="startRun(item)"
-            >
-              Run
-            </el-button>
+              <el-dropdown-item v-if="pickForJob" @click.stop="openItem(item)">
+                <span class="rf-dropdown-item-label">
+                  <el-icon><FolderOpened /></el-icon>
+                  <span>Open</span>
+                </span>
+              </el-dropdown-item>
+              <el-dropdown-item v-else @click.stop="startRun(item)">
+                <span class="rf-dropdown-item-label">
+                  <el-icon><VideoPlay /></el-icon>
+                  <span>Run training job</span>
+                </span>
+              </el-dropdown-item>
+            </LibraryItemOverflowMenu>
           </template>
-        </DatasetPreviewCollection>
-      </div>
+          <template v-else>
+            <div class="library-list-row-actions" @click.stop>
+              <el-tooltip v-if="pickForJob" content="Open" :show-after="300">
+                <el-button
+                  size="small"
+                  circle
+                  type="primary"
+                  :icon="FolderOpened"
+                  @click.stop="openItem(item)"
+                />
+              </el-tooltip>
+              <el-tooltip v-else content="Run training job" :show-after="300">
+                <el-button
+                  size="small"
+                  circle
+                  type="primary"
+                  :icon="VideoPlay"
+                  @click.stop="startRun(item)"
+                />
+              </el-tooltip>
+              <LibraryRowCrudButtons
+                :loading="crudBusy"
+                @duplicate="duplicateSelected(item.id ?? null)"
+                @delete="deleteSelected(item.id ?? null)"
+              />
+            </div>
+          </template>
+        </template>
+      </LibraryListPage>
     </div>
   </ImportTomlOverlay>
 </template>
@@ -87,19 +109,27 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { Plus, Search } from "@element-plus/icons-vue";
+import { FolderOpened, Plus, Search, VideoPlay } from "@element-plus/icons-vue";
 import { ElMessage } from "element-plus";
 import { api } from "../api";
-import DatasetPreviewCollection from "../components/DatasetPreviewCollection.vue";
-import DatasetViewModeToggle from "../components/DatasetViewModeToggle.vue";
 import ImportTomlOverlay from "../components/ImportTomlOverlay.vue";
+import LibraryItemOverflowMenu from "../components/LibraryItemOverflowMenu.vue";
+import LibraryListPage from "../components/LibraryListPage.vue";
+import LibraryRowCrudButtons from "../components/LibraryRowCrudButtons.vue";
 import LibrarySortControls from "../components/LibrarySortControls.vue";
+import LibraryViewModeToggle from "../components/LibraryViewModeToggle.vue";
+import PickForJobBanner from "../components/PickForJobBanner.vue";
 import { useDatasetViewMode } from "../composables/useDatasetViewMode";
+import { useDebouncedLibrarySearch } from "../composables/useDebouncedLibrarySearch";
+import { useImportConfigToml } from "../composables/useImportConfigToml";
+import { useLibraryCrudActions } from "../composables/useLibraryCrudActions";
+import { useLibraryListSelection } from "../composables/useLibraryListSelection";
 import { useLibraryListSort } from "../composables/useLibraryListSort";
-import { formatError } from "../lib/formatError";
 import { formatLibraryTimestamp } from "../lib/formatLibraryTime";
+import { datasetRefToThumbSource } from "../lib/previewThumbs";
 import { getJobConfigId, setJobConfigId } from "../lib/jobConfigPick";
-import type { JsonRecord } from "../types/runtime";
+import { redirectToStoredJobConfig } from "../lib/jobConfigRedirect";
+import type { ConfigSearchItem } from "../types/api";
 import type { DatasetPreviewItem } from "../components/DatasetPreviewCollection.vue";
 import type ImportTomlOverlayType from "../components/ImportTomlOverlay.vue";
 
@@ -107,10 +137,6 @@ const CONFIG_LIBRARY_VIEW_KEY = "renga-flow-config-library-view";
 
 const route = useRoute();
 const router = useRouter();
-const rawItems = ref<JsonRecord[]>([]);
-const loading = ref(false);
-const error = ref("");
-const query = ref("");
 const importOverlay = ref<InstanceType<typeof ImportTomlOverlayType> | null>(null);
 const { viewMode } = useDatasetViewMode(CONFIG_LIBRARY_VIEW_KEY);
 const {
@@ -121,41 +147,70 @@ const {
   toggleSortOrder,
   orderButtonLabel,
 } = useLibraryListSort("renga-flow-config-list-sort", { kind: "config" });
+const { rawItems, loading, error, query, load, scheduleSearch } = useDebouncedLibrarySearch(
+  api.searchConfigs,
+  sortParams
+);
+const { importConfigFile } = useImportConfigToml();
 
 const pickForJob = computed(() => route.query.pick === "job");
 
-let searchTimer: ReturnType<typeof setTimeout> | undefined;
-
-const previewItems = computed((): DatasetPreviewItem[] =>
+const basePreviewItems = computed((): DatasetPreviewItem[] =>
   rawItems.value.map((row) => ({
     key: String(row.id),
     id: row.id as string | number,
     title: configTitle(row),
     subtitle: formatSubtitle(row),
+    thumbSource: datasetRefToThumbSource(row.dataset_ref),
     fallbackText: configFallback(row),
   }))
 );
 
-function configTitle(row) {
+const { selectedId, previewItems, selectItem, clearSelection } =
+  useLibraryListSelection(basePreviewItems);
+
+const {
+  busy: crudBusy,
+  duplicateSelected,
+  deleteSelected,
+} = useLibraryCrudActions("config", {
+  router,
+  onDeleted: () => {
+    clearSelection();
+    load();
+  },
+});
+
+function configTitle(row: ConfigSearchItem): string {
   if (row.run_name) return String(row.run_name);
   return `Config #${row.id}`;
 }
 
-function configFallback(row) {
+function configFallback(row: ConfigSearchItem): string {
   const mt = row.model_type;
   if (typeof mt === "string" && mt.length >= 2) return mt.slice(0, 2).toUpperCase();
   return "CF";
 }
 
-function formatSubtitle(row) {
+function formatSubtitle(row: ConfigSearchItem): string {
   const parts = [`#${row.id}`];
+  const runName =
+    typeof row.run_name === "string" && row.run_name.trim() ? row.run_name.trim() : "";
+  if (runName && configTitle(row) !== runName) parts.push(runName);
   if (row.model_type) parts.push(row.model_type);
   if (row.dataset_ref) parts.push(row.dataset_ref);
   if (row.updated_at) parts.push(formatLibraryTimestamp(row.updated_at));
   return parts.join(" · ");
 }
 
-function openItem(item) {
+const tableActionsWidth = computed(() => (viewMode.value === "table" ? 280 : 252));
+
+function onItemClick(item: DatasetPreviewItem): void {
+  selectItem(item);
+  openItem(item);
+}
+
+function openItem(item: DatasetPreviewItem): void {
   if (item?.id == null) return;
   const query = pickForJob.value ? { pick: "job" } : {};
   router.push({
@@ -165,7 +220,7 @@ function openItem(item) {
   });
 }
 
-function startRun(item) {
+function startRun(item: DatasetPreviewItem): void {
   if (item?.id == null) return;
   setJobConfigId(String(item.id));
   router.push({ name: "jobs" });
@@ -183,72 +238,19 @@ function onToggleSortOrder() {
 
 watch([sortField, sortOrder], () => load());
 
-async function load() {
-  loading.value = true;
-  error.value = "";
-  try {
-    const data = (await api.searchConfigs({
-      q: query.value.trim(),
-      page: 1,
-      page_size: 100,
-      ...sortParams(),
-    })) as { items?: JsonRecord[] };
-    rawItems.value = data.items || [];
-  } catch (e) {
-    error.value = formatError(e);
-    rawItems.value = [];
-  } finally {
-    loading.value = false;
-  }
-}
-
-function scheduleSearch() {
-  clearTimeout(searchTimer);
-  searchTimer = setTimeout(load, 300);
-}
-
 function triggerImport() {
   importOverlay.value?.openFilePicker?.();
 }
 
-async function onImportFile(file) {
-  try {
-    const text = await file.text();
-    const base = file.name.replace(/\.toml$/i, "") || "imported";
-    const r = (await api.importConfig(text, base)) as { id: string };
-    ElMessage.success(`Imported as ${r.id}`);
-    router.push({ name: "configs-detail", params: { configId: String(r.id) } });
-  } catch (e) {
-    ElMessage.error(formatError(e));
-  }
-}
-
 onMounted(async () => {
   if (pickForJob.value) {
-    const stored = getJobConfigId();
-    if (stored) {
-      try {
-        await api.getConfig(stored);
-        router.replace({
-          name: "configs-detail",
-          params: { configId: stored },
-          query: { pick: "job" },
-        });
-        return;
-      } catch {
-        /* stored config may have been deleted */
-      }
-    }
+    const redirected = await redirectToStoredJobConfig(
+      router,
+      getJobConfigId(),
+      (id) => api.getConfig(id)
+    );
+    if (redirected) return;
   }
   load();
 });
 </script>
-
-<style scoped>
-.list-body {
-  min-height: 120px;
-}
-.pick-banner {
-  line-height: 1.5;
-}
-</style>

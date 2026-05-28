@@ -5,20 +5,19 @@ import type { RouteLocationNormalizedLoaded } from "vue-router";
 import { api } from "../api";
 import { formatError } from "../lib/formatError";
 import { sanitizeConfigForm } from "../lib/configFormPayload";
+import { resolveDatasetDisplayLabel } from "../lib/resolveDatasetLabels";
 import {
   getModelCapability,
   modelSupportsAdapters,
   pruneFormForModel,
 } from "../lib/formUtils";
 import { useTomlFormSync } from "../composables/useTomlFormSync";
+import { createValidationAlertScheduler } from "../composables/useValidationAlertDismiss";
 import type { FormValues, ModelCapabilities } from "../types/forms";
 
-export const DEFAULT_CONFIG_TOML = `dataset = "examples/minimal_dataset.toml"
-
-[model]
+export const DEFAULT_CONFIG_TOML = `[model]
 type = "sdxl"
 dtype = "bfloat16"
-checkpoint_path = "path/to/sdxl.safetensors"
 
 [adapter]
 type = "lora"
@@ -63,6 +62,8 @@ export const useConfigEditorStore = defineStore("configEditor", () => {
   const continuationSaveToLibrary = ref(false);
   const continuationLibraryId = ref("");
 
+  const validationAlertDismiss = createValidationAlertScheduler();
+
   const modelCapabilities = computed(
     () => (schema.value?.registries as { model_capabilities?: ModelCapabilities })?.model_capabilities ?? {}
   );
@@ -71,6 +72,17 @@ export const useConfigEditorStore = defineStore("configEditor", () => {
     if (isNew.value && !configId.value) return "New config";
     if (configId.value) return `Config #${configId.value}`;
     return "Config";
+  });
+
+  const editorRunName = computed(() => {
+    const raw = form.value?.run_name;
+    return typeof raw === "string" && raw.trim() ? raw.trim() : "";
+  });
+
+  const editorHeadline = computed(() => {
+    if (!configId.value) return editorRunName.value || "";
+    const idPart = `Config #${configId.value}`;
+    return editorRunName.value ? `${idPart} · ${editorRunName.value}` : idPart;
   });
 
   function cleanForm(raw: FormValues): FormValues | null {
@@ -131,7 +143,7 @@ export const useConfigEditorStore = defineStore("configEditor", () => {
       };
     },
     renderToml: async (payload) => {
-      const r = (await api.renderToml(payload)) as {
+      const r = (await api.renderToml(payload, content.value)) as {
         ok?: boolean;
         content?: string;
         error?: unknown;
@@ -188,15 +200,24 @@ export const useConfigEditorStore = defineStore("configEditor", () => {
     editorTab.value = "form";
     try {
       const summary = (await api.searchConfigs({ q: id, page: 1, page_size: 1 })) as {
-        items?: { id: string; model_type?: string; dataset_ref?: string }[];
+        items?: {
+          id: string;
+          model_type?: string;
+          dataset_ref?: string;
+          run_name?: string;
+        }[];
       };
-      const row = summary.items?.find(
-        (c) => c.id === id
-      );
+      const row = summary.items?.find((c) => c.id === id);
       if (row) {
         const parts: string[] = [];
         if (row.model_type) parts.push(row.model_type);
-        if (row.dataset_ref) parts.push(row.dataset_ref);
+        if (row.dataset_ref) {
+          try {
+            parts.push(await resolveDatasetDisplayLabel(row.dataset_ref));
+          } catch {
+            parts.push(row.dataset_ref);
+          }
+        }
         selectedMeta.value = parts.join(" · ");
       } else {
         selectedMeta.value = "";
@@ -276,7 +297,10 @@ export const useConfigEditorStore = defineStore("configEditor", () => {
   async function validateConfig({ quiet = false }: { quiet?: boolean } = {}) {
     error.value = "";
     validationErrors.value = [];
-    if (!quiet) message.value = "";
+    if (!quiet) {
+      message.value = "";
+      validationAlertDismiss.clearAll();
+    }
     try {
       await tomlSync.flushSync();
       const r = (await api.validate(content.value)) as {
@@ -298,7 +322,9 @@ export const useConfigEditorStore = defineStore("configEditor", () => {
         }
         if (!quiet) {
           message.value = parts.length ? `Valid (${parts.join("; ")})` : "Valid.";
-          ElMessage.success(message.value);
+          validationAlertDismiss.scheduleSuccessDismiss(() => {
+            message.value = "";
+          });
         }
         return { ok: true as const, resolution: res };
       }
@@ -307,16 +333,18 @@ export const useConfigEditorStore = defineStore("configEditor", () => {
           ? (r.errors as string[])
           : [String(r.error || "Invalid configuration.")];
       if (!quiet) {
-        ElMessage.error(
-          validationErrors.value.length === 1
-            ? validationErrors.value[0]
-            : `${validationErrors.value.length} issues — see list above`
-        );
+        validationAlertDismiss.scheduleErrorDismiss(() => {
+          validationErrors.value = [];
+        });
       }
       return { ok: false as const, errors: validationErrors.value };
     } catch (e) {
       error.value = formatError(e);
-      if (!quiet) ElMessage.error(error.value);
+      if (!quiet) {
+        validationAlertDismiss.scheduleErrorDismiss(() => {
+          error.value = "";
+        });
+      }
       throw e;
     }
   }
@@ -400,6 +428,17 @@ export const useConfigEditorStore = defineStore("configEditor", () => {
     formVersion.value += 1;
   }
 
+  function clearValidationFeedback() {
+    validationAlertDismiss.clearAll();
+    validationErrors.value = [];
+    message.value = "";
+  }
+
+  function clearValidationErrorBar() {
+    validationAlertDismiss.clearAll();
+    error.value = "";
+  }
+
   function dispose() {
     tomlSync.resetSyncState();
     configId.value = null;
@@ -420,6 +459,7 @@ export const useConfigEditorStore = defineStore("configEditor", () => {
     continuation.value = null;
     continuationSaveToLibrary.value = false;
     continuationLibraryId.value = "";
+    validationAlertDismiss.clearAll();
   }
 
   return {
@@ -442,6 +482,8 @@ export const useConfigEditorStore = defineStore("configEditor", () => {
     continuationSaveToLibrary,
     continuationLibraryId,
     editingTitle,
+    editorRunName,
+    editorHeadline,
     setContent: tomlSync.setContent,
     setForm,
     patchFormField,
@@ -455,6 +497,8 @@ export const useConfigEditorStore = defineStore("configEditor", () => {
     saveExisting,
     createNew,
     validateConfig,
+    clearValidationFeedback,
+    clearValidationErrorBar,
     queueContinuation,
     openFromRoute,
     bootstrapPickForJob,

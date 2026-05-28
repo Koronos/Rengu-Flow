@@ -10,7 +10,6 @@
         :trigger-on-focus="true"
         value-key="id"
         @select="onSuggestSelect"
-        @keyup.enter="onSearchEnter"
       >
         <template #default="{ item }">
           <div class="suggest-row">
@@ -20,14 +19,24 @@
         </template>
       </el-autocomplete>
       <el-button :icon="Search" @click="openBrowser">Browse library</el-button>
+      <el-button :disabled="!modelValue" @click="emitAction('duplicate', modelValue)">
+        Duplicate
+      </el-button>
+      <el-button
+        type="danger"
+        plain
+        :disabled="!modelValue"
+        @click="emitAction('delete', modelValue)"
+      >
+        Delete
+      </el-button>
       <el-dropdown v-if="modelValue" trigger="click" @command="onAction">
         <el-button>
-          Actions
+          More
           <el-icon class="el-icon--right"><ArrowDown /></el-icon>
         </el-button>
         <template #dropdown>
           <el-dropdown-item command="open">Open in editor</el-dropdown-item>
-          <el-dropdown-item command="duplicate">Duplicate</el-dropdown-item>
           <el-dropdown-item command="copy-new">New from copy…</el-dropdown-item>
           <el-dropdown-item v-if="kind === 'config' && pickForJob" command="use-job">
             Use for training job
@@ -35,7 +44,6 @@
           <el-dropdown-item v-if="kind === 'config'" command="start-job">
             Start training job
           </el-dropdown-item>
-          <el-dropdown-item command="delete" divided>Delete</el-dropdown-item>
         </template>
       </el-dropdown>
     </div>
@@ -57,7 +65,6 @@
           v-model="browserQuery"
           clearable
           :placeholder="searchPlaceholder"
-          @keyup.enter="loadBrowser(1)"
         >
           <template #append>
             <el-button :icon="Search" @click="loadBrowser(1)" />
@@ -150,14 +157,19 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { ArrowDown, Search } from "@element-plus/icons-vue";
+import { ElLoadingDirective } from "element-plus";
 import { api } from "../api";
 import { useLibraryListSort } from "../composables/useLibraryListSort";
 import { formatLibraryTimestamp } from "../lib/formatLibraryTime";
-import type { JsonRecord } from "../types/runtime";
+import type { ConfigSearchItem, DatasetSearchItem } from "../types/api";
 import LibrarySortControls from "./LibrarySortControls.vue";
 
+type LibraryKind = "config" | "dataset";
+type LibraryRow = ConfigSearchItem | DatasetSearchItem;
+const vLoading = ElLoadingDirective;
+
 const props = defineProps({
-  kind: { type: String, required: true }, // "config" | "dataset"
+  kind: { type: String as () => LibraryKind, required: true }, // "config" | "dataset"
   modelValue: { type: String, default: null },
   pickForJob: { type: Boolean, default: false },
   activeHint: { type: String, default: "" },
@@ -176,7 +188,7 @@ const emit = defineEmits([
 const searchText = ref("");
 const browserOpen = ref(false);
 const browserQuery = ref("");
-const browserItems = ref<JsonRecord[]>([]);
+const browserItems = ref<LibraryRow[]>([]);
 const browserTotal = ref(0);
 const browserPage = ref(1);
 const browserPageSize = ref(20);
@@ -220,7 +232,7 @@ watch(
   { immediate: true }
 );
 
-async function searchPage(q: string, page: number, pageSize: number) {
+async function searchPage(q: string, page: number, pageSize: number): Promise<{ items: LibraryRow[]; total: number }> {
   const params = new URLSearchParams({
     page: String(page),
     page_size: String(pageSize),
@@ -228,23 +240,26 @@ async function searchPage(q: string, page: number, pageSize: number) {
     ...sortParams(),
   });
   if (props.kind === "config") {
-    return api.searchConfigs(params) as Promise<{ items?: JsonRecord[]; total?: number }>;
+    return api.searchConfigs(params) as Promise<{ items: ConfigSearchItem[]; total: number }>;
   }
-  return api.searchDatasets(params) as Promise<{ items?: JsonRecord[]; total?: number }>;
+  return api.searchDatasets(params) as Promise<{ items: DatasetSearchItem[]; total: number }>;
 }
 
-function itemHint(item: JsonRecord) {
+function itemHint(item: LibraryRow): string {
   if (props.kind === "config") {
     const parts: string[] = [];
-    if (item.model_type) parts.push(String(item.model_type));
-    if (item.dataset_ref) parts.push(String(item.dataset_ref));
+    if ("model_type" in item && item.model_type) parts.push(String(item.model_type));
+    if ("dataset_ref" in item && item.dataset_ref) parts.push(String(item.dataset_ref));
     return parts.join(" · ");
   }
-  const n = item.directory_count;
+  const n = "directory_count" in item ? item.directory_count : undefined;
   return n != null ? `${n} directories` : "";
 }
 
-async function fetchSuggestions(queryString, cb) {
+async function fetchSuggestions(
+  queryString: string,
+  cb: (rows: Array<LibraryRow & { value: string | number; hint: string }>) => void
+) {
   try {
     const data = await searchPage(queryString || "", 1, 15);
     const items = (data.items || []).map((row) => ({
@@ -258,10 +273,11 @@ async function fetchSuggestions(queryString, cb) {
   }
 }
 
-function onSuggestSelect(item) {
-  if (item?.id) {
-    emit("update:modelValue", item.id);
-    emit("open", item.id);
+function onSuggestSelect(item: Record<string, unknown>) {
+  const id = item?.id as string | number | undefined;
+  if (id != null) {
+    emit("update:modelValue", id);
+    emit("open", id);
   }
 }
 
@@ -296,25 +312,25 @@ async function loadBrowser(page = browserPage.value) {
   }
 }
 
-function onPageSizeChange() {
+function onPageSizeChange(): void {
   loadBrowser(1);
 }
 
-function selectAndOpen(id) {
+function selectAndOpen(id: string | number) {
   emit("update:modelValue", id);
   emit("open", id);
   browserOpen.value = false;
 }
 
-function onRowClick(row) {
+function onRowClick(row: LibraryRow) {
   selectAndOpen(row.id);
 }
 
-function onAction(command) {
+function onAction(command: string) {
   emitAction(command, props.modelValue);
 }
 
-function emitAction(command, id) {
+function emitAction(command: string, id: string | number | null) {
   if (!id && command !== "delete") return;
   if (command === "open") {
     emit("open", id);

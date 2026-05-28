@@ -31,7 +31,7 @@ renga-flow does **not** depend on diffusion-pipe at runtime. A local clone of [d
 
 ## Licenses
 
-- Project: [LICENSE](../../LICENSE) (GPL-3.0-or-later) and [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md).
+- Project: `LICENSE` (GPL-3.0-or-later) and `THIRD_PARTY_NOTICES.md`.
 - Cosmos in-repo: `renga_flow/model/cosmos_predict2/NOTICE.md` (NVIDIA Apache-2.0, Wan VAE header in `wan_vae.py`).
 - Vendor optimizers: `renga_flow/vendor/diffusion_pipe_optimizers/NOTICE.md`.
 - Upstream diffusion-pipe: GPL-3.0 (see THIRD_PARTY_NOTICES).

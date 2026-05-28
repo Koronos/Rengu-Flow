@@ -86,7 +86,14 @@ Each list row is a `TrainingRun`:
 ## API
 
 - `GET /api/v1/train/runs` — unified list + stats + pagination
-- `GET /api/v1/train/active` — active job + progress + scalars + preview images
+- `GET /api/v1/train/active` — active job + progress + scalars + preview images (HTTP fallback when live WS is down)
+- `WS /api/v1/jobs/{id}/live/ws` — JSON messages while the job is active:
+  - `{"type":"progress","state","run_dir","progress"}` — from `status.json` or TensorBoard fallback
+  - `{"type":"log_line","chunk":"…"}` — tail of the job log file
+  - `{"type":"metrics","scalars","preview_images"}` — periodic TB scalars + preview list (~5s)
+  - `{"type":"run_finished","state"}` — job left `running`/`stopping`; client should refresh list
+- `GET /api/v1/jobs/{id}/logs?offset=N` — log tail fallback
+- `WS /api/v1/jobs/{id}/logs/ws` — raw log text (job detail page)
 - `GET /api/v1/train/preview-image?run_dir=…&name=…` — serve PNG from run preview folder
 
 Existing `/jobs`, `/runs` endpoints remain for compatibility.

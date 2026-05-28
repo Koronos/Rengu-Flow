@@ -6,7 +6,16 @@
           <span class="pulse-dot" />
           Training live
         </span>
-        <el-space wrap>
+        <el-space wrap class="live-head-actions">
+          <el-tag
+            v-if="streamStatus"
+            size="small"
+            :type="streamTagType"
+            class="stream-status-tag"
+          >
+            {{ streamStatusLabel }}
+          </el-tag>
+          <slot name="header-extra" />
           <el-button size="small" @click="$emit('open-detail', run)">Open detail</el-button>
           <el-button size="small" type="danger" plain @click="$emit('stop', run.job_id)">
             Stop
@@ -22,16 +31,27 @@
       </el-text>
     </div>
 
+    <el-alert
+      v-if="diskExportWait"
+      type="warning"
+      show-icon
+      :closable="false"
+      title="Paused — free disk space, then continue export"
+      class="live-disk-alert"
+    />
+
     <div v-if="progress" class="live-progress">
       <div class="progress-labels">
         <span v-if="progress.step != null">
           Step {{ progress.step }}
           <template v-if="progress.max_steps"> / {{ progress.max_steps }}</template>
+          <template v-if="progress.percent != null"> ({{ progress.percent }}%)</template>
         </span>
         <span v-else>Waiting for first step…</span>
         <span v-if="progress.loss != null" class="live-loss">
           loss {{ formatLoss(progress.loss) }}
         </span>
+        <span v-if="progressHint" class="live-speed">{{ progressHint }}</span>
       </div>
       <el-progress
         v-if="progress.percent != null"
@@ -44,61 +64,138 @@
       </el-text>
     </div>
 
-    <el-row :gutter="16" class="live-charts">
-      <el-col :xs="24" :md="14">
-        <ScalarLineChart :scalars="run.scalars || {}" tag="train/loss" />
-      </el-col>
-      <el-col :xs="24" :md="10">
-        <div v-if="run.preview_images?.length" class="preview-strip">
-          <el-text type="info" size="small" class="preview-label">Previews</el-text>
-          <div class="preview-grid">
-            <a
-              v-for="img in run.preview_images.slice(0, 6)"
-              :key="img.name"
-              :href="previewUrl(img)"
-              target="_blank"
-              rel="noopener"
-              class="preview-thumb"
-            >
-              <img :src="previewUrl(img)" :alt="img.name" loading="lazy" />
-            </a>
-          </div>
-        </div>
-        <el-text v-else type="info" size="small">No preview PNGs yet</el-text>
-      </el-col>
-    </el-row>
+    <RunSignalActions
+      :available="signalsAvailable"
+      :disk-export-wait="diskExportWait"
+      :show-unavailable-hint="false"
+      compact
+      @send="onSignal"
+    />
+
+    <RunLossMonitor
+      class="live-charts"
+      :scalars="run.scalars || {}"
+      :preview-images="run.preview_images || []"
+      :loading="metricsLoading"
+      :loading-strong="false"
+    />
+
+    <el-collapse v-if="showTrainingLog" v-model="logCollapse" class="live-log-collapse">
+      <el-collapse-item name="log">
+        <template #title>
+          <span class="live-log-title">Training log</span>
+          <el-text v-if="streamError" type="warning" size="small" class="live-log-warn">
+            {{ streamError }}
+          </el-text>
+        </template>
+        <pre ref="logPreRef" class="live-log-pre" @scroll="onLogScroll">{{ logText || "(waiting for output…)" }}</pre>
+      </el-collapse-item>
+    </el-collapse>
   </el-card>
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
-import ScalarLineChart from "./ScalarLineChart.vue";
+import { computed, nextTick, ref, watch } from "vue";
+import type { LiveStreamStatus } from "../composables/useTrainLiveStream";
+import RunLossMonitor from "./RunLossMonitor.vue";
+import RunSignalActions from "./RunSignalActions.vue";
+import { jobSignalsAvailable } from "../lib/trainingSignals";
+import type { PropType } from "vue";
+import { formatRunProgressHint } from "../lib/formatRunProgress";
+import type { TrainingRunRow } from "../types/api";
+
+interface PreviewImage {
+  run_dir: string;
+  name: string;
+}
+
+type TrainLiveRun = TrainingRunRow & {
+  scalars?: Record<string, { step: number; value: number }[]>;
+  preview_images?: PreviewImage[];
+};
 
 const props = defineProps({
-  run: { type: Object, default: null },
+  run: { type: Object as PropType<TrainLiveRun | null>, default: null },
+  metricsLoading: { type: Boolean, default: false },
+  logText: { type: String, default: "" },
+  streamStatus: { type: String as PropType<LiveStreamStatus | "">, default: "" },
+  streamError: { type: String, default: "" },
+  showTrainingLog: { type: Boolean, default: true },
 });
 
-defineEmits(["open-detail", "stop"]);
+const emit = defineEmits(["open-detail", "stop", "signal"]);
+
+const logCollapse = ref<string[]>(["log"]);
+const logPreRef = ref<HTMLElement | null>(null);
+let userScrolledUp = false;
 
 const progress = computed(() => props.run?.progress || null);
+const progressHint = computed(() => formatRunProgressHint(progress.value));
 
-function formatLoss(v) {
+const streamStatusLabel = computed(() => {
+  switch (props.streamStatus) {
+    case "connected":
+      return "Live";
+    case "reconnecting":
+      return "Reconnecting…";
+    case "offline":
+      return "Polling";
+    default:
+      return "";
+  }
+});
+
+const streamTagType = computed((): "success" | "warning" | "info" => {
+  if (props.streamStatus === "connected") return "success";
+  if (props.streamStatus === "reconnecting") return "warning";
+  return "info";
+});
+
+function onLogScroll(): void {
+  const el = logPreRef.value;
+  if (!el) return;
+  const threshold = 48;
+  userScrolledUp = el.scrollTop + el.clientHeight < el.scrollHeight - threshold;
+}
+
+async function scrollLogToEnd(): Promise<void> {
+  await nextTick();
+  const el = logPreRef.value;
+  if (!el || userScrolledUp) return;
+  el.scrollTop = el.scrollHeight;
+}
+
+watch(
+  () => props.logText,
+  () => {
+    void scrollLogToEnd();
+  }
+);
+const diskExportWait = computed(
+  () => progress.value?.phase === "waiting_disk_export"
+);
+const signalsAvailable = computed(() =>
+  jobSignalsAvailable(props.run ? { state: props.run.state } : null)
+);
+
+function onSignal(type: string) {
+  if (!props.run) return;
+  emit("signal", props.run, type);
+}
+
+function formatLoss(v: number | null | undefined): string | number | null | undefined {
   return typeof v === "number" ? v.toFixed(6) : v;
 }
 
-function previewUrl(img) {
-  const params = new URLSearchParams({
-    run_dir: img.run_dir,
-    name: img.name,
-  });
-  return `/api/v1/train/preview-image?${params.toString()}`;
-}
 </script>
 
 <style scoped>
 .train-live-panel {
   margin-bottom: 16px;
   border-color: var(--el-color-success-light-5);
+}
+.live-disk-alert {
+  margin-bottom: 12px;
 }
 .live-head {
   display: flex;
@@ -146,35 +243,43 @@ function previewUrl(img) {
   margin-bottom: 6px;
   font-size: 13px;
 }
-.live-loss {
+.live-loss,
+.live-speed {
   font-family: ui-monospace, monospace;
+}
+.live-speed {
+  color: var(--el-text-color-secondary);
 }
 .live-charts {
   margin-top: 4px;
 }
-.preview-strip {
-  width: 100%;
+.stream-status-tag {
+  font-variant-numeric: tabular-nums;
 }
-.preview-label {
-  display: block;
-  margin-bottom: 6px;
+.live-log-collapse {
+  margin-top: 12px;
+  border-top: 1px solid var(--el-border-color-lighter);
+  padding-top: 4px;
 }
-.preview-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 6px;
+.live-log-title {
+  font-weight: 500;
+  margin-right: 8px;
 }
-.preview-thumb {
-  display: block;
-  aspect-ratio: 1;
-  border-radius: 4px;
-  overflow: hidden;
-  border: 1px solid var(--el-border-color-lighter);
+.live-log-warn {
+  margin-left: 8px;
 }
-.preview-thumb img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
+.live-log-pre {
+  margin: 0;
+  max-height: 280px;
+  overflow: auto;
+  padding: 10px 12px;
+  font-family: var(--rf-font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--el-fill-color-darker);
+  color: var(--el-text-color-primary);
+  border-radius: var(--el-border-radius-base);
 }
 </style>

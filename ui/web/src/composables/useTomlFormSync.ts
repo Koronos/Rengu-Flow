@@ -141,7 +141,6 @@ export function useTomlFormSync<TForm extends object>(opts: UseTomlFormSyncOptio
       await parseFromToml();
     } else {
       await parseFromToml();
-      await renderFromForm();
     }
   }
 

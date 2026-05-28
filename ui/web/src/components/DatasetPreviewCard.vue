@@ -13,7 +13,7 @@
     @keydown.enter="$emit('click', $event)"
   >
     <div class="dp-card-media">
-      <DatasetThumbGrid :urls="displayThumbs" :fallback-text="fallbackText" flush />
+      <DatasetThumbGrid :urls="displayThumbs" flush />
     </div>
     <div class="dp-card-body">
       <div class="dp-card-head">
@@ -40,10 +40,10 @@ import type { ThumbSource } from "../lib/previewThumbs";
 import type { PropType } from "vue";
 
 const props = defineProps({
-  title: { type: String, required: true },
+  title: { type: String, default: "" },
   subtitle: { type: String, default: "" },
   /** Pre-resolved URLs; skipped when thumbSource is set. */
-  thumbs: { type: Array, default: () => [] },
+  thumbs: { type: Array as PropType<string[]>, default: () => [] },
   /** { kind: 'library', id } | { kind: 'path', path } */
   thumbSource: { type: Object as PropType<ThumbSource | null>, default: null },
   active: { type: Boolean, default: false },
@@ -121,14 +121,20 @@ const displayThumbs = computed(() => {
 .dp-card-head {
   display: flex;
   align-items: flex-start;
-  justify-content: space-between;
-  gap: 4px;
+  gap: var(--rf-space-xs);
+  width: 100%;
 }
 .dp-card-title {
+  flex: 1;
+  min-width: 0;
   font-size: 14px;
   font-weight: 600;
   line-height: 1.3;
   word-break: break-word;
+}
+.dp-card-actions {
+  flex-shrink: 0;
+  margin-left: auto;
 }
 .dp-card-subtitle {
   margin: 0;

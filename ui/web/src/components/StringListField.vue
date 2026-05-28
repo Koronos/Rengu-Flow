@@ -27,10 +27,12 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { parseStringList } from "../lib/stringList";
+import type { PropType } from "vue";
+import type { RawListInput } from "../types/forms";
 
 const props = defineProps({
-  modelValue: { type: [Array, String], default: () => [] },
-  presetOptions: { type: Array, default: () => [] },
+  modelValue: { type: [Array, String] as PropType<RawListInput>, default: () => [] },
+  presetOptions: { type: Array as PropType<Array<string | number>>, default: () => [] },
   placeholder: { type: String, default: "Type text, then Enter" },
   hint: { type: String, default: "" },
 });
@@ -46,8 +48,8 @@ const presetOptions = computed(() => {
   return [...new Set([...fromSchema, ...sortedValues.value])];
 });
 
-function onSelectChange(raw) {
-  const strings = parseStringList(raw);
+function onSelectChange(raw: string[]): void {
+  const strings = parseStringList(raw ?? []);
   emit("update:modelValue", strings.length ? strings : "");
 }
 </script>

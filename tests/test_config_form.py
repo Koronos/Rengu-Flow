@@ -1,7 +1,12 @@
 """Tests for UI config form TOML conversion."""
 
 from renga_flow.registry.model_capabilities import get_capability, normalize_model_type
-from renga_flow_ui.config_form import form_to_toml, form_values_for_ui, parse_toml
+from renga_flow_ui.config_form import (
+    form_to_toml,
+    form_values_for_ui,
+    merge_form_into_config,
+    parse_toml,
+)
 from renga_flow_ui.config_schema import get_registries, get_schema
 
 
@@ -73,15 +78,14 @@ def test_schema_field_help() -> None:
     assert "dataset-config" in dataset.get("doc_path", "")
 
 
-def test_schema_cache_format_field() -> None:
+def test_schema_train_seed_field() -> None:
     schema = get_schema()
     training = next(s for s in schema["sections"] if s["id"] == "training")
-    cache_fmt = next(f for f in training["fields"] if f["path"] == "cache_format")
-    assert cache_fmt["type"] == "select"
-    assert cache_fmt["options"] == ["v2", "v1"]
-    assert cache_fmt.get("default") == "v2"
-    assert cache_fmt.get("help")
-    assert "training-loop-and-eval" in cache_fmt.get("doc_path", "")
+    seed_field = next(f for f in training["fields"] if f["path"] == "train_seed")
+    assert seed_field["type"] == "integer"
+    assert seed_field.get("default") == 42
+    assert seed_field.get("help")
+    assert "training-loop-and-eval" in seed_field.get("doc_path", "")
 
 
 def test_schema_cosmos_model_paths_help() -> None:
@@ -235,3 +239,67 @@ def test_form_to_toml_single_dataset_stays_string() -> None:
     form = {"dataset": "only.toml", "model.type": "sdxl", "model.dtype": "bfloat16", "_has_adapter": False}
     out = form_to_toml(form)
     assert 'dataset = "only.toml"' in out or "dataset = 'only.toml'" in out
+
+
+def test_schema_checkpoint_export_retention_fields() -> None:
+    schema = get_schema()
+    checkpoint = next(s for s in schema["sections"] if s["id"] == "checkpoint")
+    paths = {f["path"] for f in checkpoint["fields"]}
+    assert "max_model_exports_to_keep" in paths
+    assert "keep_exports_from_step" in paths
+    from renga_flow_ui import config_field_help
+
+    assert "keep_exports_from_step" in config_field_help.FIELD_HELP["max_model_exports_to_keep"]["detail"].lower()
+
+
+def test_form_to_toml_with_base_preserves_orphan_keys() -> None:
+    """Rendering from a sparse form must not drop keys that exist only in the base TOML."""
+    base_toml = """
+dataset = "d.toml"
+lr_scheduler = "cosine"
+[lr_scheduler_args]
+lr_min = 0.0
+[model]
+type = "sdxl"
+dtype = "bfloat16"
+checkpoint_path = "/weights/sdxl.safetensors"
+[optimizer]
+type = "adamw"
+"""
+    sparse_form = parse_toml(
+        """
+dataset = "d.toml"
+[model]
+type = "sdxl"
+dtype = "bfloat16"
+[optimizer]
+type = "adamw"
+"""
+    )
+    out = form_to_toml(sparse_form, base_content=base_toml)
+    assert "lr_scheduler" in out
+    assert "checkpoint_path" in out
+    assert "lr_min" in out
+
+
+def test_merge_form_into_config_drops_adapter_when_disabled() -> None:
+    base = {
+        "dataset": "d.toml",
+        "adapter": {"type": "lora", "rank": 8},
+        "model": {"type": "sdxl", "dtype": "bfloat16", "checkpoint_path": "/x"},
+    }
+    form = parse_toml(
+        """
+dataset = "d.toml"
+[model]
+type = "sdxl"
+dtype = "bfloat16"
+checkpoint_path = "/x"
+[optimizer]
+type = "adamw"
+"""
+    )
+    assert form["_has_adapter"] is False
+    merged = merge_form_into_config(base, form)
+    assert "adapter" not in merged
+    assert merged["model"]["checkpoint_path"] == "/x"

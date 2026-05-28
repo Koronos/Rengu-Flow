@@ -8,10 +8,18 @@
     <el-card shadow="never" class="mb-12">
       <el-form inline :class="{ 'mobile-form': isMobile }">
         <el-form-item label="output_dir">
-          <el-input v-model="outputDir" clearable style="min-width: 160px" />
+          <PathFieldControl v-model="outputDir" expect="dir" input-class="output-dir-input" />
         </el-form-item>
         <el-form-item>
-          <el-button :icon="Refresh" @click="load">Refresh</el-button>
+          <AutoRefreshBar
+            :interval-sec="intervalSec"
+            :refreshing="listRefreshing"
+            :polling="listPolling"
+            :last-updated="listLastUpdated"
+            :paused="listPaused"
+            @update:interval-sec="setListInterval"
+            @refresh="refreshNow"
+          />
           <el-button :loading="tbLoading" @click="openTensorboardForOutput">Open TensorBoard</el-button>
           <el-button
             v-if="tbStatus?.running"
@@ -66,12 +74,15 @@
 
 <script setup lang="ts">
 import { onMounted, ref, watch } from "vue";
+import AutoRefreshBar from "../components/AutoRefreshBar.vue";
+import { useAutoRefresh } from "../composables/useAutoRefresh";
 import { useRouter } from "vue-router";
-import { Refresh } from "@element-plus/icons-vue";
 import { api } from "../api";
+import { formatError } from "../lib/formatError";
 import { useBreakpoint } from "../composables/useBreakpoint";
 import { useTensorboard } from "../composables/useTensorboard";
-import type { JsonRecord } from "../types/runtime";
+import PathFieldControl from "../components/PathFieldControl.vue";
+import type { FsRunRecord, FsRunsListResult } from "../types/api";
 
 defineProps({
   embedded: { type: Boolean, default: false },
@@ -80,41 +91,73 @@ defineProps({
 const router = useRouter();
 const { isMobile } = useBreakpoint();
 
-const runs = ref<JsonRecord[]>([]);
+const runs = ref<FsRunRecord[]>([]);
 const outputDir = ref("output");
 const error = ref("");
 const { tbLoading, tbStatus, refreshTbStatus, openTensorboard, stopTensorboard } = useTensorboard(
   () => outputDir.value || "output"
 );
 
-async function load() {
-  const data = (await api.listFsRuns(outputDir.value)) as { runs?: JsonRecord[] };
+async function load(signal: AbortSignal) {
+  const data = (await api.listFsRuns(outputDir.value)) as FsRunsListResult;
+  if (signal.aborted) return;
   runs.value = data.runs || [];
+  error.value = "";
 }
 
-function openTensorboardForOutput() {
-  openTensorboard({ onError: (msg) => { error.value = msg; } }).catch(() => {});
+const {
+  intervalSec,
+  refreshing: listRefreshing,
+  polling: listPolling,
+  lastUpdated: listLastUpdated,
+  paused: listPaused,
+  setIntervalSec: setListInterval,
+  refreshNow,
+} = useAutoRefresh({
+  refresh: async (signal) => {
+    try {
+      await load(signal);
+    } catch (e) {
+      if (signal.aborted) return;
+      error.value = formatError(e);
+    }
+  },
+  isActive: () => false,
+});
+
+async function openTensorboardForOutput() {
+  try {
+    await openTensorboard({ onError: (msg) => { error.value = msg; } });
+    await refreshTbStatus();
+  } catch {
+    /* ElMessage already shown */
+  }
 }
 
-function stopTensorboardForOutput() {
-  stopTensorboard({ onError: (msg) => { error.value = msg; } }).catch(() => {});
+async function stopTensorboardForOutput() {
+  try {
+    await stopTensorboard({ onError: (msg) => { error.value = msg; } });
+    await refreshTbStatus();
+  } catch {
+    /* ElMessage already shown */
+  }
 }
 
-function goRun(name) {
+function goRun(name: string) {
   router.push(`/runs/${encodeURIComponent(name)}`);
 }
 
-function onRowClick(row) {
+function onRowClick(row: FsRunRecord) {
+  if (!row.name) return;
   goRun(row.name);
 }
 
 onMounted(() => {
   refreshTbStatus();
-  load().catch((e) => { error.value = String(e); });
 });
 
 watch(outputDir, () => {
-  load().catch((e) => { error.value = String(e); });
+  void refreshNow();
 });
 </script>
 
@@ -125,5 +168,8 @@ watch(outputDir, () => {
 .mobile-form :deep(.el-form-item) {
   display: block;
   margin-right: 0;
+}
+.output-dir-input {
+  min-width: 160px;
 }
 </style>

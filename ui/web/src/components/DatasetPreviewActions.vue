@@ -1,21 +1,24 @@
 <template>
-  <div class="dp-actions" @click.stop>
-    <el-button
-      v-if="showGallery"
-      link
-      :icon="Picture"
-      title="Image gallery"
-      :disabled="galleryDisabled"
-      @click="$emit('gallery')"
-    />
-    <el-button
-      v-if="showDelete"
-      link
-      type="danger"
-      :icon="Delete"
-      :title="deleteTitle"
-      @click="$emit('delete')"
-    />
+  <div class="dp-actions dataset-directory-actions" @click.stop>
+    <el-tooltip v-if="showGallery" content="Image gallery" :show-after="300">
+      <el-button
+        size="small"
+        circle
+        :icon="Picture"
+        :disabled="galleryDisabled"
+        @click="$emit('gallery')"
+      />
+    </el-tooltip>
+    <slot />
+    <el-tooltip v-if="showDelete" :content="deleteTitle" :show-after="300">
+      <el-button
+        size="small"
+        circle
+        type="danger"
+        :icon="Delete"
+        @click="$emit('delete')"
+      />
+    </el-tooltip>
   </div>
 </template>
 
@@ -36,7 +39,7 @@ defineEmits(["gallery", "delete"]);
 .dp-actions {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: var(--rf-space-xs);
   flex-shrink: 0;
 }
 </style>

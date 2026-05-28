@@ -10,6 +10,7 @@ import torch.nn.functional as F
 
 from renga_flow.networks.factorization import factorization
 from renga_flow.utils.common import is_main_process
+from renga_flow.utils.save_io import atomic_save_safetensors
 
 try:
     import lycoris
@@ -233,7 +234,7 @@ def save(save_dir, state_dict, adapter_config):
         alpha_val = adapter_config.get("alpha", adapter_config.get("rank"))
         for base in lokr_modules:
             sd[f"{base}.alpha"] = torch.tensor(float(alpha_val))
-    safetensors.torch.save_file(sd, save_dir / "adapter_model.safetensors", metadata={"format": "pt"})
+    atomic_save_safetensors(save_dir / "adapter_model.safetensors", sd)
 
 
 def infer_lokr_config_from_state(state):

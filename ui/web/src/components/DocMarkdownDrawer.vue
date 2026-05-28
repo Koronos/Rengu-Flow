@@ -21,7 +21,9 @@
 
 <script setup lang="ts">
 import { ref, watch } from "vue";
+import { ElLoadingDirective } from "element-plus";
 import { api } from "../api";
+import { formatError } from "../lib/formatError";
 import { renderMarkdown } from "../lib/markdown";
 
 const props = defineProps({
@@ -30,6 +32,7 @@ const props = defineProps({
 });
 
 defineEmits(["update:modelValue"]);
+const vLoading = ElLoadingDirective;
 
 const loading = ref(false);
 const error = ref("");
@@ -50,14 +53,16 @@ async function load(path: string) {
       docPath: activePath.value,
     });
   } catch (e) {
-    error.value = String(e);
+    error.value = formatError(e);
   } finally {
     loading.value = false;
   }
 }
 
-function onArticleClick(event) {
-  const link = event.target.closest("a.md-doc-link");
+function onArticleClick(event: MouseEvent) {
+  const target = event.target;
+  if (!(target instanceof Element)) return;
+  const link = target.closest("a.md-doc-link");
   if (!link) return;
   event.preventDefault();
   const next = link.getAttribute("data-doc-path");

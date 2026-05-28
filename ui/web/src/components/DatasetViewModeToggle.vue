@@ -18,14 +18,19 @@
 <script setup lang="ts">
 import { Grid, List, Notebook } from "@element-plus/icons-vue";
 
+type DatasetViewMode = "cards" | "list" | "table";
+
 defineProps({
   modelValue: { type: String, default: "cards" },
 });
 
 const emit = defineEmits(["update:modelValue"]);
 
-function onChange(val) {
-  emit("update:modelValue", val);
+function onChange(val: string | number | boolean | undefined) {
+  const mode = String(val) as DatasetViewMode;
+  if (mode === "cards" || mode === "list" || mode === "table") {
+    emit("update:modelValue", mode);
+  }
 }
 </script>
 

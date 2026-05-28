@@ -42,7 +42,7 @@
       <el-table-column
         v-if="$slots.actions"
         label=""
-        width="96"
+        :width="actionsColumnWidth"
         align="right"
         class-name="dp-table-actions-col"
       >
@@ -56,27 +56,30 @@
 
 <script setup lang="ts">
 import { Check } from "@element-plus/icons-vue";
+import type { PropType } from "vue";
+import type { DatasetPreviewItem } from "./DatasetPreviewCollection.vue";
 
 defineProps({
-  items: { type: Array, default: () => [] },
+  items: { type: Array as PropType<DatasetPreviewItem[]>, default: () => [] },
   scrollable: { type: Boolean, default: false },
   showCheck: { type: Boolean, default: false },
   titleLabel: { type: String, default: "Name" },
   subtitleLabel: { type: String, default: "Details" },
   tagsLabel: { type: String, default: "Info" },
   tableMaxHeight: { type: [String, Number], default: "min(68vh, 680px)" },
+  actionsColumnWidth: { type: Number, default: 112 },
 });
 
 const emit = defineEmits(["item-click"]);
 
-function rowClassName({ row }) {
+function rowClassName({ row }: { row: DatasetPreviewItem }) {
   const classes = ["dp-table-row"];
   if (row.warning) classes.push("dp-table-row--warning");
   if (row.active) classes.push("dp-table-row--active");
   return classes.join(" ");
 }
 
-function onRowClick(row) {
+function onRowClick(row: DatasetPreviewItem) {
   emit("item-click", row);
 }
 </script>

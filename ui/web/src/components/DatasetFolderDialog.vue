@@ -2,42 +2,98 @@
   <el-dialog
     v-model="visible"
     :title="isEdit ? 'Edit [[directory]]' : 'Add [[directory]]'"
-    width="min(560px, 96vw)"
+    width="min(600px, 96vw)"
     destroy-on-close
     @closed="onClosed"
   >
-    <el-form label-position="top" class="folder-dialog-form" @submit.prevent>
-      <ConfigFormField
-        v-for="field in primaryFields"
-        :key="field.path"
-        :field="field"
-        :form="draft"
-        dataset-form
-        @update:path="onField"
-      />
-
-      <el-divider content-position="left">Overrides</el-divider>
-      <p class="override-hint">
-        Optional per-directory settings. When unset, values inherit from the dataset defaults tab (TOML root).
-      </p>
-
-      <div v-for="field in overrideFields" :key="field.path" class="override-block">
-        <div v-if="needsOverrideToggle(field)" class="override-toggle">
-          <el-switch
-            :model-value="overrideOn(field)"
-            @update:model-value="(on) => setOverrideOn(field, on)"
-          />
-          <span>{{ overrideToggleLabel(field) }}</span>
-        </div>
+    <el-form label-position="top" class="folder-dialog-form">
+      <el-card shadow="never" class="section-card">
+        <template #header>
+          <span class="section-title">This directory only</span>
+        </template>
+        <p class="section-desc">
+          Identity of this <code>[[directory]]</code> row: folder path, epoch repeats, and caption
+          prefix. These are not inherited from the dataset defaults tab.
+        </p>
         <ConfigFormField
-          v-if="showOverrideControl(field)"
+          v-for="field in primaryFields"
+          :key="field.path"
           :field="field"
           :form="draft"
           dataset-form
-          :always-visible="needsOverrideToggle(field)"
           @update:path="onField"
         />
-      </div>
+      </el-card>
+
+      <el-card shadow="never" class="section-card">
+        <template #header>
+          <span class="section-title">Overrides global defaults</span>
+        </template>
+        <p class="section-desc">
+          Optional. Unset fields use values from the <strong>Dataset defaults</strong> tab (TOML root).
+          Turn on a switch or change a control to write an override on this row; matching values are
+          omitted when saving.
+        </p>
+
+        <template v-if="explicitOverrideFields.length">
+          <h4 class="subsection-title">Per-directory behavior</h4>
+          <p class="subsection-desc">
+            Caching and caption options for this folder. Leave unchanged to inherit dataset defaults.
+          </p>
+          <div
+            v-for="field in explicitOverrideFields"
+            :key="field.path"
+            class="override-block"
+          >
+            <DirectoryOverrideFieldBlock
+              :field="field"
+              :entry="draft"
+              :global-form="globalForm"
+              @update:enabled="(on) => setOverrideOn(field, on)"
+              @update:path="onField"
+            />
+          </div>
+        </template>
+
+        <template v-if="rootOverrideFields.length">
+          <h4 class="subsection-title">Replace root-level settings</h4>
+          <p class="subsection-desc">
+            Same keys as on the dataset defaults tab (e.g. <code>resolutions</code>,
+            <code>frame_buckets</code>). Enable to override for this folder only.
+          </p>
+          <div
+            v-for="field in rootOverrideFields"
+            :key="field.path"
+            class="override-block"
+          >
+            <DirectoryOverrideFieldBlock
+              :field="field"
+              :entry="draft"
+              :global-form="globalForm"
+              @update:enabled="(on) => setOverrideOn(field, on)"
+              @update:path="onField"
+            />
+          </div>
+        </template>
+
+        <template v-if="conditionalOverrideFields.length">
+          <h4 class="subsection-title">Dependent overrides</h4>
+          <p class="subsection-desc">Shown when a related per-directory or override field is enabled.</p>
+          <div
+            v-for="field in conditionalOverrideFields"
+            :key="field.path"
+            class="override-block"
+          >
+            <DirectoryOverrideFieldBlock
+              :field="field"
+              :entry="draft"
+              :global-form="globalForm"
+              @update:enabled="(on) => setOverrideOn(field, on)"
+              @update:path="onField"
+            />
+          </div>
+        </template>
+      </el-card>
     </el-form>
 
     <template #footer>
@@ -51,34 +107,66 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
+import { storeToRefs } from "pinia";
 import ConfigFormField from "./ConfigFormField.vue";
+import DirectoryOverrideFieldBlock from "./DirectoryOverrideFieldBlock.vue";
 import {
+  conditionalDirectoryOverrideFields,
   emptyDirectoryRow,
-  isOverrideEnabled,
+  explicitDirectoryOverrideFields,
+  optionalRootOverrideFields,
   overrideDirectoryFields,
   primaryDirectoryFields,
   setOverrideEnabled,
 } from "../lib/datasetDirectoryForm";
+import { clonePlain } from "../lib/clonePlain";
+import { useDatasetEditorStore } from "../stores/datasetEditor";
+import type { FormValues, SchemaField } from "../types/forms";
+import type { DirectoryFormRow } from "../lib/datasetDirectoryForm";
 
-const props = defineProps({
-  modelValue: { type: Boolean, default: false },
-  schema: { type: Object, default: null },
-  entry: { type: Object, default: null },
-  editIndex: { type: Number, default: -1 },
+interface DatasetFolderDialogProps {
+  modelValue: boolean;
+  schema: { directory_fields?: SchemaField[] } | null;
+  entry: DirectoryFormRow | null;
+  editIndex: number;
+}
+
+const props = withDefaults(defineProps<DatasetFolderDialogProps>(), {
+  modelValue: false,
+  schema: null,
+  entry: null,
+  editIndex: -1,
 });
 
-const emit = defineEmits(["update:modelValue", "save"]);
+const emit = defineEmits<{
+  (e: "update:modelValue", value: boolean): void;
+  (e: "save", payload: { entry: DirectoryFormRow; index: number }): void;
+}>();
+
+const editor = useDatasetEditorStore();
+const { form: globalFormRef } = storeToRefs(editor);
 
 const visible = computed({
   get: () => props.modelValue,
   set: (v) => emit("update:modelValue", v),
 });
 
-const draft = ref(emptyDirectoryRow());
+const draft = ref<DirectoryFormRow>(emptyDirectoryRow());
 
 const isEdit = computed(() => props.editIndex >= 0);
 const primaryFields = computed(() => primaryDirectoryFields(props.schema));
 const overrideFields = computed(() => overrideDirectoryFields(props.schema));
+const explicitOverrideFields = computed(() =>
+  explicitDirectoryOverrideFields(overrideFields.value)
+);
+const rootOverrideFields = computed(() =>
+  optionalRootOverrideFields(overrideFields.value)
+);
+const conditionalOverrideFields = computed(() =>
+  conditionalDirectoryOverrideFields(overrideFields.value)
+);
+
+const globalForm = computed<FormValues>(() => globalFormRef.value ?? {});
 
 /** New entries need a path; edits may clear it (shown as not found). */
 const canSave = computed(
@@ -89,39 +177,16 @@ watch(
   () => [props.modelValue, props.entry],
   () => {
     if (!props.modelValue) return;
-    draft.value = props.entry
-      ? JSON.parse(JSON.stringify(props.entry))
-      : emptyDirectoryRow();
+    draft.value = props.entry ? clonePlain(props.entry) : emptyDirectoryRow();
   },
   { immediate: true }
 );
 
-function onField({ path, value }) {
+function onField({ path, value }: { path: string; value: unknown }) {
   draft.value = { ...draft.value, [path]: value };
 }
 
-function needsOverrideToggle(field) {
-  return !!(field.show_if_set || field.show_when_field);
-}
-
-/** Always-on overrides use the control directly; optional ones need the toggle on first. */
-function showOverrideControl(field) {
-  if (!needsOverrideToggle(field)) return true;
-  return overrideOn(field);
-}
-
-function overrideToggleLabel(field) {
-  if (field.type === "boolean") {
-    return `Override — ${field.label}`;
-  }
-  return field.label;
-}
-
-function overrideOn(field) {
-  return isOverrideEnabled(field, draft.value);
-}
-
-function setOverrideOn(field, on) {
+function setOverrideOn(field: SchemaField, on: boolean) {
   draft.value = setOverrideEnabled(field, draft.value, on);
 }
 
@@ -141,23 +206,45 @@ function onClosed() {
 
 <style scoped>
 .folder-dialog-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
   max-height: min(70vh, 640px);
   overflow-y: auto;
   padding-right: 4px;
 }
-.override-hint {
+.section-card {
+  border: 1px solid var(--el-border-color-lighter);
+}
+.section-title {
+  font-weight: 600;
+}
+.section-desc {
   margin: 0 0 12px;
   font-size: 13px;
   color: var(--el-text-color-secondary);
+  line-height: 1.45;
+}
+.section-desc code {
+  font-family: ui-monospace, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+}
+.subsection-title {
+  margin: 4px 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.subsection-desc {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  line-height: 1.4;
+}
+.subsection-desc code {
+  font-family: ui-monospace, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
 }
 .override-block {
-  margin-bottom: 8px;
-}
-.override-toggle {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 4px;
-  font-size: 14px;
+  margin-bottom: 10px;
 }
 </style>

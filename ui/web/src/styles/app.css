@@ -11,6 +11,41 @@
   --rf-space-md: 16px;
 }
 
+/* Row action groups: library lists (configs/datasets) and dataset directories. */
+.library-list-row-actions,
+.dataset-directory-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--rf-space-xs);
+  flex-shrink: 0;
+}
+
+.dp-card-actions,
+.dp-row-actions {
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.dp-table-wrap .dp-table-actions-col .cell {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* Overflow menu rows: icon + label (cards view). */
+.rf-dropdown-item-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  line-height: 1.4;
+}
+.rf-dropdown-item-label .el-icon {
+  font-size: 16px;
+}
+.rf-dropdown-item-label--danger {
+  color: var(--el-color-danger);
+}
+
 html,
 body,
 #app {
@@ -174,6 +209,10 @@ html.dark {
 
 .page-toolbar-filter {
   width: 160px;
+}
+
+.page-toolbar-refresh {
+  margin-left: auto;
 }
 
 .page-collapse {

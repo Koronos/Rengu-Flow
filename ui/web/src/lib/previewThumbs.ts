@@ -1,4 +1,5 @@
 import { api } from "../api";
+import { libraryDatasetIdFromRef } from "./datasetLibraryRef";
 
 export type LibraryThumbSource = { kind: "library"; id: string | number };
 export type PathThumbSource = { kind: "path"; path: string };
@@ -60,4 +61,15 @@ export function libraryThumbSource(libraryId: string | number): LibraryThumbSour
 
 export function pathThumbSource(path: string): PathThumbSource {
   return { kind: "path", path };
+}
+
+/** Map a config's indexed `dataset_ref` to a lazy-load thumb source (library id or folder/TOML path). */
+export function datasetRefToThumbSource(
+  datasetRef: string | null | undefined
+): ThumbSource | null {
+  const trimmed = (datasetRef ?? "").trim();
+  if (!trimmed) return null;
+  const libraryId = libraryDatasetIdFromRef(trimmed);
+  if (libraryId) return libraryThumbSource(libraryId);
+  return pathThumbSource(trimmed);
 }

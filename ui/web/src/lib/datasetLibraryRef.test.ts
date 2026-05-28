@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  appendUniqueDatasetPaths,
   canonicalDatasetRef,
   datasetRefDisplayLabel,
   formatDatasetLibraryRef,
   isLibraryDatasetRef,
+  libraryDatasetIdFromRef,
   parseDatasetLibraryRef,
 } from "./datasetLibraryRef";
 
@@ -33,6 +35,20 @@ describe("datasetLibraryRef", () => {
     expect(datasetRefDisplayLabel("renga-flow-dataset:3:artista 1")).toBe("artista 1");
     expect(datasetRefDisplayLabel("renga-flow-dataset:12")).toBe("12");
     expect(datasetRefDisplayLabel("/data/foo.toml")).toBe("/data/foo.toml");
+  });
+
+  it("libraryDatasetIdFromRef validates numeric id", () => {
+    expect(libraryDatasetIdFromRef("renga-flow-dataset:3:label")).toBe("3");
+    expect(libraryDatasetIdFromRef("renga-flow-dataset:abc")).toBeNull();
+    expect(libraryDatasetIdFromRef("/path.toml")).toBeNull();
+  });
+
+  it("appendUniqueDatasetPaths dedupes by canonical ref", () => {
+    const out = appendUniqueDatasetPaths(
+      ["renga-flow-dataset:1:foo"],
+      ["renga-flow-dataset:1", "renga-flow-dataset:2"]
+    );
+    expect(out).toEqual(["renga-flow-dataset:1:foo", "renga-flow-dataset:2"]);
   });
 
   it("non-ref values pass through", () => {

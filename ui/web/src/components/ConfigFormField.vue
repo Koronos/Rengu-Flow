@@ -79,7 +79,7 @@
     <el-switch
       v-else-if="field.type === 'boolean'"
       :model-value="!!effectiveValue"
-      @update:model-value="onBooleanInput"
+      @update:model-value="(val) => onBooleanInput(Boolean(val))"
     />
 
     <el-input-number
@@ -95,38 +95,48 @@
     <el-input-number
       v-else-if="field.type === 'number'"
       :model-value="numberValue"
-      :step="0.0001"
+      :min="numberMin"
+      :max="numberMax"
+      :step="numberStep"
+      :value-on-clear="null"
       controls-position="right"
       class="field-narrow"
       @update:model-value="onInput"
     />
 
-    <IntegerListField
+    <NumericListField
       v-else-if="field.type === 'integer_list'"
+      integer
       :model-value="listModelValue"
-      :preset-options="field.options || []"
+      :preset-options="(field.options || []) as Array<string | number>"
       :placeholder="field.placeholder || 'Pick or type a number, then Enter'"
       :min="field.min ?? 1"
-      @update:model-value="onIntegerListInput"
+      @update:model-value="onListInput"
     />
 
-    <NumberListField
+    <NumericListField
       v-else-if="field.type === 'number_list'"
       :model-value="listModelValue"
-      :preset-options="field.options || []"
+      :preset-options="(field.options || []) as Array<string | number>"
       :placeholder="field.placeholder || 'Type a number, then Enter'"
       :min="field.min"
       :max="field.max"
-      @update:model-value="onNumberListInput"
+      @update:model-value="onListInput"
     />
 
     <StringListField
       v-else-if="field.type === 'string_list' && !stringListUseJson"
       :model-value="stringListModel"
-      :preset-options="field.options || []"
+      :preset-options="(field.options || []) as Array<string | number>"
       :placeholder="field.placeholder || 'Type text, then Enter'"
       :hint="field.string_list_hint || ''"
       @update:model-value="onStringListInput"
+    />
+
+    <SizeBucketsField
+      v-else-if="field.path === 'size_buckets'"
+      :model-value="sizeBucketsModel"
+      @update:model-value="onSizeBucketsInput"
     />
 
     <el-input
@@ -147,7 +157,14 @@
       @update:model-value="onInput"
     />
 
-    <div v-if="resolveHint" class="resolve-hint">
+    <div v-if="pathLoading || pathError || pathOk" class="resolve-hint">
+      <PathValidationFeedback
+        :loading="pathLoading"
+        :error="pathError"
+        :ok="pathOk"
+      />
+    </div>
+    <div v-else-if="resolveHint" class="resolve-hint">
       <el-text v-if="resolveHint.loading" type="info" size="small">Checking availability…</el-text>
       <el-text v-else-if="resolveHint.available" type="success" size="small">
         {{ resolveHint.text }}
@@ -166,16 +183,20 @@ import {
   fieldVisible,
   jsonStringify,
 } from "../lib/formUtils";
+import { isPathField, pathFieldExpect } from "../lib/pathFields";
+import { usePathValidation } from "../composables/usePathValidation";
 import { api } from "../api";
+import { formatError } from "../lib/formatError";
 import FieldHelpIcon from "./FieldHelpIcon.vue";
+import PathValidationFeedback from "./PathValidationFeedback.vue";
 import TrainingDatasetsField from "./TrainingDatasetsField.vue";
 import EvalDatasetsField, { type EvalDatasetEntry } from "./EvalDatasetsField.vue";
-import IntegerListField from "./IntegerListField.vue";
-import NumberListField from "./NumberListField.vue";
+import NumericListField from "./NumericListField.vue";
+import SizeBucketsField from "./SizeBucketsField.vue";
 import StringListField from "./StringListField.vue";
-import { integerListToFormValue } from "../lib/integerList";
-import { numberListToFormValue } from "../lib/numberList";
-import { stringListNeedsJsonEditor, stringListToFormValue } from "../lib/stringList";
+import type { SizeBucket } from "../lib/sizeBuckets";
+import { listToFormValue } from "../lib/listToFormValue";
+import { stringListNeedsJsonEditor } from "../lib/stringList";
 import type { PropType } from "vue";
 import type { FormValues, ModelCapabilities, RawListInput, SchemaField } from "../types/forms";
 
@@ -194,7 +215,7 @@ const emit = defineEmits(["update:path"]);
 const visible = computed(() => {
   if (props.alwaysVisible) return true;
   const f = props.field;
-  if (props.datasetForm || !f.path?.includes(".")) {
+  if (props.datasetForm) {
     return datasetFieldVisible(f, props.form);
   }
   return fieldVisible(f, props.form, props.capabilities);
@@ -223,6 +244,10 @@ const listModelValue = computed(
 
 const stringListModel = computed(
   () => effectiveValue.value as string | unknown[] | undefined
+);
+
+const sizeBucketsModel = computed(
+  () => effectiveValue.value as SizeBucket[] | string | null | undefined
 );
 
 const evalDatasetsModel = computed(
@@ -270,6 +295,20 @@ const numberValue = computed(() => {
   return Number.isNaN(n) ? undefined : n;
 });
 
+const isSubsampleRatio = computed(() => props.field.path === "subsample_ratio");
+
+const numberMin = computed(() => {
+  if (isSubsampleRatio.value) return 0.0001;
+  return props.field.min ?? undefined;
+});
+
+const numberMax = computed(() => {
+  if (isSubsampleRatio.value) return 1;
+  return props.field.max ?? undefined;
+});
+
+const numberStep = computed(() => (isSubsampleRatio.value ? 0.05 : 0.0001));
+
 const displayValue = computed(() => {
   const v = effectiveValue.value;
   if (props.field.type === "json") return jsonStringify(v);
@@ -277,14 +316,33 @@ const displayValue = computed(() => {
   return String(v);
 });
 
-function isPathField(field) {
-  const p = field.path || "";
-  if (p === "dataset" || p === "eval_datasets") return false;
-  if (p.includes("path") || p.endsWith("_dir") || p === "output_dir" || p === "resume_from") {
-    return true;
-  }
-  return false;
+interface ResolveHint {
+  loading: boolean;
+  available?: boolean;
+  text: string;
 }
+
+function isRegistryProbeField(field: SchemaField): boolean {
+  return (
+    !!field.allow_custom &&
+    (field.path === "optimizer.type" || field.path === "lr_scheduler")
+  );
+}
+
+const pathValidationEnabled = computed(
+  () => visible.value && isPathField(props.field) && !isRegistryProbeField(props.field)
+);
+
+const {
+  loading: pathLoading,
+  error: pathError,
+  ok: pathOk,
+  scheduleValidation: schedulePathValidation,
+  clear: clearPathValidation,
+} = usePathValidation({
+  expect: () => (pathValidationEnabled.value ? pathFieldExpect(props.field) : null),
+  required: () => !!(props.field.required && pathValidationEnabled.value),
+});
 
 const widthClass = computed(() => {
   const f = props.field;
@@ -295,71 +353,72 @@ const widthClass = computed(() => {
   return "field-full";
 });
 
-const resolveHint = ref(null);
-let probeTimer = null;
+const resolveHint = ref<ResolveHint | null>(null);
+let probeTimer: ReturnType<typeof setTimeout> | null = null;
 
-function formatDefault(val) {
+function formatDefault(val: unknown): string {
   if (typeof val === "boolean") return val ? "true" : "false";
   return String(val);
 }
 
-function onInput(val) {
+function onInput(val: string | number | undefined | null): void {
   const next = val === undefined || val === null ? "" : val;
   emit("update:path", { path: props.field.path, value: next });
 }
 
-function onBooleanInput(val) {
+function onBooleanInput(val: boolean): void {
   emit("update:path", { path: props.field.path, value: !!val });
 }
 
-function onIntegerListInput(val) {
+function onListInput(val: unknown[]): void {
   emit("update:path", {
     path: props.field.path,
-    value: integerListToFormValue(val),
+    value: listToFormValue(val),
   });
 }
 
-function onNumberListInput(val) {
+function onStringListInput(val: unknown[]): void {
   emit("update:path", {
     path: props.field.path,
-    value: numberListToFormValue(val),
+    value: listToFormValue(val),
   });
 }
 
-function onStringListInput(val) {
-  emit("update:path", {
-    path: props.field.path,
-    value: stringListToFormValue(val),
-  });
-}
-
-function onEvalDatasetsInput(val) {
+function onSizeBucketsInput(val: SizeBucket[] | string): void {
   emit("update:path", { path: props.field.path, value: val });
 }
 
-function onTrainingDatasetsInput(val) {
+function onEvalDatasetsInput(val: EvalDatasetEntry[] | EvalDatasetEntry | null): void {
+  emit("update:path", { path: props.field.path, value: val });
+}
+
+function onTrainingDatasetsInput(val: string): void {
   emit("update:path", { path: props.field.path, value: val });
 }
 
 function onClear() {
   onInput("");
   resolveHint.value = null;
+  clearPathValidation();
 }
 
-function fetchSuggestions(queryString, cb) {
+function fetchSuggestions(
+  queryString: string,
+  cb: (items: { value: string }[]) => void
+): void {
   const opts = selectOptions.value.map((o) => o.value);
   const q = (queryString || "").trim().toLowerCase();
   const matches = q ? opts.filter((o) => o.toLowerCase().includes(q)) : opts;
   cb(matches.slice(0, 80).map((value) => ({ value })));
 }
 
-function onAutocompleteSelect(item) {
+function onAutocompleteSelect(item: { value?: string }): void {
   if (item?.value !== undefined) {
     onInput(item.value);
   }
 }
 
-async function runProbe(name) {
+async function runProbe(name: string): Promise<void> {
   if (!props.field.allow_custom || !name?.trim()) {
     resolveHint.value = null;
     return;
@@ -399,14 +458,18 @@ async function runProbe(name) {
     resolveHint.value = {
       loading: false,
       available: false,
-      text: String(e),
+      text: formatError(e),
     };
   }
 }
 
 watch(stringValue, (v) => {
+  if (pathValidationEnabled.value) {
+    schedulePathValidation(v);
+    return;
+  }
   if (!props.field.allow_custom) return;
-  clearTimeout(probeTimer);
+  if (probeTimer) clearTimeout(probeTimer);
   probeTimer = setTimeout(() => runProbe(v), 450);
 });
 </script>

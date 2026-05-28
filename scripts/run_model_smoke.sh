@@ -24,11 +24,6 @@ if [[ "${MODEL}" != "sdxl" && "${MODEL}" != "cosmos" ]]; then
   exit 1
 fi
 
-if [[ ! -f "${REPO_ROOT}/.env" ]]; then
-  echo "Missing ${REPO_ROOT}/.env. Copy .env.example to .env and set model paths." >&2
-  exit 1
-fi
-
 if [[ "${MODEL}" == "sdxl" ]]; then
   CONFIG="${REPO_ROOT}/tests/fixtures/smoke/train_sdxl.toml"
 else

@@ -16,7 +16,7 @@ from renga_flow.utils.saver import Saver
 
 @pytest.fixture
 def mock_save_checkpoint():
-    with patch.object(Saver, "save_checkpoint") as mock_ckpt:
+    with patch.object(Saver, "save_checkpoint", return_value=True) as mock_ckpt:
         yield mock_ckpt
 
 
@@ -46,7 +46,7 @@ def saver_bundle(tmp_path):
 @patch("renga_flow.utils.saver._need_to_checkpoint", return_value=False)
 def test_process_step_no_signals(_mock_ckpt, saver_bundle):
     saver, model_engine = saver_bundle
-    with patch.object(saver, "save_model") as save_model:
+    with patch.object(saver, "save_model", return_value=True) as save_model:
         checkpointed, saved, signals = saver.process_step(10, 100)
     assert checkpointed is False
     assert saved is False
@@ -85,7 +85,7 @@ def test_process_step_save_quit(_mock_ckpt, saver_bundle, mock_save_checkpoint, 
 def test_process_step_export_model(_mock_ckpt, saver_bundle, tmp_path):
     saver, model_engine = saver_bundle
     (tmp_path / SIGNAL_EXPORT_MODEL).touch()
-    with patch.object(saver, "save_model") as save_model:
+    with patch.object(saver, "save_model", return_value=True) as save_model:
         checkpointed, saved, signals = saver.process_step(12, 120)
     assert checkpointed is False
     assert saved is True
@@ -98,7 +98,7 @@ def test_process_step_export_model(_mock_ckpt, saver_bundle, tmp_path):
 def test_process_step_export_model_quit(_mock_ckpt, saver_bundle, tmp_path):
     saver, model_engine = saver_bundle
     (tmp_path / SIGNAL_EXPORT_MODEL_QUIT).touch()
-    with patch.object(saver, "save_model") as save_model:
+    with patch.object(saver, "save_model", return_value=True) as save_model:
         with pytest.raises(SystemExit):
             saver.process_step(4, 40)
     save_model.assert_called_once_with("signal_step4")

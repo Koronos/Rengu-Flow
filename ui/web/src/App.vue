@@ -24,6 +24,10 @@
               <el-icon><Document /></el-icon>
               <span>Docs</span>
             </el-menu-item>
+            <el-menu-item v-if="maintenanceNav" index="/maintenance">
+              <el-icon><Tools /></el-icon>
+              <span>Maintenance</span>
+            </el-menu-item>
           </el-menu>
         </div>
       </nav>
@@ -83,6 +87,10 @@
               <el-icon><Document /></el-icon>
               <span>Docs</span>
             </el-menu-item>
+            <el-menu-item v-if="maintenanceNav" index="/maintenance">
+              <el-icon><Tools /></el-icon>
+              <span>Maintenance</span>
+            </el-menu-item>
           </el-menu>
         </div>
       </nav>
@@ -92,15 +100,26 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { useRoute } from "vue-router";
-import { Document, Files, Menu, Setting, VideoPlay } from "@element-plus/icons-vue";
+import { Document, Files, Menu, Setting, Tools, VideoPlay } from "@element-plus/icons-vue";
+import { api } from "./api";
 import { useBreakpoint } from "./composables/useBreakpoint";
 import HostStatsBar from "./components/HostStatsBar.vue";
 
 const route = useRoute();
 const { isMobile } = useBreakpoint();
 const drawerOpen = ref(false);
+const maintenanceNav = ref(false);
+
+onMounted(async () => {
+  try {
+    const r = await api.maintenanceEnabled();
+    maintenanceNav.value = r.enabled;
+  } catch {
+    maintenanceNav.value = false;
+  }
+});
 
 const routeName = computed(() =>
   typeof route.name === "string" ? route.name : ""
@@ -109,6 +128,7 @@ const routeName = computed(() =>
 const activeMenu = computed(() => {
   const name = routeName.value;
   if (name === "docs") return "/docs";
+  if (name === "maintenance") return "/maintenance";
   if (name.startsWith("configs-")) return "/configs";
   if (name.startsWith("datasets-")) return "/datasets";
   if (name === "jobs" || name === "job-detail" || name === "run-detail") return "/runs";
@@ -118,6 +138,7 @@ const activeMenu = computed(() => {
 const pageTitle = computed(() => {
   const names: Record<string, string> = {
     docs: "Docs",
+    maintenance: "Maintenance",
     jobs: "Runs",
     "job-detail": "Run detail",
     "configs-list": "Configs",

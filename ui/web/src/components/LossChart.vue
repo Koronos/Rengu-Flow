@@ -19,9 +19,15 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
+import type { PropType } from "vue";
+
+interface ScalarPoint {
+  step: number;
+  value: number;
+}
 
 const props = defineProps({
-  scalars: { type: Object, default: () => ({}) },
+  scalars: { type: Object as PropType<Record<string, ScalarPoint[]>>, default: () => ({}) },
 });
 
 const bars = computed(() => {

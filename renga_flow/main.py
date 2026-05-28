@@ -9,11 +9,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from renga_flow.config import (
-    apply_model_paths_from_env,
+    apply_local_config_to_environ,
     load_config,
     load_dataset_config,
     load_eval_dataset_config,
-    load_repo_dotenv,
+    load_local_config,
     set_config_defaults,
     validate_config,
 )
@@ -21,7 +21,7 @@ from renga_flow.config.validation import ConfigValidationError
 from renga_flow.control.status_file import write_status_file
 
 
-def _parse_args():
+def parse_args(argv: list[str] | None = None):
     parser = argparse.ArgumentParser(description="Renga Flow: TOML-driven training (Phase 1).")
     parser.add_argument(
         "--config",
@@ -34,6 +34,11 @@ def _parse_args():
     parser.add_argument("--reset_optimizer", action="store_true")
     parser.add_argument("--reset_optimizer_params", action="store_true")
     parser.add_argument("--regenerate_cache", action="store_true")
+    parser.add_argument(
+        "--regenerate_text_cache",
+        action="store_true",
+        help="Rebuild metadata and text embeddings only; reuse latents when possible.",
+    )
     parser.add_argument("--cache_only", action="store_true", help="Cache then exit (no-op in Phase 1 minimal).")
     parser.add_argument("--trust_cache", action="store_true")
     parser.add_argument("--i_know_what_i_am_doing", action="store_true")
@@ -45,7 +50,7 @@ def _parse_args():
         parser = deepspeed.add_config_arguments(parser)
     except ImportError:
         pass
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def _distributed_init(args):
@@ -123,15 +128,16 @@ def _run_training(args, config):
             dataset_config,
             model,
             skip_dataset_validation=args.i_know_what_i_am_doing,
+            training_config=config,
         )
         dataset_manager = DatasetManager(
             model,
-            regenerate_cache=args.regenerate_cache,
+            regenerate_cache=args.regenerate_cache or args.regenerate_text_cache,
+            regenerate_text_cache=args.regenerate_text_cache,
             trust_cache=args.trust_cache,
             caching_batch_size=config.get("caching_batch_size", 1),
             cache_num_proc=config.get("cache_num_proc"),
             cache_keep_in_memory=config.get("cache_keep_in_memory", False),
-            cache_format=config.get("cache_format", "v2"),
         )
         dataset_manager.register(train_data)
         for i, eval_entry in enumerate(config.get("eval_datasets", [])):
@@ -140,6 +146,7 @@ def _run_training(args, config):
                 eval_dataset_config,
                 model,
                 skip_dataset_validation=args.i_know_what_i_am_doing,
+                training_config=config,
             )
             eval_data_map[name] = eval_data
             dataset_manager.register(eval_data)
@@ -442,9 +449,9 @@ def _run_training(args, config):
             if not os.path.exists(run_dir_container[0]):
                 raise ValueError(f"Checkpoint directory {run_dir_container[0]} does not exist")
         else:
-            timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H-%M-%S")
-            run_name = config.get("run_name")
-            folder_name = f"{timestamp}_{run_name}" if run_name else timestamp
+            from renga_flow.run_naming import build_run_folder_name
+
+            folder_name = build_run_folder_name(config.get("run_name"))
             run_dir_container[0] = os.path.join(output_dir, folder_name)
     if dist is not None and hasattr(torch.distributed, "broadcast_object_list"):
         torch.distributed.broadcast_object_list(
@@ -479,7 +486,17 @@ def _run_training(args, config):
         config["save_every_n_steps"] = config["save_every_n_examples"] // global_batch_size
         if is_main_process():
             print(f"Computed save_every_n_steps = {config['save_every_n_steps']}")
-    saver = Saver(args, config, is_adapter, run_dir, model, train_dataloader, model_engine, pipeline_model)
+    saver = Saver(
+        args,
+        config,
+        is_adapter,
+        run_dir,
+        model,
+        train_dataloader,
+        model_engine,
+        pipeline_model,
+        steps_per_epoch=steps_per_epoch,
+    )
     tb_writer = SummaryWriter(log_dir=run_dir) if is_main_process() else None
     wandb_enable = config.get("monitoring", {}).get("enable_wandb", False)
     if wandb_enable and is_main_process():
@@ -513,6 +530,12 @@ def _run_training(args, config):
     epoch = train_dataloader.epoch
     max_steps = config.get("max_steps")
     logging_steps = config.get("logging_steps", 1)
+    from renga_flow.training_progress import TrainingProgressTracker, format_training_log_line
+
+    progress_tracker = TrainingProgressTracker(
+        max_steps=max_steps,
+        total_steps=total_steps,
+    )
     final_model_name = None
     checkpointed = False
     saved = False
@@ -593,8 +616,23 @@ def _run_training(args, config):
 
         oom_skip_state = OomSkipState(max_consecutive=int(oom_skip_cfg.get("max_consecutive", 3)))
 
+    train_seed = int(config.get("train_seed", 42))
+    import random as _random
+
+    import numpy as np
+
+    _random.seed(train_seed)
+    np.random.seed(train_seed)
+    torch.manual_seed(train_seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(train_seed)
+    if train_data is not None and hasattr(train_data, "set_training_context"):
+        train_data.set_training_context(train_seed, step)
+
     while True:
         model_engine.reset_activation_shape()
+        if train_data is not None and hasattr(train_data, "set_training_context"):
+            train_data.set_training_context(train_seed, step)
         iterator = get_data_iterator_for_step(train_dataloader, model_engine)
         t0 = time.perf_counter()
         skipped_oom = False
@@ -645,6 +683,7 @@ def _run_training(args, config):
         epoch_loss += loss
         num_steps += 1
 
+        saver.set_status_context(step, examples, epoch, loss)
         new_epoch, checkpointed_ep, saved_ep = saver.process_epoch(epoch, step, examples)
         if checkpointed_ep:
             checkpointed = True
@@ -658,8 +697,17 @@ def _run_training(args, config):
             epoch = new_epoch
 
         x_axis = examples if x_axis_examples else step
+        progress_tracker.record_step_duration(iter_sec)
+        step_progress = progress_tracker.metrics(step=step)
         if is_main_process() and step % logging_steps == 0:
-            print(f"step={step} loss={loss:.6f}")
+            print(
+                format_training_log_line(
+                    step=step,
+                    loss=loss,
+                    epoch=epoch,
+                    metrics=step_progress,
+                )
+            )
         log_training_step(
             tb_writer=tb_writer,
             wandb_enable=wandb_enable,
@@ -681,6 +729,7 @@ def _run_training(args, config):
                 examples=examples,
                 epoch=epoch,
                 loss=loss,
+                progress=step_progress,
             )
 
         if (eval_every_n_steps and step % eval_every_n_steps == 0) or (
@@ -750,9 +799,11 @@ def _run_training(args, config):
         examples += global_batch_size
 
     if not checkpointed:
-        saver.save_checkpoint(step, examples)
+        if saver.save_checkpoint(step, examples):
+            checkpointed = True
     if not saved and final_model_name:
         saver.save_model(final_model_name)
+    saver.shutdown_async_exports()
 
     if is_main_process():
         if bench_enabled(config):
@@ -764,8 +815,7 @@ def _run_training(args, config):
         print("Training complete.")
 
 
-def main():
-    args = _parse_args()
+def run_prepared(args) -> None:
     if args.dump_dataset is not None:
         from renga_flow.data.dump_dataset import dump_dataset
 
@@ -774,9 +824,7 @@ def main():
     if args.config is None:
         raise SystemExit("renga_flow: --config is required (unless using --dump_dataset).")
 
-    load_repo_dotenv()
     config = load_config(args.config)
-    apply_model_paths_from_env(config)
     set_config_defaults(config)
 
     if not args.validate_only:
@@ -797,6 +845,12 @@ def main():
         return
 
     _run_training(args, config)
+
+
+def main(argv: list[str] | None = None):
+    load_local_config()
+    apply_local_config_to_environ()
+    run_prepared(parse_args(argv))
 
 
 if __name__ == "__main__":

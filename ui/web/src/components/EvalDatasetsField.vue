@@ -9,7 +9,10 @@
     >
       {{ entryLabel(entry) }}
     </el-tag>
-    <el-space wrap>
+    <el-empty v-if="!entries.length" description="No eval datasets yet" :image-size="56">
+      <el-button type="primary" :icon="Plus" @click="pickerOpen = true">Add eval dataset</el-button>
+    </el-empty>
+    <el-space v-else wrap>
       <el-button size="small" @click="pickerOpen = true">Add dataset…</el-button>
       <el-button size="small" link @click="showAdvanced = !showAdvanced">
         {{ showAdvanced ? "Hide" : "Edit as JSON" }}
@@ -34,8 +37,10 @@
 
 <script setup lang="ts">
 import { computed, ref, type PropType } from "vue";
+import { Plus } from "@element-plus/icons-vue";
 import DatasetPickerModal from "./DatasetPickerModal.vue";
-import { canonicalDatasetRef, datasetRefDisplayLabel } from "../lib/datasetLibraryRef";
+import { appendUniqueDatasetPaths } from "../lib/datasetLibraryRef";
+import { useResolvedDatasetLabels } from "../composables/useResolvedDatasetLabels";
 import { jsonStringify } from "../lib/formUtils";
 
 export type EvalDatasetEntry = string | { config?: string; name?: string; [key: string]: unknown };
@@ -63,38 +68,33 @@ const entryPaths = computed(() =>
   entries.value.map((e) => (typeof e === "string" ? e : e?.config || e?.name || "")).filter(Boolean)
 );
 
+const { labelFor } = useResolvedDatasetLabels(entryPaths);
+
 const jsonText = computed(() => jsonStringify(entries.value));
 
 function entryLabel(entry: EvalDatasetEntry) {
   if (typeof entry === "string") {
-    return datasetRefDisplayLabel(entry);
+    return labelFor(entry);
   }
-  return entry?.name || entry?.config || JSON.stringify(entry);
+  return entry?.name || (entry?.config ? labelFor(String(entry.config)) : "") || JSON.stringify(entry);
 }
 
 function emitEntries(next: EvalDatasetEntry[]) {
   emit("update:modelValue", next);
 }
 
-function removeAt(idx) {
+function removeAt(idx: number) {
   const next = entries.value.filter((_, i) => i !== idx);
   emitEntries(next);
 }
 
 function onAddMultiple(paths: string[]) {
-  const existing = new Set(entryPaths.value.map(canonicalDatasetRef));
-  const next = [...entries.value];
-  for (const p of paths) {
-    const key = canonicalDatasetRef(p);
-    if (!existing.has(key)) {
-      next.push(p);
-      existing.add(key);
-    }
-  }
-  emitEntries(next);
+  const objects = entries.value.filter((e) => typeof e !== "string");
+  const strings = entries.value.filter((e): e is string => typeof e === "string");
+  emitEntries([...objects, ...appendUniqueDatasetPaths(strings, paths)]);
 }
 
-function onJsonInput(text) {
+function onJsonInput(text: string) {
   try {
     const parsed = JSON.parse(text || "[]");
     emitEntries(Array.isArray(parsed) ? parsed : []);

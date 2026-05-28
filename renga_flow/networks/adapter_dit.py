@@ -12,6 +12,7 @@ from torch import nn
 
 from renga_flow.networks.lokr_sdxl import _apply_lokr_vendored, _inject_lokr_into_linear
 from renga_flow.utils.common import is_main_process
+from renga_flow.utils.save_io import atomic_save_safetensors
 
 ADAPTER_TARGET_MODULES = ("Block", "TransformerBlock")
 
@@ -62,16 +63,11 @@ def save(save_dir, state_dict, adapter_config, peft_config=None):
         for module_name in lokr_modules:
             state_dict[f"{module_name}.alpha"] = torch.tensor(float(alpha_value))
         state_dict = {"diffusion_model." + k: v for k, v in state_dict.items()}
-        safetensors.torch.save_file(
-            state_dict, save_dir / "adapter_model.safetensors", metadata={"format": "pt"}
-        )
     else:
         if peft_config is not None:
             peft_config.save_pretrained(save_dir)
         state_dict = {"diffusion_model." + k: v for k, v in state_dict.items()}
-        safetensors.torch.save_file(
-            state_dict, save_dir / "adapter_model.safetensors", metadata={"format": "pt"}
-        )
+    atomic_save_safetensors(save_dir / "adapter_model.safetensors", state_dict)
 
 
 def load_weights(transformer, adapter_path):

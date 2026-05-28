@@ -57,3 +57,29 @@ export function datasetRefDisplayLabel(value: unknown): string {
 export function isLibraryDatasetRef(value: unknown): boolean {
   return parseDatasetLibraryRef(value).isRef;
 }
+
+/** Numeric library id from a ref string, or null if not a valid library ref. */
+export function libraryDatasetIdFromRef(value: unknown): string | null {
+  const p = parseDatasetLibraryRef(value);
+  if (!p.isRef || !p.id || !/^\d+$/.test(p.id)) {
+    return null;
+  }
+  return p.id;
+}
+
+/** Append paths not already present (by canonical ref). */
+export function appendUniqueDatasetPaths<T extends string>(
+  existing: T[],
+  added: string[]
+): T[] {
+  const seen = new Set(existing.map(canonicalDatasetRef));
+  const next = [...existing];
+  for (const p of added) {
+    const key = canonicalDatasetRef(p);
+    if (!seen.has(key)) {
+      next.push(p as T);
+      seen.add(key);
+    }
+  }
+  return next;
+}

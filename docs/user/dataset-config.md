@@ -39,17 +39,67 @@ Use **`[[directory]]`** (array of tables). Each entry must have:
 | Key | Description | Values | Default |
 |-----|-------------|--------|---------|
 | **`directory_caption`** | Single string used for captions in this directory. **When an image has no caption** (no `.txt` or `captions.json` entry): used as the full caption. **When an image has a caption**: prepended as a prefix (e.g. `"style: "` + image caption). | Any string. Use `""` (or omit) for no prefix / no fallback. | `""` |
-| **`mask_path`** | Directory containing per-image mask files (same filenames as images, different extension). | Path string, or omit. | Not set. |
-| **`control_path`** | Directory containing control images (e.g. for controlnet). | Path string, or omit. | Not set. |
-| **`default_mask_file`** | Single mask file used for all images when no per-image mask is found. | Path to a file, or omit. | Not set. |
+| **`mask_path`** | Folder of per-image **mask** files paired with images in **`path`** (see [Masks and control images](#masks-and-control-images-optional-paired-folders)). | Absolute or relative path string; omit if unused. | Not set. |
+| **`control_path`** | Folder of per-image **control/source** images paired with images in **`path`** for edit-style training (see [Masks and control images](#masks-and-control-images-optional-paired-folders)). **Not** for SD ControlNet-style adapters. | Absolute or relative path string; omit for normal image+caption training. | Not set. |
+| **`default_mask_file`** | Single mask file used for all images when no per-image mask is found in **`mask_path`**. | Path to a file, or omit. | Not set. |
 | **`resolutions`** | Override global resolutions for this directory only. | List of numbers, e.g. `[512, 768, 1024]`. | From global `resolutions`. |
 | **`frame_buckets`** | Override global frame counts (1 = image, &gt;1 = video). | List of integers, e.g. `[1]` or `[1, 16, 24]`. | From global `frame_buckets`. |
 | **`enable_ar_bucket`** | Enable aspect-ratio bucketing for this directory. | `true` or `false`. | From global (default `false`). |
 | **`ar_buckets`** | Explicit list of aspect ratios (width/height) for bucketing. | List of floats, e.g. `[1.0, 1.25, 1.5]`. | If unset, derived from `min_ar` / `max_ar` / `num_ar_buckets`. |
 | **`size_buckets`** | Use fixed size buckets instead of AR bucketing. Each entry is `[width, height, frames]`. | List of arrays, e.g. `[[512, 512, 1], [768, 768, 1]]`. | Not set (AR bucketing used if enabled). |
-| **`cache_shuffle_num`** | Number of caption shuffles and repeats for cache (data augmentation). | Integer ≥ 0. `0` = no shuffle/repeat. | `0` (from global). |
-| **`cache_shuffle_delimiter`** | Delimiter used when shuffling tags inside a caption (e.g. comma for "a, b, c"). | String, e.g. `", "`. | `", "` (from global). |
+| **`cache_shuffle_num`** | Number of caption shuffles and repeats for cache (only when `shuffle_tags` is on). | Integer ≥ 0. Ignored if `shuffle_tags` is `false`. | `1` (from global). |
+| **`cache_shuffle_delimiter`** | Delimiter used when shuffling tags inside a caption (e.g. comma for "a, b, c"). Only used when `shuffle_tags` is on. | String, e.g. `", "`. | `", "` (from global). |
 | **`shuffle_tags`** | Shuffle comma-separated (or delimiter-separated) tags in each caption. | `true` or `false`. | From global (default `false`). |
+| **`subsample_ratio`** | Fraction of this folder's training rows per size bucket (before the global subsample). | Float in (0, 1]. | `1` (all rows); omit on this folder to inherit the dataset default. |
+
+#### Path resolution (`path`, `mask_path`, `control_path`)
+
+These keys are **independent folder paths**. They are not joined automatically — each points at its own directory on disk.
+
+- **Absolute paths** — use as-is, e.g. `path = "/home/you/data/portraits"`.
+- **Relative paths** — resolved from the **training working directory** (the process cwd when you launch training). For CLI and UI jobs that is usually the **repo / install root**. Relative paths in exported dataset TOMLs may also be resolved against the dataset TOML’s folder when the UI writes absolute paths for portability.
+
+`mask_path` and `control_path` are **sibling folders** to `path`, not subfolders scanned inside it. A typical layout:
+
+```text
+my_dataset/
+  targets/     ← path
+  sources/     ← control_path (optional)
+  masks/       ← mask_path (optional)
+```
+
+### Masks and control images (optional paired folders)
+
+Use these only when your training recipe needs extra files per image. For standard SDXL or Cosmos Predict2 LoRA/finetune on images and captions, leave **`mask_path`**, **`control_path`**, and **`default_mask_file`** unset.
+
+#### Masks (`mask_path`, `default_mask_file`)
+
+Optional grayscale masks for loss weighting or masked training. Each mask is matched to an image in **`path`** by **base filename** (stem): `targets/photo.png` looks for `masks/photo.png`, `masks/photo.jpg`, etc. The extension may differ. If **`mask_path`** is set but an image has no matching file, training continues **without** a mask for that image (a warning is logged). **`default_mask_file`** is a single fallback mask used when no per-image match exists.
+
+#### Control images (`control_path`)
+
+Optional **paired source/control images** for edit-style datasets (target image in **`path`**, control image in **`control_path`**). This is **not** the same as loading a ControlNet adapter in the model config — it is a dataset pairing used when the model pipeline expects a control image alongside each target during caching.
+
+- **When to set:** only when your model recipe documents paired control+target training. Omit for normal image+caption runs.
+- **Pairing:** same rule as masks — match by stem. `targets/0001.png` requires `sources/0001.png` (or `0001.jpg`, etc.) inside **`control_path`**.
+- **Strict:** if **`control_path`** is set, **every** image in **`path`** must have a matching control file; missing pairs raise an error at metadata build time.
+- **Relation to masks:** independent. You can use masks only, control images only, both, or neither.
+
+Example:
+
+```toml
+[[directory]]
+path = "datasets/edit_set/targets"
+control_path = "datasets/edit_set/sources"
+num_repeats = 1
+```
+
+```text
+targets/0001.png  ← train on this
+sources/0001.png  ← paired control image (same stem)
+targets/0002.jpg
+sources/0002.png  ← extension can differ; stem must match
+```
 
 ### Captions: `.txt` vs `captions.json`
 
@@ -89,11 +139,17 @@ These apply to all directories unless overridden per-directory.
 | **`ar_buckets`** | Explicit list of aspect ratios (overrides min_ar/max_ar/num). | List of floats. | Not set. |
 | **`size_buckets`** | Fixed size buckets instead of AR; each entry `[width, height, frames]`. | List of arrays. | Not set. |
 | **`shuffle_tags`** | Shuffle delimiter-separated tags in captions. | `true` or `false`. | `false`. |
-| **`cache_shuffle_num`** | Caption shuffle/repeat count for cache. | Integer ≥ 0. | `0`. |
-| **`cache_shuffle_delimiter`** | Delimiter for tag shuffling. | String. | `", "`. |
+| **`cache_shuffle_num`** | Caption shuffle/repeat count for cache (ignored when `shuffle_tags` is `false`). | Integer ≥ 0. | `1`. |
+| **`cache_shuffle_delimiter`** | Delimiter for tag shuffling (ignored when `shuffle_tags` is `false`). | String. | `", "`. |
 | **`shuffle_metadata`** | Shuffle image order when building metadata (deterministic seed from directory path). | `true` / `false` | `true` |
 | **`online_captions`** | Read captions from `captions.json` at training time instead of only from cached metadata. | `true` / `false` | `false` |
-| **`subsample_ratio`** | Use only a fraction of the dataset (e.g. for debugging). | Float in (0, 1]. | Not set (use full dataset). |
+| **`subsample_ratio`** | Fraction of the combined training schedule (e.g. `0.25` for quick debug runs). | Float in (0, 1]. | `1` (full dataset). |
+| **`tag_dropout_enabled`** | Enable random tag dropout at training time. | `true` / `false` | `false` |
+| **`tag_dropout_probability`** | Default drop probability for tags not in a rule. | Float in [0, 1]. | — |
+| **`tag_dropout_mode`** | `per_tag` or `full`. | String | `per_tag` |
+| **`tag_dropout_rules`** | List of `{ tags, drop_probability }` and/or `tags_file`. | Tables / JSON in UI | — |
+| **`uncond_fraction`** | Fraction of samples with empty caption (CFG). | Float in [0, 1]. | `0` |
+| **`tag_match_case_sensitive`** | Case-sensitive tag matching in rules. | `true` / `false` | `false` |
 
 ### Captions
 
@@ -103,7 +159,7 @@ These apply to all directories unless overridden per-directory.
 
 ## Dataset augmentation
 
-Optional **image diversity** settings (colour jitter, flip, mild geometry, etc.) are configured per directory (and optional global defaults under `[dataset.augmentation]`). See [Dataset augmentation](dataset-augmentation.md) for presets, `seed_mode`, and flip enumeration. Augmentation applies before latent cache; use `deterministic_per_image` for reproducible caches. **Not supported:** video folders with augmentation enabled in this release.
+Optional **image diversity** settings (colour jitter, flip, mild geometry, etc.) are configured per directory (and optional global defaults under `[dataset.augmentation]`). In the web UI, use the dataset editor **Augmentation** tab: enable augmentation once for the dataset, then optionally customize individual `[[directory]]` rows (strategy overrides). Presets and strategy names come from the same catalog as training (`GET /api/v1/augmentations`). See [Dataset augmentation](dataset-augmentation.md) for presets, `seed_mode`, and flip enumeration. Augmentation applies before latent cache; use `deterministic_per_image` for reproducible caches. **Not supported:** video folders with augmentation enabled in this release.
 
 ## Cache and CLI flags
 
@@ -113,9 +169,10 @@ Before training, the framework runs a **cache** step: it encodes images to laten
 |------|---------|--------------|
 | **`--cache_only`** | Run the cache step and then exit (no training). | Pre-fill cache; requires a dataset config. Does nothing with synthetic-only. |
 | **`--regenerate_cache`** | Ignore existing cache and recompute. | After changing captions, images, or model. |
+| **`--regenerate_text_cache`** | Rebuild metadata and text embeddings only; reuse latents when possible. | After changing captions or tag-dropout rules that affect TE. |
 | **`--trust_cache`** | Use existing cache metadata and iteration order without recomputing. | Faster startup when data and model are unchanged. |
 
-Cache is stored under each directory’s `cache/<model_name>/` (e.g. `path/cache/sdxl/`). The main training TOML **`cache_format`** (default **`v2`**) selects the on-disk layout; see [Training loop — cache and dataloader](training-loop-and-eval.md#deepspeed-pipeline-and-debug-options). After changing format or captions/images, use **`--regenerate_cache`**.
+Cache uses **v2 only** (mmap bf16 stacks). It is stored under **`cache_root`** / `<dataset_id>` / `<directory_id>` / `<model_name>/` ( **`cache_root`** is set in the training TOML — see [Training loop](training-loop-and-eval.md); default `cache/` in the install directory). Tag dropout runs at **training time**; captions in metadata stay raw. Training **`train_seed`** is also set in the main training TOML.
 
 ## Synthetic vs real data
 

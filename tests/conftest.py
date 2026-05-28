@@ -51,25 +51,58 @@ lr = 1.0e-4
 
 def _patch_ui_data_paths(monkeypatch: pytest.MonkeyPatch, base: Path) -> None:
     """Point all renga_flow_ui storage at a temporary directory."""
+    db_file = base / "jobs.db"
+
+    def _db_path() -> Path:
+        return db_file
+
     monkeypatch.setenv("RENGA_FLOW_UI_DATA", str(base))
     monkeypatch.setattr("renga_flow_ui.settings.ui_data_dir", lambda: base)
     monkeypatch.setattr("renga_flow_ui.settings.staging_dir", lambda: base / "staging")
     monkeypatch.setattr("renga_flow_ui.settings.logs_dir", lambda: base / "logs")
-    monkeypatch.setattr("renga_flow_ui.settings.db_path", lambda: base / "jobs.db")
+    monkeypatch.setattr("renga_flow_ui.settings.db_path", _db_path)
+    monkeypatch.setattr("renga_flow_ui.db.db_path", _db_path)
+    monkeypatch.setattr("renga_flow_ui.library_db.db_path", _db_path)
     monkeypatch.setattr("renga_flow_ui.configs_store.staging_dir", lambda: base / "staging")
+
+
+def _init_ui_data_dir(base: Path) -> None:
+    for sub in ("staging", "logs"):
+        (base / sub).mkdir(parents=True, exist_ok=True)
+    from renga_flow_ui import db
+
+    db.init_db()
 
 
 @pytest.fixture
 def ui_data_tmp(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     """Isolated UI data dir with staging/, logs/, jobs.db (configs/datasets in SQLite)."""
-    from renga_flow_ui import db
-
     base = tmp_path / "ui"
-    for sub in ("staging", "logs"):
-        (base / sub).mkdir(parents=True)
     _patch_ui_data_paths(monkeypatch, base)
-    db.init_db()
+    _init_ui_data_dir(base)
     return base
+
+
+@pytest.fixture(autouse=True)
+def _isolated_ui_sqlite(
+    request: pytest.FixtureRequest,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Per-test temp jobs.db unless a test already uses ui_data_tmp or ui_client."""
+    if request.node.get_closest_marker("no_ui_db"):
+        return
+    if "ui_data_tmp" in request.fixturenames:
+        return
+    if (
+        "ui_client" in request.fixturenames
+        or "ui_client_auth" in request.fixturenames
+        or "maintenance_client" in request.fixturenames
+    ):
+        return
+    base = tmp_path / "ui_auto"
+    _patch_ui_data_paths(monkeypatch, base)
+    _init_ui_data_dir(base)
 
 
 @pytest.fixture

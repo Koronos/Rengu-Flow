@@ -14,7 +14,9 @@
     </el-alert>
 
     <p class="tab-intro">
-      One row per <code>[[directory]]</code> table in the dataset TOML (image folder path and optional overrides).
+      One row per <code>[[directory]]</code> table: a folder path (required) plus optional fields that
+      <strong>override</strong> settings from the <strong>Dataset defaults</strong> tab. Open a row to
+      see <em>This directory only</em> vs <em>Overrides global defaults</em>.
     </p>
 
     <div class="folders-toolbar">
@@ -46,6 +48,7 @@
       :view-mode="viewMode"
       dense
       scrollable
+      :table-actions-column-width="160"
       table-title-label="Directory"
       table-subtitle-label="Path"
       @item-click="onPreviewClick"
@@ -53,7 +56,7 @@
       <template #tags="{ item }">
         <el-tag v-if="item.warning" size="small" type="warning">No path</el-tag>
         <el-tag
-          v-if="item.dir.num_repeats && item.dir.num_repeats !== 1"
+          v-if="item.dir?.num_repeats && item.dir.num_repeats !== 1"
           size="small"
           type="info"
         >
@@ -64,12 +67,26 @@
         </el-tag>
       </template>
       <template #actions="{ item }">
+        <DatasetDirectoryOverflowMenu
+          v-if="viewMode === 'cards'"
+          :stats-path="item.dir?.path || ''"
+          :gallery-disabled="item.warning"
+          :stats-disabled="item.warning"
+          @gallery="openGallery(item)"
+          @delete="removeAt(item.index)"
+        />
         <DatasetPreviewActions
+          v-else
           :gallery-disabled="item.warning"
           delete-title="Remove directory"
           @gallery="openGallery(item)"
           @delete="removeAt(item.index)"
-        />
+        >
+          <DatasetFolderDetailsButton
+            :path="item.dir?.path || ''"
+            :disabled="item.warning"
+          />
+        </DatasetPreviewActions>
       </template>
     </DatasetPreviewCollection>
 
@@ -104,8 +121,10 @@ import { computed, ref } from "vue";
 import { storeToRefs } from "pinia";
 import { ElMessageBox } from "element-plus";
 import { Plus, Search } from "@element-plus/icons-vue";
+import DatasetDirectoryOverflowMenu from "./DatasetDirectoryOverflowMenu.vue";
 import DatasetFolderDialog from "./DatasetFolderDialog.vue";
 import DatasetGalleryDialog from "./DatasetGalleryDialog.vue";
+import DatasetFolderDetailsButton from "./DatasetFolderDetailsButton.vue";
 import DatasetPreviewActions from "./DatasetPreviewActions.vue";
 import DatasetPreviewCollection from "./DatasetPreviewCollection.vue";
 import DatasetViewModeToggle from "./DatasetViewModeToggle.vue";
@@ -121,6 +140,8 @@ import {
 } from "../lib/datasetDirectoryForm";
 import { pathThumbSource } from "../lib/previewThumbs";
 import { useDatasetEditorStore } from "../stores/datasetEditor";
+import type { DirectoryFormRow } from "../lib/datasetDirectoryForm";
+import type { DatasetPreviewItem } from "./DatasetPreviewCollection.vue";
 
 const editor = useDatasetEditorStore();
 const { form, schema, uiNotes, content } = storeToRefs(editor);
@@ -130,17 +151,18 @@ const {
   galleryTitle,
   galleryContent,
   galleryDirectoryIndex,
+  galleryLoading,
   showFromContent,
 } = useDatasetGallery();
 
 const query = ref("");
 const dialogOpen = ref(false);
 const dialogIndex = ref(-1);
-const dialogEntry = ref(null);
+const dialogEntry = ref<DirectoryFormRow | null>(null);
 
-const directories = computed(() => {
+const directories = computed<DirectoryFormRow[]>(() => {
   const dirs = form.value?._directories;
-  return Array.isArray(dirs) ? dirs : [];
+  return (Array.isArray(dirs) ? dirs : []) as DirectoryFormRow[];
 });
 
 const filteredEntries = computed(() => {
@@ -155,7 +177,7 @@ const filteredEntries = computed(() => {
     });
 });
 
-const previewItems = computed(() =>
+const previewItems = computed<DatasetPreviewItem[]>(() =>
   filteredEntries.value.map(({ dir, index }) => ({
     key: folderKey(dir, index),
     index,
@@ -172,19 +194,19 @@ const previewItems = computed(() =>
   }))
 );
 
-function patchDirectories(nextDirs) {
+function patchDirectories(nextDirs: DirectoryFormRow[]): void {
   editor.patchDirectories(nextDirs);
 }
 
-function isPathEmpty(dir) {
+function isPathEmpty(dir: DirectoryFormRow): boolean {
   return !(dir.path || "").trim();
 }
 
-function folderKey(dir, index) {
+function folderKey(dir: DirectoryFormRow, index: number): string {
   return `dir-${index}:${(dir.path || "").trim()}`;
 }
 
-function displayTitle(dir, index) {
+function displayTitle(dir: DirectoryFormRow, index: number): string {
   if (isPathEmpty(dir)) {
     return `Directory #${index + 1}`;
   }
@@ -192,18 +214,18 @@ function displayTitle(dir, index) {
   return base || dir.path;
 }
 
-function pathLabel(dir) {
+function pathLabel(dir: DirectoryFormRow): string {
   if (isPathEmpty(dir)) {
     return "path not set in TOML";
   }
   return dir.path;
 }
 
-function onPreviewClick(item) {
+function onPreviewClick(item: DatasetPreviewItem & { index: number }) {
   openEdit(item.index);
 }
 
-function openGallery(item) {
+function openGallery(item: DatasetPreviewItem & { index: number; title: string }) {
   showFromContent({
     title: `Gallery — ${item.title}`,
     content: content.value,
@@ -217,13 +239,13 @@ function openAdd() {
   dialogOpen.value = true;
 }
 
-function openEdit(index) {
+function openEdit(index: number) {
   dialogIndex.value = index;
   dialogEntry.value = directories.value[index];
   dialogOpen.value = true;
 }
 
-function onDialogSave({ entry, index }) {
+function onDialogSave({ entry, index }: { entry: DirectoryFormRow; index: number }) {
   const next = [...directories.value];
   if (index >= 0) {
     next[index] = entry;
@@ -233,7 +255,7 @@ function onDialogSave({ entry, index }) {
   patchDirectories(next);
 }
 
-async function removeAt(index) {
+async function removeAt(index: number) {
   const dir = directories.value[index];
   const label = displayTitle(dir, index);
   try {

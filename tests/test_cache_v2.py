@@ -8,7 +8,6 @@ import pytest
 import torch
 
 from renga_flow.utils.cache_factory import (
-    CACHE_FORMAT_V1,
     CACHE_FORMAT_V2,
     detect_cache_format,
     open_disk_cache,
@@ -141,10 +140,11 @@ def test_detect_cache_format_and_open_factory(tmp_path):
     v1 = Cache(v1_dir, "fp1", shard_size_gb=0.001)
     v1.add(_latents_item())
     v1.finalize_current_shard()
-    assert detect_cache_format(v1_dir) == CACHE_FORMAT_V1
+    with pytest.raises(ValueError, match="Legacy cache v1"):
+        detect_cache_format(v1_dir)
 
-    opened = open_disk_cache(v2_dir, "fp", cache_format=CACHE_FORMAT_V1)
+    opened = open_disk_cache(v2_dir, "fp")
     assert isinstance(opened, CacheV2)
 
-    opened_v1 = open_disk_cache(v1_dir, "fp1", cache_format=CACHE_FORMAT_V2)
-    assert isinstance(opened_v1, Cache)
+    with pytest.raises(ValueError, match="Legacy cache v1"):
+        open_disk_cache(v1_dir, "fp1")

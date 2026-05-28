@@ -2,7 +2,7 @@
   <div class="host-stats-root" v-bind="$attrs">
     <div class="host-stats" @click="drawerOpen = true">
     <template v-if="loading && !stats">
-      <span class="chip muted">Host…</span>
+      <span class="chip muted">Loading…</span>
     </template>
     <template v-else-if="stats">
       <span class="chip chip-meter" :class="heatClass(summary.cpu_temp_c)">
@@ -219,60 +219,39 @@
 </template>
 
 <script setup lang="ts">
-// @ts-nocheck — system stats JSON shape is open-ended from the API.
 import { computed, onMounted, onUnmounted, ref } from "vue";
 
 defineOptions({ inheritAttrs: false });
 import { ArrowDown } from "@element-plus/icons-vue";
 import { api } from "../api";
 import { useBreakpoint } from "../composables/useBreakpoint";
+import type {
+  CpuDetail,
+  GpuDeviceDetail,
+  GpusDetail,
+  RamDetail,
+  SystemStatsDetail,
+  SystemStatsResponse,
+  SystemStatsSummary,
+  SystemStatsSummaryGpu,
+  TemperatureReading,
+} from "../types/api";
 
 const POLL_MS = 2000;
 
-interface RamDetail {
-  percent?: number;
-  used_gb?: number;
-  total_gb?: number;
-  swap?: { percent?: number; used_gb?: number; total_gb?: number };
-}
-
-interface GpuDevice {
-  index?: number;
-  name?: string;
-  util_percent?: number;
-  vram_percent?: number;
-  vram_used_gb?: number;
-  vram_total_gb?: number;
-  temp_c?: number;
-  power_w?: number;
-  fan_percent?: number;
-  clock_sm_mhz?: number;
-}
-
-interface SystemStatsPayload {
-  ts?: number;
-  summary?: Record<string, unknown>;
-  detail?: Record<string, unknown>;
-}
-
 const { isMobile } = useBreakpoint();
-const stats = ref<SystemStatsPayload | null>(null);
+const stats = ref<SystemStatsResponse | null>(null);
 const loading = ref(true);
 const drawerOpen = ref(false);
 let timer: ReturnType<typeof setInterval> | null = null;
 
-const summary = computed(() => stats.value?.summary ?? {});
-/** Server shape varies; typed slices below cover template usage. */
-const detail = computed(() => (stats.value?.detail ?? {}) as Record<string, unknown>);
-const ram = computed(() => detail.value.ram as RamDetail | undefined);
-const cpu = computed(() => detail.value.cpu as Record<string, unknown> | undefined);
-const temps = computed(
-  () => detail.value.temperatures as { label?: string; current_c?: number }[] | undefined
-);
-const warnings = computed(() => (detail.value.warnings as string[] | undefined) || []);
-const gpus = computed(
-  () => detail.value.gpus as { error?: string; devices?: GpuDevice[] } | undefined
-);
+const summary = computed<SystemStatsSummary>(() => stats.value?.summary ?? {});
+const detail = computed<SystemStatsDetail>(() => stats.value?.detail ?? {});
+const ram = computed(() => detail.value.ram);
+const cpu = computed(() => detail.value.cpu);
+const temps = computed(() => detail.value.temperatures);
+const warnings = computed(() => detail.value.warnings ?? []);
+const gpus = computed(() => detail.value.gpus);
 const gpuHint = computed(() => gpus.value?.error);
 
 const updatedLabel = computed(() => {
@@ -281,27 +260,27 @@ const updatedLabel = computed(() => {
   return new Date(ts * 1000).toLocaleTimeString();
 });
 
-function fmtPct(v) {
+function fmtPct(v: number | null | undefined): string {
   if (v == null || Number.isNaN(v)) return "—";
   return `${Math.round(v)}%`;
 }
 
-function fmtGb(v) {
+function fmtGb(v: number | null | undefined): string {
   if (v == null || Number.isNaN(v)) return "—";
   return `${v}G`;
 }
 
-function fmtTemp(v) {
+function fmtTemp(v: number | null | undefined): string {
   if (v == null) return "";
   return `${Math.round(v)}°C`;
 }
 
-function clampPct(v) {
+function clampPct(v: number | null | undefined): number {
   if (v == null || Number.isNaN(v)) return 0;
   return Math.min(100, Math.max(0, v));
 }
 
-function levelClass(pct) {
+function levelClass(pct: number | null | undefined): string {
   const p = clampPct(pct);
   if (p >= 90) return "level-crit";
   if (p >= 75) return "level-warn";
@@ -309,29 +288,32 @@ function levelClass(pct) {
   return "level-ok";
 }
 
-function gpuVramPct(gpu: GpuDevice) {
-  return gpu?.vram_percent ?? (gpu?.vram_used_gb && gpu?.vram_total_gb
-    ? (100 * gpu.vram_used_gb) / gpu.vram_total_gb
-    : null);
+function gpuVramPct(gpu: SystemStatsSummaryGpu | GpuDeviceDetail): number | null {
+  const vramPct = "vram_percent" in gpu ? gpu.vram_percent : undefined;
+  if (vramPct != null) return vramPct;
+  if (gpu.vram_used_gb != null && gpu.vram_total_gb) {
+    return (100 * gpu.vram_used_gb) / gpu.vram_total_gb;
+  }
+  return null;
 }
 
-function heatClass(temp) {
+function heatClass(temp: number | null | undefined): string {
   if (temp == null) return "";
   if (temp >= 85) return "hot";
   if (temp >= 75) return "warm";
   return "";
 }
 
-function loadClass(pct) {
+function loadClass(pct: number | null | undefined): string {
   if (pct == null) return "";
   if (pct >= 95) return "hot";
   if (pct >= 80) return "warm";
   return "";
 }
 
-async function poll() {
+async function poll(): Promise<void> {
   try {
-    stats.value = (await api.getSystemStats()) as SystemStatsPayload;
+    stats.value = await api.getSystemStats();
   } catch {
     if (!stats.value) stats.value = null;
   } finally {

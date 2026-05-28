@@ -1,25 +1,23 @@
 <template>
   <div
     class="dp-row"
-    :class="{ 'dp-row--warning': warning }"
+    :class="{ 'dp-row--warning': warning, 'dp-row--active': active }"
     role="button"
     tabindex="0"
     @click="$emit('click', $event)"
     @keydown.enter="$emit('click', $event)"
   >
     <div class="dp-row-thumb">
-      <el-image
+      <PreviewImage
         v-if="displayThumbs[0]"
         :src="displayThumbs[0]"
-        fit="cover"
         class="dp-row-thumb-img"
-        lazy
       >
         <template #error>
-          <div class="dp-row-thumb-fallback" />
+          <DatasetThumbEmptySlot compact />
         </template>
-      </el-image>
-      <div v-else class="dp-row-thumb-fallback">{{ fallbackText }}</div>
+      </PreviewImage>
+      <DatasetThumbEmptySlot v-else compact />
     </div>
     <div class="dp-row-main">
       <span class="dp-row-title">{{ title }}</span>
@@ -36,16 +34,19 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
+import DatasetThumbEmptySlot from "./DatasetThumbEmptySlot.vue";
+import PreviewImage from "./PreviewImage.vue";
 import { usePreviewThumbs } from "../composables/usePreviewThumbs";
 import type { ThumbSource } from "../lib/previewThumbs";
 import type { PropType } from "vue";
 
 const props = defineProps({
-  title: { type: String, required: true },
+  title: { type: String, default: "" },
   subtitle: { type: String, default: "" },
-  thumbs: { type: Array, default: () => [] },
+  thumbs: { type: Array as PropType<string[]>, default: () => [] },
   thumbSource: { type: Object as PropType<ThumbSource | null>, default: null },
   warning: { type: Boolean, default: false },
+  active: { type: Boolean, default: false },
   fallbackText: { type: String, default: "…" },
   thumbLimit: { type: Number, default: 1 },
 });
@@ -84,6 +85,9 @@ const displayThumbs = computed(() => {
 .dp-row--warning {
   background: var(--el-color-warning-light-9);
 }
+.dp-row--active {
+  background: var(--el-color-primary-light-9);
+}
 .dp-row-thumb {
   width: 56px;
   height: 56px;
@@ -93,18 +97,10 @@ const displayThumbs = computed(() => {
   border: 1px solid var(--el-border-color-lighter);
   background: var(--el-fill-color-light);
 }
-.dp-row-thumb-img,
-.dp-row-thumb-fallback {
+.dp-row-thumb-img {
   width: 100%;
   height: 100%;
   display: block;
-}
-.dp-row-thumb-fallback {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 11px;
-  color: var(--el-text-color-secondary);
 }
 .dp-row-main {
   flex: 1;
@@ -133,5 +129,6 @@ const displayThumbs = computed(() => {
 }
 .dp-row-actions {
   flex-shrink: 0;
+  margin-left: auto;
 }
 </style>

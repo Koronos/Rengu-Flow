@@ -137,3 +137,39 @@ def test_prepare_job_reset_flags(job_config: int, monkeypatch: pytest.MonkeyPatc
     assert "--reset_dataloader" in job.extra_args
     assert "--reset_optimizer" in job.extra_args
     assert Path(job.config_path).is_file()
+
+
+def test_prepare_job_cache_flags(job_config: int, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("renga_flow_ui.job_queue.try_start_next", lambda: None)
+    cache_job = job_queue.prepare_job(
+        config_id=job_config,
+        content=None,
+        num_gpus=1,
+        resume_from=None,
+        output_dir=None,
+        extra_args="",
+        reset_dataloader=False,
+        reset_optimizer=False,
+        cache_only=True,
+    )
+    assert "--cache_only" in cache_job.extra_args
+    assert "--trust_cache" not in cache_job.extra_args
+
+    train_job = job_queue.prepare_job(
+        config_id=job_config,
+        content=None,
+        num_gpus=1,
+        resume_from=None,
+        output_dir=None,
+        extra_args="",
+        reset_dataloader=False,
+        reset_optimizer=False,
+        trust_cache=True,
+    )
+    assert "--trust_cache" in train_job.extra_args
+    assert "--cache_only" not in train_job.extra_args
+
+
+def test_merge_job_cli_args_rejects_cache_only_with_trust() -> None:
+    with pytest.raises(ValueError, match="cache_only and trust_cache"):
+        job_queue.merge_job_cli_args("", cache_only=True, trust_cache=True)

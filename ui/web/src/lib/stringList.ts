@@ -15,24 +15,16 @@ export function parseStringList(value: RawListInput): string[] {
 
 /** True when the value must stay as JSON (named prompt tables, etc.). */
 export function stringListNeedsJsonEditor(value: RawListInput): boolean {
-  let raw: unknown = value;
-  if (typeof raw === "string" && raw.trim()) {
+  if (typeof value === "string" && value.trim()) {
     try {
-      raw = JSON.parse(raw) as unknown;
+      const parsed = JSON.parse(value) as unknown;
+      if (Array.isArray(parsed)) {
+        return parsed.some((item) => typeof item !== "string");
+      }
     } catch {
-      const s = raw as string;
-      return s.includes("{") || s.includes("name");
+      return value.includes("{") || value.includes("name");
     }
   }
-  if (!Array.isArray(raw)) {
-    return false;
-  }
-  return raw.some((item) => typeof item !== "string");
-}
-
-export function stringListToFormValue(strings: string[]): string[] | "" {
-  if (!Array.isArray(strings) || strings.length === 0) {
-    return "";
-  }
-  return strings;
+  const arr = coerceToArray(value, /\n/);
+  return arr.some((item) => typeof item !== "string");
 }

@@ -71,7 +71,7 @@ Only one of these should be set; if none are set, training uses MSE.
 
 ## Where outputs go
 
-- **Run directory**: Under `output_dir` (default `output`), e.g. `output/20250217_14-30-00` or `output/20250217_14-30-00_my_run` if you set `run_name`.
+- **Run directory**: Under `output_dir` (default `output`), e.g. `output/20250217_14-30-00`, or `output/my_experiment_20250217_14-30-00` if you set optional `run_name` in the training config.
 - **Adapter saves**: Subfolders named `epoch<N>` or `step<N>` inside the run directory. Each contains:
   - **LoRA**: `lora.safetensors` (Kohya format).
   - **LoKr**: `adapter_model.safetensors` (LyCORIS/Comfy format).

@@ -1,27 +1,19 @@
 /** Normalize training config form before API render/parse. */
 
+import { clonePlain } from "./clonePlain";
 import { pruneFormForModel } from "./formUtils";
+import type { FormValues, ModelCapabilities } from "../types/forms";
 
-function clonePlain(raw) {
-  try {
-    return structuredClone(raw);
-  } catch {
-    return JSON.parse(JSON.stringify(raw));
-  }
-}
-
-/**
- * @param {unknown} raw
- * @param {Record<string, unknown>} capabilities
- * @returns {Record<string, unknown> | null}
- */
-export function sanitizeConfigForm(raw, capabilities = {}) {
+export function sanitizeConfigForm(
+  raw: unknown,
+  capabilities: ModelCapabilities | null = {}
+): FormValues | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return null;
   }
-  let form;
+  let form: FormValues;
   try {
-    form = clonePlain(raw);
+    form = clonePlain(raw) as FormValues;
   } catch {
     return null;
   }

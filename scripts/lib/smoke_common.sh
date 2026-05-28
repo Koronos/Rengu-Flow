@@ -47,3 +47,30 @@ purge_output_dir() {
   rm -rf "${out:?}"/* 2>/dev/null || true
   mkdir -p "${out}"
 }
+
+smoke_ts() {
+  echo "[smoke $(date -Iseconds)] $*"
+}
+
+# Run one smoke phase with line-buffered output and a wall-clock limit (default 20 min).
+smoke_run_phase() {
+  local title="${1:?phase title}"
+  shift
+  local timeout_sec="${SMOKE_PHASE_TIMEOUT_SEC:-1200}"
+  smoke_ts "START ${title} (timeout ${timeout_sec}s)"
+  set +e
+  stdbuf -oL -eL timeout --signal=TERM "${timeout_sec}" "$@" 2>&1 | stdbuf -oL sed -u "s/^/[${title}] /"
+  local pipe_status=("${PIPESTATUS[@]}")
+  set -e
+  local ec="${pipe_status[0]:-1}"
+  if [[ "${ec}" -eq 124 ]]; then
+    smoke_ts "TIMEOUT ${title} after ${timeout_sec}s"
+    return 124
+  fi
+  if [[ "${ec}" -ne 0 ]]; then
+    smoke_ts "FAIL ${title} (exit ${ec})"
+    return "${ec}"
+  fi
+  smoke_ts "DONE ${title}"
+  return 0
+}

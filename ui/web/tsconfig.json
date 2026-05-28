@@ -11,8 +11,8 @@
     "isolatedModules": true,
     "noEmit": true,
     "jsx": "preserve",
-    "strict": false,
-    "noImplicitAny": false,
+    "strict": true,
+    "noImplicitAny": true,
     "noUnusedLocals": false,
     "noUnusedParameters": false,
     "noFallthroughCasesInSwitch": true,
@@ -22,6 +22,6 @@
   },
   "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.vue"],
   "vueCompilerOptions": {
-    "strictTemplates": false
+    "strictTemplates": true
   }
 }

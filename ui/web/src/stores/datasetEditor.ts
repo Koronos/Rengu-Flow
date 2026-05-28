@@ -5,7 +5,9 @@ import type { RouteLocationNormalizedLoaded, Router } from "vue-router";
 import { api } from "../api";
 import { formatError } from "../lib/formatError";
 import { sanitizeDatasetForm } from "../lib/datasetFormPayload";
+import { tagDropoutRulesTomlValue } from "../lib/tagDropoutRules";
 import { useTomlFormSync } from "../composables/useTomlFormSync";
+import { createValidationAlertScheduler } from "../composables/useValidationAlertDismiss";
 import type { FormValues } from "../types/forms";
 
 export const DEFAULT_DATASET_TOML = `resolutions = [1024]
@@ -29,6 +31,8 @@ export const useDatasetEditorStore = defineStore("datasetEditor", () => {
   const message = ref("");
   const parseError = ref("");
   const formVersion = ref(0);
+
+  const validationAlertDismiss = createValidationAlertScheduler();
 
   const title = computed(() => {
     const label = (name.value || "").trim();
@@ -69,7 +73,11 @@ export const useDatasetEditorStore = defineStore("datasetEditor", () => {
       };
     },
     renderToml: async (payload) => {
-      const r = (await api.renderDatasetToml(payload)) as {
+      const forRender = { ...payload };
+      if (forRender.tag_dropout_rules !== undefined) {
+        forRender.tag_dropout_rules = tagDropoutRulesTomlValue(forRender.tag_dropout_rules);
+      }
+      const r = (await api.renderDatasetToml(forRender)) as {
         ok?: boolean;
         content?: string;
         error?: unknown;
@@ -164,6 +172,7 @@ export const useDatasetEditorStore = defineStore("datasetEditor", () => {
   async function validate() {
     error.value = "";
     message.value = "";
+    validationAlertDismiss.clearAll();
     try {
       await tomlSync.flushSync();
       const r = (await api.validateDataset(content.value)) as {
@@ -174,16 +183,32 @@ export const useDatasetEditorStore = defineStore("datasetEditor", () => {
       if (r.ok) {
         const n = r.preview?.total_images ?? "?";
         message.value = `Valid — ${n} images`;
-        ElMessage.success(message.value);
+        validationAlertDismiss.scheduleSuccessDismiss(() => {
+          message.value = "";
+        });
       } else {
         error.value = formatError({ detail: r.error }) || "Invalid";
-        ElMessage.error(error.value);
+        validationAlertDismiss.scheduleErrorDismiss(() => {
+          error.value = "";
+        });
       }
     } catch (e) {
       error.value = formatError(e);
-      ElMessage.error(error.value);
+      validationAlertDismiss.scheduleErrorDismiss(() => {
+        error.value = "";
+      });
       throw e;
     }
+  }
+
+  function clearValidationFeedback() {
+    validationAlertDismiss.clearAll();
+    message.value = "";
+  }
+
+  function clearValidationErrorBar() {
+    validationAlertDismiss.clearAll();
+    error.value = "";
   }
 
   function dispose() {
@@ -202,6 +227,7 @@ export const useDatasetEditorStore = defineStore("datasetEditor", () => {
     message.value = "";
     parseError.value = "";
     formVersion.value = 0;
+    validationAlertDismiss.clearAll();
   }
 
   return {
@@ -230,6 +256,8 @@ export const useDatasetEditorStore = defineStore("datasetEditor", () => {
     openFromRoute,
     save,
     validate,
+    clearValidationFeedback,
+    clearValidationErrorBar,
     dispose,
   };
 });

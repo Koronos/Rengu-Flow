@@ -10,9 +10,9 @@ export function getJobConfigId() {
   }
 }
 
-export function setJobConfigId(id) {
+export function setJobConfigId(id: string | number | null | undefined) {
   try {
-    if (id) sessionStorage.setItem(STORAGE_KEY, id);
+    if (id != null && id !== "") sessionStorage.setItem(STORAGE_KEY, String(id));
     else sessionStorage.removeItem(STORAGE_KEY);
   } catch {
     /* private mode */
