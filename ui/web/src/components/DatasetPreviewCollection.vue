@@ -63,8 +63,7 @@
   </div>
 </template>
 
-<script setup lang="ts">
-import type { PropType } from "vue";
+<script setup lang="ts" generic="T extends DatasetPreviewItem = DatasetPreviewItem">
 import DatasetPreviewCard from "./DatasetPreviewCard.vue";
 import DatasetPreviewGrid from "./DatasetPreviewGrid.vue";
 import DatasetPreviewList from "./DatasetPreviewList.vue";
@@ -90,16 +89,33 @@ export interface DatasetPreviewItem {
   overrideCount?: number;
 }
 
-defineProps({
-  items: { type: Array as PropType<DatasetPreviewItem[]>, default: () => [] },
-  viewMode: { type: String, default: "cards" },
-  scrollable: { type: Boolean, default: false },
-  dense: { type: Boolean, default: false },
-  showCheck: { type: Boolean, default: false },
-  tableTitleLabel: { type: String, default: "Name" },
-  tableSubtitleLabel: { type: String, default: "Details" },
-  tableActionsColumnWidth: { type: Number, default: 112 },
-});
+withDefaults(
+  defineProps<{
+    items?: T[];
+    viewMode?: string;
+    scrollable?: boolean;
+    dense?: boolean;
+    showCheck?: boolean;
+    tableTitleLabel?: string;
+    tableSubtitleLabel?: string;
+    tableActionsColumnWidth?: number;
+  }>(),
+  {
+    items: () => [],
+    viewMode: "cards",
+    scrollable: false,
+    dense: false,
+    showCheck: false,
+    tableTitleLabel: "Name",
+    tableSubtitleLabel: "Details",
+    tableActionsColumnWidth: 112,
+  }
+);
 
-defineEmits(["item-click"]);
+defineEmits<{ "item-click": [item: T] }>();
+
+defineSlots<{
+  tags?(props: { item: T }): unknown;
+  actions?(props: { item: T }): unknown;
+}>();
 </script>

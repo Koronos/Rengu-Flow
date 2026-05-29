@@ -32,7 +32,7 @@
         link
         :icon="Delete"
         :disabled="rows.length <= 1 && !row.key && !row.value"
-        aria-label="Remove parameter"
+        v-bind="ariaLabel('Remove parameter')"
         @click="removeRow(index)"
       />
     </div>
@@ -50,12 +50,13 @@ import {
   kvRowsToDict,
   type KvRow,
 } from "../lib/keyValueList";
+import { ariaLabel } from "../lib/aria";
 import type { PropType } from "vue";
 
 type RowState = KvRow & { _id: number };
 
 const props = defineProps({
-  modelValue: { type: [Object, String] as PropType<unknown>, default: () => ({}) },
+  modelValue: { type: [Object, String] as PropType<unknown> },
   runtimeTokens: { type: Array as PropType<string[]>, default: () => [] },
   hint: { type: String, default: "" },
 });

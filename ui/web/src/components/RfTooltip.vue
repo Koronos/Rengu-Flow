@@ -12,6 +12,9 @@
  * Safe defaults for row-action tooltips in tables/lists.
  * Element Plus does not hide the popper on trigger unmount; enterable tooltips
  * can capture the pointer and block clicks underneath.
+ *
+ * Props are forwarded via attrs; callers should bind tooltip options with a
+ * `v-bind` record (Element Plus prop types don't expose them on a wrapper).
  */
 import { ElTooltip } from "element-plus";
 import type { TooltipInstance } from "element-plus";

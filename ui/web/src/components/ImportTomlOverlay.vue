@@ -65,6 +65,10 @@ function hasToml(e: DragEvent): boolean {
   return types.includes("Files");
 }
 
+function onDragOver(e: DragEvent): void {
+  if (hasToml(e)) e.preventDefault();
+}
+
 function onFileInput(e: Event): void {
   const input = e.target as HTMLInputElement | null;
   const file = input?.files?.[0];
@@ -81,9 +85,7 @@ onMounted(() => {
   if (!el) return;
   el.addEventListener("dragenter", onDragEnter);
   el.addEventListener("dragleave", onDragLeave);
-  el.addEventListener("dragover", (e) => {
-    if (hasToml(e)) e.preventDefault();
-  });
+  el.addEventListener("dragover", onDragOver);
   el.addEventListener("drop", onDrop);
 });
 
@@ -92,6 +94,8 @@ onUnmounted(() => {
   if (!el) return;
   el.removeEventListener("dragenter", onDragEnter);
   el.removeEventListener("dragleave", onDragLeave);
+  el.removeEventListener("dragover", onDragOver);
+  el.removeEventListener("drop", onDrop);
 });
 
 defineExpose({ openFilePicker });

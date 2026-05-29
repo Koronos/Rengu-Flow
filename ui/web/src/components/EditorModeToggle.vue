@@ -3,14 +3,12 @@
     <el-button-group size="small" class="editor-mode-toggle">
       <el-button
         :type="modelValue === 'form' ? 'primary' : 'default'"
-        aria-label="Form editor"
         @click="setMode('form')"
       >
         Form
       </el-button>
       <el-button
         :type="modelValue === 'toml' ? 'primary' : 'default'"
-        aria-label="Raw TOML editor"
         @click="setMode('toml')"
       >
         TOML

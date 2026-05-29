@@ -6,7 +6,7 @@
         circle
         :icon="CopyDocument"
         :loading="loading"
-        aria-label="Duplicate"
+        v-bind="ariaLabel('Duplicate')"
         @click="$emit('duplicate')"
       />
     </el-tooltip>
@@ -17,7 +17,7 @@
         type="danger"
         :icon="Delete"
         :loading="loading"
-        aria-label="Delete"
+        v-bind="ariaLabel('Delete')"
         @click="$emit('delete')"
       />
     </el-tooltip>
@@ -26,6 +26,7 @@
 
 <script setup lang="ts">
 import { CopyDocument, Delete } from "@element-plus/icons-vue";
+import { ariaLabel } from "../lib/aria";
 
 defineProps({
   loading: { type: Boolean, default: false },

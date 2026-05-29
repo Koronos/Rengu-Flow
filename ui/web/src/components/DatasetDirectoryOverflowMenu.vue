@@ -37,8 +37,7 @@
       placement="left"
       :width="280"
       trigger="click"
-      virtual-triggering
-      :virtual-ref="statsAnchorRef"
+      v-bind="virtualTrigger"
       :disabled="statsDisabled"
       @before-enter="onStatsShow"
       @after-leave="onStatsHide"
@@ -54,7 +53,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, shallowRef } from "vue";
+import { computed, ref, shallowRef } from "vue";
 import { DataAnalysis, Delete, MoreFilled, Picture } from "@element-plus/icons-vue";
 import DatasetFolderStatsPanel from "./DatasetFolderStatsPanel.vue";
 import { useDatasetFolderStats } from "../composables/useDatasetFolderStats";
@@ -74,6 +73,12 @@ const emit = defineEmits<{
 const statsAnchorRef = shallowRef<HTMLElement | null>(null);
 const statsVisible = ref(false);
 const { loading, error, stats, load, clear } = useDatasetFolderStats();
+
+// el-popover's prop types omit `virtual-triggering`/`virtual-ref`; forward them as fallthrough attrs.
+const virtualTrigger = computed<Record<string, unknown>>(() => ({
+  "virtual-triggering": true,
+  "virtual-ref": statsAnchorRef.value,
+}));
 
 function onCommand(command: string | number) {
   if (command === "gallery") emit("gallery");
