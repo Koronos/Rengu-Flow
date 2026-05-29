@@ -156,7 +156,7 @@ To add help for a new config key:
 
 1. Add TOML field to `config_schema.py` (or `ADAPTER_FIELD_TEMPLATES` / model capability `model_fields`).
 2. Add entry to **`FIELD_HELP`** in `config_field_help.py` (`summary`, optional `detail`, optional `doc`).
-3. Extend **`docs/user/*.md`** with a table row (purpose, values, default) per `.cursor/rules/doc-two-audiences.mdc`.
+3. Extend **`docs/user/*.md`** with a table row (purpose, values, default) per [documentation conventions](documentation-conventions.md).
 4. Add or extend **`docs/developer/*.md`** with code location (this guide + topic page).
 5. Extend **`tests/test_config_form.py::test_all_config_fields_have_help`** if the field is in the schema.
 

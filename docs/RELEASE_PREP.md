@@ -1,6 +1,24 @@
 # Public release preparation — tracked files audit
 
-**Updated:** 2026-05-26 after cleanup pass.
+**Updated:** 2026-05-29 — pre-first-push audit.
+
+---
+
+## Pre-first-push checklist (2026-05-29)
+
+| Check | Status |
+|-------|--------|
+| `.env`, `renga.local.toml` gitignored | OK |
+| No real machine paths in tracked tree | OK (examples use `path/to/…`) |
+| `.env.example` at repo root (smoke/docs) | Restored (was removed in `d39fa17`) |
+| README preliminary-release notice | Added |
+| `.cursor/` (agents, rules, skills, logs) | Gitignored; removed from index; purged from git history — use local Cursor config only |
+| Internal journals / executive report | Removed from tree in `9766e4e`; purged from **git history** before push |
+| Commit author email | Rewritten from personal Gmail to GitHub noreply (history rewrite) |
+| Commit **messages** | No local paths found; `Co-authored-by: Cursor` retained |
+| Local `.env` | Contains real paths — **never commit**; verify with `git check-ignore -v .env` |
+
+Before `git push`, run: `git log -p --all -S '/media/<user>' -S '/home/<user>' -S '<user>@example.com'` (should be empty).
 
 ---
 
@@ -42,7 +60,7 @@
 
 | Item | Notes |
 |------|-------|
-| `.cursor/rules/` | Contributor-only; can gitignore `.cursor/` if desired |
+| Cursor IDE config | Not in repo. Project doc norms: [documentation-conventions.md](developer/documentation-conventions.md) |
 | `CHANGELOG.md` | For tagged releases |
 | `CONTRIBUTING.md` | Point to developer testing + BACKLOG |
 
