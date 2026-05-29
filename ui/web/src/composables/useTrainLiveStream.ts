@@ -116,13 +116,16 @@ export function useTrainLiveStream(
   async function pollLogsHttp(): Promise<void> {
     const id = resolveJobId();
     if (!id || !useHttpFallback.value) return;
+    const gen = connectionGen;
     try {
       const data = await api.jobLogs(id, logOffset);
+      if (gen !== connectionGen) return; // job switched mid-fetch: drop stale logs/offset
       if (data.chunk) {
         appendLog(data.chunk);
         logOffset = data.offset;
       }
     } catch (e) {
+      if (gen !== connectionGen) return;
       streamError.value = e instanceof Error ? e.message : "Log poll failed";
     }
   }

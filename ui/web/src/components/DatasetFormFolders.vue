@@ -136,6 +136,13 @@ import { useDatasetEditorStore } from "../stores/datasetEditor";
 import type { DirectoryFormRow } from "../lib/datasetDirectoryForm";
 import type { DatasetPreviewItem } from "./DatasetPreviewCollection.vue";
 
+/** Directory rows always carry index/title/dir, unlike the base preview item. */
+type FolderPreviewItem = DatasetPreviewItem & {
+  index: number;
+  title: string;
+  dir: DirectoryFormRow;
+};
+
 const editor = useDatasetEditorStore();
 const { form, schema, uiNotes, content } = storeToRefs(editor);
 const { viewMode } = useDatasetViewMode(DATASET_DIRECTORY_VIEW_KEY);
@@ -163,7 +170,7 @@ const filteredEntries = computed(() => {
     });
 });
 
-const previewItems = computed<DatasetPreviewItem[]>(() =>
+const previewItems = computed<FolderPreviewItem[]>(() =>
   filteredEntries.value.map(({ dir, index }) => ({
     key: folderKey(dir, index),
     index,
@@ -207,11 +214,11 @@ function pathLabel(dir: DirectoryFormRow): string {
   return dir.path;
 }
 
-function onPreviewClick(item: DatasetPreviewItem & { index: number }) {
+function onPreviewClick(item: FolderPreviewItem) {
   openEdit(item.index);
 }
 
-function openGallery(item: DatasetPreviewItem & { index: number; title: string }) {
+function openGallery(item: FolderPreviewItem) {
   showFromContent({
     title: `Gallery — ${item.title}`,
     content: content.value,

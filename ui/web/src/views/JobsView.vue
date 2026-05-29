@@ -86,7 +86,7 @@
                 :min="1"
                 :max="64"
                 class="w-full"
-                aria-label="Number of GPUs for this job"
+                v-bind="ariaLabel('Number of GPUs for this job')"
               />
               <el-text type="info" size="small" class="page-hint hint">
                 DeepSpeed GPU count for this launch (default from local config is 1).
@@ -100,7 +100,7 @@
                 placeholder="20250217_14-30-00"
                 clearable
                 class="w-full"
-                aria-label="Resume run folder name under output_dir"
+                v-bind="ariaLabel('Resume run folder name under output_dir')"
               />
               <el-text type="info" size="small" class="page-hint hint">
                 Folder name under your config’s <code>output_dir</code> (not a full path). Loads
@@ -232,13 +232,13 @@
         <template #default="{ row }">
           <el-space class="row-actions" @click.stop>
             <el-tooltip content="Open run" placement="top">
-              <el-button size="small" :icon="View" circle @click.stop="openRun(row)" />
+              <el-button size="small" :icon="View" circle @click.stop="openRun(row as TrainingRunRow)" />
             </el-tooltip>
             <el-tooltip v-if="row.config_id" content="Edit config" placement="top">
               <el-button size="small" :icon="Edit" circle @click.stop="goEditConfigId(row.config_id)" />
             </el-tooltip>
             <el-tooltip v-if="row.run_dir" content="Continue training" placement="top">
-              <el-button size="small" :icon="VideoPlay" circle @click.stop="goContinue(row)" />
+              <el-button size="small" :icon="VideoPlay" circle @click.stop="goContinue(row as TrainingRunRow)" />
             </el-tooltip>
             <template v-if="row.state === 'pending'">
               <el-tooltip content="Run now" placement="top">
@@ -441,6 +441,7 @@ import TrainLivePanel from "../components/TrainLivePanel.vue";
 import PathFieldControl from "../components/PathFieldControl.vue";
 import { useAutoRefresh } from "../composables/useAutoRefresh";
 import { useTrainLiveStream } from "../composables/useTrainLiveStream";
+import { ariaLabel } from "../lib/aria";
 import { TRAIN_LIVE_REFRESH_STORAGE_KEY } from "../lib/autoRefresh";
 import { formatError } from "../lib/formatError";
 import { formatRunProgressHint } from "../lib/formatRunProgress";

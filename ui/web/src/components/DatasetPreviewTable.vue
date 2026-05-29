@@ -34,7 +34,7 @@
       <el-table-column v-if="$slots.tags" :label="tagsLabel" min-width="140">
         <template #default="{ row }">
           <div class="dp-table-tags">
-            <slot name="tags" :item="row" />
+            <slot name="tags" :item="(row as T)" />
           </div>
         </template>
       </el-table-column>
@@ -47,39 +47,55 @@
         class-name="dp-table-actions-col"
       >
         <template #default="{ row }">
-          <slot name="actions" :item="row" />
+          <slot name="actions" :item="(row as T)" />
         </template>
       </el-table-column>
     </el-table>
   </div>
 </template>
 
-<script setup lang="ts">
+<script setup lang="ts" generic="T extends DatasetPreviewItem = DatasetPreviewItem">
 import { Check } from "@element-plus/icons-vue";
-import type { PropType } from "vue";
 import type { DatasetPreviewItem } from "./DatasetPreviewCollection.vue";
 
-defineProps({
-  items: { type: Array as PropType<DatasetPreviewItem[]>, default: () => [] },
-  scrollable: { type: Boolean, default: false },
-  showCheck: { type: Boolean, default: false },
-  titleLabel: { type: String, default: "Name" },
-  subtitleLabel: { type: String, default: "Details" },
-  tagsLabel: { type: String, default: "Info" },
-  tableMaxHeight: { type: [String, Number], default: "min(68vh, 680px)" },
-  actionsColumnWidth: { type: Number, default: 112 },
-});
+withDefaults(
+  defineProps<{
+    items?: T[];
+    scrollable?: boolean;
+    showCheck?: boolean;
+    titleLabel?: string;
+    subtitleLabel?: string;
+    tagsLabel?: string;
+    tableMaxHeight?: string | number;
+    actionsColumnWidth?: number;
+  }>(),
+  {
+    items: () => [],
+    scrollable: false,
+    showCheck: false,
+    titleLabel: "Name",
+    subtitleLabel: "Details",
+    tagsLabel: "Info",
+    tableMaxHeight: "min(68vh, 680px)",
+    actionsColumnWidth: 112,
+  }
+);
 
-const emit = defineEmits(["item-click"]);
+const emit = defineEmits<{ "item-click": [item: T] }>();
 
-function rowClassName({ row }: { row: DatasetPreviewItem }) {
+defineSlots<{
+  tags?(props: { item: T }): unknown;
+  actions?(props: { item: T }): unknown;
+}>();
+
+function rowClassName({ row }: { row: T }) {
   const classes = ["dp-table-row"];
   if (row.warning) classes.push("dp-table-row--warning");
   if (row.active) classes.push("dp-table-row--active");
   return classes.join(" ");
 }
 
-function onRowClick(row: DatasetPreviewItem) {
+function onRowClick(row: T) {
   emit("item-click", row);
 }
 </script>

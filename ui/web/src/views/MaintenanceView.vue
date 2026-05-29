@@ -286,12 +286,13 @@ async function onDepsInstall(profile: string, execute: boolean) {
   }
 }
 
-async function copyCommand(cmd: string) {
+async function copyCommand(cmd: string | string[] | undefined) {
+  const text = Array.isArray(cmd) ? cmd.join(" ") : (cmd ?? "");
   try {
-    await navigator.clipboard.writeText(cmd);
+    await navigator.clipboard.writeText(text);
     ElMessage.success("Copied");
   } catch {
-    ElMessage.info(cmd);
+    ElMessage.info(text);
   }
 }
 

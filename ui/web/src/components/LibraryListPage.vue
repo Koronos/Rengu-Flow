@@ -35,26 +35,43 @@
   </div>
 </template>
 
-<script setup lang="ts">
+<script setup lang="ts" generic="T extends DatasetPreviewItem = DatasetPreviewItem">
 import { ElLoadingDirective } from "element-plus";
 import DatasetPreviewCollection, {
   type DatasetPreviewItem,
 } from "./DatasetPreviewCollection.vue";
-import type { PropType } from "vue";
 
-defineProps({
-  loading: { type: Boolean, default: false },
-  error: { type: String, default: "" },
-  items: { type: Array as PropType<DatasetPreviewItem[]>, default: () => [] },
-  viewMode: { type: String, default: "cards" },
-  showCheck: { type: Boolean, default: false },
-  emptyDescription: { type: String, default: "No items yet" },
-  tableSubtitleLabel: { type: String, default: "Summary" },
-  tableActionsColumnWidth: { type: Number, default: 112 },
-});
+withDefaults(
+  defineProps<{
+    loading?: boolean;
+    error?: string;
+    items?: T[];
+    viewMode?: string;
+    showCheck?: boolean;
+    emptyDescription?: string;
+    tableSubtitleLabel?: string;
+    tableActionsColumnWidth?: number;
+  }>(),
+  {
+    loading: false,
+    error: "",
+    items: () => [],
+    viewMode: "cards",
+    showCheck: false,
+    emptyDescription: "No items yet",
+    tableSubtitleLabel: "Summary",
+    tableActionsColumnWidth: 112,
+  }
+);
 
-defineEmits<{
-  "item-click": [item: DatasetPreviewItem];
+defineEmits<{ "item-click": [item: T] }>();
+
+defineSlots<{
+  banner?(): unknown;
+  toolbar?(): unknown;
+  "empty-action"?(): unknown;
+  actions?(props: { item: T }): unknown;
+  footer?(): unknown;
 }>();
 
 const vLoading = ElLoadingDirective;

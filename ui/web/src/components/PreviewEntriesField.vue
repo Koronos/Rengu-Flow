@@ -99,7 +99,7 @@ interface Row {
 }
 
 const props = defineProps({
-  modelValue: { type: [Array, String] as PropType<unknown>, default: () => [] },
+  modelValue: { type: [Array, String] as PropType<unknown> },
   entryFields: { type: Array as PropType<SchemaField[]>, default: () => [] },
   parentForm: { type: Object as PropType<FormValues>, default: () => ({}) },
   capabilities: { type: Object as PropType<ModelCapabilities>, default: () => ({}) },
@@ -166,7 +166,7 @@ function duplicateAt(index: number): void {
   emitEntries(next);
 }
 
-async function removeAt(index: number): void {
+async function removeAt(index: number): Promise<void> {
   const label = previewEntryName(entries.value[index], index);
   try {
     await ElMessageBox.confirm(`Remove preview "${label}"?`, "Remove preview", {

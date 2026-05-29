@@ -1,5 +1,6 @@
-import { onUnmounted, ref, type MaybeRefOrGetter, toValue, watch } from "vue";
+import { ref, type MaybeRefOrGetter, toValue, watch } from "vue";
 import { loadPreviewThumbs, type ThumbSource } from "../lib/previewThumbs";
+import { useLatestAsync } from "./useLatestAsync";
 
 const DEBOUNCE_MS = 200;
 
@@ -15,22 +16,21 @@ export function usePreviewThumbs(
 ) {
   const thumbs = ref<string[]>([]);
   const loading = ref(false);
-  let requestId = 0;
-  let debounceTimer: ReturnType<typeof setTimeout> | undefined;
+  const guard = useLatestAsync();
   let lastWatchKey = "";
 
   async function load() {
     const src = toValue(source);
     const lim = toValue(limit);
-    const id = ++requestId;
+    const token = guard.begin();
     loading.value = true;
     try {
       const urls = await loadPreviewThumbs(src, lim);
-      if (id === requestId) thumbs.value = urls;
+      if (guard.isCurrent(token)) thumbs.value = urls;
     } catch {
-      if (id === requestId) thumbs.value = [];
+      if (guard.isCurrent(token)) thumbs.value = [];
     } finally {
-      if (id === requestId) loading.value = false;
+      if (guard.isCurrent(token)) loading.value = false;
     }
   }
 
@@ -39,8 +39,7 @@ export function usePreviewThumbs(
     if (watchKey === lastWatchKey) {
       return;
     }
-    if (debounceTimer) clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(() => {
+    guard.schedule(() => {
       lastWatchKey = watchKey;
       load();
     }, DEBOUNCE_MS);
@@ -48,11 +47,6 @@ export function usePreviewThumbs(
 
   watch(() => `${thumbSourceKey(toValue(source))}\0${toValue(limit)}`, scheduleLoad, {
     immediate: true,
-  });
-
-  onUnmounted(() => {
-    requestId += 1;
-    if (debounceTimer) clearTimeout(debounceTimer);
   });
 
   return { thumbs, loading };

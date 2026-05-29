@@ -117,8 +117,7 @@ import {
 
 const props = defineProps({
   modelValue: {
-    type: [Array, String] as PropType<unknown[] | string | null>,
-    default: () => [],
+    type: [Array, String] as PropType<unknown>,
   },
   hint: { type: String, default: "" },
 });
@@ -174,8 +173,8 @@ function normalizeTags(value: unknown): string[] {
   return value.map((t) => String(t).trim()).filter(Boolean);
 }
 
-function updateProbability(index: number, value: number | undefined): void {
-  const n = Number(value);
+function updateProbability(index: number, value: number | number[] | undefined): void {
+  const n = Number(Array.isArray(value) ? value[0] : value);
   if (!Number.isFinite(n)) return;
   updateRow(index, { drop_probability: Math.min(1, Math.max(0, n)) });
 }
