@@ -6,7 +6,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
 VENV="$REPO_ROOT/.venv"
-RENGA="$VENV/bin/renga"
+RENGU="$VENV/bin/rengu"
 
 pause_window() {
   echo ""
@@ -41,21 +41,21 @@ for arg in "$@"; do
   esac
 done
 
-if [[ ! -x "$RENGA" ]]; then
+if [[ ! -x "$RENGU" ]]; then
   echo "==> Setting up UI environment (uv sync --extra ui)..."
   uv sync --extra ui || fail "uv sync failed"
 fi
 
-[[ -f "$REPO_ROOT/renga.local.toml" ]] || "$RENGA" init --only-config
+[[ -f "$REPO_ROOT/rengu.local.toml" ]] || "$RENGU" init --only-config
 
 export PYTHONUNBUFFERED=1
 
-echo "==> Dev UI (renga ui dev)..."
+echo "==> Dev UI (rengu ui dev)..."
 echo "    Vite:  http://127.0.0.1:5173/"
 echo "    API:   http://127.0.0.1:8765/api/v1/  (auto-reload; use --no-reload-api to disable)"
 echo ""
 set +e
-"$RENGA" ui dev --skip-sync "${DEV_ARGS[@]}"
+"$RENGU" ui dev --skip-sync "${DEV_ARGS[@]}"
 EXIT_CODE=$?
 set -e
 pause_window

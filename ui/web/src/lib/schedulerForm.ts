@@ -1,5 +1,5 @@
 /**
- * LR scheduler form helpers. Keep in sync with renga_flow_ui/scheduler_form.py.
+ * LR scheduler form helpers. Keep in sync with rengu_flow_ui/scheduler_form.py.
  */
 
 import type { FormValues } from "../types/forms";

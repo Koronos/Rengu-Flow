@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from renga_flow_ui import metrics_tb
+from rengu_flow_ui import metrics_tb
 
 
 def test_read_scalars_caches_until_mtime_changes(tmp_path, monkeypatch) -> None:

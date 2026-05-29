@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from renga_flow.utils.saver import _prune_old_exports
+from rengu_flow.utils.saver import _prune_old_exports
 
 
 def test_prune_intersection_min_step_and_max_keep(tmp_path: Path):

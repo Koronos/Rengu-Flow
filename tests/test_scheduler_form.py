@@ -1,10 +1,10 @@
 """LR scheduler form visibility, pruning, KV extras, and runtime tokens."""
 
-from renga_flow.optim.resolver import build_scheduler_runtime_values, substitute_runtime_tokens
-from renga_flow_ui.config_form import form_to_config, form_to_toml, parse_toml
-from renga_flow_ui.config_schema import get_schema
-from renga_flow_ui.field_visibility import field_visible
-from renga_flow_ui.scheduler_form import (
+from rengu_flow.optim.resolver import build_scheduler_runtime_values, substitute_runtime_tokens
+from rengu_flow_ui.config_form import form_to_config, form_to_toml, parse_toml
+from rengu_flow_ui.config_schema import get_schema
+from rengu_flow_ui.field_visibility import field_visible
+from rengu_flow_ui.scheduler_form import (
     is_custom_scheduler_type,
     merge_scheduler_extras,
     prune_scheduler_form,
@@ -19,8 +19,8 @@ def test_is_custom_scheduler_type() -> None:
 
 
 def test_schema_extra_params_help_includes_runtime_token_glossary() -> None:
-    from renga_flow_ui import config_field_help
-    from renga_flow_ui.config_schema import get_schema
+    from rengu_flow_ui import config_field_help
+    from rengu_flow_ui.config_schema import get_schema
 
     schema = get_schema()
     extra = next(

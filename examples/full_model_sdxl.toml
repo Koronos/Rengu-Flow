@@ -1,5 +1,5 @@
 # Full-model SDXL finetuning (no adapter). Trains UNet + both text encoders.
-# Run: deepspeed --num_gpus=1 -m renga_flow.main --config examples/full_model_sdxl.toml
+# Run: deepspeed --num_gpus=1 -m rengu_flow.main --config examples/full_model_sdxl.toml
 # Saves full checkpoints (model.safetensors) to output/<run_dir>/epochN or stepN.
 
 dataset = "examples/minimal_dataset.toml"

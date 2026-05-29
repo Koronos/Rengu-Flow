@@ -6,9 +6,9 @@ import re
 
 import toml
 
-from renga_flow.config.validation import collect_validation_errors
-from renga_flow_ui.config_schema import get_schema
-from renga_flow_ui.default_config_template import default_new_config_toml
+from rengu_flow.config.validation import collect_validation_errors
+from rengu_flow_ui.config_schema import get_schema
+from rengu_flow_ui.default_config_template import default_new_config_toml
 
 
 def test_default_new_config_toml_file() -> None:
@@ -68,7 +68,7 @@ def test_fallback_ts_template_matches_python_file() -> None:
 
 
 def test_default_new_config_form_roundtrip() -> None:
-    from renga_flow_ui.config_form import form_to_toml, parse_toml
+    from rengu_flow_ui.config_form import form_to_toml, parse_toml
 
     form = parse_toml(default_new_config_toml())
     assert form.get("lr_scheduler") == "cosine"

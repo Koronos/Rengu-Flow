@@ -17,7 +17,7 @@ import { useTomlFormSync } from "../composables/useTomlFormSync";
 import { createValidationAlertScheduler } from "../composables/useValidationAlertDismiss";
 import type { FormValues, ModelCapabilities } from "../types/forms";
 
-/** Offline fallback; keep in sync with renga_flow_ui/templates/default_new_config.toml */
+/** Offline fallback; keep in sync with rengu_flow_ui/templates/default_new_config.toml */
 export const FALLBACK_DEFAULT_CONFIG_TOML = `dataset = ""
 
 epochs = 1

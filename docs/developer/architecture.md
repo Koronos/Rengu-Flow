@@ -1,6 +1,6 @@
 # Architecture and design goals
 
-Renga Flow is a **TOML-driven**, **registry-based** training framework. It reimplements and extends ideas from [diffusion-pipe](https://github.com/tdrussell/diffusion-pipe) in this repository (no runtime dependency on a diffusion-pipe install).
+Rengu is a **TOML-driven**, **registry-based** training framework. It reimplements and extends ideas from [diffusion-pipe](https://github.com/tdrussell/diffusion-pipe) in this repository (no runtime dependency on a diffusion-pipe install).
 
 **Implementation status:** [BACKLOG.md](../BACKLOG.md). **Upstream mapping:** [dependencies-and-upstream.md](dependencies-and-upstream.md).
 
@@ -48,10 +48,10 @@ Execution is launched from a main TOML (and optional dataset TOML), similar to d
 
 | Component | Registry / mechanism | Status |
 |-----------|----------------------|--------|
-| Model | `renga_flow.registry.models` | `sdxl`, `cosmos_predict2` (+ alias `anima`) |
-| Optimizer | `renga_flow.registry.optimizers` + `optim/resolver.py` | Aliases + qualified paths + vendor optimizers |
-| Scheduler | `renga_flow.registry.schedulers` | constant, linear, cosine, paths |
-| Adapter | Branches in pipeline + `renga_flow/networks/*` | LoRA/LoKr; **no adapter registry yet** — see BACKLOG P0-3 |
+| Model | `rengu_flow.registry.models` | `sdxl`, `cosmos_predict2` (+ alias `anima`) |
+| Optimizer | `rengu_flow.registry.optimizers` + `optim/resolver.py` | Aliases + qualified paths + vendor optimizers |
+| Scheduler | `rengu_flow.registry.schedulers` | constant, linear, cosine, paths |
+| Adapter | Branches in pipeline + `rengu_flow/networks/*` | LoRA/LoKr; **no adapter registry yet** — see BACKLOG P0-3 |
 | Dataset | `Dataset` / `DirectoryDataset` + `DatasetManager` | Directory + buckets |
 | Step/epoch callbacks | `Saver`, eval, previews | **No generic callback registry** — BACKLOG P0-4 |
 | Pre/post hooks | `DatasetManager.cache()` only | **Named hook registry** — BACKLOG P0-5, P0-6 |
@@ -71,7 +71,7 @@ Not implemented yet; tracked in [BACKLOG.md](../BACKLOG.md) (hooks + extensible 
 
 ## Naming
 
-Migration-friendly names are kept where they match diffusion-pipe (`DatasetManager`, `PipelineDataLoader`, `ManualPipelineModule`). New code should follow existing `renga_flow` module layout.
+Migration-friendly names are kept where they match diffusion-pipe (`DatasetManager`, `PipelineDataLoader`, `ManualPipelineModule`). New code should follow existing `rengu_flow` module layout.
 
 ---
 

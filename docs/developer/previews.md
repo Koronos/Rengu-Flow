@@ -4,7 +4,7 @@ User-facing options: `docs/user/previews.md`.
 
 ## Module
 
-**`renga_flow.utils.preview`**
+**`rengu_flow.utils.preview`**
 
 | Function | Role |
 |----------|------|
@@ -18,7 +18,7 @@ User-facing options: `docs/user/previews.md`.
 
 ## Cosmos Predict2
 
-**`renga_flow.model.cosmos_predict2.preview_sampling`**
+**`rengu_flow.model.cosmos_predict2.preview_sampling`**
 
 - `build_timestep_schedule` — same `shift` / `flux_shift` as `prepare_inputs` in training.
 - `encode_preview_prompt` — tokenize + `compute_text_embeddings` (T5 ids for `llm_adapter`).
@@ -27,13 +27,13 @@ User-facing options: `docs/user/previews.md`.
 
 **VRAM (Tier A):** `prepare_preview_memory` / `restore_after_preview` on the pipeline — text encoder to CPU when `preview_offload_text_encoder` (default true), `transformer.eval()`, `empty_cuda_cache` + `cuda.synchronize` in `run_previews` finally.
 
-**VRAM (Tier B):** `preview_blocks_to_swap` → `CosmosBlockOffloader` in `block_offload.py`; `forward_transformer` runs a manual block loop during preview only (training still uses `NoopOffloader` / `enable_block_swap` not implemented).
+**VRAM (Tier B):** `preview_blocks_to_swap` → shared `BlockSwapOffloader` in `rengu_flow/training/block_swap.py`; manual block loop in preview sampling. Training uses the same offloader when `blocks_to_swap` is set.
 
 Requires **`pipeline_stages == 1`**; otherwise `run_previews` prints a skip message on the main process.
 
 ## Training loop integration
 
-**`renga_flow.main._run_training`**
+**`rengu_flow.main._run_training`**
 
 1. Optional `preview_before_first_step` before the loop (step / x-axis `0`).
 2. After each step, `saver.process_step` returns `(checkpointed, saved, signals)`.
@@ -58,7 +58,7 @@ CHW float tensor in `[0, 1]` from PIL via `_pil_to_chw_float`.
 
 ## Signals
 
-**`renga_flow.utils.signal_files`**: `SIGNAL_PREVIEW = "preview"` → `SignalResult.should_preview`.
+**`rengu_flow.utils.signal_files`**: `SIGNAL_PREVIEW = "preview"` → `SignalResult.should_preview`.
 
 Extend `SignalResult` and `broadcast_object_list` length when adding signals.
 

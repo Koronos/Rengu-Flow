@@ -4,7 +4,7 @@ import pytest
 
 pytest.importorskip("torchvision")
 
-from renga_flow.model.cosmos_predict2.pipeline import CosmosPredict2Pipeline
+from rengu_flow.model.cosmos_predict2.pipeline import CosmosPredict2Pipeline
 
 
 def test_load_and_fuse_adapter_raises():

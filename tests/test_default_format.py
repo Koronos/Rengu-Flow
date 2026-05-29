@@ -4,7 +4,7 @@ import math
 
 import pytest
 
-from renga_flow_ui.default_format import (
+from rengu_flow_ui.default_format import (
     format_default_number,
     format_default_value,
     format_scientific,

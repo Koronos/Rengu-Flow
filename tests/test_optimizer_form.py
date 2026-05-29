@@ -1,10 +1,10 @@
 """Optimizer form visibility, pruning, KV extras, and custom types."""
 
-from renga_flow_ui.config_form import form_to_config, form_to_toml, form_values_for_ui, parse_toml
-from renga_flow_ui.config_schema import get_schema
-from renga_flow_ui.field_visibility import field_visible
-from renga_flow_ui.optim_kv_defaults import OPTIMIZER_REGISTRY_KV_DEFAULTS
-from renga_flow_ui.optimizer_form import (
+from rengu_flow_ui.config_form import form_to_config, form_to_toml, form_values_for_ui, parse_toml
+from rengu_flow_ui.config_schema import get_schema
+from rengu_flow_ui.field_visibility import field_visible
+from rengu_flow_ui.optim_kv_defaults import OPTIMIZER_REGISTRY_KV_DEFAULTS
+from rengu_flow_ui.optimizer_form import (
     collect_optimizer_betas_validation_errors,
     is_custom_optimizer_type,
     merge_optimizer_extras,

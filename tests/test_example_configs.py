@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from renga_flow.config import load_config, load_dataset_config, set_config_defaults, validate_config
+from rengu_flow.config import load_config, load_dataset_config, set_config_defaults, validate_config
 
 
 EXAMPLE_CONFIGS = [
@@ -64,7 +64,7 @@ lr = 1.0e-4
     config_path = tmp_path / "validate_cosmos.toml"
     config_path.write_text(config_content.strip())
     result = subprocess.run(
-        [sys.executable, "-m", "renga_flow.main", "--config", str(config_path), "--validate-only"],
+        [sys.executable, "-m", "rengu_flow.main", "--config", str(config_path), "--validate-only"],
         cwd=str(repo_root),
         capture_output=True,
         text=True,
@@ -89,7 +89,7 @@ lr = 1.0e-4
     config_path = tmp_path / "validate_only.toml"
     config_path.write_text(config_content.strip())
     result = subprocess.run(
-        [sys.executable, "-m", "renga_flow.main", "--config", str(config_path), "--validate-only"],
+        [sys.executable, "-m", "rengu_flow.main", "--config", str(config_path), "--validate-only"],
         cwd=str(repo_root),
         capture_output=True,
         text=True,

@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from renga_flow.utils.saver import Saver
+from rengu_flow.utils.saver import Saver
 
 
 def test_save_checkpoint_returns_false_on_enospc(tmp_path: Path):
@@ -27,8 +27,8 @@ def test_save_checkpoint_returns_false_on_enospc(tmp_path: Path):
         MagicMock(),
     )
     (tmp_path / "global_step1").mkdir()
-    with patch("renga_flow.utils.saver.dist") as mock_dist:
+    with patch("rengu_flow.utils.saver.dist") as mock_dist:
         mock_dist.barrier = MagicMock()
-        with patch("renga_flow.utils.saver.is_main_process", return_value=True):
+        with patch("rengu_flow.utils.saver.is_main_process", return_value=True):
             ok = saver.save_checkpoint(5, 50)
     assert ok is False

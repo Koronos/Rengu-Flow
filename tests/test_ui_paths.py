@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from renga_flow_ui.paths import resolve_repo_path
-from renga_flow_ui.settings import repo_root
+from rengu_flow_ui.paths import resolve_repo_path
+from rengu_flow_ui.settings import repo_root
 
 
 def test_resolve_repo_path_relative() -> None:

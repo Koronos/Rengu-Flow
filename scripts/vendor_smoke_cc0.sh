@@ -9,7 +9,7 @@ MANIFEST="${FIXTURE_DIR}/manifest.json"
 # Pinned upstream commit (gb82-image-set); do not use floating main.
 export GB82_COMMIT="502f9f94cb73d1ad5c89ce06fe6b100d0a27df8f"
 GB82_REPO="https://github.com/gianni-rosato/gb82-image-set.git"
-WORK_DIR="${TMPDIR:-/tmp}/renga_flow_gb82_vendor_$$"
+WORK_DIR="${TMPDIR:-/tmp}/rengu_flow_gb82_vendor_$$"
 
 cleanup() {
   rm -rf "${WORK_DIR}"

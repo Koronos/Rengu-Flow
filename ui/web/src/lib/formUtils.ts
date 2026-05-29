@@ -1,5 +1,5 @@
 /**
- * Config form helpers. Field visibility must match renga_flow_ui/field_visibility.py
+ * Config form helpers. Field visibility must match rengu_flow_ui/field_visibility.py
  * (schema fields include a normalized `visibility` tree from the server).
  */
 

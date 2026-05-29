@@ -4,7 +4,7 @@ import torch
 
 import pytest
 
-from renga_flow.data.loader import split_batch
+from rengu_flow.data.loader import split_batch
 
 
 @pytest.mark.parametrize("pieces, batch_size", [(1, 4), (2, 4), (4, 8)])

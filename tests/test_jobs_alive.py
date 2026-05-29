@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from renga_flow_ui import db, job_queue, jobs
+from rengu_flow_ui import db, job_queue, jobs
 
 
 def _pending_job(ui_data_tmp) -> db.JobRecord:
@@ -50,7 +50,7 @@ def test_poll_job_finishes_running_with_dead_pid(ui_data_tmp) -> None:
 def test_list_jobs_sorted_reconciles_stale_running(
     ui_data_tmp, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("renga_flow_ui.job_queue.try_start_next", lambda: None)
+    monkeypatch.setattr("rengu_flow_ui.job_queue.try_start_next", lambda: None)
     job = _pending_job(ui_data_tmp)
     db.update_job(job.id, state="running", pid=None)
 

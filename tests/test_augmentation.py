@@ -7,17 +7,17 @@ import copy
 import pytest
 from PIL import Image
 
-from renga_flow.data.augmentation import (
+from rengu_flow.data.augmentation import (
     apply_augmentation,
     augmentation_fingerprint,
     expand_variant_keys,
     resolve_augmentation_config,
 )
-from renga_flow.data.augmentation.errors import (
+from rengu_flow.data.augmentation.errors import (
     AugmentationConfigError,
     AugmentationStrategyNotImplementedError,
 )
-from renga_flow.data.dataset_config import (
+from rengu_flow.data.dataset_config import (
     DatasetConfigError,
     validate_dataset_config_for_real_data,
 )
@@ -127,7 +127,7 @@ def test_deferred_preset_allowed_when_disabled() -> None:
 
 
 def test_stochastic_rejected() -> None:
-    from renga_flow.data.augmentation import validate_augmentation_for_directory
+    from rengu_flow.data.augmentation import validate_augmentation_for_directory
 
     with pytest.raises(AugmentationConfigError, match="stochastic"):
         validate_augmentation_for_directory(
@@ -144,7 +144,7 @@ def test_stochastic_rejected() -> None:
 
 
 def test_video_frame_buckets_rejected() -> None:
-    from renga_flow.data.augmentation import validate_augmentation_for_directory
+    from rengu_flow.data.augmentation import validate_augmentation_for_directory
 
     with pytest.raises(AugmentationConfigError, match="video"):
         validate_augmentation_for_directory(

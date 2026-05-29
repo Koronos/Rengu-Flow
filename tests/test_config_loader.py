@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 import toml
 
-from renga_flow.config.loader import load_config
+from rengu_flow.config.loader import load_config
 
 
 def test_load_config_valid_toml(tmp_path, valid_toml_content):

@@ -1,6 +1,6 @@
 export type AutoRefreshIntervalSec = 0 | 5 | 10 | 30 | 60 | 120 | 300;
 
-export const AUTO_REFRESH_STORAGE_KEY = "renga-flow.autoRefreshInterval";
+export const AUTO_REFRESH_STORAGE_KEY = "rengu-flow.autoRefreshInterval";
 
 export const AUTO_REFRESH_OPTIONS: { label: string; value: AutoRefreshIntervalSec }[] = [
   { label: "Off", value: 0 },
@@ -32,7 +32,7 @@ export function effectiveRefreshMs(
   return selectedSec * 1000;
 }
 
-export const TRAIN_LIVE_REFRESH_STORAGE_KEY = "renga-flow.train-live-refresh";
+export const TRAIN_LIVE_REFRESH_STORAGE_KEY = "rengu-flow.train-live-refresh";
 
 export function formatLastUpdated(date: Date | null): string {
   if (!date) return "";

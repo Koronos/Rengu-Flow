@@ -133,7 +133,7 @@ import type { ConfigSearchItem } from "../types/api";
 import type { DatasetPreviewItem } from "../components/DatasetPreviewCollection.vue";
 import type ImportTomlOverlayType from "../components/ImportTomlOverlay.vue";
 
-const CONFIG_LIBRARY_VIEW_KEY = "renga-flow-config-library-view";
+const CONFIG_LIBRARY_VIEW_KEY = "rengu-flow-config-library-view";
 
 const route = useRoute();
 const router = useRouter();
@@ -146,7 +146,7 @@ const {
   sortParams,
   toggleSortOrder,
   orderButtonLabel,
-} = useLibraryListSort("renga-flow-config-list-sort", { kind: "config" });
+} = useLibraryListSort("rengu-flow-config-list-sort", { kind: "config" });
 const { rawItems, loading, error, query, load, scheduleSearch } = useDebouncedLibrarySearch(
   api.searchConfigs,
   sortParams

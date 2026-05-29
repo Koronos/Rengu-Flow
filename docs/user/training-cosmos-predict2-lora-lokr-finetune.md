@@ -30,7 +30,7 @@ In the web UI these appear as **Main model**, **Image VAE**, and **Text encoder 
 |-----|--------|-------------|
 | **`dtype`** | **Required.** VAE, text encoder (Qwen3/T5), adapters, and “stable” DiT layers (embedders, norms, 1D params). Bulk DiT blocks too if `transformer_dtype` is omitted. | Always — usually `bfloat16`. |
 | **`transformer_dtype`** | Only how **`transformer_path`** weights are loaded into the DiT (most transformer blocks). Defaults to `dtype`. | Rarely — VRAM or load issues with the main checkpoint. |
-| **`diffusion_model_dtype`** | Intended for forward-pass math vs storage dtype. | **Leave unset** — parsed in config but **not used** by training yet. |
+| **`diffusion_model_dtype`** | DiT **forward** autocast dtype (via `cuda_autocast`). If set, also defaults `transformer_dtype` when that is omitted. | Same names as `dtype` (e.g. `bfloat16`). | Omitted (uses `dtype`) |
 | **`cache_text_embeddings`** | Caption cache during `--cache_only`. | Keep `true` (default). |
 
 Tokenizer configs ship inside the package (`assets/qwen3_06b`, `assets/t5_old`) — you do not path those in TOML.
@@ -91,7 +91,7 @@ Set `llm_adapter_lr = 0` to freeze the LLM adapter submodule when present.
 Point `dataset` at a TOML with `frame_buckets = [1]` for images (see `examples/minimal_cosmos_predict2_dataset.toml`). Run cache before training:
 
 ```bash
-deepspeed --num_gpus=1 -m renga_flow.main --config my.toml --cache_only
+deepspeed --num_gpus=1 -m rengu_flow.main --config my.toml --cache_only
 ```
 
 With `cache_text_embeddings = true` (default), text embeddings are cached once; VAE latents are cached per resolution bucket. Disk cache uses **`cache_format = "v2"`** by default (see [Training loop](training-loop-and-eval.md#deepspeed-pipeline-and-debug-options)).
@@ -108,8 +108,10 @@ Short tuning smokes (30 steps) are only **previews** for CI and quick regression
 |---------|----------------|
 | **`cache_text_embeddings = true`** | Run `--cache_only` once; training should not re-encode captions every step. |
 | **`activation_checkpointing = true`** | Required for typical VRAM on 16 GB; `false` caused **OOM** in tuning (~16 GB peak). |
-| **`reentrant_activation_checkpointing = true`** | Default for `cosmos_predict2` when AC is on (`renga_flow/config/defaults.py`); modest steady-state gain vs `false`. |
+| **`reentrant_activation_checkpointing = true`** | Default for `cosmos_predict2` when AC is on (`rengu_flow/config/defaults.py`); modest steady-state gain vs `false`. |
 | **`compile = true`** | Enables **`pipeline_model.compile()`** (diffusion-pipe parity). After Inductor warmup, steady steps were ~**0.51 s** vs ~**0.68–0.70 s** without compile on the same LoKR setup — worthwhile when the run is long enough to amortize slower early steps. Optional: `compile_mode = "reduce-overhead"`. |
+| **`blocks_to_swap`** | Offload DiT blocks to CPU between steps when VRAM is tight (`pipeline_stages = 1`, adapter required). Start around half the block count and tune. |
+| **`cache_dedup_text_embeddings = true`** | Speeds `--cache_only` when many images share the same caption (tag-heavy sets). |
 | **`micro_batch_size_per_gpu`** | Set from VRAM; use **`gradient_accumulation_steps`** for effective batch without OOM. |
 
 ### Do not use (Cosmos)
@@ -117,7 +119,6 @@ Short tuning smokes (30 steps) are only **previews** for CI and quick regression
 | Setting | Why |
 |---------|-----|
 | **`activation_checkpointing = false`** | OOM on ~16 GB adapter training. |
-| **`blocks_to_swap` > 0** | **Not implemented** for `cosmos_predict2` — startup error. Use AC instead. |
 
 ### Optional / low impact
 
@@ -142,18 +143,18 @@ gradient_accumulation_steps = 1
 ## Validate config
 
 ```bash
-python -m renga_flow.main --config my.toml --validate-only
+python -m rengu_flow.main --config my.toml --validate-only
 ```
 
 ## Manual GPU smoke (not automated)
 
 1. Install `.[cosmos_predict2]` and DeepSpeed with CUDA.
-2. Copy `.env.example` → `.env` and set `RENGA_COSMOS_TRANSFORMER_PATH`, `RENGA_COSMOS_VAE_PATH`, `RENGA_COSMOS_LLM_PATH`.
-3. `scripts/run_model_smoke.sh cosmos` — vendors `tests/fixtures/smoke_cc0/` if needed, then `--cache_only` and **30** training steps (`tests/fixtures/smoke/train_cosmos_predict2.toml`). The script removes `output/` and dataset caches after the run to save disk (`KEEP_SMOKE_ARTIFACTS=1` to keep them). For training **signal files** and **genericoptim resume**, use `scripts/smoke_training_signals.sh` (see [signal-files](../developer/signal-files.md)).
+2. Copy `.env.example` → `.env` and set `RENGU_COSMOS_TRANSFORMER_PATH`, `RENGU_COSMOS_VAE_PATH`, `RENGU_COSMOS_LLM_PATH`.
+3. `scripts/run_model_smoke.sh cosmos` — vendors `tests/fixtures/smoke_cc0/` if needed, then `--cache_only` and **30** training steps (`tests/fixtures/smoke/train_cosmos_predict2.toml`). The script removes `output/` and dataset caches after the run to save disk (`KEEP_SMOKE_ARTIFACTS=1` to keep them). For training **signal files** and **genericoptim resume**, use `scripts/smoke_training_signals.sh` (see [signal files](signal-files.md)).
 4. Confirm `adapter_model.safetensors` under the run directory.
 
 Optional: `[train.oom_skip]` for single-GPU OOM resilience — see [Training loop and eval](training-loop-and-eval.md) and `examples/config_oom_skip.toml`.
 
-Out of scope for this austere path: **Cosmos block swap during training** (not implemented), **load_and_fuse_adapter** (use `load_adapter_weights` only), augmentation presets, ComfyUI submodule.
+Out of scope for this austere path: **`load_and_fuse_adapter`** (use `load_adapter_weights` only), ComfyUI submodule. **Block swap** during training is supported when `[adapter]` is set and `pipeline_stages = 1` — see [training loop](training-loop-and-eval.md#block-swap). Dataset **augmentation MVP** is supported — see [dataset augmentation](dataset-augmentation.md).
 
 **Training previews** are supported via `[preview]` and the `preview` signal file when `pipeline_stages = 1` — see [Training previews](previews.md). For **Anima**, a practical default is `num_inference_steps = 20`, `guidance_scale = 4`, `width`/`height = 512` on 16 GB GPUs.

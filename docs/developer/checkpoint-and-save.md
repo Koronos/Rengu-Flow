@@ -4,7 +4,7 @@ User-facing option tables: `docs/user/checkpoint-and-save.md`.
 
 ## Saver responsibilities
 
-**Module**: `renga_flow.utils.saver.Saver`
+**Module**: `rengu_flow.utils.saver.Saver`
 
 | Method | Role |
 |--------|------|
@@ -13,7 +13,7 @@ User-facing option tables: `docs/user/checkpoint-and-save.md`.
 | `save_adapter` / `save_full_model` | Gather shards via `prepare_export_tmp`; delegate to model/network save (atomic safetensors). |
 | `process_epoch` / `process_step` | Scheduled saves + `process_signals`. |
 
-**Helpers**: `renga_flow.utils.save_io` — `is_disk_full_error`, `atomic_save_safetensors`, `rollback_failed_checkpoint`, `cleanup_export_dir`, export retention parsing.
+**Helpers**: `rengu_flow.utils.save_io` — `is_disk_full_error`, `atomic_save_safetensors`, `rollback_failed_checkpoint`, `cleanup_export_dir`, export retention parsing.
 
 ## Export retention (`_prune_old_exports`)
 
@@ -32,7 +32,7 @@ Both keys optional; intersection policy (see user doc).
 
 ## Export paths and dtypes
 
-Unchanged from prior doc: adapter vs full via `is_adapter`; `save_dtype` via `DTYPE_MAP` in defaults.
+Adapter vs full export: driven by **`bool(config.get("adapter"))`**, not the TOML key `save_full_model` ([spec](../spec/save-full-model-flag.md), BACKLOG P3-1). `save_dtype` via `DTYPE_MAP` in defaults.
 
 ## Async model export (POC)
 

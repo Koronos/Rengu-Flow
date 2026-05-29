@@ -2,7 +2,7 @@
 
 import pytest
 
-from renga_flow.utils.eval import (
+from rengu_flow.utils.eval import (
     TIMESTEP_QUANTILES_FOR_EVAL,
     evaluate,
     evaluate_single,
@@ -76,7 +76,7 @@ def test_evaluate_single_contract_mock_engine_and_loader():
     def fake_get_iterator(dataloader, eng, num_micro_batches=None):
         return iter([None])  # one micro-batch
 
-    with patch("renga_flow.utils.eval.get_data_iterator_for_step", side_effect=fake_get_iterator):
+    with patch("rengu_flow.utils.eval.get_data_iterator_for_step", side_effect=fake_get_iterator):
         mean_loss = evaluate_single(engine, loader, 1, 0.5, pbar=None)
     assert mean_loss == 0.5
     assert loader._reset_called

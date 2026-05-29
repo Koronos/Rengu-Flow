@@ -3,7 +3,7 @@
 import pytest
 import torch
 
-from renga_flow.utils.oom_skip import OomSkipState, handle_oom_skip, is_cuda_oom
+from rengu_flow.utils.oom_skip import OomSkipState, handle_oom_skip, is_cuda_oom
 
 
 def test_is_cuda_oom_out_of_memory_error():

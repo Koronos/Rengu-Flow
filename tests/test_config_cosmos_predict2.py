@@ -2,7 +2,7 @@
 
 import pytest
 
-from renga_flow.config.validation import ConfigValidationError, validate_config
+from rengu_flow.config.validation import ConfigValidationError, validate_config
 
 
 def _cosmos_config(**model_extra):
@@ -55,7 +55,7 @@ def test_validate_cosmos_with_t5_path_passes():
 
 
 def test_cosmos_dataset_validation_requires_frame_bucket_one(monkeypatch):
-    from renga_flow.model.cosmos_predict2.pipeline import CosmosPredict2Pipeline
+    from rengu_flow.model.cosmos_predict2.pipeline import CosmosPredict2Pipeline
 
     monkeypatch.setattr(
         CosmosPredict2Pipeline,

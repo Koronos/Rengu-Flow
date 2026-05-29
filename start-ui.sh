@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Launcher for the Renga Flow web UI (double-click friendly).
+# Launcher for the Rengu web UI (double-click friendly).
 # Requires uv on PATH; creates/uses .venv automatically (no manual activate).
 set -euo pipefail
 
@@ -7,7 +7,7 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT"
 
 VENV="$ROOT/.venv"
-RENGA="$VENV/bin/renga"
+RENGU="$VENV/bin/rengu"
 
 pause_window() {
   echo ""
@@ -31,7 +31,7 @@ on_err() {
 trap on_err ERR
 
 if [[ ! -f "$ROOT/pyproject.toml" ]]; then
-  fail "run from renga-flow repository root (pyproject.toml not found)"
+  fail "run from rengu-flow repository root (pyproject.toml not found)"
 fi
 
 if ! command -v uv >/dev/null 2>&1; then
@@ -45,10 +45,10 @@ for arg in "$@"; do
     -h|--help)
       echo "Usage: ./start-ui.sh [--no-open] [--rebuild-web]"
       echo ""
-      echo "Uses uv to create .venv and sync [ui], then runs: renga ui start"
-      echo "Settings: renga.local.toml (created on first run)"
+      echo "Uses uv to create .venv and sync [ui], then runs: rengu ui start"
+      echo "Settings: rengu.local.toml (created on first run)"
       echo ""
-      echo "Development: ./scripts/start-ui-dev.sh  or  ./renga ui dev"
+      echo "Development: ./scripts/start-ui-dev.sh  or  ./rengu ui dev"
       echo ""
       echo "Keep this terminal open while the UI runs."
       pause_window
@@ -60,23 +60,23 @@ for arg in "$@"; do
   esac
 done
 
-if [[ ! -x "$RENGA" ]]; then
+if [[ ! -x "$RENGU" ]]; then
   echo "==> Setting up UI environment (uv sync --extra ui)..."
   uv sync --extra ui || fail "uv sync --extra ui failed"
 fi
 
-if [[ ! -f "$ROOT/renga.local.toml" ]]; then
-  echo "==> Creating renga.local.toml from example..."
-  "$RENGA" init --only-config || fail "could not create renga.local.toml"
+if [[ ! -f "$ROOT/rengu.local.toml" ]]; then
+  echo "==> Creating rengu.local.toml from example..."
+  "$RENGU" init --only-config || fail "could not create rengu.local.toml"
 fi
 
-echo "==> Starting Renga Flow UI..."
-echo "    CLI:    $RENGA"
-echo "    Config: $ROOT/renga.local.toml"
+echo "==> Starting Rengu UI..."
+echo "    CLI:    $RENGU"
+echo "    Config: $ROOT/rengu.local.toml"
 echo ""
 
 set +e
-"$RENGA" ui start --skip-sync "${UI_ARGS[@]}"
+"$RENGU" ui start --skip-sync "${UI_ARGS[@]}"
 EXIT_CODE=$?
 set -e
 

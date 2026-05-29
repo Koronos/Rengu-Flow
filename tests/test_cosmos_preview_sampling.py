@@ -5,8 +5,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 import torch
 
-from renga_flow.model.cosmos_predict2.block_offload import CosmosBlockOffloader
-from renga_flow.model.cosmos_predict2.preview_sampling import (
+from rengu_flow.model.cosmos_predict2.block_offload import CosmosBlockOffloader
+from rengu_flow.model.cosmos_predict2.preview_sampling import (
     PreviewPromptData,
     apply_timestep_shift,
     build_timestep_schedule,
@@ -44,9 +44,9 @@ def test_encode_preview_prompt_mocked():
     be = MagicMock()
     be.input_ids = torch.zeros(1, 4, dtype=torch.long)
     be.attention_mask = torch.ones(1, 4, dtype=torch.long)
-    with patch("renga_flow.model.cosmos_predict2.preview_sampling.tokenize", return_value=be):
+    with patch("rengu_flow.model.cosmos_predict2.preview_sampling.tokenize", return_value=be):
         with patch(
-            "renga_flow.model.cosmos_predict2.preview_sampling.compute_text_embeddings",
+            "rengu_flow.model.cosmos_predict2.preview_sampling.compute_text_embeddings",
             return_value=torch.zeros(1, 4, 8),
         ):
             data = encode_preview_prompt(pipeline, "a cat", torch.device("cpu"))
@@ -55,7 +55,7 @@ def test_encode_preview_prompt_mocked():
 
 
 def test_euler_sample_latents_integrates_forward_transformer():
-    from renga_flow.model.cosmos_predict2.preview_sampling import euler_sample_latents
+    from rengu_flow.model.cosmos_predict2.preview_sampling import euler_sample_latents
 
     pipeline = MagicMock()
     pipeline.model_config = {"dtype": "float32"}
@@ -70,11 +70,11 @@ def test_euler_sample_latents_integrates_forward_transformer():
     )
 
     with patch(
-        "renga_flow.model.cosmos_predict2.preview_sampling.latent_shape_from_pixels",
+        "rengu_flow.model.cosmos_predict2.preview_sampling.latent_shape_from_pixels",
         return_value=(16, 1, 32, 32),
     ):
         with patch(
-            "renga_flow.model.cosmos_predict2.preview_sampling.forward_transformer",
+            "rengu_flow.model.cosmos_predict2.preview_sampling.forward_transformer",
             return_value=torch.zeros(1, 16, 1, 32, 32),
         ) as fwd:
             out = euler_sample_latents(
@@ -85,7 +85,7 @@ def test_euler_sample_latents_integrates_forward_transformer():
 
 
 def test_offload_text_encoder_after_encode_moves_to_cpu():
-    from renga_flow.model.cosmos_predict2.pipeline import CosmosPredict2Pipeline
+    from rengu_flow.model.cosmos_predict2.pipeline import CosmosPredict2Pipeline
 
     pipeline = MagicMock(spec=CosmosPredict2Pipeline)
     p = torch.nn.Parameter(torch.zeros(1))
@@ -104,13 +104,13 @@ def test_latent_shape_from_pixels_matches_wan_factor():
     pipeline = MagicMock()
     pipeline.vae.model.z_dim = 16
     c, t, h, w = __import__(
-        "renga_flow.model.cosmos_predict2.preview_sampling", fromlist=["latent_shape_from_pixels"]
+        "rengu_flow.model.cosmos_predict2.preview_sampling", fromlist=["latent_shape_from_pixels"]
     ).latent_shape_from_pixels(pipeline, 512, 512, torch.device("cpu"))
     assert (c, t, h, w) == (16, 1, 64, 64)
 
 
 def test_euler_sample_latents_applies_cfg():
-    from renga_flow.model.cosmos_predict2.preview_sampling import euler_sample_latents
+    from rengu_flow.model.cosmos_predict2.preview_sampling import euler_sample_latents
 
     pipeline = MagicMock()
     pipeline.model_config = {"dtype": "float32"}
@@ -131,11 +131,11 @@ def test_euler_sample_latents_applies_cfg():
     )
 
     with patch(
-        "renga_flow.model.cosmos_predict2.preview_sampling.latent_shape_from_pixels",
+        "rengu_flow.model.cosmos_predict2.preview_sampling.latent_shape_from_pixels",
         return_value=(16, 1, 8, 8),
     ):
         with patch(
-            "renga_flow.model.cosmos_predict2.preview_sampling.forward_transformer",
+            "rengu_flow.model.cosmos_predict2.preview_sampling.forward_transformer",
             side_effect=lambda _p, x, _t, _e: torch.full(
                 (x.shape[0], 16, 1, 8, 8), 2.0 if x.shape[0] == 1 else 1.0
             ),

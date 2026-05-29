@@ -1,8 +1,8 @@
 # Implementation backlog
 
-Canonical list of **not-yet-implemented** or **deferred** work for Renga Flow. Developer specs may still use **`[TODO]`** inline; this file is the durable backlog.
+Canonical list of **not-yet-implemented** or **deferred** work for Rengu. Developer specs may still use **`[TODO]`** inline; this file is the durable backlog.
 
-**Design context:** [developer/architecture.md](developer/architecture.md). **Last updated:** 2026-05-26.
+**Design context:** [developer/architecture.md](developer/architecture.md). **Specifications:** [spec/](spec/). **Last updated:** 2026-05-29.
 
 ---
 
@@ -18,8 +18,6 @@ Canonical list of **not-yet-implemented** or **deferred** work for Renga Flow. D
 
 | ID | Item | Source | Notes |
 |----|------|--------|-------|
-| P0-1 | **`enable_block_swap` on SDXL** | [model-pipeline-contract.md](developer/model-pipeline-contract.md) | `BasePipeline.enable_block_swap` still raises; `main.py` calls it when `blocks_to_swap` is set. |
-| P0-2 | **`enable_block_swap` during training (Cosmos)** | [previews.md](developer/previews.md) | Preview uses `CosmosBlockOffloader`; training uses `NoopOffloader`. |
 | P0-3 | **Adapter registry** | [architecture.md](developer/architecture.md) | By `adapter.type`; today branches in `sdxl.py` / `adapter_dit`. |
 | P0-4 | **Generic step/epoch callback registry** | [architecture.md](developer/architecture.md) | Partial: `Saver`, eval, previews. |
 | P0-5 | **`pre_train` hook registry** | [architecture.md](developer/architecture.md) | Partial: `DatasetManager.cache()` only. |
@@ -47,9 +45,7 @@ Canonical list of **not-yet-implemented** or **deferred** work for Renga Flow. D
 
 | ID | Item | Source | Notes |
 |----|------|--------|-------|
-| P2-1 | **`cache_dedup_text_embeddings`** | [poc-cpu-ram-results.md](developer/poc-cpu-ram-results.md) | Opt-in dedup for tag-heavy datasets. |
 | P2-2 | **Safetensors pack per bucket** | [poc-cpu-ram-results.md](developer/poc-cpu-ram-results.md) | Alternative on-disk layout to stacked `.bin` (cache v2). |
-| P2-3 | **diffusion-pipe `utils/offloading.py` incorporation** | [dependencies-and-upstream.md](developer/dependencies-and-upstream.md) | Tied to `blocks_to_swap`; out of current “austere” scope. |
 
 ---
 
@@ -57,13 +53,13 @@ Canonical list of **not-yet-implemented** or **deferred** work for Renga Flow. D
 
 | ID | Item | Source | Notes |
 |----|------|--------|-------|
-| P3-1 | **`save_full_model` TOML flag** | [checkpoint-and-save.md](developer/checkpoint-and-save.md) | Not read by `Saver`; full export today = omit `[adapter]`. |
+| P3-1 | **`save_full_model` TOML flag** | [spec/save-full-model-flag.md](spec/save-full-model-flag.md), [checkpoint-and-save.md](developer/checkpoint-and-save.md) | Not read by `Saver`; full export today = omit `[adapter]`. |
 
 ---
 
 ## P4 — Dataset augmentation
 
-**Runtime source of truth:** `renga_flow/data/augmentation/names.py`.
+**Runtime source of truth:** `rengu_flow/data/augmentation/names.py`.
 
 ### Deferred presets (validation error if enabled)
 
@@ -82,5 +78,4 @@ Canonical list of **not-yet-implemented** or **deferred** work for Renga Flow. D
 
 | File | Markers |
 |------|---------|
-| [model-pipeline-contract.md](developer/model-pipeline-contract.md) | SDXL `enable_block_swap` |
 | [networks.md](developer/networks.md) | LoHA, Flux LoRA/LoKr, non-SDXL guide |

@@ -1,10 +1,10 @@
 # Model capabilities, form visibility, and validation
 
-Training configs are validated in Python (`renga_flow.config.validation`) and edited in the web UI (`renga_flow_ui`). Both should agree on **which keys exist for which model**.
+Training configs are validated in Python (`rengu_flow.config.validation`) and edited in the web UI (`rengu_flow_ui`). Both should agree on **which keys exist for which model**.
 
 ## One registry per model
 
-**`renga_flow/registry/model_capabilities.py`** — `ModelCapability` per pipeline (`sdxl`, `cosmos_predict2`, …):
+**`rengu_flow/registry/model_capabilities.py`** — `ModelCapability` per pipeline (`sdxl`, `cosmos_predict2`, …):
 
 | Field | Used by |
 |-------|---------|
@@ -17,7 +17,7 @@ Register with `register_model_capability()` in the same file (or from a model pl
 
 ## Validation (TOML / CLI / UI Validate button)
 
-**`renga_flow/registry/model_config_rules.py`** — called from `validate_config()`:
+**`rengu_flow/registry/model_config_rules.py`** — called from `validate_config()`:
 
 1. **`required_model_keys(cap)`** — every `model_fields` entry with `required: true` and `ui` not `false`, except keys listed in a `one_of` group (those are checked in step 2 instead).
 2. **`model_validation.one_of`** — at least one key per group (e.g. `llm_path` or `t5_path`).
@@ -28,7 +28,7 @@ SDXL does not need a hand-written block in `validation.py`; `checkpoint_path` is
 
 ## UI visibility
 
-**`renga_flow_ui/field_visibility.py`** — evaluates a `visibility` tree on each schema field (attached in `get_schema()` → `attach_visibility_to_schema()`).
+**`rengu_flow_ui/field_visibility.py`** — evaluates a `visibility` tree on each schema field (attached in `get_schema()` → `attach_visibility_to_schema()`).
 
 **`ui/web/src/lib/formUtils.ts`** — same clause types for the SPA.
 
@@ -42,10 +42,10 @@ SDXL does not need a hand-written block in `validation.py`; `checkpoint_path` is
 
 ## Adding or changing a model (checklist)
 
-1. **`@register_model`** in `renga_flow/model/...` (training code).
+1. **`@register_model`** in `rengu_flow/model/...` (training code).
 2. **`register_model_capability(ModelCapability(...))`** with `model_fields`, `features`, and `model_validation` if needed.
-3. **`FIELD_HELP`** in `renga_flow_ui/config_field_help.py` for new form paths.
-4. Cross-section fields in **`renga_flow_ui/config_schema.py`**: use `when_capability="feature_name"` instead of hard-coding model IDs.
+3. **`FIELD_HELP`** in `rengu_flow_ui/config_field_help.py` for new form paths.
+4. Cross-section fields in **`rengu_flow_ui/config_schema.py`**: use `when_capability="feature_name"` instead of hard-coding model IDs.
 5. **Tests**: `tests/test_config_cosmos_predict2.py` (or new file), `tests/test_field_visibility.py`, `tests/test_model_config_rules.py`.
 6. **User doc**: table row in the model’s `docs/user/training-*.md`.
 
@@ -57,10 +57,10 @@ Avoid copying model names into `validation.py` or Vue components.
 - Validation: `one_of: [["llm_path", "t5_path"]]` so expert T5 configs still pass.
 Unknown `model.type` values (including legacy names removed from the registry) fail validation with the list of registered types.
 
-## Example: Block swap
+## Example: Block swap (training — not shipped)
 
-- `cosmos_predict2`: `features={"block_swap": True}`.
-- Schema: `blocks_to_swap` with `when_capability="block_swap"`.
-- Validator: rejects `blocks_to_swap` on SDXL if set to a non-zero value.
+- **Training** `blocks_to_swap` is gated by `features.block_swap` on **sdxl** and **cosmos_predict2**.
+- Validator rejects non-zero `blocks_to_swap` when the model lacks `block_swap`.
+- Cosmos **preview** uses `preview.preview_blocks_to_swap` (separate code path).
 
 See also [web-ui.md](web-ui.md) (control plane) and user [web-ui.md](../user/web-ui.md) (what validators show in the UI).

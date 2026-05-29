@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from renga_flow_ui import configs_store, db, job_queue
+from rengu_flow_ui import configs_store, db, job_queue
 
 JOB_TOML = """
 dataset = "examples/minimal_dataset.toml"
@@ -30,7 +30,7 @@ def job_config(ui_data_tmp: Path) -> int:
 
 
 def test_move_queue_up_down(job_config: int, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("renga_flow_ui.job_queue.try_start_next", lambda: None)
+    monkeypatch.setattr("rengu_flow_ui.job_queue.try_start_next", lambda: None)
 
     j1 = job_queue.enqueue_job(
         config_id=job_config,
@@ -62,7 +62,7 @@ def test_move_queue_up_down(job_config: int, monkeypatch: pytest.MonkeyPatch) ->
 
 
 def test_delete_pending_job(job_config: int, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("renga_flow_ui.job_queue.try_start_next", lambda: None)
+    monkeypatch.setattr("rengu_flow_ui.job_queue.try_start_next", lambda: None)
     job = job_queue.enqueue_job(
         config_id=job_config,
         content=None,
@@ -86,8 +86,8 @@ def test_try_start_next_after_finish(job_config: int, monkeypatch: pytest.Monkey
         db.update_job(job.id, state="running", pid=1)
         return 1
 
-    monkeypatch.setattr("renga_flow_ui.jobs.start_job", fake_start)
-    monkeypatch.setattr("renga_flow_ui.jobs.poll_job", lambda job_id: db.get_job(job_id))
+    monkeypatch.setattr("rengu_flow_ui.jobs.start_job", fake_start)
+    monkeypatch.setattr("rengu_flow_ui.jobs.poll_job", lambda job_id: db.get_job(job_id))
 
     j1 = job_queue.enqueue_job(
         config_id=job_config,
@@ -122,7 +122,7 @@ def test_try_start_next_after_finish(job_config: int, monkeypatch: pytest.Monkey
 
 
 def test_prepare_job_reset_flags(job_config: int, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("renga_flow_ui.job_queue.try_start_next", lambda: None)
+    monkeypatch.setattr("rengu_flow_ui.job_queue.try_start_next", lambda: None)
     job = job_queue.prepare_job(
         config_id=job_config,
         content=None,
@@ -139,7 +139,7 @@ def test_prepare_job_reset_flags(job_config: int, monkeypatch: pytest.MonkeyPatc
 
 
 def test_prepare_job_cache_flags(job_config: int, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("renga_flow_ui.job_queue.try_start_next", lambda: None)
+    monkeypatch.setattr("rengu_flow_ui.job_queue.try_start_next", lambda: None)
     cache_job = job_queue.prepare_job(
         config_id=job_config,
         content=None,

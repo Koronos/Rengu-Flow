@@ -1,6 +1,6 @@
 """Dataset library index columns."""
 
-from renga_flow_ui import library_db
+from rengu_flow_ui import library_db
 
 
 def test_read_returns_raw_content(ui_data_tmp) -> None:

@@ -7,7 +7,7 @@ import torch
 
 pytest.importorskip("transformers")
 
-from renga_flow.optim.resolver import resolve_optimizer_class
+from rengu_flow.optim.resolver import resolve_optimizer_class
 
 
 @pytest.fixture

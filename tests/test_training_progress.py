@@ -5,14 +5,14 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from renga_flow.control.status_file import read_status_file, write_status_file
-from renga_flow.training_progress import (
+from rengu_flow.control.status_file import read_status_file, write_status_file
+from rengu_flow.training_progress import (
     TrainingProgressTracker,
     format_eta,
     format_training_log_line,
     resolve_target_steps,
 )
-from renga_flow_ui import training_hub
+from rengu_flow_ui import training_hub
 
 
 def test_resolve_target_steps_prefers_max_steps() -> None:

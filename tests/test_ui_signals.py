@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from renga_flow.utils.signal_files import (
+from rengu_flow.utils.signal_files import (
     SIGNAL_CONTINUE,
     SIGNAL_EXPORT_MODEL,
     SIGNAL_EXPORT_MODEL_QUIT,
@@ -13,7 +13,7 @@ from renga_flow.utils.signal_files import (
     SIGNAL_SAVE,
     SIGNAL_SAVE_QUIT,
 )
-from renga_flow_ui import signals
+from rengu_flow_ui import signals
 
 
 @pytest.mark.parametrize(
@@ -46,7 +46,7 @@ def test_send_signal_missing_run_dir_raises(tmp_path):
 
 
 def test_job_signal_api(ui_client, ui_data_tmp: Path) -> None:
-    from renga_flow_ui import db
+    from rengu_flow_ui import db
 
     run_dir = ui_data_tmp / "runs" / "test_run"
     run_dir.mkdir(parents=True)
@@ -63,7 +63,7 @@ def test_job_signal_api(ui_client, ui_data_tmp: Path) -> None:
 
 
 def test_job_signal_rejects_stopped_job(ui_client, ui_data_tmp: Path) -> None:
-    from renga_flow_ui import db
+    from rengu_flow_ui import db
 
     run_dir = ui_data_tmp / "runs" / "stopped_run"
     run_dir.mkdir(parents=True)
@@ -89,7 +89,7 @@ def test_list_signals_api(ui_client) -> None:
 
 
 def test_run_dir_accepts_signals_with_active_job(ui_data_tmp: Path) -> None:
-    from renga_flow_ui import db
+    from rengu_flow_ui import db
 
     run_dir = ui_data_tmp / "active_run"
     run_dir.mkdir()

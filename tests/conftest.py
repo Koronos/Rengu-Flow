@@ -1,4 +1,4 @@
-"""Pytest fixtures for renga-flow tests."""
+"""Pytest fixtures for rengu-flow tests."""
 
 import copy
 from pathlib import Path
@@ -50,26 +50,26 @@ lr = 1.0e-4
 
 
 def _patch_ui_data_paths(monkeypatch: pytest.MonkeyPatch, base: Path) -> None:
-    """Point all renga_flow_ui storage at a temporary directory."""
+    """Point all rengu_flow_ui storage at a temporary directory."""
     db_file = base / "jobs.db"
 
     def _db_path() -> Path:
         return db_file
 
-    monkeypatch.setenv("RENGA_FLOW_UI_DATA", str(base))
-    monkeypatch.setattr("renga_flow_ui.settings.ui_data_dir", lambda: base)
-    monkeypatch.setattr("renga_flow_ui.settings.staging_dir", lambda: base / "staging")
-    monkeypatch.setattr("renga_flow_ui.settings.logs_dir", lambda: base / "logs")
-    monkeypatch.setattr("renga_flow_ui.settings.db_path", _db_path)
-    monkeypatch.setattr("renga_flow_ui.db.db_path", _db_path)
-    monkeypatch.setattr("renga_flow_ui.library_db.db_path", _db_path)
-    monkeypatch.setattr("renga_flow_ui.configs_store.staging_dir", lambda: base / "staging")
+    monkeypatch.setenv("RENGU_FLOW_UI_DATA", str(base))
+    monkeypatch.setattr("rengu_flow_ui.settings.ui_data_dir", lambda: base)
+    monkeypatch.setattr("rengu_flow_ui.settings.staging_dir", lambda: base / "staging")
+    monkeypatch.setattr("rengu_flow_ui.settings.logs_dir", lambda: base / "logs")
+    monkeypatch.setattr("rengu_flow_ui.settings.db_path", _db_path)
+    monkeypatch.setattr("rengu_flow_ui.db.db_path", _db_path)
+    monkeypatch.setattr("rengu_flow_ui.library_db.db_path", _db_path)
+    monkeypatch.setattr("rengu_flow_ui.configs_store.staging_dir", lambda: base / "staging")
 
 
 def _init_ui_data_dir(base: Path) -> None:
     for sub in ("staging", "logs"):
         (base / sub).mkdir(parents=True, exist_ok=True)
-    from renga_flow_ui import db
+    from rengu_flow_ui import db
 
     db.init_db()
 
@@ -110,9 +110,9 @@ def ui_client(ui_data_tmp: Path, monkeypatch: pytest.MonkeyPatch):
     """FastAPI TestClient with UI routes (no auth token)."""
     from starlette.testclient import TestClient
 
-    from renga_flow_ui.app import create_app
+    from rengu_flow_ui.app import create_app
 
-    monkeypatch.delenv("RENGA_FLOW_UI_TOKEN", raising=False)
+    monkeypatch.delenv("RENGU_FLOW_UI_TOKEN", raising=False)
     app = create_app()
     with TestClient(app, raise_server_exceptions=False) as client:
         yield client
@@ -122,10 +122,10 @@ def ui_client(ui_data_tmp: Path, monkeypatch: pytest.MonkeyPatch):
 def ui_client_auth(ui_data_tmp: Path, monkeypatch: pytest.MonkeyPatch):
     from starlette.testclient import TestClient
 
-    from renga_flow_ui.app import create_app
+    from rengu_flow_ui.app import create_app
 
-    monkeypatch.setenv("RENGA_FLOW_UI_TOKEN", "test-secret")
-    headers = {"X-Renga-Flow-Token": "test-secret"}
+    monkeypatch.setenv("RENGU_FLOW_UI_TOKEN", "test-secret")
+    headers = {"X-Rengu-Flow-Token": "test-secret"}
     app = create_app()
     with TestClient(app, raise_server_exceptions=False) as client:
         yield client, headers

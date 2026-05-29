@@ -7,7 +7,7 @@ import torch
 
 pytest.importorskip("diffusers", exc_type=ImportError)
 
-from renga_flow.model.sdxl import InitialLayer, SDXLPipeline
+from rengu_flow.model.sdxl import InitialLayer, SDXLPipeline
 
 
 @pytest.fixture

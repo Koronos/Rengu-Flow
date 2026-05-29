@@ -13,7 +13,7 @@ All feature documentation must be written **in English**.
 ### Developer (extends functionality)
 
 - **Location**: `docs/developer/`
-- **Content**: Technical contract, where the code lives, APIs, how to add or extend features. Paths under `renga_flow/`.
+- **Content**: Technical contract, where the code lives, APIs, how to add or extend features. Paths under `rengu_flow/`.
 - **Tone**: Implementation-focused, “where to change what”, extension steps.
 
 ### Specifications (not implemented yet)

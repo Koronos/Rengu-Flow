@@ -81,17 +81,31 @@
         <el-row :gutter="16">
           <el-col :xs="12" :sm="6" :md="4">
             <el-form-item label="GPUs">
-              <el-input-number v-model="numGpus" :min="1" :max="64" class="w-full" />
+              <el-input-number
+                v-model="numGpus"
+                :min="1"
+                :max="64"
+                class="w-full"
+                aria-label="Number of GPUs for this job"
+              />
+              <el-text type="info" size="small" class="page-hint hint">
+                DeepSpeed GPU count for this launch (default from local config is 1).
+              </el-text>
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="24" :md="10">
             <el-form-item label="Resume folder">
               <el-input
                 v-model="resumeFrom"
-                placeholder="output/20250217_14-30-00"
+                placeholder="20250217_14-30-00"
                 clearable
                 class="w-full"
+                aria-label="Resume run folder name under output_dir"
               />
+              <el-text type="info" size="small" class="page-hint hint">
+                Folder name under your config’s <code>output_dir</code> (not a full path). Loads
+                <code>latest</code> checkpoint via <code>--resume_from_checkpoint</code>.
+              </el-text>
             </el-form-item>
           </el-col>
         </el-row>

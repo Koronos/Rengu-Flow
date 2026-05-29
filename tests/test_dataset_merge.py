@@ -1,7 +1,7 @@
 """Tests for merging multiple dataset TOML configs."""
 
-from renga_flow.config.dataset_merge import merge_dataset_configs
-from renga_flow.config.loader import load_dataset_config, normalize_dataset_paths
+from rengu_flow.config.dataset_merge import merge_dataset_configs
+from rengu_flow.config.loader import load_dataset_config, normalize_dataset_paths
 
 
 def test_normalize_dataset_paths() -> None:

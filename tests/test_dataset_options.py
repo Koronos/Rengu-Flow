@@ -4,8 +4,8 @@ import json
 
 import torch
 
-from renga_flow.data.cache_utils import seed_from_hash
-from renga_flow.data.dataset import (
+from rengu_flow.data.cache_utils import seed_from_hash
+from rengu_flow.data.dataset import (
     SizeBucketDataset,
     directory_subsample_ratio,
     trim_iteration_order_by_subsample_ratio,

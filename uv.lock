@@ -2120,7 +2120,7 @@ wheels = [
 ]
 
 [[package]]
-name = "renga-flow"
+name = "rengu-flow"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

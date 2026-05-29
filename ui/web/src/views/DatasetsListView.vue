@@ -111,7 +111,7 @@ const {
   sortParams,
   toggleSortOrder,
   orderButtonLabel,
-} = useLibraryListSort("renga-flow-dataset-list-sort", { kind: "dataset" });
+} = useLibraryListSort("rengu-flow-dataset-list-sort", { kind: "dataset" });
 const { rawItems, loading, error, query, load, scheduleSearch } = useDebouncedLibrarySearch(
   api.searchDatasets,
   sortParams

@@ -1,6 +1,6 @@
 """Lenient dataset TOML parsing for the UI (does not rewrite stored files)."""
 
-from renga_flow_ui.dataset_form import form_to_toml, parse_toml_to_form
+from rengu_flow_ui.dataset_form import form_to_toml, parse_toml_to_form
 import toml
 
 

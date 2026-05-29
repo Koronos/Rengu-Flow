@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from renga_flow_ui.config_schema import get_schema
-from renga_flow_ui.field_visibility import field_visible, prune_form_for_model
-from renga_flow_ui.config_form import parse_toml, form_to_toml
+from rengu_flow_ui.config_schema import get_schema
+from rengu_flow_ui.field_visibility import field_visible, prune_form_for_model
+from rengu_flow_ui.config_form import parse_toml, form_to_toml
 
 
 def _paths(schema) -> set[str]:
@@ -18,20 +18,20 @@ def test_cosmos_schema_excludes_t5_and_includes_llm() -> None:
     assert "model.llm_path" in paths
     assert "model.transformer_path" in paths
     assert "model.checkpoint_path" in paths
-    assert "model.diffusion_model_dtype" not in paths
+    assert "model.diffusion_model_dtype" in paths
     assert "model.guidance" not in paths
 
 
-def test_blocks_to_swap_only_for_block_swap_models() -> None:
+def test_blocks_to_swap_visible_when_model_supports_block_swap() -> None:
     schema = get_schema()
     field = next(f for s in schema["sections"] for f in s["fields"] if f["path"] == "blocks_to_swap")
-    assert field.get("visibility") is not None
+    assert field.get("when_capability") == "block_swap"
     caps = schema["registries"]["model_capabilities"]
 
     cosmos_form = {"model.type": "cosmos_predict2", "_has_adapter": True}
     sdxl_form = {"model.type": "sdxl", "_has_adapter": True}
     assert field_visible(field, cosmos_form, caps) is True
-    assert field_visible(field, sdxl_form, caps) is False
+    assert field_visible(field, sdxl_form, caps) is True
 
 
 def test_llm_adapter_fields_hidden_until_set() -> None:

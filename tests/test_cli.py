@@ -1,4 +1,4 @@
-"""Tests for the renga CLI (no uv subprocess)."""
+"""Tests for the rengu CLI (no uv subprocess)."""
 
 import argparse
 from pathlib import Path
@@ -7,8 +7,8 @@ import pytest
 
 import importlib
 
-cli_main_mod = importlib.import_module("renga_flow.cli.main")
-from renga_flow.install_profiles import normalize_profiles, uv_sync_argv
+cli_main_mod = importlib.import_module("rengu_flow.cli.main")
+from rengu_flow.install_profiles import normalize_profiles, uv_sync_argv
 
 
 def test_normalize_profiles_all():
@@ -36,13 +36,13 @@ def test_legacy_train_dispatch(monkeypatch):
         idx = argv.index("--config")
         return argparse.Namespace(config=argv[idx + 1], dump_dataset=None)
 
-    monkeypatch.setattr("renga_flow.main.parse_args", fake_parse)
-    monkeypatch.setattr("renga_flow.main.run_prepared", fake_run_prepared)
+    monkeypatch.setattr("rengu_flow.main.parse_args", fake_parse)
+    monkeypatch.setattr("rengu_flow.main.run_prepared", fake_run_prepared)
     monkeypatch.setattr(cli_main_mod.platform, "require_linux", lambda: None)
     monkeypatch.setattr(cli_main_mod, "load_local_config", lambda: None)
     monkeypatch.setattr(cli_main_mod, "apply_local_config_to_environ", lambda: None)
     monkeypatch.setattr(
-        "renga_flow.cli.training_extras.ensure_training_extras",
+        "rengu_flow.cli.training_extras.ensure_training_extras",
         lambda *_a, **_k: [],
     )
 
@@ -56,7 +56,7 @@ def test_install_alias_maps_to_init():
 
 
 def test_sync_dependencies_requires_uv(monkeypatch):
-    from renga_flow.cli import project_venv
+    from rengu_flow.cli import project_venv
 
     monkeypatch.setattr(project_venv, "require_uv", lambda: (_ for _ in ()).throw(SystemExit(1)))
     with pytest.raises(SystemExit):
@@ -64,7 +64,7 @@ def test_sync_dependencies_requires_uv(monkeypatch):
 
 
 def test_sync_dependencies_calls_uv_sync(tmp_path, monkeypatch):
-    from renga_flow.cli import project_venv
+    from rengu_flow.cli import project_venv
 
     root = tmp_path
     (root / "pyproject.toml").write_text(
@@ -89,18 +89,18 @@ def test_sync_dependencies_calls_uv_sync(tmp_path, monkeypatch):
 
 
 def test_train_launcher_builds_deepspeed_cmd(tmp_path, monkeypatch):
-    from renga_flow.cli.train_launcher import build_train_command
-    from renga_flow.config.local_config import LocalConfig, TrainingConfig, load_local_config
+    from rengu_flow.cli.train_launcher import build_train_command
+    from rengu_flow.config.local_config import LocalConfig, TrainingConfig, load_local_config
 
     monkeypatch.setattr(
-        "renga_flow.cli.train_launcher.ensure_local_config_loaded",
+        "rengu_flow.cli.train_launcher.ensure_local_config_loaded",
         lambda: LocalConfig(root=tmp_path, training=TrainingConfig(num_gpus=1, master_port=29500)),
     )
-    monkeypatch.setattr("renga_flow.cli.train_launcher.which", lambda _: "/usr/bin/deepspeed")
+    monkeypatch.setattr("rengu_flow.cli.train_launcher.which", lambda _: "/usr/bin/deepspeed")
 
     cfg = tmp_path / "train.toml"
     cfg.write_text("dataset = \"x.toml\"\n", encoding="utf-8")
     cmd = build_train_command(cfg)
     assert cmd[0].endswith("deepspeed")
     assert "--num_gpus=1" in cmd
-    assert "renga_flow.main" in cmd
+    assert "rengu_flow.main" in cmd

@@ -1,8 +1,8 @@
-"""Tests for renga_flow.utils.paths."""
+"""Tests for rengu_flow.utils.paths."""
 
 from __future__ import annotations
 
-from renga_flow.utils.paths import path_is_under
+from rengu_flow.utils.paths import path_is_under
 
 
 def test_path_is_under(tmp_path) -> None:

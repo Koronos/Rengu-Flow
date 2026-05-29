@@ -2,7 +2,7 @@
 
 import torch
 
-from renga_flow.data.synthetic import SyntheticSDXLDataset
+from rengu_flow.data.synthetic import SyntheticSDXLDataset
 
 
 def test_synthetic_dataset_basic():

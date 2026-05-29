@@ -1,6 +1,6 @@
 /**
  * Format numeric defaults for UI hints and KV pre-fill (TOML-parseable strings).
- * Keep in sync with renga_flow_ui/default_format.py.
+ * Keep in sync with rengu_flow_ui/default_format.py.
  */
 
 const SMALL_ABS_THRESHOLD = 1e-3;

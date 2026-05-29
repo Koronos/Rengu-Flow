@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from renga_flow_ui import configs_store, db, job_queue
+from rengu_flow_ui import configs_store, db, job_queue
 
 MINIMAL_TOML = """
 dataset = "examples/minimal_dataset.toml"
@@ -258,7 +258,7 @@ def test_dataset_scan_path(ui_client, tmp_path: Path) -> None:
     assert body["caption_txt_files"] == 1
 
     r2 = ui_client.post(
-        "/api/v1/datasets/scan-path", json={"path": "/nonexistent/renga_flow_scan"}
+        "/api/v1/datasets/scan-path", json={"path": "/nonexistent/rengu_flow_scan"}
     )
     assert r2.status_code == 200
     assert r2.json()["ok"] is False
@@ -282,8 +282,8 @@ def test_jobs_enqueue_mocked(ui_client, ui_data_tmp: Path, monkeypatch: pytest.M
         db.update_job(job.id, state="running", pid=12345)
         return 12345
 
-    monkeypatch.setattr("renga_flow_ui.jobs.start_job", fake_start)
-    monkeypatch.setattr("renga_flow_ui.jobs.poll_job", lambda job_id: db.get_job(job_id))
+    monkeypatch.setattr("rengu_flow_ui.jobs.start_job", fake_start)
+    monkeypatch.setattr("rengu_flow_ui.jobs.poll_job", lambda job_id: db.get_job(job_id))
 
     r = ui_client.post(
         "/api/v1/jobs",

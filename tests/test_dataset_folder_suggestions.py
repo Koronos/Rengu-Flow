@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from renga_flow_ui import datasets_store
-from renga_flow_ui.dataset_folder_suggestions import collect_folder_suggestions
+from rengu_flow_ui import datasets_store
+from rengu_flow_ui.dataset_folder_suggestions import collect_folder_suggestions
 
 
 def test_collect_folder_suggestions_existing_and_missing(ui_data_tmp, tmp_path) -> None:

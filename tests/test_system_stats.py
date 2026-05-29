@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from renga_flow_ui import system_stats
+from rengu_flow_ui import system_stats
 
 
 def test_build_summary_from_parts() -> None:
@@ -38,10 +38,10 @@ def test_parse_nvidia_smi_line() -> None:
     assert row["vram_total_gb"] == 40.0
 
 
-@patch("renga_flow_ui.system_stats.shutil.which", return_value=None)
+@patch("rengu_flow_ui.system_stats.shutil.which", return_value=None)
 def test_collect_without_nvidia(mock_which: MagicMock) -> None:
-    with patch("renga_flow_ui.system_stats._collect_cpu") as mock_cpu:
-        with patch("renga_flow_ui.system_stats._collect_ram") as mock_ram:
+    with patch("rengu_flow_ui.system_stats._collect_cpu") as mock_cpu:
+        with patch("rengu_flow_ui.system_stats._collect_ram") as mock_ram:
             mock_cpu.return_value = {"available": True, "percent": 10.0, "temp_c": 40.0}
             mock_ram.return_value = {
                 "available": True,

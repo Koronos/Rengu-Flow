@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 import torch
 
-from renga_flow.utils.async_model_export import (
+from rengu_flow.utils.async_model_export import (
     async_snapshot_fits_in_ram,
     clone_state_dict_to_cpu,
     estimate_state_dict_bytes,
@@ -35,7 +35,7 @@ def test_estimate_state_dict_bytes_respects_save_dtype():
 def test_async_snapshot_fits_when_enough_ram():
     w = torch.ones(10)
     with patch(
-        "renga_flow.utils.async_model_export._available_ram_bytes",
+        "rengu_flow.utils.async_model_export._available_ram_bytes",
         return_value=10_000,
     ):
         fits, needed, available = async_snapshot_fits_in_ram({"a": w}, None)
@@ -47,7 +47,7 @@ def test_async_snapshot_fits_when_enough_ram():
 def test_async_snapshot_skips_when_not_enough_ram():
     w = torch.ones(100)
     with patch(
-        "renga_flow.utils.async_model_export._available_ram_bytes",
+        "rengu_flow.utils.async_model_export._available_ram_bytes",
         return_value=10,
     ):
         fits, needed, available = async_snapshot_fits_in_ram({"a": w}, None)
@@ -59,7 +59,7 @@ def test_async_snapshot_skips_when_not_enough_ram():
 def test_async_snapshot_max_snapshot_bytes():
     w = torch.ones(50)
     with patch(
-        "renga_flow.utils.async_model_export._available_ram_bytes",
+        "rengu_flow.utils.async_model_export._available_ram_bytes",
         return_value=10_000,
     ):
         fits, needed, _ = async_snapshot_fits_in_ram(

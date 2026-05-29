@@ -1,11 +1,11 @@
-"""Tests for renga_flow.utils.cache.Cache."""
+"""Tests for rengu_flow.utils.cache.Cache."""
 
 from pathlib import Path
 
 import pytest
 import torch
 
-from renga_flow.utils.cache import Cache
+from rengu_flow.utils.cache import Cache
 
 
 def test_cache_add_and_read(tmp_path):

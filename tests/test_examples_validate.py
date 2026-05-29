@@ -14,10 +14,10 @@ from pathlib import Path
 import pytest
 import toml
 
-from renga_flow.config import load_config, set_config_defaults, validate_config
-from renga_flow.config.validation import collect_validation_errors
-from renga_flow_ui.configs_store import validate_toml_text
-from renga_flow_ui.datasets_store import validate_dataset_text
+from rengu_flow.config import load_config, set_config_defaults, validate_config
+from rengu_flow.config.validation import collect_validation_errors
+from rengu_flow_ui.configs_store import validate_toml_text
+from rengu_flow_ui.datasets_store import validate_dataset_text
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _EXAMPLES = _REPO_ROOT / "examples"
@@ -63,7 +63,7 @@ def test_training_example_main_validate_only(config_name: str) -> None:
         [
             sys.executable,
             "-m",
-            "renga_flow.main",
+            "rengu_flow.main",
             "--config",
             str(path),
             "--validate-only",

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from renga_flow_ui.docs_reader import DocNotFoundError, DocPathError, list_docs_index, read_doc, resolve_doc_path
+from rengu_flow_ui.docs_reader import DocNotFoundError, DocPathError, list_docs_index, read_doc, resolve_doc_path
 
 
 def test_read_web_ui_doc() -> None:
@@ -61,7 +61,7 @@ def test_symlink_escape_outside_docs(tmp_path: Path, monkeypatch: pytest.MonkeyP
     outside.write_text("outside", encoding="utf-8")
     (docs_user / "escape.md").symlink_to(outside)
 
-    monkeypatch.setattr("renga_flow_ui.docs_reader.repo_root", lambda: tmp_path)
+    monkeypatch.setattr("rengu_flow_ui.docs_reader.repo_root", lambda: tmp_path)
 
     with pytest.raises(DocNotFoundError):
         resolve_doc_path("docs/user/escape.md", repo=tmp_path)

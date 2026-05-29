@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from renga_flow.config.validation import collect_validation_errors
-from renga_flow.run_naming import (
+from rengu_flow.config.validation import collect_validation_errors
+from rengu_flow.run_naming import (
     build_run_folder_name,
     collect_run_name_validation_errors,
     sanitize_run_name,

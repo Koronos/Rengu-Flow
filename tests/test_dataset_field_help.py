@@ -1,6 +1,6 @@
 """Dataset form schema help coverage."""
 
-from renga_flow_ui.dataset_schema import get_dataset_schema
+from rengu_flow_ui.dataset_schema import get_dataset_schema
 
 
 def test_all_dataset_fields_have_help() -> None:

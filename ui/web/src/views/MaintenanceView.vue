@@ -12,7 +12,7 @@
       show-icon
       class="mb-12"
       title="Maintenance disabled"
-      description="Set RENGAFLOW_MAINTENANCE=1 on the control server and restart (e.g. in start-ui.sh), then reload this page."
+      description="Set RENGUFLOW_MAINTENANCE=1 on the control server and restart (e.g. in start-ui.sh), then reload this page."
     />
 
     <el-alert
@@ -127,7 +127,7 @@
           :closable="false"
           class="mt-12"
           title="Server pip disabled"
-          description="Copy commands into your venv. To allow Run from the UI, set RENGAFLOW_MAINTENANCE_ALLOW_PIP=1 on the server."
+          description="Copy commands into your venv. To allow Run from the UI, set RENGUFLOW_MAINTENANCE_ALLOW_PIP=1 on the server."
         />
       </el-card>
 

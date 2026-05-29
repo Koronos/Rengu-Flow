@@ -1,6 +1,6 @@
 # Testing
 
-How to run and extend the test suite for Renga Flow.
+How to run and extend the test suite for Rengu.
 
 ## Running tests
 
@@ -78,7 +78,7 @@ Run the UI-focused suite (no browser, no GPU):
 pytest tests/test_ui_api.py tests/test_configs_store.py tests/test_config_form.py \
   tests/test_dataset_form.py tests/test_dataset_field_help.py tests/test_datasets_store.py \
   tests/test_dataset_scan.py tests/test_job_queue.py tests/test_ui_job_queue.py \
-  tests/test_renga_flow_ui.py tests/test_docs_reader.py tests/test_system_stats.py \
+  tests/test_rengu_flow_ui.py tests/test_docs_reader.py tests/test_system_stats.py \
   tests/test_registry_probe.py -q
 ```
 
@@ -96,7 +96,7 @@ pytest tests/test_ui_api.py tests/test_configs_store.py tests/test_config_form.p
 | `tests/test_system_stats.py` | Host metrics collector |
 | `tests/test_docs_reader.py` | Markdown path safety |
 | `tests/test_registry_probe.py` | Optimizer/scheduler import probe |
-| `tests/test_renga_flow_ui.py` | Config store CRUD smoke |
+| `tests/test_rengu_flow_ui.py` | Config store CRUD smoke |
 
 Requires `pip install -e ".[ui,dev]"` (FastAPI TestClient + httpx).
 
@@ -105,8 +105,8 @@ Requires `pip install -e ".[ui,dev]"` (FastAPI TestClient + httpx).
 Not run in CI. With `.[cosmos_predict2]` installed and real checkpoint paths:
 
 ```bash
-deepspeed --num_gpus=1 -m renga_flow.main --config my.toml --cache_only
-deepspeed --num_gpus=1 -m renga_flow.main --config my.toml
+deepspeed --num_gpus=1 -m rengu_flow.main --config my.toml --cache_only
+deepspeed --num_gpus=1 -m rengu_flow.main --config my.toml
 ```
 
 Repeat for `examples/minimal_config_cosmos_predict2_{lora,lokr,finetune}.toml`. Success: cache on disk, training loop runs, run dir contains `adapter_model.safetensors` (LoRA/LoKr) or `model.safetensors` (finetune).
@@ -156,7 +156,7 @@ Dataset-related tests (config, loader, captions, cache hooks, smoke fixture):
 | `tests/test_smoke_cc0_dataset.py` | Versioned CC0 fixture (12 jpg/txt pairs, manifest, `dump_dataset` on `tests/fixtures/smoke/dataset_cc0.toml`). |
 | `tests/test_sdxl_cache_hooks.py` | SDXL `get_preprocess_media_file_fn`, `get_text_encoders`, `get_call_text_encoder_fn` (mocked). |
 | `tests/test_sdxl_cached_prepare_inputs.py` | SDXL `prepare_inputs` / `InitialLayer` cached embedding path (mocked). |
-| `tests/test_dump_dataset.py` | `renga_flow.data.dump_dataset` on a temporary directory. |
+| `tests/test_dump_dataset.py` | `rengu_flow.data.dump_dataset` on a temporary directory. |
 | `tests/test_oom_skip.py` | `is_cuda_oom`, `OomSkipState`, `handle_oom_skip` (CPU). |
 | `tests/test_cosmos_load_and_fuse.py` | Cosmos `load_and_fuse_adapter` raises `NotImplementedError` (documented). |
 | `tests/test_cache_utils_config.py` | `resolve_cache_num_proc`, `_map_and_cache` `keep_in_memory`. |
@@ -167,7 +167,7 @@ Dataset-related tests (config, loader, captions, cache hooks, smoke fixture):
 | `tests/test_ui_signals.py` | `send_signal` and job signals API. |
 | `tests/test_genericoptim_cpu_state.py` | `GenericOptim` + `kahan_buffer_offload` CPU state roundtrip. |
 
-**GPU smokes (optional, local):** Copy `.env.example` to `.env` (gitignored) and set `RENGA_SDXL_CHECKPOINT_PATH` / `RENGA_COSMOS_*`. Configs live under `tests/fixtures/smoke/` (not `examples/`). `scripts/run_model_smoke.sh sdxl|cosmos` vendors fixtures if needed, runs `--cache_only`, then **30** training steps. `scripts/smoke_training_signals.sh` exercises every signal file plus `genericoptim` resume (requires `pip install -e ".[optim]"`). `renga_flow.config.local_env` applies env vars before validation. Scripts **purge** `output/`, fixture caches, and `tmp/smoke_*.log` by default (`KEEP_SMOKE_ARTIFACTS=1` / `KEEP_SMOKE_LOG=1` to retain).
+**GPU smokes (optional, local):** Copy `.env.example` to `.env` (gitignored) and set `RENGU_SDXL_CHECKPOINT_PATH` / `RENGU_COSMOS_*`. Configs live under `tests/fixtures/smoke/` (not `examples/`). `scripts/run_model_smoke.sh sdxl|cosmos` vendors fixtures if needed, runs `--cache_only`, then **30** training steps. `scripts/smoke_training_signals.sh` exercises every signal file plus `genericoptim` resume (requires `pip install -e ".[optim]"`). `rengu_flow.config.local_env` applies env vars before validation. Scripts **purge** `output/`, fixture caches, and `tmp/smoke_*.log` by default (`KEEP_SMOKE_ARTIFACTS=1` / `KEEP_SMOKE_LOG=1` to retain).
 
 **GPU smoke A/B (dataloader/cache flags):** After unit tests pass, run `scripts/smoke_perf_ab.sh sdxl` for baseline `iter_sec_mean` (steps ≥ 6 from `bench_steps.csv`), then e.g. `scripts/smoke_perf_ab.sh sdxl prefetch` to compare `dataloader_prefetch=true`. Presets: `prefetch`, `workers2`. See [performance-cpu-ram](performance-cpu-ram.md).
 

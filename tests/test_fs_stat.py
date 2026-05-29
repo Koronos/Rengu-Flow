@@ -6,12 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from renga_flow_ui.fs_stat import resolve_validated_path, stat_path
-from renga_flow_ui.settings import repo_root
+from rengu_flow_ui.fs_stat import resolve_validated_path, stat_path
+from rengu_flow_ui.settings import repo_root
 
 
 def test_stat_path_existing_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("renga_flow_ui.fs_stat.repo_root", lambda: tmp_path)
+    monkeypatch.setattr("rengu_flow_ui.fs_stat.repo_root", lambda: tmp_path)
     f = tmp_path / "model.safetensors"
     f.write_text("x", encoding="utf-8")
 
@@ -23,7 +23,7 @@ def test_stat_path_existing_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 
 
 def test_stat_path_existing_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("renga_flow_ui.fs_stat.repo_root", lambda: tmp_path)
+    monkeypatch.setattr("rengu_flow_ui.fs_stat.repo_root", lambda: tmp_path)
     d = tmp_path / "data"
     d.mkdir()
 
@@ -34,13 +34,13 @@ def test_stat_path_existing_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
 
 
 def test_stat_path_missing() -> None:
-    result = stat_path("__definitely_missing_renga_flow_path__")
+    result = stat_path("__definitely_missing_rengu_flow_path__")
     assert result["exists"] is False
     assert result["error"] == "Path does not exist"
 
 
 def test_stat_path_wrong_type(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("renga_flow_ui.fs_stat.repo_root", lambda: tmp_path)
+    monkeypatch.setattr("rengu_flow_ui.fs_stat.repo_root", lambda: tmp_path)
     d = tmp_path / "folder"
     d.mkdir()
 
@@ -50,7 +50,7 @@ def test_stat_path_wrong_type(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
 
 
 def test_stat_path_blocks_parent_traversal(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("renga_flow_ui.fs_stat.repo_root", lambda: tmp_path)
+    monkeypatch.setattr("rengu_flow_ui.fs_stat.repo_root", lambda: tmp_path)
     result = stat_path("../outside")
     assert result["exists"] is False
     assert ".." in (result.get("error") or "")
@@ -62,7 +62,7 @@ def test_resolve_validated_path_relative_under_repo() -> None:
 
 
 def test_stat_path_directory_with_spaces(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("renga_flow_ui.fs_stat.repo_root", lambda: tmp_path)
+    monkeypatch.setattr("rengu_flow_ui.fs_stat.repo_root", lambda: tmp_path)
     d = tmp_path / "my data"
     d.mkdir()
 
@@ -73,7 +73,7 @@ def test_stat_path_directory_with_spaces(tmp_path: Path, monkeypatch: pytest.Mon
 
 
 def test_stat_path_symlink_to_directory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("renga_flow_ui.fs_stat.repo_root", lambda: tmp_path)
+    monkeypatch.setattr("rengu_flow_ui.fs_stat.repo_root", lambda: tmp_path)
     target = tmp_path / "real"
     target.mkdir()
     link = tmp_path / "linked"
@@ -86,7 +86,7 @@ def test_stat_path_symlink_to_directory(tmp_path: Path, monkeypatch: pytest.Monk
 
 
 def test_fs_stat_api(ui_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("renga_flow_ui.fs_stat.repo_root", lambda: tmp_path)
+    monkeypatch.setattr("rengu_flow_ui.fs_stat.repo_root", lambda: tmp_path)
     sample = tmp_path / "examples"
     sample.mkdir()
     (sample / "minimal_dataset.toml").write_text("x", encoding="utf-8")

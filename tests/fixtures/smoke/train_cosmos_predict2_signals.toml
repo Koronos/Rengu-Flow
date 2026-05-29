@@ -1,5 +1,5 @@
 # Cosmos Predict2 smoke for file-based training signals (scripts/smoke_training_signals.sh).
-# Model paths: RENGA_COSMOS_* in repo-root `.env`.
+# Model paths: RENGU_COSMOS_* in repo-root `.env`.
 
 dataset = "tests/fixtures/smoke/dataset_cc0.toml"
 output_dir = "output"

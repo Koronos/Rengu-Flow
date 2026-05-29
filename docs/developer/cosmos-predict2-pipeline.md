@@ -4,7 +4,7 @@
 
 | Module | Role |
 |--------|------|
-| `renga_flow/model/cosmos_predict2/pipeline.py` | `CosmosPredict2Pipeline` — orchestration |
+| `rengu_flow/model/cosmos_predict2/pipeline.py` | `CosmosPredict2Pipeline` — orchestration |
 | `dit.py` | `MiniTrainDIT` (from diffusion-pipe `cosmos_predict2_modeling.py`) |
 | `llm_adapter.py` | LLM adapter blocks |
 | `wan_vae.py` | Wan VAE encode/decode |
@@ -12,8 +12,8 @@
 | `layers.py` | DeepSpeed pipeline layers (`InitialLayer`, `TransformerLayer`, …) |
 | `config.py` | `get_dit_config` from checkpoint keys (max 1024) |
 | `paths.py` | Bundled tokenizer assets via `importlib.resources` |
-| `renga_flow/networks/adapter_dit.py` | LoRA (PEFT) and LoKr save/load (Comfy prefix) |
-| `renga_flow/data/preprocess_media.py` | `PreprocessMediaFile` for dataset cache |
+| `rengu_flow/networks/adapter_dit.py` | LoRA (PEFT) and LoKr save/load (Comfy prefix) |
+| `rengu_flow/data/preprocess_media.py` | `PreprocessMediaFile` for dataset cache |
 
 Registry: `register_model("cosmos_predict2")` only (Anima is a checkpoint branding name in user docs, not a `type` value).
 
@@ -42,13 +42,13 @@ When `[adapter]` is absent, `load_diffusion_model` leaves base DiT parameters tr
 
 ## Dtype overrides (`[model]`)
 
-Parsed in **`renga_flow.config.defaults.set_config_defaults`**. Implemented in **`pipeline.py`** as follows:
+Parsed in **`rengu_flow.config.defaults.set_config_defaults`**. Implemented in **`pipeline.py`** as follows:
 
 | Key | Role |
 |-----|------|
 | `dtype` | Required. VAE, `load_text_stack`, adapter dtype, and DiT layers in `KEEP_IN_HIGH_PRECISION` / 1D / `llm_adapter` at load time. |
 | `transformer_dtype` | Optional; defaults to `dtype`. Dtype for most `transformer_path` weights in `load_diffusion_model` (not embedders/norms). |
-| `diffusion_model_dtype` | Optional; **not read** by `CosmosPredict2Pipeline` today (reserved / upstream parity). |
+| `diffusion_model_dtype` | Optional; sets training forward autocast dtype (`main.py` → `AUTOCAST_DTYPE`). Defaults `transformer_dtype` when omitted (`defaults.py`). |
 
 User-facing summary: **`docs/user/training-cosmos-predict2-lora-lokr-finetune.md`** (Precision and **Performance and VRAM** sections).
 
@@ -58,14 +58,14 @@ Highlights for operators (see also user doc **Performance and VRAM**):
 
 - **`pipeline_model.compile()`** is wired in `main.py` when `compile = true` (diffusion-pipe parity). Short smokes penalize compile in the mean; on long runs steady iter was ~0.51 s vs ~0.68–0.70 s without compile — see user doc **Performance and VRAM**.
 - **`reentrant_activation_checkpointing`** defaults to `true` for `cosmos_predict2` when AC is on and `blocks_to_swap` is unset (`defaults.py`).
-- **`enable_block_swap`** is not overridden in this package — non-zero `blocks_to_swap` fails with `NotImplementedError`.
+- **`enable_block_swap`** uses shared [`rengu_flow/training/block_swap.py`](../training/block_swap.py) on `transformer.blocks` (see [training-techniques.md](training-techniques.md)).
 - Text embeddings: prefer **`cache_text_embeddings`** + `--cache_only` so training does not repeat Qwen3 forward passes.
 
 ## Dependencies and upstream sources
 
-Full submodule matrix: [dependencies-and-upstream.md](dependencies-and-upstream.md). Installing renga-flow does **not** require `git submodule update` or a local diffusion-pipe clone.
+Full submodule matrix: [dependencies-and-upstream.md](dependencies-and-upstream.md). Installing rengu-flow does **not** require `git submodule update` or a local diffusion-pipe clone.
 
-| diffusion-pipe (train Anima) | renga-flow module |
+| diffusion-pipe (train Anima) | rengu-flow module |
 |------------------------------|-------------------|
 | `models/cosmos_predict2_modeling.py` | `dit.py` |
 | `models/llm_adapter.py` | `llm_adapter.py` |

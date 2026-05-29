@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from renga_flow_ui import datasets_store
+from rengu_flow_ui import datasets_store
 
 
 MINIMAL = """resolutions = [1024]
@@ -74,7 +74,7 @@ def test_training_picker_uses_library_ref(ui_data_tmp: Path) -> None:
     picker = datasets_store.list_for_training_picker()
     lib = [p for p in picker if p["id"] == str(did)]
     assert len(lib) == 1
-    assert lib[0]["path"].startswith("renga-flow-dataset:")
+    assert lib[0]["path"].startswith("rengu-flow-dataset:")
 
 
 def test_training_picker_library_only(ui_data_tmp: Path) -> None:
@@ -82,7 +82,7 @@ def test_training_picker_library_only(ui_data_tmp: Path) -> None:
     datasets_store.insert_dataset(MINIMAL)
     picker = datasets_store.list_for_training_picker()
     assert picker
-    assert all(p["path"].startswith("renga-flow-dataset:") for p in picker)
+    assert all(p["path"].startswith("rengu-flow-dataset:") for p in picker)
     assert all("(example" not in p.get("label", "").lower() for p in picker)
 
 

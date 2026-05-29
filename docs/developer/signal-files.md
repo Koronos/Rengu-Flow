@@ -12,12 +12,12 @@ This page describes the **technical contract** and **implementation** of the fil
 
 ## Where the code lives
 
-- **Module**: `renga_flow.utils.signal_files`
+- **Module**: `rengu_flow.utils.signal_files`
 - **Constants**: `SIGNAL_SAVE`, `SIGNAL_SAVE_QUIT`, `SIGNAL_EXPORT_MODEL`, `SIGNAL_EXPORT_MODEL_QUIT`, `SIGNAL_PREVIEW`, `SIGNAL_CONTINUE`, `SIGNAL_QUIT`
 - **Export wait**: `ExportRecoveryAction`, `wait_for_export_recovery(run_dir) -> ExportRecoveryAction`
 - **Return type**: `SignalResult(should_checkpoint, should_quit, should_export_model, should_export_quit, should_preview)`
 - **Function**: `process_signals(run_dir: str | Path) -> SignalResult`
-- **Call site**: `renga_flow.utils.saver.Saver.process_step` — reacts to export signals with `save_model(f"signal_step{step}")`, checkpoint signals with `save_checkpoint`, and `sys.exit(0)` when `should_quit` or `should_export_quit`.
+- **Call site**: `rengu_flow.utils.saver.Saver.process_step` — reacts to export signals with `save_model(f"signal_step{step}")`, checkpoint signals with `save_checkpoint`, and `sys.exit(0)` when `should_quit` or `should_export_quit`.
 
 Checkpoint retention (`max_checkpoints_to_keep`) is implemented in `saver._prune_old_checkpoints` after each `save_checkpoint`. See `docs/user/checkpoint-and-save.md`.
 
@@ -40,7 +40,7 @@ def process_signals(run_dir: str | Path) -> SignalResult:
 
 ## Adding a new signal
 
-1. **Constant** in `renga_flow.utils.signal_files`, e.g. `SIGNAL_PAUSE = "pause"`.
+1. **Constant** in `rengu_flow.utils.signal_files`, e.g. `SIGNAL_PAUSE = "pause"`.
 2. **Detection** in `process_signals` on rank 0; extend `SignalResult` with a new field (preferred over ad-hoc return shapes).
 3. **Broadcast** the extended result list to all ranks.
 4. **Consume** the file on rank 0 after broadcast; `dist.barrier()` again.
@@ -52,7 +52,7 @@ Keeping `save` / `save_quit` names and the run_dir root preserves diffusion-pipe
 
 - Same resume signal names: `save`, `save_quit`.
 - Same location: root of the run directory.
-- **New in renga-flow**: `export_model`, `export_model_quit` (diffusion-pipe managers do not send these unless extended).
+- **New in rengu-flow**: `export_model`, `export_model_quit` (diffusion-pipe managers do not send these unless extended).
 
 ## Tests and GPU smoke
 
@@ -60,11 +60,11 @@ Keeping `save` / `save_quit` names and the run_dir root preserves diffusion-pipe
 
 - `tests/test_signal_files.py` — `process_signals` for each file name and `save_quit` vs `save` priority.
 - `tests/test_saver_signals.py` — `Saver.process_step` with mocked DeepSpeed engine.
-- `tests/test_ui_signals.py` — `renga_flow_ui.signals.send_signal` and `POST /api/v1/jobs/{id}/signals` (includes `continue`, `quit`).
+- `tests/test_ui_signals.py` — `rengu_flow_ui.signals.send_signal` and `POST /api/v1/jobs/{id}/signals` (includes `continue`, `quit`).
 - `tests/test_genericoptim_cpu_state.py` — `GenericOptim` + `kahan_buffer_offload` state on CPU after `step` / `load_state_dict`.
 
 **GPU smoke (Cosmos Predict2, manual):**
 
 - Configs live under `tests/fixtures/smoke/` (not `examples/`).
 - `bash scripts/smoke_training_signals.sh` — touches each signal during a real run, then resumes with `genericoptim` + `kahan_buffer_offload` after `save_quit`.
-- Requires repo-root `.env` with `RENGA_COSMOS_*` and `pip install -e ".[optim]"` for the genericoptim phase.
+- Requires repo-root `.env` with `RENGU_COSMOS_*` and `pip install -e ".[optim]"` for the genericoptim phase.

@@ -2,7 +2,7 @@
 
 import pytest
 
-from renga_flow_ui.registry_probe import (
+from rengu_flow_ui.registry_probe import (
     probe_optimizer,
     probe_resolution,
     probe_scheduler,

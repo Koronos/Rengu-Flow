@@ -1,6 +1,6 @@
 import { ref, watch } from "vue";
 
-const DEFAULT_KEY = "renga-flow-dataset-preview-view";
+const DEFAULT_KEY = "rengu-flow-dataset-preview-view";
 type DatasetViewMode = "cards" | "list" | "table";
 
 const VALID_MODES = new Set<DatasetViewMode>(["cards", "list", "table"]);
@@ -35,5 +35,5 @@ export function useDatasetViewMode(
   return { viewMode };
 }
 
-export const DATASET_LIBRARY_VIEW_KEY = "renga-flow-dataset-library-view";
-export const DATASET_DIRECTORY_VIEW_KEY = "renga-flow-dataset-directory-view";
+export const DATASET_LIBRARY_VIEW_KEY = "rengu-flow-dataset-library-view";
+export const DATASET_DIRECTORY_VIEW_KEY = "rengu-flow-dataset-directory-view";

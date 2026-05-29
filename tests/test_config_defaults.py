@@ -3,8 +3,8 @@
 import pytest
 import torch
 
-from renga_flow.config.defaults import set_config_defaults
-from renga_flow.config.validation import ConfigValidationError
+from rengu_flow.config.defaults import set_config_defaults
+from rengu_flow.config.validation import ConfigValidationError
 
 
 def test_set_config_defaults_top_level_and_model_dtype(minimal_config_copy):
@@ -75,5 +75,5 @@ def test_set_config_defaults_eval_and_monitoring(minimal_config_copy):
     assert mon.get("enable_wandb") is False
     assert mon.get("enable_status_file") is False
     assert "wandb_tracker_name" in mon
-    assert mon.get("wandb_tracker_name") == "renga-flow"
+    assert mon.get("wandb_tracker_name") == "rengu-flow"
     assert "wandb_run_name" in mon

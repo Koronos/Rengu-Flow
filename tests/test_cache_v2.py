@@ -7,12 +7,12 @@ import json
 import pytest
 import torch
 
-from renga_flow.utils.cache_factory import (
+from rengu_flow.utils.cache_factory import (
     CACHE_FORMAT_V2,
     detect_cache_format,
     open_disk_cache,
 )
-from renga_flow.utils.cache_v2 import MANIFEST_NAME, CacheV2
+from rengu_flow.utils.cache_v2 import MANIFEST_NAME, CacheV2
 
 
 def _latents_item(*, mask=None, scale: float = 1.0) -> dict:
@@ -135,7 +135,7 @@ def test_detect_cache_format_and_open_factory(tmp_path):
 
     v1_dir = tmp_path / "v1"
     v1_dir.mkdir()
-    from renga_flow.utils.cache import Cache
+    from rengu_flow.utils.cache import Cache
 
     v1 = Cache(v1_dir, "fp1", shard_size_gb=0.001)
     v1.add(_latents_item())

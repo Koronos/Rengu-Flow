@@ -1,5 +1,5 @@
 # Minimal SDXL LoRA training. Run:
-#   deepspeed --num_gpus=1 -m renga_flow.main --config examples/minimal_config_lora_sdxl.toml
+#   deepspeed --num_gpus=1 -m rengu_flow.main --config examples/minimal_config_lora_sdxl.toml
 
 dataset = "examples/minimal_dataset.toml"
 

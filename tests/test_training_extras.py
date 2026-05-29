@@ -7,8 +7,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from renga_flow.cli import training_extras
-from renga_flow.registry.optimizers import OPTIMIZER_ALIASES, VENDOR_OPTIMIZER_ALIASES
+from rengu_flow.cli import training_extras
+from rengu_flow.registry.optimizers import OPTIMIZER_ALIASES, VENDOR_OPTIMIZER_ALIASES
 
 
 def test_profiles_for_cosmos_config():
@@ -87,7 +87,7 @@ def test_ensure_training_extras_runs_sync(tmp_path, monkeypatch):
 
 
 def test_jobs_start_calls_ensure_training_extras(tmp_path, monkeypatch):
-    from renga_flow_ui import jobs
+    from rengu_flow_ui import jobs
 
     called = []
 
@@ -104,7 +104,7 @@ def test_jobs_start_calls_ensure_training_extras(tmp_path, monkeypatch):
 
     proc = MagicMock()
     proc.pid = 12345
-    from renga_flow_ui import subprocess_util
+    from rengu_flow_ui import subprocess_util
 
     monkeypatch.setattr(
         subprocess_util,

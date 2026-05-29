@@ -1,13 +1,13 @@
 """Tests for UI config form TOML conversion."""
 
-from renga_flow.registry.model_capabilities import get_capability, normalize_model_type
-from renga_flow_ui.config_form import (
+from rengu_flow.registry.model_capabilities import get_capability, normalize_model_type
+from rengu_flow_ui.config_form import (
     form_to_toml,
     form_values_for_ui,
     merge_form_into_config,
     parse_toml,
 )
-from renga_flow_ui.config_schema import get_registries, get_schema
+from rengu_flow_ui.config_schema import get_registries, get_schema
 
 
 def test_schema_registries() -> None:
@@ -20,9 +20,10 @@ def test_schema_registries() -> None:
     assert "cosine" in reg["schedulers"]
 
 
-def test_unknown_model_type_has_no_capability() -> None:
-    assert get_capability("anima") is None
-    assert normalize_model_type("anima") == "anima"
+def test_anima_alias_resolves_to_cosmos_capability() -> None:
+    assert normalize_model_type("anima") == "cosmos_predict2"
+    assert get_capability("anima") is not None
+    assert get_capability("anima").type_id == "cosmos_predict2"
     form = parse_toml(
         """
 dataset = "x.toml"
@@ -33,7 +34,7 @@ transformer_path = "/t"
 vae_path = "/v"
 """
     )
-    assert form["model.type"] == "anima"
+    assert form["model.type"] == "cosmos_predict2"
 
 
 def test_schema_training_core_importance() -> None:
@@ -286,13 +287,13 @@ def test_schema_checkpoint_export_retention_fields() -> None:
     paths = {f["path"] for f in checkpoint["fields"]}
     assert "max_model_exports_to_keep" in paths
     assert "keep_exports_from_step" in paths
-    from renga_flow_ui import config_field_help
+    from rengu_flow_ui import config_field_help
 
     assert "keep_exports_from_step" in config_field_help.FIELD_HELP["max_model_exports_to_keep"]["detail"].lower()
 
 
 def test_scheduler_warmup_field_help_documents_trainer_wrap() -> None:
-    from renga_flow_ui import config_field_help
+    from rengu_flow_ui import config_field_help
 
     kv_detail = config_field_help.FIELD_HELP["lr_scheduler_args.extra_params"]["detail"]
     warmup_detail = config_field_help.FIELD_HELP["warmup_steps"]["detail"]

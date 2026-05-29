@@ -1,5 +1,5 @@
 /**
- * Default KV maps for optimizers/schedulers. Keep in sync with renga_flow_ui/optim_kv_defaults.py.
+ * Default KV maps for optimizers/schedulers. Keep in sync with rengu_flow_ui/optim_kv_defaults.py.
  */
 
 export const SCHEDULER_RUNTIME_TOKENS = [

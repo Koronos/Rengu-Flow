@@ -13,44 +13,44 @@ import {
 
 describe("datasetLibraryRef", () => {
   it("parses ref with display suffix", () => {
-    const ref = "renga-flow-dataset:3:artista 1";
+    const ref = "rengu-flow-dataset:3:artista 1";
     expect(isLibraryDatasetRef(ref)).toBe(true);
     const p = parseDatasetLibraryRef(ref);
     expect(p.id).toBe("3");
     expect(p.label).toBe("artista 1");
-    expect(canonicalDatasetRef(ref)).toBe("renga-flow-dataset:3");
+    expect(canonicalDatasetRef(ref)).toBe("rengu-flow-dataset:3");
   });
 
   it("parses ref without suffix", () => {
-    const ref = "renga-flow-dataset:12";
+    const ref = "rengu-flow-dataset:12";
     const p = parseDatasetLibraryRef(ref);
     expect(p.id).toBe("12");
     expect(p.label).toBeNull();
   });
 
   it("formats ref with optional label", () => {
-    expect(formatDatasetLibraryRef(5, "My set")).toBe("renga-flow-dataset:5:My set");
-    expect(formatDatasetLibraryRef(5)).toBe("renga-flow-dataset:5");
+    expect(formatDatasetLibraryRef(5, "My set")).toBe("rengu-flow-dataset:5:My set");
+    expect(formatDatasetLibraryRef(5)).toBe("rengu-flow-dataset:5");
   });
 
   it("display label prefers suffix then id", () => {
-    expect(datasetRefDisplayLabel("renga-flow-dataset:3:artista 1")).toBe("artista 1");
-    expect(datasetRefDisplayLabel("renga-flow-dataset:12")).toBe("12");
+    expect(datasetRefDisplayLabel("rengu-flow-dataset:3:artista 1")).toBe("artista 1");
+    expect(datasetRefDisplayLabel("rengu-flow-dataset:12")).toBe("12");
     expect(datasetRefDisplayLabel("/data/foo.toml")).toBe("/data/foo.toml");
   });
 
   it("libraryDatasetIdFromRef validates numeric id", () => {
-    expect(libraryDatasetIdFromRef("renga-flow-dataset:3:label")).toBe("3");
-    expect(libraryDatasetIdFromRef("renga-flow-dataset:abc")).toBeNull();
+    expect(libraryDatasetIdFromRef("rengu-flow-dataset:3:label")).toBe("3");
+    expect(libraryDatasetIdFromRef("rengu-flow-dataset:abc")).toBeNull();
     expect(libraryDatasetIdFromRef("/path.toml")).toBeNull();
   });
 
   it("appendUniqueDatasetPaths dedupes by canonical ref", () => {
     const out = appendUniqueDatasetPaths(
-      ["renga-flow-dataset:1:foo"],
-      ["renga-flow-dataset:1", "renga-flow-dataset:2"]
+      ["rengu-flow-dataset:1:foo"],
+      ["rengu-flow-dataset:1", "rengu-flow-dataset:2"]
     );
-    expect(out).toEqual(["renga-flow-dataset:1:foo", "renga-flow-dataset:2"]);
+    expect(out).toEqual(["rengu-flow-dataset:1:foo", "rengu-flow-dataset:2"]);
   });
 
   it("non-ref values pass through", () => {
@@ -60,16 +60,16 @@ describe("datasetLibraryRef", () => {
   });
 
   it("coerceTrainingDatasetEntries keeps arrays", () => {
-    const paths = ["renga-flow-dataset:1:Dataset 1", "renga-flow-dataset:9:Dataset 9"];
+    const paths = ["rengu-flow-dataset:1:Dataset 1", "rengu-flow-dataset:9:Dataset 9"];
     expect(coerceTrainingDatasetEntries(paths)).toEqual(paths);
   });
 
   it("coerceTrainingDatasetEntries recovers String(array) merge", () => {
     const merged =
-      "renga-flow-dataset:1:Dataset 1,renga-flow-dataset:9:Dataset 9";
+      "rengu-flow-dataset:1:Dataset 1,rengu-flow-dataset:9:Dataset 9";
     expect(coerceTrainingDatasetEntries(merged)).toEqual([
-      "renga-flow-dataset:1:Dataset 1",
-      "renga-flow-dataset:9:Dataset 9",
+      "rengu-flow-dataset:1:Dataset 1",
+      "rengu-flow-dataset:9:Dataset 9",
     ]);
   });
 

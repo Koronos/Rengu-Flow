@@ -1,6 +1,6 @@
 """Tests for optimizer/scheduler KV default maps."""
 
-from renga_flow_ui.optim_kv_defaults import (
+from rengu_flow_ui.optim_kv_defaults import (
     OPTIMIZER_REGISTRY_KV_DEFAULTS,
     SCHEDULER_BUILTIN_KV_DEFAULTS,
     SCHEDULER_FQN_KV_DEFAULTS,
@@ -9,8 +9,8 @@ from renga_flow_ui.optim_kv_defaults import (
     optimizer_extra_params_defaults,
     scheduler_kv_defaults,
 )
-from renga_flow_ui.optimizer_form import defaults_for_optimizer_type_change
-from renga_flow_ui.scheduler_form import defaults_for_scheduler_type_change
+from rengu_flow_ui.optimizer_form import defaults_for_optimizer_type_change
+from rengu_flow_ui.scheduler_form import defaults_for_scheduler_type_change
 
 
 def test_scheduler_runtime_token_hints_cover_all_tokens() -> None:

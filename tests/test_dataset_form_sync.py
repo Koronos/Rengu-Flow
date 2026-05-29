@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import toml
 
-from renga_flow_ui.dataset_form import form_to_toml, parse_toml_to_form
+from rengu_flow_ui.dataset_form import form_to_toml, parse_toml_to_form
 
 
 def _roundtrip(form: dict) -> dict:

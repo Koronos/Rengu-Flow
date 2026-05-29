@@ -1,11 +1,11 @@
-"""Tests for renga_flow.optim.param_groups."""
+"""Tests for rengu_flow.optim.param_groups."""
 
 import copy
 import importlib
 
 import torch
 
-_param_groups = importlib.import_module("renga_flow.optim.param_groups")
+_param_groups = importlib.import_module("rengu_flow.optim.param_groups")
 adjust_beta2_half_life = _param_groups.adjust_beta2_half_life
 split_weight_decay_param_groups = _param_groups.split_weight_decay_param_groups
 

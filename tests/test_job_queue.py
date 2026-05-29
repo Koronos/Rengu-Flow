@@ -2,7 +2,7 @@
 
 import pytest
 
-from renga_flow_ui import configs_store, db, job_queue
+from rengu_flow_ui import configs_store, db, job_queue
 
 _CFG = """
 dataset = "x.toml"
@@ -20,8 +20,8 @@ def test_enqueue_two_pending_sorted(ui_data_tmp, monkeypatch: pytest.MonkeyPatch
         db.update_job(job.id, state="running", pid=99999)
         return 99999
 
-    monkeypatch.setattr("renga_flow_ui.jobs.start_job", fake_start)
-    monkeypatch.setattr("renga_flow_ui.jobs.poll_job", lambda job_id: db.get_job(job_id))
+    monkeypatch.setattr("rengu_flow_ui.jobs.start_job", fake_start)
+    monkeypatch.setattr("rengu_flow_ui.jobs.poll_job", lambda job_id: db.get_job(job_id))
 
     cid = configs_store.insert_config(_CFG)
     j1 = job_queue.enqueue_job(
@@ -52,7 +52,7 @@ def test_enqueue_two_pending_sorted(ui_data_tmp, monkeypatch: pytest.MonkeyPatch
 
 
 def test_update_pending_job(ui_data_tmp, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("renga_flow_ui.job_queue.try_start_next", lambda: None)
+    monkeypatch.setattr("rengu_flow_ui.job_queue.try_start_next", lambda: None)
     cid = configs_store.insert_config(_CFG)
     job = job_queue.enqueue_job(
         config_id=cid,

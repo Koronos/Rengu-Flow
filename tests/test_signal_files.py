@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from renga_flow.utils.signal_files import (
+from rengu_flow.utils.signal_files import (
     SIGNAL_CONTINUE,
     SIGNAL_EXPORT_MODEL,
     SIGNAL_EXPORT_MODEL_QUIT,

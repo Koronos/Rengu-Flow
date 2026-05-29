@@ -1,5 +1,5 @@
 # Cosmos Predict2 smoke (30 steps) with smoke_cc0 images (frame_buckets = [1]).
-# Model paths: RENGA_COSMOS_* in repo-root `.env` (see `.env.example`).
+# Model paths: RENGU_COSMOS_* in repo-root `.env` (see `.env.example`).
 #   scripts/run_model_smoke.sh cosmos
 
 dataset = "tests/fixtures/smoke/dataset_cc0.toml"
