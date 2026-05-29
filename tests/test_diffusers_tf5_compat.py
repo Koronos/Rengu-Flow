@@ -1,4 +1,4 @@
-from renga_flow.utils.diffusers_tf5_compat import strip_text_model_state_dict_prefix
+from rengu_flow.utils.diffusers_tf5_compat import strip_text_model_state_dict_prefix
 
 
 def test_strip_text_model_prefix():

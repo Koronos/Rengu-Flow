@@ -1,6 +1,6 @@
 # Web UI (developer guide)
 
-Optional control plane: **`renga_flow_ui`** package + **`ui/web`** SPA + **`start-ui.sh`** at repo root.
+Optional control plane: **`rengu_flow_ui`** package + **`ui/web`** SPA + **`start-ui.sh`** at repo root.
 
 User guide: **`docs/user/web-ui.md`**.
 
@@ -8,39 +8,39 @@ User guide: **`docs/user/web-ui.md`**.
 
 | Path | Role |
 |------|------|
-| `renga_flow_ui/app.py` | FastAPI routes (`/api/v1/...`) |
-| `renga_flow_ui/settings.py` | `RENGA_FLOW_UI_DATA`, `repo_root()`, `web_dist_dir()` |
-| `renga_flow_ui/paths.py` | `resolve_repo_path()` — relative paths under repo root |
-| `renga_flow_ui/library_db.py` | SQLite tables `training_configs` + `datasets` (TOML content + index columns) |
-| `renga_flow_ui/configs_store.py` | Training config CRUD (via library_db), validate, staging |
-| `renga_flow_ui/datasets_store.py` | Dataset CRUD (via library_db), `compose_datasets()`, picker refs |
-| `renga_flow_ui/dataset_scan.py` | `scan_folder()`, `preview_dataset_config()` for UI previews |
-| `renga_flow_ui/dataset_image_preview.py` | Signed tokens, list/serve images under `[[directory]]` paths |
-| `renga_flow_ui/dataset_schema.py` | Dataset form schema (`get_dataset_schema`) |
-| `renga_flow_ui/dataset_form.py` | Parse/render dataset TOML ↔ form (`_directories` rows) |
-| `renga_flow_ui/config_schema.py` | Training form schema (`get_schema`), model capabilities |
-| `renga_flow_ui/config_form.py` | Parse/render training TOML ↔ form |
-| `renga_flow_ui/config_field_help.py` | `FIELD_HELP` + `enrich_schema()` — attaches `help`, `doc_path` per field |
-| `renga_flow_ui/dataset_field_help.py` | Same for dataset form |
-| `renga_flow_ui/docs_reader.py` | Safe read of `docs/**/*.md` for in-app help drawer |
-| `renga_flow_ui/registry_probe.py` | `POST /registry/probe` — import-check optimizer/scheduler names |
-| `renga_flow_ui/system_stats.py` | `GET /system/stats` — CPU/RAM/GPU via `psutil` + `nvidia-smi` |
-| `renga_flow_ui/job_queue.py` | Pending job queue ordering, `try_start_next()` |
-| `renga_flow_ui/jobs.py` | Subprocess launcher (`deepspeed` / `python -m renga_flow.main`) |
-| `renga_flow_ui/db.py` | SQLite job registry |
-| `renga_flow_ui/metrics_tb.py` | TensorBoard `EventAccumulator` (passive read, mtime cache) |
-| `renga_flow_ui/tensorboard_server.py` | Spawn TensorBoard with `uv run --no-project --with tensorboard` |
-| `renga_flow_ui/subprocess_util.py` | `popen_repo_subprocess()` shared by jobs and TensorBoard |
-| `renga_flow_ui/runs_scanner.py` | List/discover runs under `output_dir` |
-| `renga_flow_ui/signals.py` | Touch signal files via `renga_flow.utils.signal_files` constants |
-| `renga_flow/control/status_file.py` | Opt-in `status.json` writer (trainer hook in `main.py`) |
+| `rengu_flow_ui/app.py` | FastAPI routes (`/api/v1/...`) |
+| `rengu_flow_ui/settings.py` | `RENGU_FLOW_UI_DATA`, `repo_root()`, `web_dist_dir()` |
+| `rengu_flow_ui/paths.py` | `resolve_repo_path()` — relative paths under repo root |
+| `rengu_flow_ui/library_db.py` | SQLite tables `training_configs` + `datasets` (TOML content + index columns) |
+| `rengu_flow_ui/configs_store.py` | Training config CRUD (via library_db), validate, staging |
+| `rengu_flow_ui/datasets_store.py` | Dataset CRUD (via library_db), `compose_datasets()`, picker refs |
+| `rengu_flow_ui/dataset_scan.py` | `scan_folder()`, `preview_dataset_config()` for UI previews |
+| `rengu_flow_ui/dataset_image_preview.py` | Signed tokens, list/serve images under `[[directory]]` paths |
+| `rengu_flow_ui/dataset_schema.py` | Dataset form schema (`get_dataset_schema`) |
+| `rengu_flow_ui/dataset_form.py` | Parse/render dataset TOML ↔ form (`_directories` rows) |
+| `rengu_flow_ui/config_schema.py` | Training form schema (`get_schema`), model capabilities |
+| `rengu_flow_ui/config_form.py` | Parse/render training TOML ↔ form |
+| `rengu_flow_ui/config_field_help.py` | `FIELD_HELP` + `enrich_schema()` — attaches `help`, `doc_path` per field |
+| `rengu_flow_ui/dataset_field_help.py` | Same for dataset form |
+| `rengu_flow_ui/docs_reader.py` | Safe read of `docs/**/*.md` for in-app help drawer |
+| `rengu_flow_ui/registry_probe.py` | `POST /registry/probe` — import-check optimizer/scheduler names |
+| `rengu_flow_ui/system_stats.py` | `GET /system/stats` — CPU/RAM/GPU via `psutil` + `nvidia-smi` |
+| `rengu_flow_ui/job_queue.py` | Pending job queue ordering, `try_start_next()` |
+| `rengu_flow_ui/jobs.py` | Subprocess launcher (`deepspeed` / `python -m rengu_flow.main`) |
+| `rengu_flow_ui/db.py` | SQLite job registry |
+| `rengu_flow_ui/metrics_tb.py` | TensorBoard `EventAccumulator` (passive read, mtime cache) |
+| `rengu_flow_ui/tensorboard_server.py` | Spawn TensorBoard with `uv run --no-project --with tensorboard` |
+| `rengu_flow_ui/subprocess_util.py` | `popen_repo_subprocess()` shared by jobs and TensorBoard |
+| `rengu_flow_ui/runs_scanner.py` | List/discover runs under `output_dir` |
+| `rengu_flow_ui/signals.py` | Touch signal files via `rengu_flow.utils.signal_files` constants |
+| `rengu_flow/control/status_file.py` | Opt-in `status.json` writer (trainer hook in `main.py`) |
 | `ui/web/` | Vite + Vue 3 + Element Plus SPA; build output `ui/web/dist/` |
-| `start-ui.sh` | User entrypoint: install `[ui]`, build web, `renga-flow-ui serve` |
+| `start-ui.sh` | User entrypoint: install `[ui]`, build web, `rengu-flow-ui serve` |
 | `scripts/start-ui-dev.sh` | Developer-only: API `--reload` + Vite on port 5173 (proxies `/api`) |
 
 ## Local development (UI)
 
-End users run `./start-ui.sh` (built SPA from `ui/web/dist/`). While editing the Vue app or `renga_flow_ui/`:
+End users run `./start-ui.sh` (built SPA from `ui/web/dist/`). While editing the Vue app or `rengu_flow_ui/`:
 
 ```bash
 ./scripts/start-ui-dev.sh [--no-open]
@@ -57,9 +57,9 @@ Ctrl+C stops both. No frontend build required.
 
 All JSON routes: `/api/v1`. Static SPA mounted at `/` when `ui/web/dist/index.html` exists.
 
-**Maintenance** (dev only, `RENGAFLOW_MAINTENANCE=1`): `GET /maintenance/enabled`, `GET /maintenance/status`, `POST /maintenance/database/reset`, `POST /maintenance/submodules/update`, `POST /maintenance/deps/install`. Implemented in `renga_flow_ui/maintenance.py`; UI route `/maintenance`. See **`docs/user/maintenance.md`**.
+**Maintenance** (dev only, `RENGUFLOW_MAINTENANCE=1`): `GET /maintenance/enabled`, `GET /maintenance/status`, `POST /maintenance/database/reset`, `POST /maintenance/submodules/update`, `POST /maintenance/deps/install`. Implemented in `rengu_flow_ui/maintenance.py`; UI route `/maintenance`. See **`docs/user/maintenance.md`**.
 
-Authentication: optional `RENGA_FLOW_UI_TOKEN` middleware checks `X-Renga-Flow-Token` or `Authorization: Bearer`.
+Authentication: optional `RENGU_FLOW_UI_TOKEN` middleware checks `X-Rengu-Flow-Token` or `Authorization: Bearer`.
 
 ### Route groups
 
@@ -80,7 +80,7 @@ Authentication: optional `RENGA_FLOW_UI_TOKEN` middleware checks `X-Renga-Flow-T
 On `POST /api/v1/jobs`:
 
 1. Load TOML from library or inline body
-2. `materialize_staging()` writes `{RENGA_FLOW_UI_DATA}/staging/{job_id}/train.toml` (default `<repo>/.renga-flow-ui`); `renga-flow-dataset:<id>` refs become `{staging}/{job_id}/{id}.dataset.toml` with absolute `[[directory]]` paths
+2. `materialize_staging()` writes `{RENGU_FLOW_UI_DATA}/staging/{job_id}/train.toml` (default `<repo>/.rengu-flow-ui`); `rengu-flow-dataset:<id>` refs become `{staging}/{job_id}/{id}.dataset.toml` with absolute `[[directory]]` paths
 3. Subprocess: `--config <staging>/train.toml` plus optional CLI flags from the request body (stored in `jobs.extra_args`)
 4. Trainer copies config into `run_dir` (unchanged `main.py` behavior)
 
@@ -96,20 +96,20 @@ On `POST /api/v1/jobs`:
 
 ## Config / dataset library (SQLite)
 
-- Tables in `{RENGA_FLOW_UI_DATA}/jobs.db`: `training_configs`, `datasets` (same file as `jobs`)
+- Tables in `{RENGU_FLOW_UI_DATA}/jobs.db`: `training_configs`, `datasets` (same file as `jobs`)
 - Content column: full TOML string; index columns: `model_type`, `dataset_ref`, `directory_count`, `meta_json`
-- Library dataset reference in training TOML: `renga-flow-dataset:<id>` — resolved to a file under `staging/{job_id}/` at job start
+- Library dataset reference in training TOML: `rengu-flow-dataset:<id>` — resolved to a file under `staging/{job_id}/` at job start
 - **`compose_datasets(target_id, source_ids)`** — merges `[[directory]]` blocks into one library record
-- **`list_for_training_picker()`** — `renga-flow-dataset:…` refs from the SQLite library only (no repo `examples/` paths)
+- **`list_for_training_picker()`** — `rengu-flow-dataset:…` refs from the SQLite library only (no repo `examples/` paths)
 - Import/export: `POST …/import`, `GET …/{id}/export`
-- Validation reuses **`validate_dataset_config_for_real_data`** from `renga_flow.data.dataset_config`
+- Validation reuses **`validate_dataset_config_for_real_data`** from `rengu_flow.data.dataset_config`
 
 ## Config sources: library vs run folder
 
 | Source | Role |
 |--------|------|
 | **SQLite library** (`training_configs`, `datasets`) | Named templates, search/pagination, compose, UI forms |
-| **Run folder `*.toml`** | Ground truth for a finished or in-progress training run; copied/updated by `renga_flow.main` on each start (including resume) |
+| **Run folder `*.toml`** | Ground truth for a finished or in-progress training run; copied/updated by `rengu_flow.main` on each start (including resume) |
 | **Job row** (`jobs` table) | Queue metadata: `config_id` (library), `config_path` (staging), `resume_from`, `source_run_dir`, `run_dir` |
 
 **Continue training:** `GET /runs/config?run_path=…` reads the run TOML; user edits (e.g. more `epochs`); `POST /jobs/continue-run` stages the new TOML and sets `resume_from` to that folder. Optional `save_to_library` copies the edited TOML into `training_configs` for reuse. The trainer resumes in the **same** `run_dir` and overwrites the snapshot TOML there with the config used for that launch.
@@ -118,11 +118,11 @@ On `POST /api/v1/jobs`:
 
 - **`job_import.py`** — `preview_import`, `import_run`; heuristics in `runs_scanner.is_training_run_dir` / `pick_main_config_path`
 - **`db.create_imported_job`** — finished job row with `run_dir` set; duplicate detection via `find_job_by_run_dir`
-- Optional library copy: training config + `dataset.toml` (or path from config) → `renga-flow-dataset:` ref in stored config
+- Optional library copy: training config + `dataset.toml` (or path from config) → `rengu-flow-dataset:` ref in stored config
 
 ## Default template for **New config**
 
-Canonical file: **`renga_flow_ui/templates/default_new_config.toml`** (loaded by **`default_config_template.default_new_config_toml()`**).
+Canonical file: **`rengu_flow_ui/templates/default_new_config.toml`** (loaded by **`default_config_template.default_new_config_toml()`**).
 
 - Exposed on **`GET /api/v1/schema`** as **`default_new_config_toml`** so the Vue editor (`configEditor.ts`) stays in sync with the server.
 - Production-style SDXL LoRA: `dataset`, `[model]` + `checkpoint_path`, `[adapter]`, `[optimizer]`, `lr_scheduler` / `[lr_scheduler_args]`, epochs, micro-batch, `output_dir`. No **`synthetic_num_batches`** or other smoke-only keys.
@@ -137,7 +137,7 @@ Canonical file: **`renga_flow_ui/templates/default_new_config.toml`** (loaded by
 
 ### Field visibility (single place)
 
-Logic lives in **`renga_flow_ui/field_visibility.py`**; the Vue form mirrors it in **`ui/web/src/lib/formUtils.ts`** (`fieldVisible`, `pruneFormForModel`).
+Logic lives in **`rengu_flow_ui/field_visibility.py`**; the Vue form mirrors it in **`ui/web/src/lib/formUtils.ts`** (`fieldVisible`, `pruneFormForModel`).
 
 | Mechanism | Where to set it | Example |
 |-----------|-----------------|--------|
@@ -179,10 +179,10 @@ Dataset form: same pattern in **`dataset_field_help.py`** and **`tests/test_data
 
 ## Extending
 
-- **New signal**: add constant in `signal_files.py`, map in `renga_flow_ui/signals.py`, button in `ui/web/src/views/RunDetailView.vue`
+- **New signal**: add constant in `signal_files.py`, map in `rengu_flow_ui/signals.py`, button in `ui/web/src/views/RunDetailView.vue`
 - **New API route**: add handler in `app.py`, mirror in `ui/web/src/api.ts`
 - **Trainer status fields**: extend `write_status_file()` payload and UI reader
-- **New model in UI**: `@register_model("my_type")` adds the type to the model picker. Optional: `register_model_capability(ModelCapability(...))` in `renga_flow/registry/model_capabilities.py` for LoRA/LoKr/full, preview, per-model form fields. `GET /api/v1/schema` exposes `registries.model_capabilities`
+- **New model in UI**: `@register_model("my_type")` adds the type to the model picker. Optional: `register_model_capability(ModelCapability(...))` in `rengu_flow/registry/model_capabilities.py` for LoRA/LoKr/full, preview, per-model form fields. `GET /api/v1/schema` exposes `registries.model_capabilities`
 - **Optional config fields**: set `importance="advanced"` on the field in `config_schema.py`; the form shows them inline with muted labels and a small “(optional)” hint (no collapse)
 
 ## Tests
@@ -190,7 +190,7 @@ Dataset form: same pattern in **`dataset_field_help.py`** and **`tests/test_data
 Python (API / stores):
 
 ```bash
-pytest tests/test_status_file.py tests/test_renga_flow_ui.py \
+pytest tests/test_status_file.py tests/test_rengu_flow_ui.py \
   tests/test_config_form.py tests/test_dataset_field_help.py \
   tests/test_job_queue.py tests/test_docs_reader.py \
   tests/test_system_stats.py tests/test_datasets_store.py -q

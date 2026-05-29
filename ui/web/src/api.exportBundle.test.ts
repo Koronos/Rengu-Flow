@@ -23,7 +23,7 @@ describe("api.exportConfigBundle", () => {
       )
     );
 
-    const { blob, filename } = await api.exportConfigBundle("my_run", 'dataset = "renga-flow-dataset:9"\n');
+    const { blob, filename } = await api.exportConfigBundle("my_run", 'dataset = "rengu-flow-dataset:9"\n');
 
     expect(blobSpy).toHaveBeenCalledOnce();
     expect(textSpy).not.toHaveBeenCalled();
@@ -46,7 +46,7 @@ describe("api.exportConfigBundle", () => {
     );
 
     await expect(
-      api.exportConfigBundle("missing", 'dataset = "renga-flow-dataset:9"\n')
+      api.exportConfigBundle("missing", 'dataset = "rengu-flow-dataset:9"\n')
     ).rejects.toThrow("Dataset not found");
 
     expect(textSpy).toHaveBeenCalledOnce();

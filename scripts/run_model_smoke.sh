@@ -30,7 +30,7 @@ else
   CONFIG="${REPO_ROOT}/tests/fixtures/smoke/train_cosmos_predict2.toml"
 fi
 
-"${VENV}/bin/python" -m renga_flow.config.local_env "${CONFIG}"
+"${VENV}/bin/python" -m rengu_flow.config.local_env "${CONFIG}"
 
 ENSURE_FIXTURES="${ENSURE_FIXTURES:-1}"
 need_vendor=0
@@ -83,9 +83,9 @@ echo "Smoke ${MODEL} (cache_only + 30 steps) -> ${LOG_FILE}"
 SMOKE_EXIT=0
 {
   echo "=== cache_only ==="
-  "${DEEPSPEED}" --num_gpus=1 --master_port="${MASTER_PORT}" --module renga_flow.main --config "${CONFIG}" --cache_only
+  "${DEEPSPEED}" --num_gpus=1 --master_port="${MASTER_PORT}" --module rengu_flow.main --config "${CONFIG}" --cache_only
   echo "=== train max_steps=30 ==="
-  "${DEEPSPEED}" --num_gpus=1 --master_port="${MASTER_PORT}" --module renga_flow.main --config "${CONFIG}" --trust_cache
+  "${DEEPSPEED}" --num_gpus=1 --master_port="${MASTER_PORT}" --module rengu_flow.main --config "${CONFIG}" --trust_cache
 } 2>&1 | tee "${LOG_FILE}" || SMOKE_EXIT=$?
 
 if [[ "${KEEP_SMOKE_ARTIFACTS:-0}" != "1" ]]; then

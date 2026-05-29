@@ -1,10 +1,10 @@
-"""Tests for renga_flow.utils.training_metrics."""
+"""Tests for rengu_flow.utils.training_metrics."""
 
 from unittest.mock import MagicMock
 
 import torch
 
-from renga_flow.utils.training_metrics import (
+from rengu_flow.utils.training_metrics import (
     get_automagic_lrs,
     get_prodigy_d,
     log_training_step,

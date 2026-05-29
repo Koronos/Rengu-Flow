@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from renga_flow.data.tag_dropout import (
+from rengu_flow.data.tag_dropout import (
     TagDropoutConfig,
     TagDropoutRule,
     apply_tag_dropout,

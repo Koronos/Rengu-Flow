@@ -1,5 +1,5 @@
 # SDXL smoke (30 steps) with versioned CC0 dataset.
-# Model path: RENGA_SDXL_CHECKPOINT_PATH in repo-root `.env` (see `.env.example`).
+# Model path: RENGU_SDXL_CHECKPOINT_PATH in repo-root `.env` (see `.env.example`).
 #   scripts/run_model_smoke.sh sdxl
 
 dataset = "tests/fixtures/smoke/dataset_cc0.toml"

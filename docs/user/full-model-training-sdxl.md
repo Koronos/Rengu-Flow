@@ -1,6 +1,6 @@
 # Full-model finetuning (SDXL)
 
-This guide explains how to finetune the **full SDXL model** (no LoRA/LoKr) using Renga Flow. For adapter training, see [Training SDXL LoRA and LoKr](training-sdxl-lora-lokr.md).
+This guide explains how to finetune the **full SDXL model** (no LoRA/LoKr) using Rengu. For adapter training, see [Training SDXL LoRA and LoKr](training-sdxl-lora-lokr.md).
 
 ## When to use full-model vs adapters
 
@@ -61,9 +61,9 @@ Example: see `examples/full_model_sdxl_unet_only.toml`.
 
 1. Use a config **without** an `[adapter]` section.
 2. Run with DeepSpeed, e.g.:  
-   `deepspeed --num_gpus=1 -m renga_flow.main --config examples/full_model_sdxl.toml`
+   `deepspeed --num_gpus=1 -m rengu_flow.main --config examples/full_model_sdxl.toml`
 3. Check the log for `Run dir: ...` and for `Full-model SDXL: text encoders frozen` if you set `freeze_text_encoders = true`.
 
 ## Block swapping
 
-Block swapping (offloading layers to CPU) is **not** used for full-model training. It is only supported when training adapters. If your config has `blocks_to_swap` set and no `[adapter]` section, the script will raise an error.
+**Training block swap** (`blocks_to_swap`) applies only to **adapter** training (LoRA/LoKr). Full-model configs must leave it unset or `0`. See [Training loop — block swap](training-loop-and-eval.md) and [Shared training techniques](../developer/training-techniques.md).

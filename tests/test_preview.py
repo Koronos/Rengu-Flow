@@ -1,6 +1,6 @@
 """Tests for preview config helpers (no GPU / no pipeline call)."""
 
-from renga_flow.utils.preview import (
+from rengu_flow.utils.preview import (
     normalize_preview_prompts,
     previews_configured,
     should_run_previews,
@@ -33,7 +33,7 @@ def test_run_previews_cosmos_dispatches_to_generate_preview_image():
 
     from PIL import Image
 
-    from renga_flow.utils.preview import run_previews
+    from rengu_flow.utils.preview import run_previews
 
     model = MagicMock()
     model.name = "cosmos_predict2"
@@ -47,9 +47,9 @@ def test_run_previews_cosmos_dispatches_to_generate_preview_image():
     }
     tb = MagicMock()
 
-    with patch("renga_flow.utils.preview.is_main_process", return_value=True):
-        with patch("renga_flow.utils.preview._dist_barrier"):
-            with patch("renga_flow.utils.preview.empty_cuda_cache"):
+    with patch("rengu_flow.utils.preview.is_main_process", return_value=True):
+        with patch("rengu_flow.utils.preview._dist_barrier"):
+            with patch("rengu_flow.utils.preview.empty_cuda_cache"):
                 run_previews(model, config, tb, step=5)
 
     model.prepare_preview_memory.assert_called_once()
@@ -61,7 +61,7 @@ def test_run_previews_cosmos_dispatches_to_generate_preview_image():
 def test_run_previews_cosmos_skips_when_pipeline_stages_not_one(capsys):
     from unittest.mock import MagicMock, patch
 
-    from renga_flow.utils.preview import run_previews
+    from rengu_flow.utils.preview import run_previews
 
     model = MagicMock()
     model.name = "cosmos_predict2"
@@ -72,8 +72,8 @@ def test_run_previews_cosmos_skips_when_pipeline_stages_not_one(capsys):
         "preview": {"prompts": ["test scene"]},
     }
 
-    with patch("renga_flow.utils.preview.is_main_process", return_value=True):
-        with patch("renga_flow.utils.preview._dist_barrier"):
+    with patch("rengu_flow.utils.preview.is_main_process", return_value=True):
+        with patch("rengu_flow.utils.preview._dist_barrier"):
             run_previews(model, config, None, step=1)
 
     model.generate_preview_image.assert_not_called()

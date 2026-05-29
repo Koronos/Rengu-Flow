@@ -7,8 +7,8 @@ import torch
 
 diffusers = pytest.importorskip("diffusers", exc_type=ImportError)
 
-from renga_flow.data.preprocess_media import PreprocessMediaFile
-from renga_flow.model.sdxl import SDXLPipeline
+from rengu_flow.data.preprocess_media import PreprocessMediaFile
+from rengu_flow.model.sdxl import SDXLPipeline
 
 
 @pytest.fixture

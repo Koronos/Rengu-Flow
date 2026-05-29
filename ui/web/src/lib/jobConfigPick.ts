@@ -1,6 +1,6 @@
 /** Persist which library config is selected for the next training job. */
 
-const STORAGE_KEY = "renga_flow_job_config_id";
+const STORAGE_KEY = "rengu_flow_job_config_id";
 
 export function getJobConfigId() {
   try {

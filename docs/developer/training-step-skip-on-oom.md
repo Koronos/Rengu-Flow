@@ -1,6 +1,6 @@
 # Spec: skip training step on OOM (reference: ai-toolkit)
 
-This document specifies how **batch/step skipping on CUDA OOM** works in [ostris/ai-toolkit](https://github.com/ostris/ai-toolkit), the pattern many early **flow-matching** trainers (FLUX, WAN, Qwen-Image, etc.) use. It is **not** implemented in [diffusion-pipe](https://github.com/tdrussell/diffusion-pipe) or in renga-flow today.
+This document describes **batch/step skipping on CUDA OOM** (pattern from [ostris/ai-toolkit](https://github.com/ostris/ai-toolkit)) and how it is wired in rengu-flow. For user-facing config, see [Training loop (user)](../user/training-loop-and-eval.md#oom-step-skip).
 
 Pony Diffusion V7 (AuraFlow) LoRA training is officially documented with **SimpleTuner**, which does **not** expose this same “skip up to 3 OOM batches” loop; the behavior below comes from **ai-toolkit** and matches reports such as [ai-toolkit#463](https://github.com/ostris/ai-toolkit/issues/463).
 
@@ -21,7 +21,7 @@ This is distinct from:
 |-----------|--------|----------------|
 | **OOM batch skip (this spec)** | ai-toolkit `BaseSDTrainProcess` | Whole training step when CUDA OOM |
 | **DeepSpeed `skipped_steps`** | DeepSpeed FP16/AMP optimizer | Optimizer update when **gradient overflow** (loss scale), not CUDA OOM |
-| **GenericOptim `skip_invalid_grads`** | diffusion-pipe / renga-flow vendor | Per-parameter update when grad is Inf/NaN |
+| **GenericOptim `skip_invalid_grads`** | diffusion-pipe / rengu-flow vendor | Per-parameter update when grad is Inf/NaN |
 | **Loss spike skip** | Ad-hoc patterns (e.g. MLOps tutorials) | Batch when `loss > k × rolling_avg` (not in ai-toolkit core loop) |
 
 ## Reference implementation
@@ -122,15 +122,15 @@ The skip logic does **not** inspect loss magnitude or diffusion timestep `t`; it
 | Project | AuraFlow training | OOM step skip |
 |---------|-------------------|---------------|
 | diffusion-pipe | `models/auraflow.py`, commit `f1d5d30` | No |
-| renga-flow | Not in registry yet (listed in executive report) | No |
+| rengu-flow | `sdxl`, `cosmos_predict2` in registry | Yes (single-GPU; see below) |
 | SimpleTuner | [AURAFLOW quickstart](https://github.com/bghira/SimpleTuner/blob/main/documentation/quickstart/AURAFLOW.md), recommended by [pony-v7-base](https://huggingface.co/purplesmartai/pony-v7-base) | No equivalent loop; GPU “circuit breaker” **fails the job** on OOM |
 | ai-toolkit | Used for many flow/video models; same `BaseSDTrainProcess` loop | **Yes** (this spec) |
 
 If the remembered behavior was “training kept going after OOM on huge resolutions,” it likely came from **ai-toolkit** (or a fork), not from the first diffusion-pipe AuraFlow merge.
 
-## Implementation in renga-flow
+## Implementation in rengu-flow
 
-**Status:** Implemented for **single-GPU** training (`pipeline_stages = 1`). Code: `renga_flow/utils/oom_skip.py`, wired in `renga_flow/main.py` around `train_batch`. Example: `examples/config_oom_skip.toml`.
+**Status:** Implemented for **single-GPU** training (`pipeline_stages = 1`). Code: `rengu_flow/utils/oom_skip.py`, wired in `rengu_flow/main.py` around `train_batch`. Example: `examples/config_oom_skip.toml`.
 
 **Limitation:** Multi-GPU / pipeline stages &gt; 1 are not synchronized on OOM; an OOM on one rank can desynchronize collectives. Prefer disabling `[train.oom_skip]` for multi-GPU until a broadcast skip flag exists.
 
@@ -153,7 +153,7 @@ clear_cache_on_skip = true   # empty_cuda_cache + ipc_collect
 
 ### Integration point
 
-Wrap the call in `renga_flow/main.py` `_run_training` where the loop currently does:
+Wrap the call in `rengu_flow/main.py` `_run_training` where the loop currently does:
 
 ```python
 loss = model_engine.train_batch(iterator).item()
@@ -191,5 +191,5 @@ With DeepSpeed pipeline / multi-GPU:
 
 - [ostris/ai-toolkit `BaseSDTrainProcess.py`](https://github.com/ostris/ai-toolkit/blob/main/jobs/process/BaseSDTrainProcess.py) — lines ~2170–2196 (OOM handling), ~2337–2340 (step increment).
 - [ai-toolkit issue #463](https://github.com/ostris/ai-toolkit/issues/463) — user logs showing `skipping batch 1/3`, `2/3`, `3/3` then abort.
-- [PyTorch Lightning #5243](https://github.com/Lightning-AI/pytorch-lightning/issues/5243) — DDP must all-reduce a skip flag if returning `None` from `training_step` (relevant for renga-flow multi-GPU design).
+- [PyTorch Lightning #5243](https://github.com/Lightning-AI/pytorch-lightning/issues/5243) — DDP must all-reduce a skip flag if returning `None` from `training_step` (relevant for rengu-flow multi-GPU design).
 - [DeepSpeed `skipped_steps`](https://github.com/microsoft/DeepSpeed/blob/master/deepspeed/runtime/engine.py) — FP16 overflow skip (different trigger).

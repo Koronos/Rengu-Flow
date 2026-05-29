@@ -1,5 +1,5 @@
 /**
- * Optimizer form helpers. Keep in sync with renga_flow_ui/optimizer_form.py.
+ * Optimizer form helpers. Keep in sync with rengu_flow_ui/optimizer_form.py.
  */
 
 import type { FormValues } from "../types/forms";

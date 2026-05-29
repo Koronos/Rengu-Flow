@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock, patch
 
-from renga_flow.data.cache_utils import resolve_cache_num_proc
+from rengu_flow.data.cache_utils import resolve_cache_num_proc
 
 
 def test_resolve_cache_num_proc_default_capped():
@@ -16,10 +16,10 @@ def test_resolve_cache_num_proc_explicit():
     assert resolve_cache_num_proc(0) == 1
 
 
-@patch("renga_flow.data.cache_utils.mp.Pool")
-@patch("renga_flow.data.cache_utils.mp.Manager")
+@patch("rengu_flow.data.cache_utils.mp.Pool")
+@patch("rengu_flow.data.cache_utils.mp.Manager")
 def test_map_and_cache_passes_keep_in_memory_false(mock_manager, mock_pool):
-    from renga_flow.data.cache_utils import _map_and_cache
+    from rengu_flow.data.cache_utils import _map_and_cache
 
     mock_manager.return_value.Queue.return_value = MagicMock()
     mock_pool.return_value.imap.return_value = iter([])
@@ -36,8 +36,8 @@ def test_map_and_cache_passes_keep_in_memory_false(mock_manager, mock_pool):
     subset.__len__ = MagicMock(return_value=2)
     ds.select.return_value = subset
 
-    with patch("renga_flow.data.cache_utils.open_disk_cache", return_value=cache):
-        with patch("renga_flow.data.cache_utils.Hasher.hash", return_value="new_fp"):
+    with patch("rengu_flow.data.cache_utils.open_disk_cache", return_value=cache):
+        with patch("rengu_flow.data.cache_utils.Hasher.hash", return_value="new_fp"):
             _map_and_cache(
                 ds,
                 lambda ex, rank: ex,

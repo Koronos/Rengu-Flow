@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# TensorBoard for renga-flow runs. Always use the parent output/ dir so run names appear in the sidebar.
+# TensorBoard for rengu-flow runs. Always use the parent output/ dir so run names appear in the sidebar.
 #   bash scripts/tensorboard.sh
 #   bash scripts/tensorboard.sh /path/to/output
 set -euo pipefail

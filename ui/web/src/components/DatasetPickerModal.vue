@@ -113,7 +113,7 @@ const loading = ref(false);
 const filterText = ref("");
 const items = ref<DatasetPickerItem[]>([]);
 const selectedPaths = ref<string[]>([]);
-const { viewMode } = useDatasetViewMode("renga-flow-dataset-picker-view", "table");
+const { viewMode } = useDatasetViewMode("rengu-flow-dataset-picker-view", "table");
 const { showFromLibrary } = useDatasetGallery();
 
 const filteredItems = computed(() => {

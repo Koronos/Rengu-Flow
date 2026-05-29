@@ -25,13 +25,13 @@ export PATH="${VENV}/bin:${PATH}"
 setup_smoke_gpu_env
 select_master_port_if_unset
 
-"${VENV}/bin/python" -m renga_flow.config.local_env "${CONFIG}"
+"${VENV}/bin/python" -m rengu_flow.config.local_env "${CONFIG}"
 
 LOG_FILE="${SMOKE_LOG_DIR}/preview_visual_$(date +%Y%m%d_%H%M%S).log"
 mkdir -p "${SMOKE_LOG_DIR}"
 
 train_pgrep_pattern() {
-  echo "renga_flow.main.*preview_visual_config.toml"
+  echo "rengu_flow.main.*preview_visual_config.toml"
 }
 
 stop_train() {
@@ -64,7 +64,7 @@ print_status() {
   local util
   util="$(gpu_util_pct 2>/dev/null || echo "?")"
   echo "[$(date +%H:%M:%S)] ${phase} | GPU ${util}% | log $(wc -l < "${LOG_FILE}") lines"
-  grep -E "renga_flow: (loading|encoding|Euler|VAE decode|preview image|Preview complete)" "${LOG_FILE}" 2>/dev/null | tail -5 || true
+  grep -E "rengu_flow: (loading|encoding|Euler|VAE decode|preview image|Preview complete)" "${LOG_FILE}" 2>/dev/null | tail -5 || true
   if grep -q "Running preview at step" "${LOG_FILE}" 2>/dev/null; then
     tail -3 "${LOG_FILE}" | sed 's/^/  /'
   fi
@@ -135,7 +135,7 @@ wait_for_preview_done() {
 purge_output_dir "${SMOKE_OUTPUT_DIR}"
 
 echo "Starting train (${PREVIEW_STEPS} Euler steps, log: ${LOG_FILE})" | tee "${LOG_FILE}"
-"${DEEPSPEED}" --num_gpus=1 --master_port="${MASTER_PORT}" --module renga_flow.main \
+"${DEEPSPEED}" --num_gpus=1 --master_port="${MASTER_PORT}" --module rengu_flow.main \
   --config "${CONFIG}" --trust_cache >> "${LOG_FILE}" 2>&1 &
 pid=$!
 

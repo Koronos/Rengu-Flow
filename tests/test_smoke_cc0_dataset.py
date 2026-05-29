@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from renga_flow.data.dump_dataset import dump_dataset
+from rengu_flow.data.dump_dataset import dump_dataset
 
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "smoke_cc0"
 IMAGES = FIXTURE / "images"

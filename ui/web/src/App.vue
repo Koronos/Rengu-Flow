@@ -2,7 +2,7 @@
   <el-config-provider>
   <el-container class="app-shell">
     <el-aside v-if="!isMobile" width="220px" class="app-aside hide-mobile">
-      <div class="app-brand">Renga Flow</div>
+      <div class="app-brand">Rengu</div>
       <nav class="app-nav">
         <el-menu :default-active="activeMenu" class="app-menu app-menu--main" router>
           <el-menu-item index="/datasets">
@@ -54,7 +54,7 @@
       v-model="drawerOpen"
       direction="ltr"
       size="260px"
-      title="Renga Flow"
+      title="Rengu"
     >
       <nav class="app-nav app-nav--drawer">
         <el-menu
@@ -153,7 +153,7 @@ const pageTitle = computed(() => {
     "datasets-detail": "Dataset",
     "run-detail": "Run detail",
   };
-  return names[routeName.value] || "Renga Flow";
+  return names[routeName.value] || "Rengu";
 });
 </script>
 

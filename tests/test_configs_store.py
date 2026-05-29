@@ -5,11 +5,11 @@ from pathlib import Path
 import pytest
 import toml
 
-from renga_flow_ui import configs_store, datasets_store, library_db
+from rengu_flow_ui import configs_store, datasets_store, library_db
 
 
 MINIMAL_TOML = """
-dataset = "renga-flow-dataset:my_dataset"
+dataset = "rengu-flow-dataset:my_dataset"
 output_dir = "output"
 
 [model]
@@ -52,7 +52,7 @@ def test_config_library_crud(ui_data_tmp: Path) -> None:
 def test_materialize_staging_resolves_library_dataset(ui_data_tmp: Path) -> None:
     did = datasets_store.insert_dataset(DATASET_TOML)
     ref = library_db.dataset_library_ref(did)
-    content = MINIMAL_TOML.replace("renga-flow-dataset:my_dataset", ref)
+    content = MINIMAL_TOML.replace("rengu-flow-dataset:my_dataset", ref)
     cid = configs_store.insert_config(content)
 
     staging = configs_store.materialize_staging(
@@ -69,7 +69,7 @@ def test_materialize_staging_absolute_dataset_unchanged(ui_data_tmp: Path) -> No
     abs_ds = ui_data_tmp / "abs.toml"
     abs_ds.write_text(DATASET_TOML, encoding="utf-8")
     content = MINIMAL_TOML.replace(
-        'dataset = "renga-flow-dataset:my_dataset"',
+        'dataset = "rengu-flow-dataset:my_dataset"',
         f'dataset = "{abs_ds}"',
     )
     out = configs_store.materialize_staging(content, "job-abs")
@@ -89,7 +89,7 @@ def test_materialize_staging_merges_multiple_datasets(ui_data_tmp: Path) -> None
     ref_a = library_db.dataset_library_ref(did_a)
     ref_b = library_db.dataset_library_ref(did_b)
     content = MINIMAL_TOML.replace(
-        'dataset = "renga-flow-dataset:my_dataset"',
+        'dataset = "rengu-flow-dataset:my_dataset"',
         f"dataset = [{ref_a!r}, {ref_b!r}]",
     )
     out = configs_store.materialize_staging(content, "job-merge")

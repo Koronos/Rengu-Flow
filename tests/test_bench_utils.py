@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from renga_flow.utils.bench import (
+from rengu_flow.utils.bench import (
     bench_mean_iter_sec_after_warmup,
     find_latest_bench_csv,
 )

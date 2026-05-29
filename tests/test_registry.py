@@ -3,7 +3,7 @@
 import pytest
 
 try:
-    from renga_flow.registry.models import get_model, model_registry
+    from rengu_flow.registry.models import get_model, model_registry
 except ImportError as e:
     pytest.skip(f"Cannot import registry (diffusers/huggingface_hub): {e}", allow_module_level=True)
 
@@ -35,7 +35,7 @@ def test_get_model_unknown_type_raises(minimal_config):
 
 def test_get_model_sdxl_returns_instance_without_loading(minimal_config_copy):
     """After R1 (lazy load), get_model with type sdxl returns an instance without loading checkpoint."""
-    from renga_flow.config.defaults import set_config_defaults
+    from rengu_flow.config.defaults import set_config_defaults
 
     set_config_defaults(minimal_config_copy)
     model = get_model(minimal_config_copy)

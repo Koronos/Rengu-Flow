@@ -1,6 +1,6 @@
 """Augmentation catalog exposed to the UI."""
 
-from renga_flow.data.augmentation.ui_schema import get_augmentation_catalog
+from rengu_flow.data.augmentation.ui_schema import get_augmentation_catalog
 
 
 def test_strategy_parameters_include_help() -> None:

@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from renga_flow.config.loader import load_dataset_config, load_eval_dataset_config
-from renga_flow.data.dataset_config import (
+from rengu_flow.config.loader import load_dataset_config, load_eval_dataset_config
+from rengu_flow.data.dataset_config import (
     DatasetConfigError,
     validate_dataset_config_for_real_data,
 )

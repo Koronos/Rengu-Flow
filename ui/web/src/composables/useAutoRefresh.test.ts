@@ -6,7 +6,7 @@ import { useAutoRefresh } from "./useAutoRefresh";
 describe("useAutoRefresh", () => {
   beforeEach(() => {
     vi.useFakeTimers();
-    localStorage.setItem("renga-flow.autoRefreshInterval", "10");
+    localStorage.setItem("rengu-flow.autoRefreshInterval", "10");
   });
 
   afterEach(() => {

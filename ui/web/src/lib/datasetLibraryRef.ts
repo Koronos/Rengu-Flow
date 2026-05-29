@@ -1,8 +1,8 @@
-/** Training-config `renga-flow-dataset:` refs (optional `:label` suffix for TOML readability). */
+/** Training-config `rengu-flow-dataset:` refs (optional `:label` suffix for TOML readability). */
 
 import type { DatasetLibraryRefParts } from "../types/forms";
 
-export const DATASET_REF_PREFIX = "renga-flow-dataset:";
+export const DATASET_REF_PREFIX = "rengu-flow-dataset:";
 
 export function parseDatasetLibraryRef(value: unknown): DatasetLibraryRefParts {
   const s = String(value ?? "").trim();

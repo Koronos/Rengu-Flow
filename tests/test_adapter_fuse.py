@@ -4,7 +4,7 @@ import pytest
 
 # Networks may import torch/lycoris; skip if heavy deps fail.
 try:
-    from renga_flow.networks import lokr_sdxl
+    from rengu_flow.networks import lokr_sdxl
     import torch
 except ImportError as e:
     pytest.skip(f"Cannot import networks/torch: {e}", allow_module_level=True)
@@ -46,9 +46,9 @@ def test_infer_lokr_config_from_state_default_rank_when_no_decomposed():
 def test_load_and_fuse_adapter_raises_when_no_safetensors(tmp_path):
     """load_and_fuse_adapter(path) raises RuntimeError when path has no .safetensors."""
     try:
-        from renga_flow.config.defaults import set_config_defaults
-        from renga_flow.model import sdxl  # noqa: F401  # register sdxl so get_model works
-        from renga_flow.registry.models import get_model
+        from rengu_flow.config.defaults import set_config_defaults
+        from rengu_flow.model import sdxl  # noqa: F401  # register sdxl so get_model works
+        from rengu_flow.registry.models import get_model
     except ImportError as e:
         pytest.skip(f"Cannot import config/registry: {e}")
 

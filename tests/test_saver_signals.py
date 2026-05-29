@@ -4,14 +4,14 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from renga_flow.utils.signal_files import (
+from rengu_flow.utils.signal_files import (
     SIGNAL_EXPORT_MODEL,
     SIGNAL_EXPORT_MODEL_QUIT,
     SIGNAL_PREVIEW,
     SIGNAL_SAVE,
     SIGNAL_SAVE_QUIT,
 )
-from renga_flow.utils.saver import Saver
+from rengu_flow.utils.saver import Saver
 
 
 @pytest.fixture
@@ -43,7 +43,7 @@ def saver_bundle(tmp_path):
     return saver, model_engine
 
 
-@patch("renga_flow.utils.saver._need_to_checkpoint", return_value=False)
+@patch("rengu_flow.utils.saver._need_to_checkpoint", return_value=False)
 def test_process_step_no_signals(_mock_ckpt, saver_bundle):
     saver, model_engine = saver_bundle
     with patch.object(saver, "save_model", return_value=True) as save_model:
@@ -59,7 +59,7 @@ def test_process_step_no_signals(_mock_ckpt, saver_bundle):
     save_model.assert_not_called()
 
 
-@patch("renga_flow.utils.saver._need_to_checkpoint", return_value=False)
+@patch("rengu_flow.utils.saver._need_to_checkpoint", return_value=False)
 def test_process_step_save(_mock_ckpt, saver_bundle, mock_save_checkpoint, tmp_path):
     saver, model_engine = saver_bundle
     (tmp_path / SIGNAL_SAVE).touch()
@@ -72,7 +72,7 @@ def test_process_step_save(_mock_ckpt, saver_bundle, mock_save_checkpoint, tmp_p
     model_engine.save_checkpoint.assert_not_called()
 
 
-@patch("renga_flow.utils.saver._need_to_checkpoint", return_value=False)
+@patch("rengu_flow.utils.saver._need_to_checkpoint", return_value=False)
 def test_process_step_save_quit(_mock_ckpt, saver_bundle, mock_save_checkpoint, tmp_path):
     saver, model_engine = saver_bundle
     (tmp_path / SIGNAL_SAVE_QUIT).touch()
@@ -81,7 +81,7 @@ def test_process_step_save_quit(_mock_ckpt, saver_bundle, mock_save_checkpoint, 
     mock_save_checkpoint.assert_called_once_with(3, 30)
 
 
-@patch("renga_flow.utils.saver._need_to_checkpoint", return_value=False)
+@patch("rengu_flow.utils.saver._need_to_checkpoint", return_value=False)
 def test_process_step_export_model(_mock_ckpt, saver_bundle, tmp_path):
     saver, model_engine = saver_bundle
     (tmp_path / SIGNAL_EXPORT_MODEL).touch()
@@ -94,7 +94,7 @@ def test_process_step_export_model(_mock_ckpt, saver_bundle, tmp_path):
     model_engine.save_checkpoint.assert_not_called()
 
 
-@patch("renga_flow.utils.saver._need_to_checkpoint", return_value=False)
+@patch("rengu_flow.utils.saver._need_to_checkpoint", return_value=False)
 def test_process_step_export_model_quit(_mock_ckpt, saver_bundle, tmp_path):
     saver, model_engine = saver_bundle
     (tmp_path / SIGNAL_EXPORT_MODEL_QUIT).touch()
@@ -105,7 +105,7 @@ def test_process_step_export_model_quit(_mock_ckpt, saver_bundle, tmp_path):
     model_engine.save_checkpoint.assert_not_called()
 
 
-@patch("renga_flow.utils.saver._need_to_checkpoint", return_value=False)
+@patch("rengu_flow.utils.saver._need_to_checkpoint", return_value=False)
 def test_process_step_save_and_preview(_mock_ckpt, saver_bundle, mock_save_checkpoint, tmp_path):
     saver, model_engine = saver_bundle
     (tmp_path / SIGNAL_SAVE).touch()

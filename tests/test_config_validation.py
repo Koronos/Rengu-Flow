@@ -2,7 +2,7 @@
 
 import pytest
 
-from renga_flow.config.validation import ConfigValidationError, validate_config
+from rengu_flow.config.validation import ConfigValidationError, validate_config
 
 
 def test_validate_config_minimal_passes(minimal_config):

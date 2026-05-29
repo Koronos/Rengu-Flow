@@ -201,7 +201,7 @@ const {
   sortParams,
   toggleSortOrder,
   orderButtonLabel,
-} = useLibraryListSort(`renga-flow-library-sort-${props.kind}`, {
+} = useLibraryListSort(`rengu-flow-library-sort-${props.kind}`, {
   kind: props.kind,
 });
 

@@ -6,6 +6,7 @@
         circle
         :icon="CopyDocument"
         :loading="loading"
+        aria-label="Duplicate"
         @click="$emit('duplicate')"
       />
     </el-tooltip>
@@ -16,6 +17,7 @@
         type="danger"
         :icon="Delete"
         :loading="loading"
+        aria-label="Delete"
         @click="$emit('delete')"
       />
     </el-tooltip>

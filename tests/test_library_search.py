@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from renga_flow_ui import configs_store, datasets_store, library_db
+from rengu_flow_ui import configs_store, datasets_store, library_db
 
 
 def test_search_configs_paginated(ui_data_tmp: Path) -> None:

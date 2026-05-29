@@ -3,7 +3,11 @@
     <p class="tab-intro">
       Image diversity settings apply before VAE encode. Enable augmentation once for the dataset;
       customize individual <code>[[directory]]</code> rows with strategy overrides when needed.
-      See <code>docs/user/dataset-augmentation.md</code> in the Docs page.
+      See
+      <router-link :to="{ path: '/docs', query: { doc: 'docs/user/dataset-augmentation.md' } }">
+        dataset augmentation
+      </router-link>
+      in Docs.
     </p>
 
     <el-alert v-if="catalogError" type="warning" :title="catalogError" show-icon class="mb-12" />

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from renga_flow_ui import library_db
+from rengu_flow_ui import library_db
 
 
 def test_datasets_sort_by_name_asc(ui_data_tmp: Path) -> None:

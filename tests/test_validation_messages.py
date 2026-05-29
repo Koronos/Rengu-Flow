@@ -1,13 +1,13 @@
 """Validation API returns readable errors (not bare KeyError names)."""
 
-from renga_flow.config.dataset_library_ref import dataset_library_ref
-from renga_flow.config.validation import (
+from rengu_flow.config.dataset_library_ref import dataset_library_ref
+from rengu_flow.config.validation import (
     collect_validation_errors,
     format_validation_issues,
     validate_config,
     ConfigValidationError,
 )
-from renga_flow_ui.configs_store import validate_toml_text
+from rengu_flow_ui.configs_store import validate_toml_text
 
 
 def test_validate_empty_content_lists_issues() -> None:
@@ -72,14 +72,14 @@ def _minimal_training_config(dataset: str | list[str]) -> dict:
 def test_ui_library_ref_allowed_in_ui_validate() -> None:
     ref = dataset_library_ref(3, "artista 1")
     issues = collect_validation_errors(_minimal_training_config(ref))
-    assert not any("renga-flow-dataset" in e for e in issues)
+    assert not any("rengu-flow-dataset" in e for e in issues)
 
 
 def test_ui_library_ref_rejected_in_script_validate() -> None:
     ref = dataset_library_ref(3, "artista 1")
     issues = collect_validation_errors(_minimal_training_config(ref), for_script=True)
     assert any("Export dataset #3" in e for e in issues)
-    assert any("renga-flow-dataset" in e for e in issues)
+    assert any("rengu-flow-dataset" in e for e in issues)
 
 
 def test_script_validate_config_raises_on_library_ref() -> None:

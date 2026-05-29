@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from renga_flow_ui import library_db
+from rengu_flow_ui import library_db
 
 
 def test_dataset_ids_are_integers(ui_data_tmp) -> None:

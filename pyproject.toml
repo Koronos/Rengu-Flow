@@ -3,9 +3,9 @@ requires = ["setuptools>=61", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "renga-flow"
+name = "rengu-flow"
 version = "0.1.0"
-description = "Modular training framework derived from diffusion-pipe; TOML-driven, registry-based components."
+description = "TOML-driven diffusion training: DeepSpeed, LoRA/LoKr/full finetune (SDXL, Cosmos Predict2), optional web UI."
 readme = "README.md"
 license = "GPL-3.0-or-later"
 requires-python = ">=3.10,<3.14"
@@ -52,13 +52,13 @@ ui = [
 ]
 
 [project.scripts]
-renga = "renga_flow.cli:main"
-renga-flow = "renga_flow.cli:main"
-renga-flow-ui = "renga_flow_ui.cli:main"
+rengu = "rengu_flow.cli:main"
+rengu-flow = "rengu_flow.cli:main"
+rengu-flow-ui = "rengu_flow_ui.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["renga_flow*", "renga_flow_ui*"]
+include = ["rengu_flow*", "rengu_flow_ui*"]
 
 [tool.setuptools.package-data]
-"renga_flow.model.cosmos_predict2" = ["assets/**/*"]
+"rengu_flow.model.cosmos_predict2" = ["assets/**/*"]

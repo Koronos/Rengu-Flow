@@ -1,5 +1,5 @@
 # Cosmos Predict2 LoKr smoke (~30 steps), smoke_cc0 fixture.
-#   .venv/bin/python -m renga_flow.config.local_env tests/fixtures/smoke/train_cosmos_predict2_lokr.toml
+#   .venv/bin/python -m rengu_flow.config.local_env tests/fixtures/smoke/train_cosmos_predict2_lokr.toml
 
 dataset = "tests/fixtures/smoke/dataset_cc0.toml"
 output_dir = "output"

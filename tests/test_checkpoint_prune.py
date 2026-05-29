@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from renga_flow.utils.saver import _prune_old_checkpoints
+from rengu_flow.utils.saver import _prune_old_checkpoints
 
 
 def test_prune_old_checkpoints_keeps_newest(tmp_path: Path):

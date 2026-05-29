@@ -2,9 +2,9 @@
 
 import pytest
 
-from renga_flow.config.validation import ConfigValidationError, validate_config
-from renga_flow.registry.model_capabilities import get_capability
-from renga_flow.registry.model_config_rules import (
+from rengu_flow.config.validation import ConfigValidationError, validate_config
+from rengu_flow.registry.model_capabilities import get_capability
+from rengu_flow.registry.model_config_rules import (
     one_of_groups,
     required_model_keys,
     validate_config_model_rules,
@@ -29,15 +29,15 @@ def test_cosmos_required_keys_from_capability() -> None:
     assert ["llm_path", "t5_path"] in one_of_groups(cap)
 
 
-def test_blocks_to_swap_rejected_for_sdxl() -> None:
+def test_blocks_to_swap_allowed_for_sdxl() -> None:
     cfg = {
         "dataset": "d.toml",
         "model": {"type": "sdxl", "dtype": "bfloat16", "checkpoint_path": "x.safetensors"},
         "optimizer": {"type": "adamw"},
         "blocks_to_swap": 4,
+        "adapter": {"type": "lora", "rank": 8},
     }
-    with pytest.raises(ConfigValidationError, match="blocks_to_swap"):
-        validate_training_keys_for_model(cfg)
+    validate_training_keys_for_model(cfg)
 
 
 def test_blocks_to_swap_allowed_for_cosmos() -> None:

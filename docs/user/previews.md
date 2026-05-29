@@ -50,7 +50,7 @@ preview_every_n_steps = 500
 | **`preview.preview_every_n_steps`** | Generate previews every N training steps. | Positive integer. | Omitted (no step schedule) |
 | **`preview.preview_every_n_epochs`** | Generate at the end of every N epochs. | Positive integer. | Omitted |
 | **`preview.preview_before_first_step`** | Run once before step 1 (like eval). | `true` or `false`. | `false` |
-| **`disable_block_swap_for_preview`** | Top-level (SDXL): use full GPU for preview when using block swap (same idea as eval). | `true` or `false`. | Same as `disable_block_swap_for_eval` |
+| **`disable_block_swap_for_preview`** | When training uses `blocks_to_swap`, set `true` to run preview with the full DiT on GPU. | `true` or `false`. | Same as `disable_block_swap_for_eval` |
 
 ### Cosmos Predict2 (`cosmos_predict2` / `anima`)
 
@@ -65,7 +65,7 @@ Recommended for **Anima** previews: **`num_inference_steps = 20`**, **`guidance_
 | **`preview.guidance_scale`** | CFG scale for preview sampling. | `4.0` |
 | **`preview.negative_prompt`** | Unconditional caption for CFG. | `""` |
 | **`preview.preview_offload_text_encoder`** | Move LLM/T5 to CPU during the Euler loop to save VRAM. | `true` |
-| **`preview.preview_blocks_to_swap`** | DiT blocks kept on CPU between Euler steps (preview-only block swap). `0` disables. | `0` |
+| **`preview.preview_blocks_to_swap`** | Cosmos only: DiT blocks kept on CPU between Euler preview steps. `0` disables. Uses the same offloader as training `blocks_to_swap` ([Training loop — block swap](training-loop-and-eval.md#block-swap-vram-adapter-training)). | `0` |
 | **`preview.preview_save_png`** | Also write `preview/{name}_step{N}.png` under the run directory (same folder as TensorBoard logs). | `false` |
 
 Video previews (`frame_buckets` > 1) are not supported in v1 — only a single frame (`T=1`).

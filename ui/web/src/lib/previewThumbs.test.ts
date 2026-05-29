@@ -7,10 +7,10 @@ import {
 
 describe("datasetRefToThumbSource", () => {
   it("maps library refs to library thumb source", () => {
-    expect(datasetRefToThumbSource("renga-flow-dataset:3:artista 1")).toEqual(
+    expect(datasetRefToThumbSource("rengu-flow-dataset:3:artista 1")).toEqual(
       libraryThumbSource("3")
     );
-    expect(datasetRefToThumbSource("renga-flow-dataset:12")).toEqual(libraryThumbSource("12"));
+    expect(datasetRefToThumbSource("rengu-flow-dataset:12")).toEqual(libraryThumbSource("12"));
   });
 
   it("maps non-library paths to path thumb source", () => {
@@ -25,8 +25,8 @@ describe("datasetRefToThumbSource", () => {
   it("returns null for empty or invalid library ids", () => {
     expect(datasetRefToThumbSource("")).toBeNull();
     expect(datasetRefToThumbSource("   ")).toBeNull();
-    expect(datasetRefToThumbSource("renga-flow-dataset:abc")).toEqual(
-      pathThumbSource("renga-flow-dataset:abc")
+    expect(datasetRefToThumbSource("rengu-flow-dataset:abc")).toEqual(
+      pathThumbSource("rengu-flow-dataset:abc")
     );
   });
 });

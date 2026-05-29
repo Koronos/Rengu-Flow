@@ -7,8 +7,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from renga_flow_ui import tensorboard_server
-from renga_flow_ui.settings import repo_root
+from rengu_flow_ui import tensorboard_server
+from rengu_flow_ui.settings import repo_root
 
 
 @pytest.fixture(autouse=True)
@@ -33,7 +33,7 @@ def test_resolve_output_dir_relative() -> None:
 
 
 def test_start_requires_output_dir(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr("renga_flow_ui.settings.repo_root", lambda: tmp_path)
+    monkeypatch.setattr("rengu_flow_ui.settings.repo_root", lambda: tmp_path)
     with pytest.raises(FileNotFoundError):
         tensorboard_server.start_tensorboard("missing-output")
 
@@ -41,7 +41,7 @@ def test_start_requires_output_dir(tmp_path, monkeypatch) -> None:
 def test_start_uv_missing(tmp_path, monkeypatch) -> None:
     out = tmp_path / "output"
     out.mkdir()
-    monkeypatch.setattr("renga_flow_ui.settings.repo_root", lambda: tmp_path)
+    monkeypatch.setattr("rengu_flow_ui.settings.repo_root", lambda: tmp_path)
     monkeypatch.setattr(tensorboard_server.shutil, "which", lambda _: None)
     with pytest.raises(FileNotFoundError, match="uv"):
         tensorboard_server.start_tensorboard("output")
@@ -50,7 +50,7 @@ def test_start_uv_missing(tmp_path, monkeypatch) -> None:
 def test_start_and_stop_mocked(tmp_path, monkeypatch) -> None:
     out = tmp_path / "output"
     out.mkdir()
-    monkeypatch.setattr("renga_flow_ui.settings.repo_root", lambda: tmp_path)
+    monkeypatch.setattr("rengu_flow_ui.settings.repo_root", lambda: tmp_path)
     monkeypatch.setattr(tensorboard_server, "logs_dir", lambda: tmp_path / "logs")
     monkeypatch.setattr(tensorboard_server.shutil, "which", lambda _: "/usr/bin/uv")
     monkeypatch.setattr(tensorboard_server, "pick_free_port", lambda *a, **k: 6007)

@@ -1,8 +1,8 @@
 # Model pipeline contract — implementation status
 
-`renga_flow.model.base.ModelPipelineProtocol` defines methods the orchestrator and `DatasetManager` expect. Unless noted, both **`sdxl`** and **`cosmos_predict2`** implement the cache and training hooks below.
+`rengu_flow.model.base.ModelPipelineProtocol` defines methods the orchestrator and `DatasetManager` expect. Unless noted, both **`sdxl`** and **`cosmos_predict2`** implement the cache and training hooks below.
 
-Reference: `renga_flow/model/base.py`, implementations `renga_flow/model/sdxl.py`, `renga_flow/model/cosmos_predict2/pipeline.py`.
+Reference: `rengu_flow/model/base.py`, implementations `rengu_flow/model/sdxl.py`, `rengu_flow/model/cosmos_predict2/pipeline.py`.
 
 | Method | SDXL | Cosmos Predict2 |
 |--------|------|-----------------|
@@ -22,11 +22,11 @@ Reference: `renga_flow/model/base.py`, implementations `renga_flow/model/sdxl.py
 | `model_specific_dataset_config_validation` | Default no-op | Implemented (`frame_buckets` must include `1`) |
 | `get_param_groups` | Implemented | Implemented (+ `llm_adapter_lr`) |
 | `get_loss_fn` | Implemented | Implemented |
-| `enable_block_swap` | **`[TODO]`** | Not supported (austere) |
-| `prepare_block_swap_training` | No-op (base) | No-op |
-| `prepare_block_swap_inference` | No-op (base) | No-op |
+| `enable_block_swap` | Implemented (`get_block_swap_modules`) | Implemented (`transformer.blocks`) |
+| `prepare_block_swap_training` | Base (`BlockSwapOffloader`) | Base |
+| `prepare_block_swap_inference` | Base | Base |
 | `freeze_text_encoders` | Implemented | No-op (frozen in `__init__`) |
 
-Register new models via `renga_flow.registry.models.register_model`. Built-in: `sdxl`, `cosmos_predict2`.
+Register new models via `rengu_flow.registry.models.register_model`. Built-in: `sdxl`, `cosmos_predict2`.
 
-See also [Dataset and cache — model hooks](dataset-and-cache.md#model-hooks-for-cache-sdxl).
+See also [Dataset and cache — model hooks](dataset-and-cache.md#model-hooks-for-cache).

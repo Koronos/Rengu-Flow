@@ -5,7 +5,7 @@ import copy
 import pytest
 import torch
 
-from renga_flow.optim.resolver import (
+from rengu_flow.optim.resolver import (
     apply_warmup,
     build_scheduler_runtime_values,
     register_scheduler,
@@ -14,7 +14,7 @@ from renga_flow.optim.resolver import (
     scheduler_registry,
     substitute_runtime_tokens,
 )
-from renga_flow.registry.optimizers import optimizer_registry, register_optimizer
+from rengu_flow.registry.optimizers import optimizer_registry, register_optimizer
 
 
 @pytest.mark.parametrize("name, expected_cls", [

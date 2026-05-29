@@ -2,7 +2,7 @@
 
 import torch
 
-from renga_flow.vendor.diffusion_pipe_optimizers.gradient_release import (
+from rengu_flow.vendor.diffusion_pipe_optimizers.gradient_release import (
     GradientReleaseOptimizerWrapper,
 )
 

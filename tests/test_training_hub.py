@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from renga_flow_ui import training_hub
+from rengu_flow_ui import training_hub
 
 
 def test_sort_runs_orders_states() -> None:

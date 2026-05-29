@@ -9,9 +9,9 @@ from pathlib import Path
 import pytest
 import toml
 
-from renga_flow.config.dataset_library_ref import dataset_library_ref
-from renga_flow_ui import datasets_store, library_db
-from renga_flow_ui.training_export import (
+from rengu_flow.config.dataset_library_ref import dataset_library_ref
+from rengu_flow_ui import datasets_store, library_db
+from rengu_flow_ui.training_export import (
     absolutize_dataset_config,
     build_training_export_zip,
     export_dataset_toml_text,

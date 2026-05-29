@@ -8,7 +8,7 @@
 
 | Check | Status |
 |-------|--------|
-| `.env`, `renga.local.toml` gitignored | OK |
+| `.env`, `rengu.local.toml` gitignored | OK |
 | No real machine paths in tracked tree | OK (examples use `path/to/…`) |
 | `.env.example` at repo root (smoke/docs) | Restored (was removed in `d39fa17`) |
 | README preliminary-release notice | Added |
@@ -50,7 +50,7 @@ Before `git push`, run: `git log -p --all -S '/media/<user>' -S '/home/<user>' -
 
 ## Still large but intentional (~17 MB tracked)
 
-- `renga_flow/model/cosmos_predict2/assets/**` — bundled tokenizers (~13 MB)
+- `rengu_flow/model/cosmos_predict2/assets/**` — bundled tokenizers (~13 MB)
 - `tests/fixtures/smoke_cc0/images/` — CC0 test images (~1 MB)
 - `uv.lock` — reproducible installs
 

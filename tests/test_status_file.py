@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 
-from renga_flow.control.status_file import read_status_file, write_status_file
+from rengu_flow.control.status_file import read_status_file, write_status_file
 
 
 def test_write_status_file(tmp_path: Path) -> None:

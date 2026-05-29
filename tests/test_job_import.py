@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from renga_flow_ui import configs_store, datasets_store, db, job_import
-from renga_flow_ui.job_import import JobImportError
+from rengu_flow_ui import configs_store, datasets_store, db, job_import
+from rengu_flow_ui.job_import import JobImportError
 
 
 def _make_run_dir(parent: Path, name: str = "20250101_12-00-00") -> Path:

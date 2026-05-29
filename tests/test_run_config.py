@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from renga_flow_ui.run_config import describe_run_config, read_run_config_text, resume_checkpoint_arg
+from rengu_flow_ui.run_config import describe_run_config, read_run_config_text, resume_checkpoint_arg
 
 
 def _make_run(parent: Path, name: str = "20250101_12-00-00") -> Path:

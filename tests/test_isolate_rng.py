@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 import torch
 
-from renga_flow.utils.isolate_rng import isolate_rng
+from rengu_flow.utils.isolate_rng import isolate_rng
 
 
 def test_isolate_rng_restores_torch_state():

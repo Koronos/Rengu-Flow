@@ -2,8 +2,8 @@
 
 import toml
 
-from renga_flow_ui.dataset_form import form_to_toml, form_values_for_ui, parse_toml
-from renga_flow_ui.dataset_schema import get_dataset_schema
+from rengu_flow_ui.dataset_form import form_to_toml, form_values_for_ui, parse_toml
+from rengu_flow_ui.dataset_schema import get_dataset_schema
 
 
 def test_parse_and_render_directories() -> None:
@@ -79,7 +79,7 @@ def test_cache_shuffle_schema_default_and_shuffle_tags_gating() -> None:
 
 
 def test_parse_toml_to_form_skips_defaults_by_default() -> None:
-    from renga_flow_ui.dataset_form import parse_toml_to_form
+    from rengu_flow_ui.dataset_form import parse_toml_to_form
 
     form, _notes = parse_toml_to_form(
         "resolutions = [768]\nframe_buckets = [1]\n\n[[directory]]\npath = '/x'\nnum_repeats = 1\n"

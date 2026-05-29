@@ -1,6 +1,6 @@
 /**
  * Fewer form tabs: each tab merges related schema sections.
- * Section ids must match renga_flow_ui/config_schema.py get_sections().
+ * Section ids must match rengu_flow_ui/config_schema.py get_sections().
  */
 import type { SchemaField } from "../types/forms";
 

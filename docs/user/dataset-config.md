@@ -12,14 +12,14 @@ dataset = "examples/minimal_dataset.toml"
 
 ```toml
 dataset = [
-  "renga-flow-dataset:1:portraits",
-  "renga-flow-dataset:2:landscapes",
+  "rengu-flow-dataset:1:portraits",
+  "rengu-flow-dataset:2:landscapes",
 ]
 ```
 
 The part after the second colon is optional and only helps you read the file; only the numeric library id is used when training runs.
 
-Each path can be relative to the working directory or absolute. Library refs (`renga-flow-dataset:<id>`) are resolved when a job is staged from the UI. If you omit `dataset` or use synthetic data only (see below), training uses an in-memory synthetic dataset instead.
+Each path can be relative to the working directory or absolute. Library refs (`rengu-flow-dataset:<id>`) are resolved when a job is staged from the UI. If you omit `dataset` or use synthetic data only (see below), training uses an in-memory synthetic dataset instead.
 
 ## Dataset TOML schema
 
@@ -193,7 +193,7 @@ These are loaded for evaluation hooks; the training loop uses the main dataset (
 Print one JSON line per image (path and resolved captions) without loading a model or GPU:
 
 ```bash
-python -m renga_flow.main --dump_dataset tests/fixtures/smoke/dataset_cc0.toml
+python -m rengu_flow.main --dump_dataset tests/fixtures/smoke/dataset_cc0.toml
 ```
 
 Use this to verify directory paths, `.txt` captions, and `captions.json` before a long cache or training run. The versioned smoke dataset TOML for tests and GPU smokes is `tests/fixtures/smoke/dataset_cc0.toml` (12 CC0 images under `tests/fixtures/smoke_cc0/`).

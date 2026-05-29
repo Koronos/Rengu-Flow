@@ -11,13 +11,13 @@ import pytest
 import toml
 import torch
 
-from renga_flow.data.dataset import (
+from rengu_flow.data.dataset import (
     CAPTIONS_JSON_FILE,
     DirectoryDataset,
     SizeBucketDataset,
     _read_captions_from_txt_per_line,
 )
-from renga_flow.data.dump_dataset import dump_dataset
+from rengu_flow.data.dump_dataset import dump_dataset
 
 FIXTURE_JPG = (
     Path(__file__).resolve().parent / "fixtures" / "smoke_cc0" / "images" / "gb82_01.jpg"

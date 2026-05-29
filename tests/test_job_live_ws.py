@@ -6,7 +6,7 @@ import json
 import os
 from pathlib import Path
 
-from renga_flow_ui import db, live_stream
+from rengu_flow_ui import db, live_stream
 
 
 def _running_job(ui_data_tmp: Path, *, run_dir: Path, log_path: Path) -> db.JobRecord:

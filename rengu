@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Run rengu via uv-managed .venv (install uv: https://docs.astral.sh/uv/)
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+cd "$ROOT"
+VENV="$ROOT/.venv"
+RENGU="$VENV/bin/rengu"
+
+if ! command -v uv >/dev/null 2>&1; then
+  echo "rengu: uv is required. Install from https://docs.astral.sh/uv/" >&2
+  exit 1
+fi
+
+if [[ ! -x "$RENGU" ]]; then
+  echo "==> Setting up project environment (uv sync)..."
+  uv sync
+fi
+
+exec "$RENGU" "$@"

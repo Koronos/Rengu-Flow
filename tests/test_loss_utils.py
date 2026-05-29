@@ -1,10 +1,10 @@
-"""Tests for renga_flow.model.loss_utils."""
+"""Tests for rengu_flow.model.loss_utils."""
 
 import torch
 
 import importlib.util
 
-_loss_utils = importlib.import_module("renga_flow.model.loss_utils")
+_loss_utils = importlib.import_module("rengu_flow.model.loss_utils")
 compute_diffusion_loss_per_element = _loss_utils.compute_diffusion_loss_per_element
 
 

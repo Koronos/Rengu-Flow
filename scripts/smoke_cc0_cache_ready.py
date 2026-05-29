@@ -17,7 +17,7 @@ MODEL = "sdxl"
 def smoke_cache_dir() -> Path:
     if str(REPO) not in sys.path:
         sys.path.insert(0, str(REPO))
-    from renga_flow.data.cache_paths import resolve_directory_cache_dir
+    from rengu_flow.data.cache_paths import resolve_directory_cache_dir
 
     cfg = toml.load(DATASET_TOML)
     cfg["_dataset_toml_path"] = str(DATASET_TOML.resolve())

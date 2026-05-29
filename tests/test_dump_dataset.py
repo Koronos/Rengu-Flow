@@ -1,4 +1,4 @@
-"""Tests for --dump_dataset / renga_flow.data.dump_dataset."""
+"""Tests for --dump_dataset / rengu_flow.data.dump_dataset."""
 
 import json
 from pathlib import Path
@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 import toml
 
-from renga_flow.data.dump_dataset import dump_dataset
+from rengu_flow.data.dump_dataset import dump_dataset
 
 
 def test_dump_dataset_tmp_dir(tmp_path, capsys):

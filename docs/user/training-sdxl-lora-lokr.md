@@ -1,13 +1,13 @@
 # Training SDXL LoRA and LoKr (user guide)
 
-This guide explains how to train SDXL with **LoRA** or **LoKr** (LyCORIS) adapters using Renga Flow. No implementation details; task-oriented.
+This guide explains how to train SDXL with **LoRA** or **LoKr** (LyCORIS) adapters using Rengu. No implementation details; task-oriented.
 
 ## What you need
 
 - A TOML config file with `[model]` (type `sdxl`), `[optimizer]`, and `dataset`.
 - An SDXL **base model** path in `model.checkpoint_path` — usually one large `.safetensors` file (not a LoRA).
 - For LoKr, you can optionally install the LyCORIS backend:  
-  `pip install renga-flow[lycoris]`  
+  `pip install rengu-flow[lycoris]`  
   If you do not install it, LoKr still works using the built-in (vendored) implementation.
 
 ## Config: LoRA
@@ -86,19 +86,19 @@ For a folder of images (not synthetic data):
 3. Run cache only, then training:
 
 ```bash
-deepspeed --num_gpus=1 -m renga_flow.main --config my.toml --cache_only
-deepspeed --num_gpus=1 -m renga_flow.main --config my.toml
+deepspeed --num_gpus=1 -m rengu_flow.main --config my.toml --cache_only
+deepspeed --num_gpus=1 -m rengu_flow.main --config my.toml
 ```
 
 Cache is stored under each directory’s `cache/sdxl/`. Use `--regenerate_cache` after changing images or captions; `--trust_cache` when nothing changed.
 
-**Smoke example (12 CC0 images, 30 steps):** Copy `.env.example` → `.env` and set `RENGA_SDXL_CHECKPOINT_PATH`. Then `scripts/run_model_smoke.sh sdxl` (fixtures + cache + train; cleans `output/` and fixture caches afterward). Configs: `tests/fixtures/smoke/train_sdxl.toml` and `tests/fixtures/smoke/dataset_cc0.toml`.
+**Smoke example (12 CC0 images, 30 steps):** Copy `.env.example` → `.env` and set `RENGU_SDXL_CHECKPOINT_PATH`. Then `scripts/run_model_smoke.sh sdxl` (fixtures + cache + train; cleans `output/` and fixture caches afterward). Configs: `tests/fixtures/smoke/train_sdxl.toml` and `tests/fixtures/smoke/dataset_cc0.toml`.
 
 ## How to run training
 
-1. Install: `pip install -e .` (or `pip install renga-flow[lycoris]` for optional LyCORIS backend).
+1. Install: `pip install -e .` (or `pip install rengu-flow[lycoris]` for optional LyCORIS backend).
 2. Run with DeepSpeed, e.g.:  
-   `deepspeed --num_gpus=1 -m renga_flow.main --config examples/minimal_config_lora_sdxl.toml`  
+   `deepspeed --num_gpus=1 -m rengu_flow.main --config examples/minimal_config_lora_sdxl.toml`  
    For real data, use a config with `dataset = "..."` and no `synthetic_num_batches`.
 3. Check the log for `Run dir: ...` to see where checkpoints and adapters are saved.
 

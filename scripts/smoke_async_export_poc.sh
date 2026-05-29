@@ -21,9 +21,9 @@ fi
 DEEPSPEED="${VENV}/bin/deepspeed"
 PYTHON="${VENV}/bin/python"
 
-[[ -f "${REPO_ROOT}/.env" ]] || { echo "Missing .env (RENGA_SDXL_CHECKPOINT_PATH)" >&2; exit 1; }
+[[ -f "${REPO_ROOT}/.env" ]] || { echo "Missing .env (RENGU_SDXL_CHECKPOINT_PATH)" >&2; exit 1; }
 
-"${PYTHON}" -m renga_flow.config.local_env "${CONFIG}"
+"${PYTHON}" -m rengu_flow.config.local_env "${CONFIG}"
 
 if [[ "${ENSURE_FIXTURES:-1}" == "1" ]]; then
   need_vendor=0
@@ -47,7 +47,7 @@ smoke_ts "log=${LOG_FILE} (train only; cache inline)"
 
 SMOKE_EXIT=0
 if smoke_run_phase train \
-  "${DEEPSPEED}" --num_gpus=1 --master_port="${MASTER_PORT}" --module renga_flow.main \
+  "${DEEPSPEED}" --num_gpus=1 --master_port="${MASTER_PORT}" --module rengu_flow.main \
   --config "${CONFIG}" \
   >>"${LOG_FILE}" 2>&1; then
   smoke_ts "train OK"

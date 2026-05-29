@@ -1,4 +1,4 @@
-"""Tests for renga_flow.utils.save_io."""
+"""Tests for rengu_flow.utils.save_io."""
 
 import errno
 from pathlib import Path
@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 import torch
 
-from renga_flow.utils.save_io import (
+from rengu_flow.utils.save_io import (
     atomic_save_safetensors,
     cleanup_export_dir,
     is_disk_full_error,

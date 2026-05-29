@@ -516,7 +516,7 @@ def main():
     args = parser.parse_args()
     import shutil
 
-    tmp = Path(os.environ.get("POC_TMP", "/tmp/renga_poc"))
+    tmp = Path(os.environ.get("POC_TMP", "/tmp/rengu_poc"))
     if tmp.exists():
         shutil.rmtree(tmp)
     tmp.mkdir(parents=True, exist_ok=True)

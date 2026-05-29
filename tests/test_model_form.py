@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from renga_flow_ui.config_schema import get_schema
-from renga_flow_ui.field_visibility import field_visible, prune_form_for_model
-from renga_flow_ui.model_form import hidden_model_paths_by_type, toml_only_model_paths_for_type
+from rengu_flow_ui.config_schema import get_schema
+from rengu_flow_ui.field_visibility import field_visible, prune_form_for_model
+from rengu_flow_ui.model_form import hidden_model_paths_by_type, toml_only_model_paths_for_type
 
 
 def test_hidden_model_paths_by_type() -> None:

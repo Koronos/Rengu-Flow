@@ -4,7 +4,7 @@ import json
 
 import toml
 
-from renga_flow_ui.dataset_form import form_to_toml, parse_toml
+from rengu_flow_ui.dataset_form import form_to_toml, parse_toml
 
 
 def test_parse_and_render_directory_augmentation() -> None:

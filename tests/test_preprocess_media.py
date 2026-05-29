@@ -1,7 +1,7 @@
 """PreprocessMediaFile bucket rounding (no I/O)."""
 
-from renga_flow.data.preprocess_media import PreprocessMediaFile
-from renga_flow.utils.common import round_down_to_multiple
+from rengu_flow.data.preprocess_media import PreprocessMediaFile
+from rengu_flow.utils.common import round_down_to_multiple
 
 
 def test_round_down_to_multiple():

@@ -49,13 +49,13 @@ source_env_and_paths() {
   fi
   export PATH="${VENV}/bin:${PATH}"
   if [[ "${MODEL}" == "sdxl" ]]; then
-    [[ -f "${RENGA_SDXL_CHECKPOINT_PATH:-}" ]] || {
-      echo "Set RENGA_SDXL_CHECKPOINT_PATH in .env" >&2
+    [[ -f "${RENGU_SDXL_CHECKPOINT_PATH:-}" ]] || {
+      echo "Set RENGU_SDXL_CHECKPOINT_PATH in .env" >&2
       exit 1
     }
     BASE_CONFIG="${REPO_ROOT}/tests/fixtures/smoke/train_sdxl.toml"
   else
-    for var in RENGA_COSMOS_TRANSFORMER_PATH RENGA_COSMOS_VAE_PATH RENGA_COSMOS_LLM_PATH; do
+    for var in RENGU_COSMOS_TRANSFORMER_PATH RENGU_COSMOS_VAE_PATH RENGU_COSMOS_LLM_PATH; do
       [[ -f "${!var:-}" ]] || {
         echo "Set ${var} in .env" >&2
         exit 1
@@ -104,7 +104,7 @@ parse_bench_mean() {
   local csv
   csv="$(python -c "
 from pathlib import Path
-from renga_flow.utils.bench import bench_mean_iter_sec_after_warmup, find_latest_bench_csv
+from rengu_flow.utils.bench import bench_mean_iter_sec_after_warmup, find_latest_bench_csv
 p = find_latest_bench_csv('${REPO_ROOT}/output')
 m = bench_mean_iter_sec_after_warmup(p, min_step=6)
 if m is None:
@@ -119,7 +119,7 @@ run_train_only() {
   local log="${REPO_ROOT}/tmp/smoke_ab_${MODEL}_$(date +%Y%m%d_%H%M%S).log"
   mkdir -p "${REPO_ROOT}/tmp"
   echo "Train-only -> ${log}"
-  "${DEEPSPEED}" --num_gpus=1 --master_port="${MASTER_PORT}" --module renga_flow.main \
+  "${DEEPSPEED}" --num_gpus=1 --master_port="${MASTER_PORT}" --module rengu_flow.main \
     --config "${config}" --trust_cache 2>&1 | tee "${log}"
 }
 
@@ -132,7 +132,7 @@ done
 
 purge_smoke_data
 echo "=== Shared cache_only ==="
-"${DEEPSPEED}" --num_gpus=1 --master_port="${MASTER_PORT}" --module renga_flow.main --config "${BASE_CONFIG}" --cache_only
+"${DEEPSPEED}" --num_gpus=1 --master_port="${MASTER_PORT}" --module rengu_flow.main --config "${BASE_CONFIG}" --cache_only
 
 declare -A RESULTS
 for label in "${LABELS[@]}"; do

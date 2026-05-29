@@ -19,12 +19,13 @@ build/
 venv/
 env/
 
-# Secrets and local env (legacy .env; prefer renga.local.toml)
+# Secrets and local env (legacy .env; prefer rengu.local.toml)
 .env
 .env.local
-renga.local.toml
+rengu.local.toml
 
 # Web UI local state (configs library, jobs.db, staging, logs)
+.rengu-flow-ui/
 .renga-flow-ui/
 
 # Local scratch (datasets, smoke configs, run output)

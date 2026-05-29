@@ -4,8 +4,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from renga_flow.utils.signal_files import ExportRecoveryAction
-from renga_flow.utils.saver import Saver
+from rengu_flow.utils.signal_files import ExportRecoveryAction
+from rengu_flow.utils.saver import Saver
 
 
 def test_save_model_retries_after_continue(tmp_path):
@@ -33,12 +33,12 @@ def test_save_model_retries_after_continue(tmp_path):
         if calls["n"] == 1:
             raise OSError(28, "No space left on device")
 
-    with patch("renga_flow.utils.saver.dist") as mock_dist:
+    with patch("rengu_flow.utils.saver.dist") as mock_dist:
         mock_dist.barrier = MagicMock()
-        with patch("renga_flow.utils.saver.is_main_process", return_value=True):
+        with patch("rengu_flow.utils.saver.is_main_process", return_value=True):
             with patch.object(saver, "_save_model_once", side_effect=flaky_save):
                 with patch(
-                    "renga_flow.utils.saver.wait_for_export_recovery",
+                    "rengu_flow.utils.saver.wait_for_export_recovery",
                     return_value=ExportRecoveryAction.CONTINUE,
                 ):
                     assert saver.save_model("step9") is True

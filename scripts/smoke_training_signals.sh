@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # GPU smoke: file-based training signals + genericoptim resume on Cosmos Predict2.
-# Requires repo-root .env (RENGA_COSMOS_*), .venv with deepspeed, and pip install -e ".[optim]" for genericoptim.
+# Requires repo-root .env (RENGU_COSMOS_*), .venv with deepspeed, and pip install -e ".[optim]" for genericoptim.
 #   bash scripts/smoke_training_signals.sh
 # Set KEEP_SMOKE_ARTIFACTS=1 to keep output/ and caches for inspection.
 set -euo pipefail
@@ -25,12 +25,12 @@ if [[ ! -x "${DEEPSPEED}" ]]; then
 fi
 
 if [[ ! -f "${REPO_ROOT}/.env" ]]; then
-  echo "Missing ${REPO_ROOT}/.env. Copy .env.example to .env and set RENGA_COSMOS_* paths." >&2
+  echo "Missing ${REPO_ROOT}/.env. Copy .env.example to .env and set RENGU_COSMOS_* paths." >&2
   exit 1
 fi
 
-"${VENV}/bin/python" -m renga_flow.config.local_env "${SIGNALS_CONFIG}"
-"${VENV}/bin/python" -m renga_flow.config.local_env "${GENERIC_CONFIG}"
+"${VENV}/bin/python" -m rengu_flow.config.local_env "${SIGNALS_CONFIG}"
+"${VENV}/bin/python" -m rengu_flow.config.local_env "${GENERIC_CONFIG}"
 
 export PATH="${VENV}/bin:${PATH}"
 setup_smoke_gpu_env
@@ -77,7 +77,7 @@ assert_global_step_ckpt() {
 }
 
 train_pgrep_pattern() {
-  echo "renga_flow.main.*train_cosmos_predict2_signals.toml"
+  echo "rengu_flow.main.*train_cosmos_predict2_signals.toml"
 }
 
 wait_for_train_end() {
@@ -93,7 +93,7 @@ wait_for_train_end() {
 }
 
 generic_pgrep_pattern() {
-  echo "renga_flow.main.*train_cosmos_predict2_genericoptim.toml"
+  echo "rengu_flow.main.*train_cosmos_predict2_genericoptim.toml"
 }
 
 wait_for_generic_train_end() {
@@ -116,14 +116,14 @@ stop_train() {
 deepspeed_train() {
   local config="$1"
   shift
-  "${DEEPSPEED}" --num_gpus=1 --master_port="${MASTER_PORT}" --module renga_flow.main \
+  "${DEEPSPEED}" --num_gpus=1 --master_port="${MASTER_PORT}" --module rengu_flow.main \
     --config "${config}" "$@" 2>&1 | tee -a "${LOG_FILE}"
 }
 
 deepspeed_train_bg() {
   local config="$1"
   shift
-  "${DEEPSPEED}" --num_gpus=1 --master_port="${MASTER_PORT}" --module renga_flow.main \
+  "${DEEPSPEED}" --num_gpus=1 --master_port="${MASTER_PORT}" --module rengu_flow.main \
     --config "${config}" "$@" >> "${LOG_FILE}" 2>&1 &
   echo $!
 }

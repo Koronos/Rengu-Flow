@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from renga_flow_ui.dataset_image_preview import (
+from rengu_flow_ui.dataset_image_preview import (
     issue_image_token,
     list_dataset_preview_images,
     resolve_image_token,

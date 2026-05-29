@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import torch
 
-from renga_flow.data import PipelineDataLoader, SyntheticSDXLDataset
+from rengu_flow.data import PipelineDataLoader, SyntheticSDXLDataset
 
 
 def _make_mock_model():
@@ -87,7 +87,7 @@ def test_pipeline_data_loader_dataloader_kwargs():
     ds = SyntheticSDXLDataset(num_batches=1, micro_batch_size=1)
     mock_model = _make_mock_model()
     mock_engine = _make_mock_engine()
-    with patch("renga_flow.data.loader.torch.utils.data.DataLoader") as mock_dl:
+    with patch("rengu_flow.data.loader.torch.utils.data.DataLoader") as mock_dl:
         mock_dl.return_value = iter([])
         PipelineDataLoader(
             ds,

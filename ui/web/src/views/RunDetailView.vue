@@ -24,7 +24,10 @@
     >
       Free disk space on the run directory, then use <strong>Continue export</strong> below.
       Weights stay loaded on the GPU until the export succeeds or you quit.
-      See <router-link to="/docs/checkpoint-and-save">Checkpoints &amp; export</router-link>.
+      See
+      <router-link :to="{ path: '/docs', query: { doc: 'docs/user/checkpoint-and-save.md' } }">
+        Checkpoints &amp; export
+      </router-link>.
     </el-alert>
 
     <el-card shadow="never" class="mt-12">

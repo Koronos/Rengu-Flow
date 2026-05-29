@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from renga_flow_ui.dataset_scan import (
+from rengu_flow_ui.dataset_scan import (
     list_image_files_page,
     preview_dataset_config,
     scan_folder,
@@ -40,7 +40,7 @@ def test_scan_folder_paired_caption_txt(tmp_path: Path) -> None:
 
 
 def test_scan_missing_dir() -> None:
-    r = scan_folder("/nonexistent/path/for/renga_flow_test")
+    r = scan_folder("/nonexistent/path/for/rengu_flow_test")
     assert r["ok"] is False
 
 

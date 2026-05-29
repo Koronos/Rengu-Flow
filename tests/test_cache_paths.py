@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from renga_flow.data.cache_paths import (
+from rengu_flow.data.cache_paths import (
     directory_cache_id,
     resolve_cache_root,
     resolve_directory_cache_dir,
@@ -66,7 +66,7 @@ def test_warn_legacy_dataset_cache_root(caplog):
 
 
 def test_validate_training_cache_root_empty_string():
-    from renga_flow.config.validation import collect_validation_errors
+    from rengu_flow.config.validation import collect_validation_errors
 
     issues = collect_validation_errors({"cache_root": "   "})
     assert any("cache_root" in e for e in issues)

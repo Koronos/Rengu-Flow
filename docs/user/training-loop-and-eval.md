@@ -16,7 +16,6 @@ You can run validation during training over one or more **eval datasets**. Eval 
 | **`eval_every_n_epochs`** | Run evaluation at the end of every N epochs. | Positive integer or omit. | `null` |
 | **`eval_every_n_examples`** | Run evaluation every N examples (converted to steps using global batch size). | Positive integer or omit. | `null` |
 | **`eval_before_first_step`** | Run one evaluation before the first training step (useful for baseline metrics). | `true` or `false`. | `true` |
-| **`disable_block_swap_for_eval`** | If using block swap (adapters), disable it during eval so the full model runs on GPU for consistent metrics. | `true` or `false`. | `false` |
 
 ### Examples
 
@@ -78,7 +77,7 @@ tensorboard --logdir output
 | **`[monitoring]`** | Section for logging and tracking. | Table. | — |
 | **`monitoring.enable_wandb`** | Enable Weights & Biases logging. | `true` or `false`. | `false` |
 | **`monitoring.wandb_api_key`** | API key for WandB (or set `WANDB_API_KEY` env). | String or omit. | `null` |
-| **`monitoring.wandb_tracker_name`** | WandB project name. | String. | `"renga-flow"` |
+| **`monitoring.wandb_tracker_name`** | WandB project name. | String. | `"rengu-flow"` |
 | **`monitoring.wandb_run_name`** | Run name in WandB. If omitted, run directory path is used. | String or omit. | `null` |
 
 Example:
@@ -131,6 +130,7 @@ Checkpoint restores model, optimizer, LR scheduler, and dataloader state (epoch 
 | **`cache_num_proc`** | CPU worker processes for metadata map and latent/embedding cache (`pool.imap`). | Positive integer. | `min(8, CPU count)` |
 | **`cache_keep_in_memory`** | Keep the HuggingFace dataset slice in RAM while resuming cache. | `true` / `false`. | `false` (lower RAM; OS page cache still helps train reads) |
 | **`cache_format`** | On-disk layout for latent and text-embedding cache. | `v2` (mmap bf16 tensor stacks + SQLite metadata) or `v1` (legacy pickle shards). | `v2` |
+| **`cache_dedup_text_embeddings`** | During `--cache_only`, reuse text-encoder outputs when captions are identical (hash dedup). | `true` or `false`. | `false` |
 | **`dataloader_num_workers`** | PyTorch DataLoader workers for training (load cached latents from disk). | Non-negative integer. | `0` |
 | **`dataloader_prefetch`** | Background thread loads the next raw batch while the GPU trains (only when `dataloader_num_workers = 0`). | `true` / `false`. | `false` |
 | **`dataloader_pin_memory`** | Page-locked CPU memory for faster host→GPU copies when using CUDA. | `true` / `false`. | `false` |
@@ -142,7 +142,7 @@ Checkpoint restores model, optimizer, LR scheduler, and dataloader state (epoch 
 
 Developer notes (POC benchmarks, v2 layout): [performance-cpu-ram](../developer/performance-cpu-ram.md), [dataset and cache](../developer/dataset-and-cache.md).
 
-**Already tuned for speed/VRAM (see also [Cosmos performance](training-cosmos-predict2-lora-lokr-finetune.md#performance-and-vram-anima--cosmos)):** run `--cache_only` once before long jobs; `compile=true` for long runs; `cache_text_embeddings=true`; `RENGA_TUNING_TF32_APPLY=1` when supported; keep dataset cache on SSD; use `--trust_cache` to resume without re-encoding.
+**Already tuned for speed/VRAM (see also [Cosmos performance](training-cosmos-predict2-lora-lokr-finetune.md#performance-and-vram-anima--cosmos)):** run `--cache_only` once before long jobs; `compile=true` for long runs; `cache_text_embeddings=true`; `RENGU_TUNING_TF32_APPLY=1` when supported; keep dataset cache on SSD; use `--trust_cache` to resume without re-encoding.
 
 **Compare dataloader flags (GPU):** `scripts/smoke_perf_ab.sh sdxl [prefetch|workers2]` — developer details in [performance-cpu-ram](../developer/performance-cpu-ram.md).
 
@@ -173,6 +173,38 @@ Example:
 activation_checkpointing = true
 reentrant_activation_checkpointing = false
 ```
+
+## Block swap (VRAM, adapter training)
+
+Offloads UNet or DiT blocks to CPU between forward steps. Shared implementation for **SDXL** and **Cosmos Predict2** ([developer reference](../developer/training-techniques.md)).
+
+| Key | Purpose | Values | Default |
+|-----|---------|--------|---------|
+| **`blocks_to_swap`** | Number of backbone blocks kept on CPU between steps (higher = less VRAM, slower steps). | Non-negative integer; `0` disables. | `0` |
+| **`disable_block_swap_for_eval`** | Load full backbone on GPU during eval. | `true` or `false`. | `false` |
+| **`disable_block_swap_for_preview`** | Load full backbone on GPU during preview sampling. | `true` or `false`. | Same as eval default |
+
+**Requirements:** `[adapter]` must be set (LoRA/LoKr). **`pipeline_stages = 1`**. Do not use for full-model finetune (omit `[adapter]` and leave `blocks_to_swap` at `0`).
+
+Example (Cosmos LoKr on ~16 GB):
+
+```toml
+[adapter]
+type = "lokr"
+rank = 6
+
+blocks_to_swap = 16
+activation_checkpointing = true
+pipeline_stages = 1
+```
+
+## EMA shadow weights (optional)
+
+| Key | Purpose | Values | Default |
+|-----|---------|--------|---------|
+| **`ema_decay`** | Exponential moving average of trainable weights (stored on CPU). | Float in `(0, 1)`, e.g. `0.999`. | Omitted (disabled) |
+
+EMA updates run after each successful training step. Export of EMA weights is not automatic today — use for monitoring or future export hooks.
 
 ## Skipping batches on CUDA OOM (optional)
 
