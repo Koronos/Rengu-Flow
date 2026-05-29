@@ -1,13 +1,11 @@
 """Tests for file-based training signals."""
 
-from pathlib import Path
 
 from rengu_flow.utils.signal_files import (
     SIGNAL_CONTINUE,
     SIGNAL_EXPORT_MODEL,
     SIGNAL_EXPORT_MODEL_QUIT,
     SIGNAL_PREVIEW,
-    SIGNAL_QUIT,
     SIGNAL_SAVE,
     SIGNAL_SAVE_QUIT,
     ExportRecoveryAction,

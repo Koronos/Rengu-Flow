@@ -3,7 +3,18 @@
 from __future__ import annotations
 
 import copy
-from typing import Any
+from typing import Any, Callable
+
+
+def _partition(
+    params: list[Any], predicate: Callable[[Any], bool]
+) -> tuple[list[Any], list[Any]]:
+    """Split *params* into ``(matching, rest)`` by *predicate*."""
+    matching: list[Any] = []
+    rest: list[Any] = []
+    for p in params:
+        (matching if predicate(p) else rest).append(p)
+    return matching, rest
 
 
 def adjust_beta2_half_life(optim_config: dict[str, Any], global_batch_size: int) -> dict[str, Any]:
@@ -28,15 +39,11 @@ def split_weight_decay_param_groups(
     new_param_groups: list[dict[str, Any]] = []
     for pg in param_groups:
         pg = dict(pg)
-        params_no_wd = []
-        params_wd = []
         params = pg.pop("params")
-        for p in params:
-            name = getattr(p, "original_name", "")
-            if p.ndim == 1 or name.startswith("llm_adapter.embed"):
-                params_no_wd.append(p)
-            else:
-                params_wd.append(p)
+        params_no_wd, params_wd = _partition(
+            params,
+            lambda p: p.ndim == 1 or getattr(p, "original_name", "").startswith("llm_adapter.embed"),
+        )
         pg_no_wd = pg.copy()
         pg["params"] = params_wd
         pg_no_wd["params"] = params_no_wd
@@ -61,13 +68,7 @@ def split_genericoptim_param_groups(
     for pg in param_groups:
         pg = dict(pg)
         params = pg.pop("params")
-        params_2d = []
-        params_other = []
-        for p in params:
-            if p.ndim == 2:
-                params_2d.append(p)
-            else:
-                params_other.append(p)
+        params_2d, params_other = _partition(params, lambda p: p.ndim == 2)
         pg_2d = pg.copy()
         pg_2d["params"] = params_2d
         if kwargs.get("second_moment_type") == "sn":

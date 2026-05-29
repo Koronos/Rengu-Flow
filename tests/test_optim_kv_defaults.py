@@ -2,8 +2,6 @@
 
 from rengu_flow_ui.optim_kv_defaults import (
     OPTIMIZER_REGISTRY_KV_DEFAULTS,
-    SCHEDULER_BUILTIN_KV_DEFAULTS,
-    SCHEDULER_FQN_KV_DEFAULTS,
     SCHEDULER_RUNTIME_TOKEN_HINTS,
     SCHEDULER_RUNTIME_TOKENS,
     optimizer_extra_params_defaults,

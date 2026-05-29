@@ -13,7 +13,6 @@ from rengu_flow.utils.common import is_main_process
 from rengu_flow.utils.save_io import atomic_save_safetensors
 
 try:
-    import lycoris
     from lycoris import create_lycoris, LycorisNetwork
     LYCORIS_AVAILABLE = True
 except ImportError:

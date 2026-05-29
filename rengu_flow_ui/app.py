@@ -31,11 +31,10 @@ from rengu_flow_ui.config_form import form_to_toml, toml_to_form
 from rengu_flow_ui.config_schema import get_schema
 from rengu_flow_ui.docs_reader import DocNotFoundError, DocPathError, read_doc
 from rengu_flow_ui import tensorboard_server
-from rengu_flow_ui.paths import resolve_repo_path
+from rengu_flow_ui.paths import PathError, resolve_example_path, resolve_repo_path
 from rengu_flow_ui.system_stats import collect_system_stats
 from rengu_flow_ui.settings import (
     ensure_data_dirs,
-    logs_dir,
     repo_root,
     ui_host,
     ui_port,
@@ -346,22 +345,10 @@ def create_app() -> FastAPI:
             for row in result["items"]:
                 row["dataset_ref"] = datasets_store.dataset_library_ref(row["id"])
             return result
-        items = []
-        for row in datasets_store.list_datasets_summary():
-            did = row["id"]
-            try:
-                text = datasets_store.read_dataset_text(did)
-                val = datasets_store.validate_dataset_text(text)
-                preview = val.get("preview") if val.get("ok") else None
-            except Exception:
-                preview = None
-            items.append(
-                {
-                    **row,
-                    "dataset_ref": datasets_store.dataset_library_ref(did),
-                    "preview": preview,
-                }
-            )
+        items = [
+            {**row, "dataset_ref": datasets_store.dataset_library_ref(row["id"])}
+            for row in datasets_store.list_datasets_summary()
+        ]
         return {"datasets": items, "picker": datasets_store.list_for_training_picker()}
 
     @app.get(f"{API_PREFIX}/datasets/schema")
@@ -568,22 +555,22 @@ def create_app() -> FastAPI:
 
     @app.post(f"{API_PREFIX}/datasets/import-example")
     def import_dataset_example(
-        path: str = Query(..., description="Example path under repo"),
+        path: str = Query(..., description="Example path under repo examples/"),
     ) -> dict[str, Any]:
-        src = repo_root() / path
-        if not src.is_file():
+        try:
+            src = resolve_example_path(path)
+        except (PathError, FileNotFoundError):
             raise HTTPException(404, "Example file not found")
         cid = datasets_store.import_example(src)
         return {"id": cid, "dataset_ref": datasets_store.dataset_library_ref(cid)}
 
     @app.post(f"{API_PREFIX}/configs/import-example")
     def import_config_example(
-        path: str = Query(...),
+        path: str = Query(..., description="Example path under repo examples/"),
     ) -> dict[str, int]:
-        src = Path(path)
-        if not src.is_file():
-            src = repo_root() / path
-        if not src.is_file():
+        try:
+            src = resolve_example_path(path)
+        except (PathError, FileNotFoundError):
             raise HTTPException(404, "Example file not found")
         cid = configs_store.import_example(src)
         return {"id": cid}

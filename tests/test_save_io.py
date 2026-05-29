@@ -3,7 +3,6 @@
 import errno
 from pathlib import Path
 
-import pytest
 import torch
 
 from rengu_flow.utils.save_io import (

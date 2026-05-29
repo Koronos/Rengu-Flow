@@ -2,7 +2,6 @@
 
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from rengu_flow.utils.signal_files import ExportRecoveryAction
 from rengu_flow.utils.saver import Saver

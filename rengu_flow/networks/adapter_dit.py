@@ -10,7 +10,7 @@ import safetensors
 import torch
 from torch import nn
 
-from rengu_flow.networks.lokr_sdxl import _apply_lokr_vendored, _inject_lokr_into_linear
+from rengu_flow.networks.lokr_sdxl import _apply_lokr_vendored
 from rengu_flow.utils.common import is_main_process
 from rengu_flow.utils.save_io import atomic_save_safetensors
 

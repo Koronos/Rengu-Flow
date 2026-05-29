@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import shlex
 import subprocess
-import sys
 from pathlib import Path
 
 from rengu_flow.cli.train_launcher import build_train_command, training_subprocess_env

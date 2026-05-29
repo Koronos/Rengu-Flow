@@ -11,7 +11,7 @@ import toml
 from rengu_flow_ui import configs_store, datasets_store, db, library_db
 from rengu_flow_ui import runs_scanner
 from rengu_flow_ui.paths import resolve_repo_path
-from rengu_flow_ui.settings import logs_dir, repo_root
+from rengu_flow_ui.settings import logs_dir
 
 
 class JobImportError(ValueError):
@@ -109,7 +109,7 @@ def import_run(
     elif import_dataset:
         ds_path = _dataset_file_in_run(run_dir, config_path)
         if ds_path is not None:
-            did = datasets_store.insert_dataset(ds_path.read_text(encoding="utf-8"))
+            datasets_store.insert_dataset(ds_path.read_text(encoding="utf-8"))
 
     started_at, finished_at = _infer_timestamps(run_dir, desc)
     log_path = _write_import_log(run_dir, config_path, lib_config_id)

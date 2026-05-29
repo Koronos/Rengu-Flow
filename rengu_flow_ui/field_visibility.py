@@ -19,7 +19,6 @@ from __future__ import annotations
 from typing import Any
 
 from rengu_flow.registry.model_capabilities import (
-    get_capability,
     model_capability_registry,
     normalize_model_type,
 )

@@ -1,9 +1,7 @@
 """Tests for --dump_dataset / rengu_flow.data.dump_dataset."""
 
 import json
-from pathlib import Path
 
-import pytest
 import toml
 
 from rengu_flow.data.dump_dataset import dump_dataset

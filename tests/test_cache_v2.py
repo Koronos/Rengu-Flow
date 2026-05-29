@@ -135,11 +135,9 @@ def test_detect_cache_format_and_open_factory(tmp_path):
 
     v1_dir = tmp_path / "v1"
     v1_dir.mkdir()
-    from rengu_flow.utils.cache import Cache
-
-    v1 = Cache(v1_dir, "fp1", shard_size_gb=0.001)
-    v1.add(_latents_item())
-    v1.finalize_current_shard()
+    # A legacy v1 cache is identified by its metadata.db; the v1 writer is gone,
+    # so drop the marker file directly to exercise the rejection path.
+    (v1_dir / "metadata.db").write_bytes(b"")
     with pytest.raises(ValueError, match="Legacy cache v1"):
         detect_cache_format(v1_dir)
 

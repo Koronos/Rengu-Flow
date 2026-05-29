@@ -6,7 +6,7 @@ import subprocess
 from pathlib import Path
 
 from rengu_flow.config.local_config import repo_root
-from rengu_flow.install_profiles import normalize_profiles, uv_sync_argv
+from rengu_flow.install_profiles import uv_sync_argv
 
 
 def run_uv_venv(root: Path | None = None) -> int:

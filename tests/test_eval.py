@@ -1,6 +1,5 @@
 """Tests for evaluation module (§1.6). Use mocks; no GPU or DeepSpeed."""
 
-import pytest
 
 from rengu_flow.utils.eval import (
     TIMESTEP_QUANTILES_FOR_EVAL,
@@ -71,7 +70,7 @@ def test_evaluate_single_contract_mock_engine_and_loader():
     # get_data_iterator_for_step needs real iterator behavior; we need to mock at pipeline level.
     # Instead, test that with a single "step" (epoch becomes 2) we get one loss and reset is called.
     # We have to patch get_data_iterator_for_step to return an iterator of one item so eval_batch gets one micro-batch.
-    from unittest.mock import patch, MagicMock
+    from unittest.mock import patch
 
     def fake_get_iterator(dataloader, eng, num_micro_batches=None):
         return iter([None])  # one micro-batch

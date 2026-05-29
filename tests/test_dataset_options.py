@@ -1,6 +1,5 @@
 """Tests for dataset options ported from diffusion-pipe."""
 
-import json
 
 import torch
 
@@ -52,7 +51,7 @@ def test_size_bucket_online_caption_from_dict():
         dir_cfg,
         (512, 512, 1),
         __import__("pathlib").Path("/tmp/cache"),
-        FakeDir(),  # noqa: provides captions_dict
+        FakeDir(),  # provides captions_dict
     )
     ds.latent_dataset = [{"latents": torch.zeros(1)}]
     ds.iteration_order = datasets.Dataset.from_dict(
