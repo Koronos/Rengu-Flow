@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from rengu_flow_ui import configs_store, db, job_queue
+from rengu_flow_ui import configs_store, db
 
 MINIMAL_TOML = """
 dataset = "examples/minimal_dataset.toml"

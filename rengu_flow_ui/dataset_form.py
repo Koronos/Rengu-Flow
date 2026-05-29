@@ -7,7 +7,7 @@ from typing import Any
 
 import toml
 
-from rengu_flow_ui.dataset_schema import get_dataset_schema, get_directory_row_template
+from rengu_flow_ui.dataset_schema import get_dataset_schema
 
 DIRECTORIES_KEY = "_directories"
 # Written at the top of library dataset TOML for readability; never used by the trainer.

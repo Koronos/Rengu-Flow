@@ -11,7 +11,6 @@ import toml
 from rengu_flow.config import set_config_defaults
 from rengu_flow.config.dataset_merge import merge_dataset_configs
 from rengu_flow.config.validation import (
-    ConfigValidationError,
     collect_validation_errors,
     format_validation_issues,
     section_hints_for_empty_config,

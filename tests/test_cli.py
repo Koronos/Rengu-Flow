@@ -1,7 +1,6 @@
 """Tests for the rengu CLI (no uv subprocess)."""
 
 import argparse
-from pathlib import Path
 
 import pytest
 
@@ -90,7 +89,7 @@ def test_sync_dependencies_calls_uv_sync(tmp_path, monkeypatch):
 
 def test_train_launcher_builds_deepspeed_cmd(tmp_path, monkeypatch):
     from rengu_flow.cli.train_launcher import build_train_command
-    from rengu_flow.config.local_config import LocalConfig, TrainingConfig, load_local_config
+    from rengu_flow.config.local_config import LocalConfig, TrainingConfig
 
     monkeypatch.setattr(
         "rengu_flow.cli.train_launcher.ensure_local_config_loaded",

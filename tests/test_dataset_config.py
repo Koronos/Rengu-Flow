@@ -1,6 +1,5 @@
 """Tests for dataset config loading and validation."""
 
-from pathlib import Path
 
 import pytest
 

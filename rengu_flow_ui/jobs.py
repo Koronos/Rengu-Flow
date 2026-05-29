@@ -6,12 +6,10 @@ import os
 import shlex
 import signal
 import sys
-import time
 from pathlib import Path
 
 from rengu_flow.cli.training_extras import ensure_training_extras
 from rengu_flow_ui import db
-from rengu_flow_ui.settings import logs_dir
 from rengu_flow_ui.subprocess_util import popen_repo_subprocess
 
 

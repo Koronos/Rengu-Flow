@@ -9,7 +9,6 @@ from rengu_flow_ui.optimizer_form import (
     is_custom_optimizer_type,
     merge_optimizer_extras,
     prune_optimizer_form,
-    split_optimizer_extras,
 )
 
 

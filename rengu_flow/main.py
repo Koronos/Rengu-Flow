@@ -1,11 +1,10 @@
 """Entry point for Rengu. Load config, validate; run training loop when not dry-run."""
 
 import argparse
+import functools
 import glob
 import os
 import shutil
-import sys
-from datetime import datetime, timezone
 from pathlib import Path
 
 from rengu_flow.config import (
@@ -71,6 +70,135 @@ def _get_most_recent_run_dir(output_dir: str) -> str:
     return max(dirs, key=os.path.getmtime)
 
 
+def _build_optimizer(
+    model_parameters,
+    *,
+    config,
+    model,
+    pipeline_model,
+    ds_config,
+    global_batch_size,
+    gradient_release,
+):
+    """Construct the pipeline optimizer (lifted verbatim from ``_run_training``).
+
+    Handles the empty-param dummy, gradient-release per-parameter optimizers,
+    and GenericOptim / weight-decay param-group splitting. Imports stay lazy so
+    importing ``main`` does not require torch/deepspeed.
+    """
+    import inspect
+
+    import torch
+    import deepspeed
+
+    from rengu_flow.optim import resolve_optimizer_class
+    from rengu_flow.utils import is_main_process
+    from rengu_flow.optim.param_groups import (
+        adjust_beta2_half_life,
+        split_genericoptim_param_groups,
+        split_weight_decay_param_groups,
+    )
+    from rengu_flow.vendor.diffusion_pipe_optimizers.gradient_release import (
+        GradientReleaseOptimizerWrapper,
+    )
+
+    if len(model_parameters) == 0:
+        from collections import defaultdict
+        class DummyOptimizer(torch.optim.Optimizer):
+            def __init__(self):
+                self.state = defaultdict(dict)
+                self.param_groups = []
+            def step(self, closure=None): pass
+            def zero_grad(self, set_to_none=True): pass
+        return DummyOptimizer()
+
+    optim_cfg_raw = config["optimizer"]
+    optim_type = optim_cfg_raw["type"]
+    optim_type_lower = optim_type.lower()
+    optim_config = adjust_beta2_half_life(
+        {k: v for k, v in optim_cfg_raw.items() if k not in ("type", "gradient_release")},
+        global_batch_size,
+    )
+    if "beta2_half_life" in optim_cfg_raw and is_main_process():
+        print(f"Computed beta2 = {optim_config['betas'][1]}")
+
+    opt_args: list = []
+    kwargs = dict(optim_config)
+    klass = resolve_optimizer_class(optim_type)
+
+    if optim_type_lower == "offload":
+        opt_args.append(torch.optim.AdamW)
+        kwargs["fused"] = True
+
+    if gradient_release:
+        def _report_progress(self, step):
+            lr = self.get_lr()
+            mom = self.get_mom()
+            deepspeed.utils.logging.log_dist(
+                f"step={step}, skipped={self.skipped_steps}, lr={lr[0]}, mom={mom[0]}",
+                ranks=[0],
+            )
+        deepspeed.runtime.engine.DeepSpeedEngine._report_progress = _report_progress
+
+        def _exec_reduce_grads(self):
+            assert self.mpu.get_data_parallel_world_size() == 1, (
+                "When using gradient_release, data parallel world size must be 1. "
+                "Use pipeline_stages = num_gpus."
+            )
+            return
+
+        deepspeed.runtime.pipe.engine.PipelineEngine._INSTRUCTION_MAP[
+            deepspeed.runtime.pipe.schedule.ReduceGrads
+        ] = _exec_reduce_grads
+
+        def add_(self, *args, **kwargs):
+            self.data.add_(*args, **kwargs)
+
+        for p in model_parameters:
+            p.add_ = add_.__get__(p)
+
+        if "foreach" in inspect.signature(klass).parameters:
+            kwargs["foreach"] = False
+
+        gas = ds_config["gradient_accumulation_steps"]
+        if "betas" in kwargs:
+            kwargs["betas"] = [b ** (1 / gas) for b in kwargs["betas"]]
+        if "momentum" in kwargs:
+            kwargs["momentum"] = kwargs["momentum"] ** (1 / gas)
+
+        optimizer_dict = {}
+        for pg in model.get_param_groups(model_parameters):
+            param_kwargs = kwargs.copy()
+            if isinstance(pg, dict):
+                for p in pg["params"]:
+                    param_kwargs["lr"] = pg.get("lr", param_kwargs.get("lr"))
+                    optimizer_dict[p] = klass([p], **param_kwargs)
+            else:
+                optimizer_dict[pg] = klass([pg], **param_kwargs)
+
+        def optimizer_hook(p):
+            optimizer_dict[p].step()
+            optimizer_dict[p].zero_grad()
+
+        for p in model_parameters:
+            p.register_post_accumulate_grad_hook(optimizer_hook)
+
+        return GradientReleaseOptimizerWrapper(list(optimizer_dict.values()))
+
+    if optim_type_lower == "genericoptim":
+        kwargs["compile"] = config.get("compile", False)
+        kwargs["mpu"] = pipeline_model.mpu()
+        param_groups = split_genericoptim_param_groups(
+            model.get_param_groups(model_parameters),
+            kwargs,
+        )
+    else:
+        param_groups = model.get_param_groups(model_parameters)
+
+    param_groups = split_weight_decay_param_groups(param_groups, optim_type_lower)
+    return klass(param_groups, *opt_args, **kwargs)
+
+
 def _run_training(args, config):
     import torch
     import deepspeed
@@ -90,7 +218,7 @@ def _run_training(args, config):
         common_module.AUTOCAST_DTYPE = forward_dtype
 
     from rengu_flow.registry import get_model
-    from rengu_flow.optim import apply_warmup, resolve_optimizer_class, resolve_scheduler
+    from rengu_flow.optim import apply_warmup, resolve_scheduler
     from rengu_flow.utils import ManualPipelineModule, get_data_iterator_for_step, is_main_process
     from rengu_flow.utils.saver import Saver
     from rengu_flow.utils.eval import evaluate
@@ -240,113 +368,15 @@ def _run_training(args, config):
         "steps_per_print": config.get("steps_per_print", 1),
     }
 
-    def get_optimizer(model_parameters):
-        import inspect
-
-        from rengu_flow.optim.param_groups import (
-            adjust_beta2_half_life,
-            split_genericoptim_param_groups,
-            split_weight_decay_param_groups,
-        )
-        from rengu_flow.vendor.diffusion_pipe_optimizers.gradient_release import (
-            GradientReleaseOptimizerWrapper,
-        )
-
-        if len(model_parameters) == 0:
-            from collections import defaultdict
-            class DummyOptimizer(torch.optim.Optimizer):
-                def __init__(self):
-                    self.state = defaultdict(dict)
-                    self.param_groups = []
-                def step(self, closure=None): pass
-                def zero_grad(self, set_to_none=True): pass
-            return DummyOptimizer()
-
-        optim_cfg_raw = config["optimizer"]
-        optim_type = optim_cfg_raw["type"]
-        optim_type_lower = optim_type.lower()
-        optim_config = adjust_beta2_half_life(
-            {k: v for k, v in optim_cfg_raw.items() if k not in ("type", "gradient_release")},
-            global_batch_size_for_opt,
-        )
-        if "beta2_half_life" in optim_cfg_raw and is_main_process():
-            print(f"Computed beta2 = {optim_config['betas'][1]}")
-
-        opt_args: list = []
-        kwargs = dict(optim_config)
-        klass = resolve_optimizer_class(optim_type)
-
-        if optim_type_lower == "offload":
-            opt_args.append(torch.optim.AdamW)
-            kwargs["fused"] = True
-
-        if gradient_release:
-            def _report_progress(self, step):
-                lr = self.get_lr()
-                mom = self.get_mom()
-                deepspeed.utils.logging.log_dist(
-                    f"step={step}, skipped={self.skipped_steps}, lr={lr[0]}, mom={mom[0]}",
-                    ranks=[0],
-                )
-            deepspeed.runtime.engine.DeepSpeedEngine._report_progress = _report_progress
-
-            def _exec_reduce_grads(self):
-                assert self.mpu.get_data_parallel_world_size() == 1, (
-                    "When using gradient_release, data parallel world size must be 1. "
-                    "Use pipeline_stages = num_gpus."
-                )
-                return
-
-            deepspeed.runtime.pipe.engine.PipelineEngine._INSTRUCTION_MAP[
-                deepspeed.runtime.pipe.schedule.ReduceGrads
-            ] = _exec_reduce_grads
-
-            def add_(self, *args, **kwargs):
-                self.data.add_(*args, **kwargs)
-
-            for p in model_parameters:
-                p.add_ = add_.__get__(p)
-
-            if "foreach" in inspect.signature(klass).parameters:
-                kwargs["foreach"] = False
-
-            gas = ds_config["gradient_accumulation_steps"]
-            if "betas" in kwargs:
-                kwargs["betas"] = [b ** (1 / gas) for b in kwargs["betas"]]
-            if "momentum" in kwargs:
-                kwargs["momentum"] = kwargs["momentum"] ** (1 / gas)
-
-            optimizer_dict = {}
-            for pg in model.get_param_groups(model_parameters):
-                param_kwargs = kwargs.copy()
-                if isinstance(pg, dict):
-                    for p in pg["params"]:
-                        param_kwargs["lr"] = pg.get("lr", param_kwargs.get("lr"))
-                        optimizer_dict[p] = klass([p], **param_kwargs)
-                else:
-                    optimizer_dict[pg] = klass([pg], **param_kwargs)
-
-            def optimizer_hook(p):
-                optimizer_dict[p].step()
-                optimizer_dict[p].zero_grad()
-
-            for p in model_parameters:
-                p.register_post_accumulate_grad_hook(optimizer_hook)
-
-            return GradientReleaseOptimizerWrapper(list(optimizer_dict.values()))
-
-        if optim_type_lower == "genericoptim":
-            kwargs["compile"] = config.get("compile", False)
-            kwargs["mpu"] = pipeline_model.mpu()
-            param_groups = split_genericoptim_param_groups(
-                model.get_param_groups(model_parameters),
-                kwargs,
-            )
-        else:
-            param_groups = model.get_param_groups(model_parameters)
-
-        param_groups = split_weight_decay_param_groups(param_groups, optim_type_lower)
-        return klass(param_groups, *opt_args, **kwargs)
+    get_optimizer = functools.partial(
+        _build_optimizer,
+        config=config,
+        model=model,
+        pipeline_model=pipeline_model,
+        ds_config=ds_config,
+        global_batch_size=global_batch_size_for_opt,
+        gradient_release=gradient_release,
+    )
 
     model_engine, optimizer, _, _ = deepspeed.initialize(
         args=args,

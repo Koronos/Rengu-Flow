@@ -32,6 +32,7 @@ def test_split_weight_decay_separates_1d_params():
     assert len(result) == 2
     wd_group = next(g for g in result if len(g["params"]) == 1 and g["params"][0] is w)
     no_wd = next(g for g in result if g["params"][0] is b)
+    assert wd_group["weight_decay"] == 0.01
     assert no_wd["weight_decay"] == 0
 
 

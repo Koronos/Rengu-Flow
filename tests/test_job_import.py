@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from rengu_flow_ui import configs_store, datasets_store, db, job_import
+from rengu_flow_ui import configs_store, datasets_store, job_import
 from rengu_flow_ui.job_import import JobImportError
 
 

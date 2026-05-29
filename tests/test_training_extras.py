@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from unittest.mock import MagicMock
 
-import pytest
 
 from rengu_flow.cli import training_extras
 from rengu_flow.registry.optimizers import OPTIMIZER_ALIASES, VENDOR_OPTIMIZER_ALIASES
