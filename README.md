@@ -1,5 +1,7 @@
 # Renga Flow
 
+> **Preliminary release (v0.1.x)** — Renga Flow is under active development. APIs, config keys, CLI commands, and documentation may change in breaking or non-breaking ways between releases. Pin versions and re-read the docs when upgrading.
+
 A **TOML-driven training framework** for diffusion models. You define a config file (model, adapter, optimizer, dataset, etc.) and run training with DeepSpeed. The framework is modular: it supports multiple model types (e.g. SDXL), adapters (LoRA, LoKr), optimizers, and schedulers, all selected and configured via TOML.
 
 ## Overview

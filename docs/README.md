@@ -17,6 +17,7 @@
 - **[Implementation backlog](BACKLOG.md)** — Deferred / not-yet-implemented work.
 - **[Public release prep](RELEASE_PREP.md)** — Tracked-files audit for the first release.
 - **[Developer guide](developer/)** — For contributors and anyone extending the framework (APIs, adding signals, internals). Inline **`[TODO]`** in specs → [BACKLOG.md](BACKLOG.md).
+  - [Documentation conventions](developer/documentation-conventions.md) — User vs developer vs spec docs, optional-parameter tables, feature checklist.
   - [Architecture and design goals](developer/architecture.md) — Registries, execution flow, extensibility principles.
   - [Testing](developer/testing.md) — How to run tests, layout, fixtures, and dataset/data loading tests.
   - [Dataset and cache](developer/dataset-and-cache.md) — Dataset config contract, code locations, cache v1/v2.
