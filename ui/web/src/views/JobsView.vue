@@ -240,6 +240,9 @@
             <el-tooltip v-if="row.run_dir" content="Continue training" placement="top">
               <el-button size="small" :icon="VideoPlay" circle @click.stop="goContinue(row as TrainingRunRow)" />
             </el-tooltip>
+            <el-tooltip v-if="row.job_id" content="Clone to new run" placement="top">
+              <el-button size="small" :icon="CopyDocument" circle @click.stop="cloneRun(row.job_id)" />
+            </el-tooltip>
             <template v-if="row.state === 'pending'">
               <el-tooltip content="Run now" placement="top">
                 <el-button size="small" :icon="VideoPlay" circle @click.stop="startQueuedNow(row.job_id)" />
@@ -425,6 +428,7 @@ import { ElLoadingDirective, ElMessage, ElMessageBox } from "element-plus";
 import {
   Bottom,
   CircleCheck,
+  CopyDocument,
   Delete,
   Edit,
   FolderOpened,
@@ -803,6 +807,18 @@ watch(regenerateCache, (on) => {
 
 function goJob(id: string) {
   router.push({ name: "job-detail", params: { id } });
+}
+
+async function cloneRun(id: string | null | undefined): Promise<void> {
+  if (!id) return;
+  try {
+    const job = await api.cloneJob(String(id));
+    ElMessage.success(`Cloned to a new run (job #${job.id})`);
+    await refreshFull();
+    goJob(String(job.id));
+  } catch (e) {
+    ElMessage.error(formatError(e));
+  }
 }
 
 function openRun(row: TrainingRunRow) {
