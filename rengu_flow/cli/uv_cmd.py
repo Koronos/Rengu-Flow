@@ -11,9 +11,11 @@ from rengu_flow.install_profiles import uv_sync_argv
 
 def run_uv_venv(root: Path | None = None) -> int:
     """Create the project virtual environment with ``uv venv``."""
+    from rengu_flow.platform_compat import venv_exe
+
     root = root or repo_root()
     venv = root / ".venv"
-    if (venv / "bin" / "python").is_file():
+    if venv_exe(venv, "python").is_file():
         return 0
     cmd = ["uv", "venv", str(venv)]
     print(f"==> {' '.join(cmd)}")

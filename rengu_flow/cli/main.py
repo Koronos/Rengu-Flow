@@ -66,7 +66,7 @@ def main(argv: list[str] | None = None) -> None:
     argv = _normalize_argv(raw_argv)
     _warn_deprecated_invocation(raw_argv)
 
-    platform.require_linux()
+    platform.require_supported_platform()
     load_local_config()
     apply_local_config_to_environ()
 

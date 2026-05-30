@@ -37,7 +37,7 @@ def test_legacy_train_dispatch(monkeypatch):
 
     monkeypatch.setattr("rengu_flow.main.parse_args", fake_parse)
     monkeypatch.setattr("rengu_flow.main.run_prepared", fake_run_prepared)
-    monkeypatch.setattr(cli_main_mod.platform, "require_linux", lambda: None)
+    monkeypatch.setattr(cli_main_mod.platform, "require_supported_platform", lambda: None)
     monkeypatch.setattr(cli_main_mod, "load_local_config", lambda: None)
     monkeypatch.setattr(cli_main_mod, "apply_local_config_to_environ", lambda: None)
     monkeypatch.setattr(
@@ -69,9 +69,10 @@ def test_sync_dependencies_calls_uv_sync(tmp_path, monkeypatch):
     (root / "pyproject.toml").write_text(
         '[project]\nname="x"\nversion="0"\n', encoding="utf-8"
     )
-    venv_bin = root / ".venv" / "bin"
-    venv_bin.mkdir(parents=True)
-    (venv_bin / "python").write_text("", encoding="utf-8")
+    # Create the venv python at the platform-correct location (Scripts/ on Windows, bin/).
+    py = project_venv.venv_python(root)
+    py.parent.mkdir(parents=True)
+    py.write_text("", encoding="utf-8")
     synced: list[list[str]] = []
 
     monkeypatch.setattr(project_venv, "require_uv", lambda: None)

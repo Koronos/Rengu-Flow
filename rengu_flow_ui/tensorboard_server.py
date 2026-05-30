@@ -29,8 +29,10 @@ def resolve_output_dir(output_dir: str) -> Path:
 
 
 def build_tensorboard_cmd(logdir: Path, host: str, port: int) -> list[str]:
-    """Match ``scripts/tensorboard.sh``: prefer ``.venv/bin/tensorboard``, else ``uv run``."""
-    venv_tb = settings.repo_root() / ".venv" / "bin" / "tensorboard"
+    """Prefer the venv ``tensorboard`` (``Scripts`` on Windows, ``bin`` on POSIX), else ``uv run``."""
+    from rengu_flow.platform_compat import venv_exe
+
+    venv_tb = venv_exe(settings.repo_root() / ".venv", "tensorboard")
     args = [f"--logdir={logdir}", f"--host={host}", f"--port={port}"]
     if venv_tb.is_file():
         return [str(venv_tb), *args]
