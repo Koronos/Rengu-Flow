@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from rengu_flow_ui.settings import repo_root
+
+_WINDOWS_DRIVE_RE = re.compile(r"^[A-Za-z]:")
 
 
 class DocNotFoundError(FileNotFoundError):
@@ -15,26 +18,38 @@ class DocPathError(ValueError):
     pass
 
 
-def resolve_doc_path(rel_path: str) -> Path:
-    """Resolve a doc path under ``<repo>/docs/`` only."""
-    normalized = rel_path.replace("\\", "/").strip().lstrip("/")
+def resolve_doc_path(rel_path: str, repo: Path | None = None) -> Path:
+    """Resolve a doc path under ``<repo>/docs/`` only.
+
+    Security: anything that looks like an escape attempt — null bytes, absolute paths
+    (POSIX or Windows), ``..`` traversal, paths outside ``docs/``, or symlinks resolving
+    outside ``docs/`` — is rejected as ``DocNotFoundError`` (do not reveal why). Only a
+    wrong (non-``.md``) extension raises ``DocPathError``.
+    """
+    repo = (repo or repo_root()).resolve()
+    docs_root = (repo / "docs").resolve()
+
+    if "\x00" in rel_path:
+        raise DocNotFoundError(rel_path)
+    normalized = rel_path.replace("\\", "/").strip()
+    if normalized.startswith("/") or _WINDOWS_DRIVE_RE.match(normalized):
+        raise DocNotFoundError(normalized)  # absolute path
+    parts = [p for p in normalized.split("/") if p and p != "."]
+    if not parts or any(p == ".." for p in parts):
+        raise DocNotFoundError(normalized)  # traversal
     if not normalized.endswith(".md"):
         raise DocPathError("Only .md files under docs/ are allowed")
-    parts = [p for p in normalized.split("/") if p]
-    if not parts or any(p == ".." for p in parts):
-        raise DocPathError("Invalid documentation path")
-
     if parts[0] != "docs":
         if parts[0] in ("user", "developer"):
             parts = ["docs", *parts]
         else:
-            raise DocPathError("Path must be under docs/")
+            raise DocNotFoundError(normalized)  # outside docs/
 
-    repo = repo_root().resolve()
-    docs_root = (repo / "docs").resolve()
     target = (repo / Path(*parts)).resolve()
-    if not str(target).startswith(str(docs_root)):
-        raise DocPathError("Path escapes docs directory")
+    try:
+        target.relative_to(docs_root)
+    except ValueError:
+        raise DocNotFoundError(normalized) from None  # escapes docs/ (incl. via symlink)
     if not target.is_file():
         raise DocNotFoundError(normalized)
     return target
