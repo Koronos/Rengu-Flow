@@ -117,9 +117,9 @@ def scan_folder(
 
     image_count = 0
     video_count = 0
-    caption_txt = 0
     samples: list[str] = []
-    sample_stems: set[str] = set()
+    media_stems: set[str] = set()
+    txt_stems: set[str] = set()
     count_capped = False
     media_seen = 0
 
@@ -135,23 +135,28 @@ def scan_folder(
                 if suffix in IMAGE_EXTENSIONS:
                     image_count += 1
                     media_seen += 1
+                    media_stems.add(stem)
                     if len(samples) < max_samples:
                         samples.append(name)
-                        sample_stems.add(stem)
                 elif suffix in _VIDEO_EXT_LOWER:
                     video_count += 1
                     media_seen += 1
+                    media_stems.add(stem)
                     if len(samples) < max_samples:
                         samples.append(name)
-                        sample_stems.add(stem)
-                elif suffix == ".txt" and stem not in sample_stems:
-                    caption_txt += 1
+                elif suffix == ".txt":
+                    txt_stems.add(stem)
 
                 if media_seen >= count_cap:
                     count_capped = True
                     break
     except OSError as e:
         return {"ok": False, "path": str(root.resolve()), "error": str(e)}
+
+    # Count paired caption files (a .txt whose stem matches a media file); orphan
+    # .txt files (no matching image/video) are not training captions. Order-independent
+    # via set intersection, so scandir order does not affect the result.
+    caption_txt = len(txt_stems & media_stems)
 
     has_captions_json = (root / CAPTIONS_JSON_FILE).is_file()
 
