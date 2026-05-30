@@ -119,12 +119,11 @@ and docs together.
    now points users to export before wiping. (Runs/jobs stay disk-backed and are re-imported
    via `job_import`.)
 
-## 8. Impact on the failing `job_import` test
+## 8. `job_import` under the new model (DONE)
 
-`tests/test_job_import.py::test_preview_and_import_run` asserts `job.config_id == run.name`
-and `config_exists(run.name)` — i.e. the **rejected** slug-id design. Under this redesign:
-
-- ids stay integer autoincrement; the run name is preserved as a **name**, not the id.
-- The test must be rewritten to the new contract once the run model lands (Phase 2/3).
-- **Interim**: mark it `xfail`/skip with a reason linking here, so the suite stays green and
-  the deferral is explicit. Do **not** hack slug ids in just to make it pass.
+Imported runs follow the decided identity rules: ids stay **integer autoincrement**, and the
+run is identified by **name**. On import (`_import_config_from_run`), the dataset is stored
+with `name = "<run> dataset"` and the config is labelled with `run_name = <run>`. The job
+references the config by its integer library id. `test_preview_and_import_run` was rewritten to
+this contract (no more `xfail`): it asserts an integer `config_id`, `config_exists(config_id)`,
+the config content carries the run name, and a dataset named after the run exists.
