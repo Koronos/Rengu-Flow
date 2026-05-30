@@ -21,13 +21,29 @@ Open [http://127.0.0.1:8765/maintenance](http://127.0.0.1:8765/maintenance) when
 
 ### Recreate database
 
-Deletes `jobs.db` under your UI data directory (`RENGU_FLOW_UI_DATA`, default `.rengu-flow-ui/`) and creates empty tables for training configs, datasets, and jobs. **All saved configs, datasets, and job history are lost.** Staging files and job logs under the same folder are not removed.
+Deletes `jobs.db` under your UI data directory (`RENGU_FLOW_UI_DATA`, default `data/`) and creates empty tables for training configs, datasets, and jobs. **All saved configs, datasets, and job history are lost.** Staging files and job logs under the same folder are not removed.
 
 You must type `RESET` in the confirmation dialog. The CLI equivalent is:
 
 ```bash
 ./rengu ui reset-db
 ```
+
+### Back up / restore the library (migration)
+
+Configs and datasets are portable as TOML files, so you can back them up or carry them across
+a schema change (the DB is disposable; these files are the durable copy):
+
+```bash
+rengu-flow-ui export-library ./library-backup   # writes configs/<id>.toml + datasets/<id>.toml
+rengu-flow-ui import-library ./library-backup    # restores rows under their original ids
+rengu-flow-ui import-library ./library-backup --overwrite  # replace existing ids
+```
+
+Each exported file is a valid training/dataset TOML with an extra `[__rengu_index]` table
+(id, name, timestamps) that the trainer ignores. Import skips files it does not recognize and,
+without `--overwrite`, ids that already exist. Run history (jobs) is not part of this export —
+finished run folders are re-added with **Import run** instead.
 
 ### Git submodules
 

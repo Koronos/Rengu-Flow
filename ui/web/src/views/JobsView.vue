@@ -53,14 +53,17 @@
       <el-form label-position="top" class="launch-form">
         <el-form-item label="Training config" required>
           <div v-if="!hasAnyConfig" class="page-panel config-block--compact">
-            <span class="page-hint">No training configs yet.</span>
-            <el-button type="primary" size="small" @click="goCreateConfig">Create config</el-button>
+            <span class="page-hint">No saved presets yet — create a config and run it in one step.</span>
+            <el-button type="primary" size="small" @click="goCreateConfig">Create &amp; run</el-button>
           </div>
           <div v-else-if="!configId" class="page-panel">
             <p class="page-hint">
-              Pick a config from the library so you can review and edit it before training.
+              Create a config and run it in one step, or reuse a saved preset from the library.
             </p>
-            <el-button type="primary" @click="goPickConfig">Choose config in library</el-button>
+            <el-space wrap>
+              <el-button type="primary" @click="goCreateConfig">Create &amp; run</el-button>
+              <el-button @click="goPickConfig">Use a saved preset</el-button>
+            </el-space>
           </div>
           <div v-else class="page-panel">
             <div class="config-selected-row">
@@ -239,6 +242,9 @@
             </el-tooltip>
             <el-tooltip v-if="row.run_dir" content="Continue training" placement="top">
               <el-button size="small" :icon="VideoPlay" circle @click.stop="goContinue(row as TrainingRunRow)" />
+            </el-tooltip>
+            <el-tooltip v-if="row.job_id" content="Clone to new run" placement="top">
+              <el-button size="small" :icon="CopyDocument" circle @click.stop="cloneRun(row.job_id)" />
             </el-tooltip>
             <template v-if="row.state === 'pending'">
               <el-tooltip content="Run now" placement="top">
@@ -425,6 +431,7 @@ import { ElLoadingDirective, ElMessage, ElMessageBox } from "element-plus";
 import {
   Bottom,
   CircleCheck,
+  CopyDocument,
   Delete,
   Edit,
   FolderOpened,
@@ -803,6 +810,18 @@ watch(regenerateCache, (on) => {
 
 function goJob(id: string) {
   router.push({ name: "job-detail", params: { id } });
+}
+
+async function cloneRun(id: string | null | undefined): Promise<void> {
+  if (!id) return;
+  try {
+    const job = await api.cloneJob(String(id));
+    ElMessage.success(`Cloned to a new run (job #${job.id})`);
+    await refreshFull();
+    goJob(String(job.id));
+  } catch (e) {
+    ElMessage.error(formatError(e));
+  }
 }
 
 function openRun(row: TrainingRunRow) {

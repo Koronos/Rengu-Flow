@@ -19,6 +19,21 @@
             >
               Use for training job
             </el-button>
+            <el-button
+              v-if="!pickForJob && !continuation"
+              :icon="Plus"
+              @click="startRunFromEditor(false)"
+            >
+              Add to queue
+            </el-button>
+            <el-button
+              v-if="!pickForJob && !continuation"
+              type="success"
+              :icon="VideoPlay"
+              @click="startRunFromEditor(true)"
+            >
+              Run now
+            </el-button>
             <el-button type="primary" :icon="Check" :loading="saving" @click="save">
               Save
             </el-button>
@@ -147,7 +162,7 @@ import { computed, onUnmounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { storeToRefs } from "pinia";
 import { ElLoadingDirective, ElMessage, ElMessageBox } from "element-plus";
-import { ArrowLeft, Check, CircleCheck, VideoPlay } from "@element-plus/icons-vue";
+import { ArrowLeft, Check, CircleCheck, Plus, VideoPlay } from "@element-plus/icons-vue";
 import { api } from "../api";
 import { downloadBlob } from "../lib/downloadBlob";
 import { formatError } from "../lib/formatError";
@@ -161,7 +176,7 @@ import PickForJobBanner from "../components/PickForJobBanner.vue";
 import { useImportConfigToml } from "../composables/useImportConfigToml";
 import { getJobConfigId, setJobConfigId } from "../lib/jobConfigPick";
 import { useConfigEditorStore } from "../stores/configEditor";
-import type { JobRecord } from "../types/api";
+import type { JobRecord, JobStartBody } from "../types/api";
 import type { SchemaField } from "../types/forms";
 import type ImportTomlOverlayType from "../components/ImportTomlOverlay.vue";
 
@@ -309,6 +324,43 @@ async function useConfigForJob() {
   setJobConfigId(configId.value);
   ElMessage.success(`"${configId.value}" selected for training`);
   router.push({ name: "jobs" });
+}
+
+async function startRunFromEditor(startNow: boolean) {
+  const text = (content.value || "").trim();
+  if (!text) {
+    ElMessage.warning("Nothing to run — add training config TOML first.");
+    return;
+  }
+  try {
+    const r = await editor.validateConfig({ quiet: true });
+    if (!r.ok) {
+      await ElMessageBox.confirm(
+        `${r.errors?.[0] || "Validation failed"}. Start the run anyway?`,
+        "Config not valid",
+        { type: "warning", confirmButtonText: "Run anyway", cancelButtonText: "Keep editing" }
+      );
+    }
+  } catch (e) {
+    if (e === "cancel") return;
+    return;
+  }
+  // Single-step create-and-run: the run carries this config inline (config_content),
+  // no mandatory library save. Save the config separately to keep it as a reusable preset.
+  try {
+    const body: JobStartBody = {
+      content: content.value,
+      enqueue: !startNow,
+      start_immediately: startNow,
+    };
+    const job = (await api.startJob(body)) as JobRecord & { id?: string };
+    ElMessage.success(
+      startNow ? `Run started (job #${job.id})` : `Run queued (job #${job.id})`
+    );
+    if (job?.id) router.push({ name: "job-detail", params: { id: String(job.id) } });
+  } catch (e) {
+    editor.error = formatError(e);
+  }
 }
 
 async function exportTrainingBundle() {

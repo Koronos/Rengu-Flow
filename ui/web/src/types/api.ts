@@ -199,6 +199,8 @@ export interface JobRecord {
   source_run_dir?: string | null;
   status?: RunStatusFile | null;
   signals_available?: boolean;
+  /** Immutable snapshot of the run's own config TOML (library refs intact). */
+  config_content?: string;
 }
 
 export interface JobListResult {
@@ -207,7 +209,10 @@ export interface JobListResult {
 }
 
 export interface JobStartBody {
-  config_id: number | string;
+  /** Library preset id. Provide this OR `content` (inline TOML) — content wins the run. */
+  config_id?: number | string;
+  /** Inline config TOML for a single-step create-and-run (no library save required). */
+  content?: string;
   num_gpus?: number;
   resume_from?: string;
   output_dir?: string;
@@ -221,6 +226,13 @@ export interface JobStartBody {
   /** Force full cache rebuild (--regenerate_cache). */
   regenerate_cache?: boolean;
   enqueue?: boolean;
+  start_immediately?: boolean;
+}
+
+export interface CloneJobBody {
+  num_gpus?: number;
+  output_dir?: string;
+  extra_args?: string;
   start_immediately?: boolean;
 }
 

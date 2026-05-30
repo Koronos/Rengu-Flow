@@ -29,7 +29,7 @@ def local_config_example_path(root: Path | None = None) -> Path:
 class UiConfig:
     host: str = "127.0.0.1"
     port: int = 8765
-    data_dir: str = ".rengu-flow-ui"
+    data_dir: str = "data"
     token: str | None = None
 
 
@@ -90,7 +90,7 @@ def parse_local_config_dict(data: dict[str, Any], *, root: Path) -> LocalConfig:
     ui = UiConfig(
         host=str(ui_raw.get("host", "127.0.0.1")),
         port=int(ui_raw.get("port", 8765)),
-        data_dir=str(ui_raw.get("data_dir", ".rengu-flow-ui")),
+        data_dir=str(ui_raw.get("data_dir", "data")),
         token=str(ui_raw["token"]).strip() if ui_raw.get("token") else None,
     )
     maintenance = MaintenanceConfig(
