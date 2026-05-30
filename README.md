@@ -22,7 +22,7 @@ A **TOML-driven training framework** for diffusion models. You define a config f
 | Model | Adapters | Description |
 |-------|----------|-------------|
 | **SDXL** (`sdxl`) | LoRA, LoKr | Stable Diffusion XL; train LoRA or LoKr on the transformer. |
-| **Cosmos Predict2** (`cosmos_predict2`) | LoRA, LoKr, full finetune | Cosmos Predict2 DiT + Qwen VAE + Qwen3/T5 (checkpoints often branded as Anima). |
+| **Cosmos Predict2** (`cosmos_predict2`) | LoRA, LoKr, full finetune | Cosmos Predict2 DiT + Qwen VAE + Qwen3/T5. **Anima** checkpoints are this architecture — train them with `type = "cosmos_predict2"` (Anima is the checkpoint branding, not a config type). |
 
 Set `[model] type = "sdxl"` or `type = "cosmos_predict2"` and `[adapter] type = "lora"` or `type = "lokr"`. Omit `[adapter]` for full-model finetune. See [SDXL training](docs/user/training-sdxl-lora-lokr.md) or [Cosmos Predict2 / Anima](docs/user/training-cosmos-predict2-lora-lokr-finetune.md). Optional deps: `pip install -e ".[cosmos_predict2]"` for the latter.
 
