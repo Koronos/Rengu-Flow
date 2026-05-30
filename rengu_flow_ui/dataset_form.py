@@ -35,6 +35,7 @@ DIRECTORY_OPTIONAL_KEYS = (
     "shuffle_tags",
     "shuffle_metadata",
     "online_captions",
+    "subsample_ratio",
 )
 
 
@@ -91,6 +92,12 @@ def _directory_row_for_toml(entry: dict[str, Any], global_values: dict[str, Any]
         val = entry[key]
         if val is None or val == "":
             continue
+        if key == "subsample_ratio":
+            try:
+                if float(val) >= 1.0:  # full dataset is the default; omit from TOML
+                    continue
+            except (TypeError, ValueError):
+                continue
         if key in global_values and val == global_values.get(key):
             continue
         if key in INTEGER_LIST_KEYS | NUMBER_LIST_KEYS | JSON_LIST_KEYS:
@@ -280,6 +287,28 @@ def parse_toml(content: str) -> dict[str, Any]:
     return form
 
 
+def _complete_tag_dropout_rules(value: Any) -> list[dict[str, Any]]:
+    """Return only well-formed tag-dropout rules (those with ``tags`` or ``tags_file``).
+
+    Incomplete rows from the UI builder (empty ``tags`` and no ``tags_file``) are dropped
+    so they never reach the trainer's TOML.
+    """
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError:
+            return []
+    if not isinstance(value, list):
+        return []
+    rules: list[dict[str, Any]] = []
+    for rule in value:
+        if not isinstance(rule, dict):
+            continue
+        if rule.get("tags") or rule.get("tags_file"):
+            rules.append(rule)
+    return rules
+
+
 def form_to_toml(form: dict[str, Any]) -> str:
     config: dict[str, Any] = {}
     global_values = {
@@ -297,6 +326,7 @@ def form_to_toml(form: dict[str, Any]) -> str:
             "cache_shuffle_delimiter",
             "shuffle_metadata",
             "online_captions",
+            "subsample_ratio",
         )
         if k in form and form[k] not in (None, "")
     }
@@ -337,6 +367,19 @@ def form_to_toml(form: dict[str, Any]) -> str:
         if key == DIRECTORIES_KEY or val is None or val == "":
             continue
         if val == []:
+            continue
+        if key == "subsample_ratio":
+            try:
+                if float(val) >= 1.0:  # full dataset is the default; omit from TOML
+                    continue
+            except (TypeError, ValueError):
+                continue
+            config[key] = val
+            continue
+        if key == "tag_dropout_rules":
+            rules = _complete_tag_dropout_rules(val)
+            if rules:
+                config[key] = rules
             continue
         if (
             key in INTEGER_LIST_KEYS | NUMBER_LIST_KEYS | JSON_LIST_KEYS
