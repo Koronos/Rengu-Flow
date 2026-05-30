@@ -18,7 +18,9 @@ def test_cosmos_schema_excludes_t5_and_includes_llm() -> None:
     assert "model.llm_path" in paths
     assert "model.transformer_path" in paths
     assert "model.checkpoint_path" in paths
-    assert "model.diffusion_model_dtype" in paths
+    # diffusion_model_dtype is a TOML-only (ui: false) expert key for cosmos — hidden
+    # from the web form, like sdxl's model.guidance below.
+    assert "model.diffusion_model_dtype" not in paths
     assert "model.guidance" not in paths
 
 

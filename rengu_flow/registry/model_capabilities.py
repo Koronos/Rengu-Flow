@@ -250,6 +250,7 @@ def _register_builtin_capabilities() -> None:
                     "label": "DiT forward dtype (optional)",
                     "type": "select",
                     "options_key": "dtypes",
+                    "ui": False,
                     "description": "Autocast dtype for DiT forward; defaults to model.dtype. Sets transformer_dtype when omitted.",
                 },
             ],
