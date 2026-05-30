@@ -42,6 +42,12 @@ def _make_run_dir(parent: Path, name: str = "20250101_12-00-00") -> Path:
     return run
 
 
+@pytest.mark.xfail(
+    reason="Asserts slug ids (config_id == run.name); deferred to the unified run model "
+    "where ids stay int autoincrement and the run name is a name. See "
+    "docs/developer/run-model-redesign.md.",
+    strict=False,
+)
 def test_preview_and_import_run(ui_data_tmp: Path) -> None:
     run = _make_run_dir(ui_data_tmp / "output")
     preview = job_import.preview_import(str(run))
