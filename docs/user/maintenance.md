@@ -21,7 +21,7 @@ Open [http://127.0.0.1:8765/maintenance](http://127.0.0.1:8765/maintenance) when
 
 ### Recreate database
 
-Deletes `jobs.db` under your UI data directory (`RENGU_FLOW_UI_DATA`, default `.rengu-flow-ui/`) and creates empty tables for training configs, datasets, and jobs. **All saved configs, datasets, and job history are lost.** Staging files and job logs under the same folder are not removed.
+Deletes `jobs.db` under your UI data directory (`RENGU_FLOW_UI_DATA`, default `data/`) and creates empty tables for training configs, datasets, and jobs. **All saved configs, datasets, and job history are lost.** Staging files and job logs under the same folder are not removed.
 
 You must type `RESET` in the confirmation dialog. The CLI equivalent is:
 

@@ -80,7 +80,7 @@ Authentication: optional `RENGU_FLOW_UI_TOKEN` middleware checks `X-Rengu-Flow-T
 On `POST /api/v1/jobs`:
 
 1. Load TOML from library or inline body
-2. `materialize_staging()` writes `{RENGU_FLOW_UI_DATA}/staging/{job_id}/train.toml` (default `<repo>/.rengu-flow-ui`); `rengu-flow-dataset:<id>` refs become `{staging}/{job_id}/{id}.dataset.toml` with absolute `[[directory]]` paths
+2. `materialize_staging()` writes `{RENGU_FLOW_UI_DATA}/staging/{job_id}/train.toml` (default `<repo>/data`); `rengu-flow-dataset:<id>` refs become `{staging}/{job_id}/{id}.dataset.toml` with absolute `[[directory]]` paths
 3. Subprocess: `--config <staging>/train.toml` plus optional CLI flags from the request body (stored in `jobs.extra_args`)
 4. Trainer copies config into `run_dir` (unchanged `main.py` behavior)
 

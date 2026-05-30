@@ -15,12 +15,13 @@ def ui_data_dir() -> Path:
     """Local UI state: configs, job DB, staging, logs.
 
     Set ``RENGU_FLOW_UI_DATA`` (e.g. from ``start-ui.sh``). If unset, falls back to
-    ``<repo>/.rengu-flow-ui`` for ``rengu-flow-ui serve`` without the launcher script.
+    ``<repo>/data`` for ``rengu-flow-ui serve`` without the launcher script — a
+    non-hidden, git-ignored folder so users can easily find the DB, logs, and staging.
     """
     base = os.environ.get("RENGU_FLOW_UI_DATA")
     if base:
         return Path(base).expanduser().resolve()
-    return repo_root() / ".rengu-flow-ui"
+    return repo_root() / "data"
 
 
 def staging_dir() -> Path:

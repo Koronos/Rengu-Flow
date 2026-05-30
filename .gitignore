@@ -25,6 +25,7 @@ env/
 rengu.local.toml
 
 # Web UI local state (configs library, jobs.db, staging, logs)
+/data/
 .rengu-flow-ui/
 .renga-flow-ui/
 
