@@ -41,14 +41,14 @@ Copy `rengu.local.toml.example` to `rengu.local.toml` (or run `./rengu init`). E
 |-----|---------|-------------|
 | `host` | `127.0.0.1` | Bind address |
 | `port` | `8765` | HTTP port |
-| `data_dir` | `.rengu-flow-ui` | Config library, job DB, logs (gitignored) |
+| `data_dir` | `data` | Config library, job DB, logs (gitignored) |
 | `token` | (optional) | If set, API requests need `X-Rengu-Flow-Token` |
 
 The script does **not** install CUDA, PyTorch, or DeepSpeed. Use your existing training environment for GPU jobs.
 
 ### Where configs are stored
 
-By default the UI keeps its library under **`.rengu-flow-ui/`** at the repository root (gitignored):
+By default the UI keeps its library under **`data/`** at the repository root (a non-hidden, gitignored folder):
 
 - `jobs.db` — SQLite: training configs, dataset configs, and job queue/history
 - `staging/` — per-job `train.toml` (+ dataset copy) materialized when you launch training
