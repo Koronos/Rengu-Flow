@@ -52,6 +52,9 @@
         <el-button type="primary" @click="goContinueTraining">
           Continue training…
         </el-button>
+        <el-button v-if="mode === 'job' && job?.id" @click="cloneToNewRun">
+          Clone to new run
+        </el-button>
         <el-button :loading="tbLoading" @click="openTensorboardForRun">
           Open TensorBoard
         </el-button>
@@ -212,6 +215,17 @@ function goBack() {
 function goContinueTraining() {
   if (!runDir.value) return;
   router.push({ name: "configs-new", query: { continue_run: runDir.value } });
+}
+
+async function cloneToNewRun() {
+  if (!job.value?.id) return;
+  try {
+    const cloned = await api.cloneJob(String(job.value.id));
+    ElMessage.success(`Cloned to a new run (job #${cloned.id})`);
+    router.push({ name: "job-detail", params: { id: String(cloned.id) } });
+  } catch (e) {
+    ElMessage.error(formatError(e));
+  }
 }
 
 async function openTensorboardForRun() {

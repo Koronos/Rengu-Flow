@@ -6,6 +6,7 @@ import type {
   ConfigSchemaResponse,
   ConfigSearchItem,
   ContinueRunBody,
+  CloneJobBody,
   DatasetComposeResult,
   DatasetDetail,
   DatasetFolderSuggestion,
@@ -192,6 +193,12 @@ export const api = {
 
   startJob: (body: JobStartBody) =>
     request<JobRecord>("/jobs", { method: "POST", body: JSON.stringify(body) }),
+
+  cloneJob: (id: string, body: CloneJobBody = {}) =>
+    request<JobRecord>(`/jobs/${id}/clone`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
 
   updateJob: (id: string, body: JobPatchBody) =>
     request<JobRecord>(`/jobs/${id}`, {
