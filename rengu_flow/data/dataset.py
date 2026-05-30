@@ -154,6 +154,23 @@ def _cache_text_embeddings(
     return TextEmbeddingDataset(te_dataset, flattened)
 
 
+def directory_subsample_ratio(directory_config: dict) -> float:
+    """Fraction of a directory's images to use per epoch (diffusion-pipe ``subsample_ratio``)."""
+    return float(directory_config.get("subsample_ratio", 1.0))
+
+
+def trim_iteration_order_by_subsample_ratio(order, subsample_ratio: float):
+    """Keep the first ``len * subsample_ratio`` rows of an iteration order (no-op when >= 1.0).
+
+    The metadata is shuffled per bucket before the order is built, so this yields a stable
+    pseudo-random subset.
+    """
+    if subsample_ratio >= 1.0:
+        return order
+    keep = int(len(order) * subsample_ratio)
+    return order.select(range(keep))
+
+
 class SizeBucketDataset:
     """Single size bucket from one directory: latents + text embeddings cache, iteration order."""
 
@@ -187,9 +204,7 @@ class SizeBucketDataset:
         self.num_repeats = int(directory_config["num_repeats"])
         if self.num_repeats <= 0:
             raise ValueError(f"num_repeats must be >0, was {self.num_repeats}")
-        self._aug_fingerprint = (
-            directory_dataset._aug_fingerprint if directory_dataset is not None else ""
-        )
+        self._aug_fingerprint = getattr(directory_dataset, "_aug_fingerprint", "")
 
     def cache_latents(
         self,
@@ -293,6 +308,9 @@ class SizeBucketDataset:
                 iteration_order_dict["caption"].append(caption)
                 iteration_order_dict["caption_number"].append(caption_number)
             iteration_order = datasets.Dataset.from_dict(iteration_order_dict)
+            iteration_order = trim_iteration_order_by_subsample_ratio(
+                iteration_order, directory_subsample_ratio(self.directory_config)
+            )
             iteration_order.save_to_disk(str(iteration_order_cache_dir))
 
         self.iteration_order = datasets.load_from_disk(
