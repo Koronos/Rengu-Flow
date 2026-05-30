@@ -42,12 +42,6 @@ def _make_run_dir(parent: Path, name: str = "20250101_12-00-00") -> Path:
     return run
 
 
-@pytest.mark.xfail(
-    reason="Asserts slug ids (config_id == run.name); deferred to the unified run model "
-    "where ids stay int autoincrement and the run name is a name. See "
-    "docs/developer/run-model-redesign.md.",
-    strict=False,
-)
 def test_preview_and_import_run(ui_data_tmp: Path) -> None:
     run = _make_run_dir(ui_data_tmp / "output")
     preview = job_import.preview_import(str(run))
@@ -58,9 +52,14 @@ def test_preview_and_import_run(ui_data_tmp: Path) -> None:
     job = job_import.import_run(str(run))
     assert job.state == "finished"
     assert job.run_dir == str(run.resolve())
-    assert job.config_id == run.name
-    assert configs_store.config_exists(run.name)
-    assert datasets_store.dataset_exists(f"{run.name}_dataset")
+    # Library ids stay integer autoincrement; the run is identified by name, not id.
+    assert isinstance(job.config_id, int)
+    assert configs_store.config_exists(job.config_id)
+    # The imported config is labelled after the run (run_name) for identification.
+    assert run.name in configs_store.read_config_text(job.config_id)
+    # The imported dataset is stored and named after the run.
+    ds_names = [d["name"] for d in datasets_store.list_datasets_summary()]
+    assert f"{run.name} dataset" in ds_names
 
     with pytest.raises(JobImportError, match="already"):
         job_import.import_run(str(run))

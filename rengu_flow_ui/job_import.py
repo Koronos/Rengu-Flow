@@ -144,9 +144,16 @@ def _import_config_from_run(
     if import_dataset:
         ds_path = _dataset_file_in_run(run_dir, config_path, cfg)
         if ds_path is not None:
-            did = datasets_store.insert_dataset(ds_path.read_text(encoding="utf-8"))
+            did = datasets_store.insert_dataset(
+                ds_path.read_text(encoding="utf-8"),
+                name=f"{run_dir.name} dataset",
+            )
             cfg["dataset"] = datasets_store.dataset_library_ref(did)
 
+    # Library ids stay integer autoincrement; identify the imported run by name instead —
+    # label the config with the run folder name (run_name) so it is recognizable in the
+    # library, mirroring how datasets carry a name.
+    cfg.setdefault("run_name", run_dir.name)
     return configs_store.insert_config(toml.dumps(cfg))
 
 
