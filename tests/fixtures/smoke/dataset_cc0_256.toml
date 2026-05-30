@@ -1,0 +1,12 @@
+# 256px CC0 smoke dataset for low-VRAM full-finetune smoke (12 GB82 images).
+# Smaller than dataset_cc0.toml (512px) to keep UNet activations tiny on 8GB GPUs.
+resolutions = [256]
+enable_ar_bucket = true
+min_ar = 0.5
+max_ar = 2.0
+num_ar_buckets = 4
+frame_buckets = [1]
+
+[[directory]]
+path = "tests/fixtures/smoke_cc0/images"
+num_repeats = 1
