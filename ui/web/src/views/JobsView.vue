@@ -53,14 +53,17 @@
       <el-form label-position="top" class="launch-form">
         <el-form-item label="Training config" required>
           <div v-if="!hasAnyConfig" class="page-panel config-block--compact">
-            <span class="page-hint">No training configs yet.</span>
-            <el-button type="primary" size="small" @click="goCreateConfig">Create config</el-button>
+            <span class="page-hint">No saved presets yet — create a config and run it in one step.</span>
+            <el-button type="primary" size="small" @click="goCreateConfig">Create &amp; run</el-button>
           </div>
           <div v-else-if="!configId" class="page-panel">
             <p class="page-hint">
-              Pick a config from the library so you can review and edit it before training.
+              Create a config and run it in one step, or reuse a saved preset from the library.
             </p>
-            <el-button type="primary" @click="goPickConfig">Choose config in library</el-button>
+            <el-space wrap>
+              <el-button type="primary" @click="goCreateConfig">Create &amp; run</el-button>
+              <el-button @click="goPickConfig">Use a saved preset</el-button>
+            </el-space>
           </div>
           <div v-else class="page-panel">
             <div class="config-selected-row">
