@@ -108,6 +108,9 @@ def compute_run_progress(run_dir: Path | None) -> dict[str, Any] | None:
         "status_available": status is not None,
         "model_type": limits.get("model_type"),
         "run_name_label": limits.get("run_name_label"),
+        "steps_per_second_ema": status.get("steps_per_second_ema") if status else None,
+        "eta": status.get("eta") if status else None,
+        "steps_remaining": status.get("steps_remaining") if status else None,
     }
 
 
