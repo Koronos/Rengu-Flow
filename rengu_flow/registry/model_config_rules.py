@@ -143,7 +143,11 @@ def validate_config_model_rules(config: dict[str, Any]) -> None:
     if "model" not in config or "type" not in config["model"]:
         return
     raw_type = str(config["model"]["type"])
-    if get_capability(raw_type) is None:
+    # Require the canonical type id here. Aliases (e.g. "anima" → "cosmos_predict2")
+    # are resolved by the registry/UI form, which rewrites model.type to canonical
+    # before save; a raw alias reaching validation means the config was hand-written
+    # against a legacy/unsupported name and must be rejected.
+    if raw_type not in get_canonical_model_types():
         ConfigValidationError = _validation_error()
         registered = sorted(get_canonical_model_types())
         raise ConfigValidationError(
