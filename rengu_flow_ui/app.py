@@ -72,6 +72,8 @@ class RunStart(BaseModel):
     extra_args: str = ""
     reset_dataloader: bool = False
     reset_optimizer: bool = False
+    cache_only: bool = False
+    trust_cache: bool = False
     enqueue: bool = True
     start_immediately: bool = False
     source_run_dir: str | None = None
@@ -85,6 +87,17 @@ class JobUpdate(BaseModel):
     extra_args: str | None = None
     reset_dataloader: bool | None = None
     reset_optimizer: bool | None = None
+
+
+class MaintenanceResetBody(BaseModel):
+    confirmation: str | None = None
+    confirm: bool = False
+
+
+class DepsInstallBody(BaseModel):
+    profile: str
+    execute: bool = False
+    confirm: bool = False
 
 
 class JobImportPreviewBody(BaseModel):
@@ -738,6 +751,8 @@ def create_app() -> FastAPI:
             extra_args=body.extra_args,
             reset_dataloader=body.reset_dataloader,
             reset_optimizer=body.reset_optimizer,
+            cache_only=body.cache_only,
+            trust_cache=body.trust_cache,
             source_run_dir=body.source_run_dir,
         )
         try:
@@ -968,6 +983,61 @@ def create_app() -> FastAPI:
     @app.get(f"{API_PREFIX}/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    def _require_maintenance() -> None:
+        from rengu_flow_ui import maintenance
+
+        if not maintenance.maintenance_enabled():
+            raise HTTPException(
+                403,
+                "Maintenance API disabled. Set RENGUFLOW_MAINTENANCE=1 to enable it.",
+            )
+
+    @app.get(f"{API_PREFIX}/maintenance/enabled")
+    def maintenance_enabled_route() -> dict[str, bool]:
+        from rengu_flow_ui import maintenance
+
+        return {"enabled": maintenance.maintenance_enabled()}
+
+    @app.get(f"{API_PREFIX}/maintenance/status")
+    def maintenance_status() -> dict[str, Any]:
+        from rengu_flow_ui import maintenance
+
+        _require_maintenance()
+        return maintenance.get_status()
+
+    @app.post(f"{API_PREFIX}/maintenance/database/reset")
+    def maintenance_database_reset(
+        body: MaintenanceResetBody | None = None,
+    ) -> dict[str, Any]:
+        from rengu_flow_ui import maintenance
+
+        _require_maintenance()
+        body = body or MaintenanceResetBody()
+        confirm = body.confirm or body.confirmation == maintenance.DB_RESET_CONFIRM_TOKEN
+        try:
+            return maintenance.reset_database(confirm=confirm)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+
+    @app.post(f"{API_PREFIX}/maintenance/submodules/update")
+    def maintenance_submodules_update() -> dict[str, Any]:
+        from rengu_flow_ui import maintenance
+
+        _require_maintenance()
+        return maintenance.submodule_update()
+
+    @app.post(f"{API_PREFIX}/maintenance/deps/install")
+    def maintenance_deps_install(body: DepsInstallBody) -> dict[str, Any]:
+        from rengu_flow_ui import maintenance
+
+        _require_maintenance()
+        try:
+            return maintenance.deps_install(
+                body.profile, execute=body.execute, confirm=body.confirm
+            )
+        except ValueError as e:
+            raise HTTPException(400, str(e))
 
     @app.get(f"{API_PREFIX}/system/stats")
     def system_stats() -> dict[str, Any]:
