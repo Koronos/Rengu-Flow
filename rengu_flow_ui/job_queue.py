@@ -67,6 +67,40 @@ def try_start_next() -> db.JobRecord | None:
     return db.get_job(job.id)
 
 
+def merge_job_cli_args(
+    extra_args: str,
+    *,
+    cache_only: bool = False,
+    trust_cache: bool = False,
+    reset_dataloader: bool = False,
+    reset_optimizer: bool = False,
+) -> str:
+    """Merge job toggle flags into a CLI ``extra_args`` string (idempotent, deduped).
+
+    ``cache_only`` (cache latents/text-embeds then exit) and ``trust_cache`` (skip the
+    cache freshness check) are mutually exclusive — passing both raises ``ValueError``.
+    """
+    if cache_only and trust_cache:
+        raise ValueError(
+            "cache_only and trust_cache are mutually exclusive — pick one."
+        )
+    tokens = (extra_args or "").split()
+
+    def _add(flag: str) -> None:
+        if flag not in tokens:
+            tokens.append(flag)
+
+    if reset_dataloader:
+        _add("--reset_dataloader")
+    if reset_optimizer:
+        _add("--reset_optimizer")
+    if cache_only:
+        _add("--cache_only")
+    if trust_cache:
+        _add("--trust_cache")
+    return " ".join(tokens)
+
+
 def prepare_job(
     *,
     config_id: str | int | None,
@@ -77,6 +111,8 @@ def prepare_job(
     extra_args: str,
     reset_dataloader: bool,
     reset_optimizer: bool,
+    cache_only: bool = False,
+    trust_cache: bool = False,
     queue_position: int | None = None,
     source_run_dir: str | None = None,
 ) -> db.JobRecord:
@@ -103,12 +139,13 @@ def prepare_job(
         source_run_dir=source_run_dir,
     )
     staging = configs_store.materialize_staging(content, job_stub.id)
-    extra: list[str] = []
-    if reset_dataloader:
-        extra.append("--reset_dataloader")
-    if reset_optimizer:
-        extra.append("--reset_optimizer")
-    extra_s = " ".join(extra) or extra_args
+    extra_s = merge_job_cli_args(
+        extra_args,
+        cache_only=cache_only,
+        trust_cache=trust_cache,
+        reset_dataloader=reset_dataloader,
+        reset_optimizer=reset_optimizer,
+    )
     cfg = toml.loads(staging.read_text(encoding="utf-8"))
     out_dir = output_dir or cfg.get("output_dir", "output")
     run_dir_for_job: str | None = None
