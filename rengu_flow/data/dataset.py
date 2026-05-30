@@ -646,10 +646,19 @@ class DirectoryDataset:
             )
             self.ar_bucket_datasets = []
 
-        self.shuffle = directory_config.get(
-            "cache_shuffle_num",
-            dataset_config.get("cache_shuffle_num", 0),
+        shuffle_tags = directory_config.get(
+            "shuffle_tags", dataset_config.get("shuffle_tags", False)
         )
+        if shuffle_tags:
+            # When tag shuffling is on, cache_shuffle_num is the per-image shuffle/repeat
+            # count; an unset or 0 value means "shuffle once" rather than "off".
+            cache_shuffle_num = directory_config.get(
+                "cache_shuffle_num", dataset_config.get("cache_shuffle_num", 0)
+            )
+            self.shuffle = cache_shuffle_num or 1
+        else:
+            # Tag shuffling off → no cache shuffle, regardless of cache_shuffle_num.
+            self.shuffle = 0
         self.shuffle_metadata = directory_config["shuffle_metadata"]
         self.directory_config["cache_shuffle_num"] = self.shuffle
         self.shuffle_delimiter = directory_config.get(
