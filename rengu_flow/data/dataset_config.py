@@ -50,3 +50,18 @@ def validate_dataset_config_for_real_data(dataset_config: dict) -> None:
             validate_augmentation_for_directory(d, dataset_config)
         except (AugmentationConfigError, AugmentationStrategyNotImplementedError) as e:
             raise DatasetConfigError(str(e)) from e
+
+    _validate_unit_fraction(dataset_config, "tag_dropout_probability")
+    _validate_unit_fraction(dataset_config, "uncond_fraction")
+
+
+def _validate_unit_fraction(dataset_config: dict, key: str) -> None:
+    """Raise DatasetConfigError when ``key`` is set but outside the [0, 1] range."""
+    if key not in dataset_config or dataset_config[key] is None:
+        return
+    try:
+        value = float(dataset_config[key])
+    except (TypeError, ValueError):
+        raise DatasetConfigError(f"{key} must be a number in [0, 1].") from None
+    if not 0.0 <= value <= 1.0:
+        raise DatasetConfigError(f"{key} must be in [0, 1] (got {value}).")
