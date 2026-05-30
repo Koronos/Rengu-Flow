@@ -14,7 +14,6 @@ from rengu_flow.data.dataset_config import (
 )
 from rengu_flow_ui import library_db
 from rengu_flow_ui.dataset_form import (
-    embed_display_name,
     loads_for_training,
     parse_toml_to_form,
     strip_display_name_from_toml,
@@ -31,7 +30,8 @@ duplicate_dataset = library_db.duplicate_dataset
 
 
 def read_dataset_for_ui(dataset_id: str | int) -> dict[str, Any]:
-    """Return stored name and TOML unchanged. UI builders parse separately."""
+    """Return stored name and TOML. The display name lives in its own DB column,
+    not inside the TOML body, so it is never written to the trainer's config."""
     did = library_db._coerce_record_id(dataset_id)
     try:
         library_db.refresh_dataset_index(did)
@@ -43,7 +43,7 @@ def read_dataset_for_ui(dataset_id: str | int) -> dict[str, Any]:
     return {
         "id": did,
         "name": row["name"],
-        "content": embed_display_name(row["content"], row["name"]),
+        "content": row["content"],
     }
 
 
@@ -83,8 +83,9 @@ def parse_dataset_dict(content: str) -> dict[str, Any]:
 
 
 def prepare_dataset_content_for_storage(content: str, name: str | None) -> str:
-    """Normalize TOML on save: strip display name from body, re-embed from library name."""
-    return embed_display_name(strip_display_name_from_toml(content), name)
+    """Normalize TOML on save: strip the display name from the body. The name is stored
+    in the ``datasets.name`` column, never embedded in the trainer-facing TOML."""
+    return strip_display_name_from_toml(content)
 
 
 def validate_dataset_text(content: str) -> dict[str, Any]:
