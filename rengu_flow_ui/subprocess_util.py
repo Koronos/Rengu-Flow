@@ -6,6 +6,7 @@ import subprocess
 from pathlib import Path
 from typing import IO, Any
 
+from rengu_flow.platform_compat import popen_kwargs_new_group
 from rengu_flow_ui import settings
 
 
@@ -33,6 +34,6 @@ def popen_repo_subprocess(
         stdout=log_f,
         stderr=subprocess.STDOUT,
         env=env,
-        start_new_session=True,
+        **popen_kwargs_new_group(),
     )
     return proc, log_f

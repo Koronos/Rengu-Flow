@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import os
 import shlex
-import signal
 import sys
 from pathlib import Path
 
 from rengu_flow.cli.training_extras import ensure_training_extras
+from rengu_flow.platform_compat import pid_alive, terminate_process_tree
 from rengu_flow_ui import db
 from rengu_flow_ui.subprocess_util import popen_repo_subprocess
 
@@ -79,15 +79,8 @@ def stop_job(job_id: str, *, graceful_signal: bool = True) -> None:
     if job.pid is None:
         db.update_job(job_id, state="stopped", finished_at=_now())
         return
-    try:
-        os.killpg(os.getpgid(job.pid), signal.SIGTERM)
-    except ProcessLookupError:
-        pass
-    except PermissionError:
-        try:
-            os.kill(job.pid, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
+    # Graceful first: drop the save_quit signal file so training saves and exits cleanly
+    # (on Windows there is no real SIGTERM, so this is the primary stop mechanism).
     if graceful_signal and job.run_dir:
         from rengu_flow.utils.signal_files import SIGNAL_SAVE_QUIT
 
@@ -96,26 +89,29 @@ def stop_job(job_id: str, *, graceful_signal: bool = True) -> None:
             sig.touch()
         except OSError:
             pass
+    # Hard stop fallback: terminate the process tree (children-first, SIGTERM->kill), which
+    # replaces the POSIX-only killpg/getpgid path and works on Windows via psutil.
+    terminate_process_tree(job.pid)
     db.update_job(job_id, state="stopping")
 
 
 def poll_job(job_id: str) -> db.JobRecord:
     job = db.get_job(job_id)
-    if job.state not in ("running", "stopping", "pending") or job.pid is None:
+    if job.state not in ("running", "stopping"):
         return job
-    try:
-        os.kill(job.pid, 0)
-    except ProcessLookupError:
-        exit_code = _read_exit_code(job)
-        db.update_job(
-            job_id,
-            state="finished",
-            finished_at=_now(),
-            exit_code=exit_code,
-            pid=None,
-        )
-        return db.get_job(job_id)
-    return job
+    if job.pid is not None and pid_alive(job.pid):
+        return job
+    # Process is gone (missing or dead pid): reconcile the stale state.
+    # A job we were stopping becomes "stopped"; an unattended running job becomes "finished".
+    final_state = "stopped" if job.state == "stopping" else "finished"
+    db.update_job(
+        job_id,
+        state=final_state,
+        finished_at=_now(),
+        exit_code=_read_exit_code(job),
+        pid=None,
+    )
+    return db.get_job(job_id)
 
 
 def _read_exit_code(job: db.JobRecord) -> int | None:
