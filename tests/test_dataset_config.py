@@ -113,3 +113,59 @@ def test_validate_dataset_config_passes():
     validate_dataset_config_for_real_data({
         "directory": [{"path": "/some/path", "num_repeats": 2}],
     })
+
+
+def test_validate_directory_max_images_zero():
+    with pytest.raises(DatasetConfigError, match="max_images"):
+        validate_dataset_config_for_real_data({
+            "directory": [{"path": "/some/path", "num_repeats": 1, "max_images": 0}],
+        })
+
+
+def test_validate_directory_max_images_not_int():
+    with pytest.raises(DatasetConfigError, match="max_images"):
+        validate_dataset_config_for_real_data({
+            "directory": [{"path": "/some/path", "num_repeats": 1, "max_images": 1.5}],
+        })
+
+
+def test_validate_global_max_images_zero():
+    with pytest.raises(DatasetConfigError, match="max_images"):
+        validate_dataset_config_for_real_data({
+            "directory": [{"path": "/some/path", "num_repeats": 1}],
+            "max_images": -5,
+        })
+
+
+def test_validate_max_images_valid_passes():
+    validate_dataset_config_for_real_data({
+        "directory": [{"path": "/some/path", "num_repeats": 1, "max_images": 10}],
+        "max_images": 20,
+    })
+
+
+def test_validate_directory_ratio_and_max_images_mutually_exclusive():
+    with pytest.raises(DatasetConfigError, match="mutually exclusive"):
+        validate_dataset_config_for_real_data({
+            "directory": [
+                {"path": "/x", "num_repeats": 1, "subsample_ratio": 0.5, "max_images": 10}
+            ],
+        })
+
+
+def test_validate_global_ratio_and_max_images_mutually_exclusive():
+    with pytest.raises(DatasetConfigError, match="mutually exclusive"):
+        validate_dataset_config_for_real_data({
+            "directory": [{"path": "/x", "num_repeats": 1}],
+            "subsample_ratio": 0.25,
+            "max_images": 10,
+        })
+
+
+def test_validate_ratio_one_with_max_images_is_allowed():
+    # subsample_ratio == 1 means "no limit", so it does not conflict with max_images.
+    validate_dataset_config_for_real_data({
+        "directory": [
+            {"path": "/x", "num_repeats": 1, "subsample_ratio": 1, "max_images": 10}
+        ],
+    })

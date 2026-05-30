@@ -46,13 +46,53 @@ def validate_dataset_config_for_real_data(dataset_config: dict) -> None:
             raise DatasetConfigError(
                 f"dataset_config['directory'][{i}]['num_repeats'] must be > 0."
             )
+        _validate_positive_int(
+            d, "max_images", f"dataset_config['directory'][{i}]['max_images']"
+        )
+        _validate_sampler_exclusivity(
+            d, f"dataset_config['directory'][{i}]"
+        )
         try:
             validate_augmentation_for_directory(d, dataset_config)
         except (AugmentationConfigError, AugmentationStrategyNotImplementedError) as e:
             raise DatasetConfigError(str(e)) from e
 
+    _validate_positive_int(dataset_config, "max_images", "max_images")
+    _validate_sampler_exclusivity(dataset_config, "dataset_config")
     _validate_unit_fraction(dataset_config, "tag_dropout_probability")
     _validate_unit_fraction(dataset_config, "uncond_fraction")
+
+
+def _validate_sampler_exclusivity(config: dict, label: str) -> None:
+    """Reject defining both per-epoch limiters (subsample_ratio < 1 and max_images) together.
+
+    ``subsample_ratio`` (fraction) and ``max_images`` (absolute count) are two ways to limit how
+    many images are used per epoch; only one may be set in the same scope (a single directory, or
+    the dataset root). Checks explicitly-set keys only.
+    """
+    if config.get("max_images") is None or "subsample_ratio" not in config:
+        return
+    try:
+        ratio = float(config["subsample_ratio"])
+    except (TypeError, ValueError):
+        return
+    if ratio < 1.0:
+        raise DatasetConfigError(
+            f"{label}: set either 'subsample_ratio' (< 1) or 'max_images', not both — "
+            "they are mutually exclusive per-epoch image limiters."
+        )
+
+
+def _validate_positive_int(config: dict, key: str, label: str) -> None:
+    """Raise DatasetConfigError when ``key`` is set but is not an integer > 0."""
+    if key not in config or config[key] is None:
+        return
+    value = config[key]
+    # bool is an int subclass but never a valid count here.
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise DatasetConfigError(f"{label} must be an integer > 0 (got {value!r}).")
+    if value <= 0:
+        raise DatasetConfigError(f"{label} must be > 0 (got {value}).")
 
 
 def _validate_unit_fraction(dataset_config: dict, key: str) -> None:

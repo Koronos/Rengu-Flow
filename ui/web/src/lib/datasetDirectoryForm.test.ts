@@ -55,6 +55,59 @@ describe("subsample_ratio defaults", () => {
   });
 });
 
+const maxImagesField: SchemaField = {
+  path: "max_images",
+  label: "Max images per epoch",
+  type: "integer",
+  min: 1,
+  show_if_set: true,
+};
+
+const staticSamplingField: SchemaField = {
+  path: "static_sampling",
+  label: "Static sampling (no rotation)",
+  type: "boolean",
+  default: false,
+  show_if_set: true,
+};
+
+describe("max_images directory override", () => {
+  it("initializes the integer override to its min (1) when enabled", () => {
+    expect(initialValueForOptionalField(maxImagesField)).toBe(1);
+  });
+
+  it("setOverrideEnabled adds max_images without touching num_repeats", () => {
+    const row = setOverrideEnabled(maxImagesField, { path: "/data", num_repeats: 2 }, true);
+    expect(row.max_images).toBe(1);
+    expect(row.num_repeats).toBe(2);
+  });
+
+  it("setOverrideEnabled(false) removes max_images so the row inherits again", () => {
+    const row = setOverrideEnabled(
+      maxImagesField,
+      { path: "/data", num_repeats: 1, max_images: 10 },
+      false
+    );
+    expect("max_images" in row).toBe(false);
+  });
+
+  it("does not write max_images when unset", () => {
+    expect(
+      directoryFieldWritesToToml(maxImagesField, { path: "/data", num_repeats: 1 })
+    ).toBe(false);
+  });
+
+  it("static_sampling defaults to false and is an optional override", () => {
+    expect(initialValueForOptionalField(staticSamplingField)).toBe(false);
+    expect(needsDirectoryOverrideToggle(staticSamplingField)).toBe(true);
+    const row = setOverrideEnabled(staticSamplingField, { path: "/data", num_repeats: 1 }, true);
+    expect("static_sampling" in row).toBe(true);
+    expect(
+      directoryFieldWritesToToml(staticSamplingField, { path: "/data", num_repeats: 1 })
+    ).toBe(false);
+  });
+});
+
 const shuffleTagsField: SchemaField = {
   path: "shuffle_tags",
   label: "Shuffle tags",

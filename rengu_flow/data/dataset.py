@@ -171,6 +171,62 @@ def trim_iteration_order_by_subsample_ratio(order, subsample_ratio: float):
     return order.select(range(keep))
 
 
+def directory_max_images(directory_config: dict) -> int | None:
+    """Absolute per-size-bucket image cap for a directory (``max_images``), or None for no cap."""
+    value = directory_config.get("max_images")
+    if value is None:
+        return None
+    return int(value)
+
+
+def directory_static_sampling(directory_config: dict) -> bool:
+    """Whether the active sampler (``subsample_ratio`` or ``max_images``) uses a fixed subset.
+
+    ``True`` keeps the same images every epoch; ``False`` (default) rotates the window so the
+    whole folder is eventually used.
+    """
+    return bool(directory_config.get("static_sampling", False))
+
+
+def effective_sample_cap(
+    pool_len: int, max_images: int | None, subsample_ratio: float
+) -> int | None:
+    """Per-epoch row count for a bucket, or ``None`` when the whole pool is used.
+
+    ``max_images`` (absolute) and ``subsample_ratio`` (fraction) are two ways to limit how many
+    images a folder contributes; they are mutually exclusive (enforced in dataset_config). The
+    absolute cap wins if both somehow reach here. A ``subsample_ratio`` of ``1`` (or >= 1) means
+    "no limit".
+    """
+    if max_images is not None:
+        return max_images
+    if subsample_ratio is not None and subsample_ratio < 1.0:
+        return max(1, int(pool_len * subsample_ratio))
+    return None
+
+
+def rotation_window_index(
+    pos: int, epoch: int, pool_len: int, cap: int | None, static: bool
+) -> int:
+    """Map a per-epoch slot ``pos`` to an index into the full (shuffled) pool.
+
+    ``cap`` is the per-epoch row count from :func:`effective_sample_cap` (``None`` => no limit,
+    behave as before). When ``static`` is False (default), the window start advances by ``cap``
+    each epoch so consecutive epochs serve fresh images and cover the whole pool every
+    ``ceil(pool_len/cap)`` epochs (wrapping). When ``static`` is True the same first ``cap`` rows
+    are served every epoch. With ``cap > pool_len`` the modulo repeats the pool up to ``cap``
+    (repeat-to-N). The result depends only on (pos, epoch, pool_len, cap, static), so it is
+    deterministic and identical across data-parallel ranks (epoch is synced via
+    ``PipelineDataLoader.sync_epoch``).
+    """
+    if pool_len <= 0:
+        return 0
+    if cap is None:
+        return pos % pool_len
+    offset = 0 if static else ((epoch - 1) * cap) % pool_len
+    return (offset + pos) % pool_len
+
+
 class SizeBucketDataset:
     """Single size bucket from one directory: latents + text embeddings cache, iteration order."""
 
@@ -204,6 +260,12 @@ class SizeBucketDataset:
         self.num_repeats = int(directory_config["num_repeats"])
         if self.num_repeats <= 0:
             raise ValueError(f"num_repeats must be >0, was {self.num_repeats}")
+        self.max_images = directory_max_images(directory_config)
+        if self.max_images is not None and self.max_images <= 0:
+            raise ValueError(f"max_images must be >0, was {self.max_images}")
+        self.subsample_ratio = directory_subsample_ratio(directory_config)
+        self.static_sampling = directory_static_sampling(directory_config)
+        self._epoch = 1
         self._aug_fingerprint = getattr(directory_dataset, "_aug_fingerprint", "")
 
     def cache_latents(
@@ -308,9 +370,8 @@ class SizeBucketDataset:
                 iteration_order_dict["caption"].append(caption)
                 iteration_order_dict["caption_number"].append(caption_number)
             iteration_order = datasets.Dataset.from_dict(iteration_order_dict)
-            iteration_order = trim_iteration_order_by_subsample_ratio(
-                iteration_order, directory_subsample_ratio(self.directory_config)
-            )
+            # The full pool is cached; subsample_ratio/max_images are applied per epoch at access
+            # time (see _effective_len / rotation_window_index) so the window can rotate.
             iteration_order.save_to_disk(str(iteration_order_cache_dir))
 
         self.iteration_order = datasets.load_from_disk(
@@ -378,12 +439,43 @@ class SizeBucketDataset:
         ret["caption"] = caption
         return ret
 
+    @property
+    def _pool_len(self) -> int:
+        """Number of rows actually available in this bucket (the full pool to rotate over)."""
+        return len(self.iteration_order)
+
+    @property
+    def _sample_cap(self) -> int | None:
+        """Per-epoch row count from max_images or subsample_ratio (None => whole pool)."""
+        return effective_sample_cap(
+            self._pool_len, self.max_images, self.subsample_ratio
+        )
+
+    @property
+    def _effective_len(self) -> int:
+        """Rows served per epoch: the active sampler's cap, or the whole pool when uncapped."""
+        cap = self._sample_cap
+        return self._pool_len if cap is None else cap
+
+    def _pool_index(self, idx: int) -> int:
+        """Map an upper-layer index (0..len-1) to a row of the full pool, honoring rotation."""
+        m = self._effective_len
+        if m <= 0:
+            return 0
+        pos = idx % m
+        return rotation_window_index(
+            pos, self._epoch, self._pool_len, self._sample_cap, self.static_sampling
+        )
+
+    def set_epoch(self, epoch: int) -> None:
+        """Update the current epoch so a non-static sampler rotates its window."""
+        self._epoch = int(epoch)
+
     def get_items_batch(self, idx_list: list[int]) -> list[dict]:
         """Load multiple training samples; batches latent cache reads per shard."""
         entries = []
         for idx in idx_list:
-            idx = idx % len(self.iteration_order)
-            entries.append(self.iteration_order[idx])
+            entries.append(self.iteration_order[self._pool_index(idx)])
         latent_idxs = [e["latents_idx"] for e in entries]
         latent_dicts = self.latent_dataset.get_many(latent_idxs)
         return [
@@ -392,12 +484,11 @@ class SizeBucketDataset:
         ]
 
     def __getitem__(self, idx):
-        idx = idx % len(self.iteration_order)
-        entry = self.iteration_order[idx]
+        entry = self.iteration_order[self._pool_index(idx)]
         return self._sample_from_entry(entry)
 
     def __len__(self) -> int:
-        return int(len(self.iteration_order) * self.num_repeats)
+        return int(self._effective_len * self.num_repeats)
 
 
 class ConcatenatedBatchedDataset:
@@ -461,6 +552,10 @@ class ConcatenatedBatchedDataset:
     def __len__(self) -> int:
         assert self.post_init_called
         return len(self.iteration_order) // self.global_batch_size
+
+    def set_epoch(self, epoch: int) -> None:
+        for ds in self.datasets:
+            ds.set_epoch(epoch)
 
     def __getitem__(self, idx):
         assert self.post_init_called
@@ -773,6 +868,17 @@ class DirectoryDataset:
         )
         directory_config.setdefault(
             "online_captions", dataset_config.get("online_captions", False)
+        )
+        # Inherit the global max_images cap, but not onto folders that already pick the other
+        # (mutually exclusive) sampler via an explicit subsample_ratio < 1.
+        try:
+            explicit_ratio = float(directory_config.get("subsample_ratio", 1.0))
+        except (TypeError, ValueError):
+            explicit_ratio = 1.0
+        if explicit_ratio >= 1.0 and dataset_config.get("max_images") is not None:
+            directory_config.setdefault("max_images", dataset_config.get("max_images"))
+        directory_config.setdefault(
+            "static_sampling", dataset_config.get("static_sampling", False)
         )
 
     def _validate(self) -> None:
@@ -1320,6 +1426,24 @@ class Dataset:
                 skip_dataset_validation=skip_dataset_validation,
             )
             self.directory_datasets.append(dir_dataset)
+        # Rotation is active when at least one directory limits images (max_images or
+        # subsample_ratio < 1) and is not static; the loader uses this to keep workers in sync
+        # with the current epoch (see loader.py).
+        self.rotation_active = any(
+            effective_sample_cap(
+                1,
+                directory_max_images(d.directory_config),
+                directory_subsample_ratio(d.directory_config),
+            )
+            is not None
+            and not directory_static_sampling(d.directory_config)
+            for d in self.directory_datasets
+        )
+
+    def set_epoch(self, epoch: int) -> None:
+        """Propagate the current epoch to every size bucket so rotation advances."""
+        for bucket in getattr(self, "buckets", []):
+            bucket.set_epoch(epoch)
 
     def get_augmentation_resolver(self):
         """Return callable(image_spec) -> (resolved_config, fingerprint) or None."""

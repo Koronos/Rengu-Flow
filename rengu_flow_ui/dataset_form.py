@@ -36,6 +36,8 @@ DIRECTORY_OPTIONAL_KEYS = (
     "shuffle_metadata",
     "online_captions",
     "subsample_ratio",
+    "max_images",
+    "static_sampling",
 )
 
 
@@ -98,6 +100,13 @@ def _directory_row_for_toml(entry: dict[str, Any], global_values: dict[str, Any]
                     continue
             except (TypeError, ValueError):
                 continue
+        if key == "max_images":
+            try:
+                val = int(val)
+            except (TypeError, ValueError):
+                continue
+        if key == "static_sampling" and not val:
+            continue  # rotating (False) is the default; omit from TOML
         if key in global_values and val == global_values.get(key):
             continue
         if key in INTEGER_LIST_KEYS | NUMBER_LIST_KEYS | JSON_LIST_KEYS:
@@ -327,6 +336,8 @@ def form_to_toml(form: dict[str, Any]) -> str:
             "shuffle_metadata",
             "online_captions",
             "subsample_ratio",
+            "max_images",
+            "static_sampling",
         )
         if k in form and form[k] not in (None, "")
     }
@@ -375,6 +386,16 @@ def form_to_toml(form: dict[str, Any]) -> str:
             except (TypeError, ValueError):
                 continue
             config[key] = val
+            continue
+        if key == "max_images":
+            try:
+                config[key] = int(val)
+            except (TypeError, ValueError):
+                pass
+            continue
+        if key == "static_sampling":
+            if val:  # rotating (False) is the default; omit from TOML
+                config[key] = True
             continue
         if key == "tag_dropout_rules":
             rules = _complete_tag_dropout_rules(val)

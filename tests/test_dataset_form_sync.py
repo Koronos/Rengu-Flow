@@ -148,6 +148,68 @@ def test_subsample_ratio_omitted_from_toml_when_full_dataset() -> None:
     assert "subsample_ratio" not in cfg
 
 
+def test_directory_max_images_override_roundtrip() -> None:
+    form, _ = parse_toml_to_form(
+        "resolutions = [1024]\nframe_buckets = [1]\n\n"
+        "[[directory]]\npath = '/data/x'\nnum_repeats = 1\n"
+    )
+    form["_directories"] = [
+        {
+            "path": "/my/images",
+            "num_repeats": 1,
+            "max_images": 10,
+            "static_sampling": True,
+        }
+    ]
+    cfg = _roundtrip(form)
+    assert cfg["directory"][0]["max_images"] == 10
+    assert cfg["directory"][0]["static_sampling"] is True
+
+
+def test_directory_static_sampling_omitted_when_false() -> None:
+    form, _ = parse_toml_to_form(
+        "resolutions = [1024]\nframe_buckets = [1]\n\n"
+        "[[directory]]\npath = '/data/x'\nnum_repeats = 1\n"
+    )
+    form["_directories"] = [
+        {
+            "path": "/my/images",
+            "num_repeats": 1,
+            "max_images": 10,
+            "static_sampling": False,
+        }
+    ]
+    cfg = _roundtrip(form)
+    assert cfg["directory"][0]["max_images"] == 10
+    assert "static_sampling" not in cfg["directory"][0]
+
+
+def test_global_max_images_roundtrip_and_static_default_omitted() -> None:
+    form, _ = parse_toml_to_form(
+        "resolutions = [1024]\nframe_buckets = [1]\n\n"
+        "[[directory]]\npath = '/data/x'\nnum_repeats = 1\n"
+    )
+    form["max_images"] = 25
+    form["static_sampling"] = False
+    cfg = _roundtrip(form)
+    assert cfg["max_images"] == 25
+    assert "static_sampling" not in cfg
+
+
+def test_directory_max_images_omitted_when_same_as_global() -> None:
+    form, _ = parse_toml_to_form(
+        "resolutions = [1024]\nframe_buckets = [1]\nmax_images = 10\n\n"
+        "[[directory]]\npath = '/data/x'\nnum_repeats = 1\n"
+    )
+    form["max_images"] = 10
+    form["_directories"] = [
+        {"path": "/my/images", "num_repeats": 1, "max_images": 10}
+    ]
+    cfg = _roundtrip(form)
+    assert cfg["max_images"] == 10
+    assert "max_images" not in cfg["directory"][0]
+
+
 def test_directory_path_and_overrides_roundtrip() -> None:
     form, _ = parse_toml_to_form(
         "resolutions = [1024]\nframe_buckets = [1]\n\n"

@@ -66,6 +66,26 @@ def test_subsample_ratio_schema_default_is_full_dataset() -> None:
     assert dir_by_path["subsample_ratio"]["default"] == 1
 
 
+def test_max_images_schema_fields() -> None:
+    schema = get_dataset_schema()
+    captions = next(s for s in schema["sections"] if s["id"] == "captions")
+    by_path = {f["path"]: f for f in captions["fields"]}
+    # Global default field exists, integer with no default (unset == no cap).
+    assert by_path["max_images"]["type"] == "integer"
+    assert by_path["max_images"]["min"] == 1
+    assert "default" not in by_path["max_images"]
+    assert by_path["static_sampling"]["default"] is False
+
+    dir_by_path = {f["path"]: f for f in schema["directory_fields"]}
+    assert dir_by_path["max_images"]["type"] == "integer"
+    assert dir_by_path["max_images"]["min"] == 1
+    assert dir_by_path["max_images"].get("show_if_set") is True
+    # Static flag governs whichever limiter is active; it's an optional override.
+    assert dir_by_path["static_sampling"]["type"] == "boolean"
+    assert dir_by_path["static_sampling"].get("show_if_set") is True
+    assert dir_by_path["static_sampling"]["default"] is False
+
+
 def test_cache_shuffle_schema_default_and_shuffle_tags_gating() -> None:
     schema = get_dataset_schema()
     captions = next(s for s in schema["sections"] if s["id"] == "captions")

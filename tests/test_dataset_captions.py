@@ -322,7 +322,17 @@ def test_size_bucket_directory_subsample_ratio(tmp_path):
         regenerate_cache=True,
         trust_cache=False,
     )
-    assert len(sb.iteration_order) == 2
+    # subsample_ratio no longer trims the cache: the full pool stays available so the
+    # per-epoch window can rotate over all of it.
+    assert len(sb.iteration_order) == 8
+    # Effective per-epoch rows = floor(8 * 0.25) = 2.
+    assert len(sb) == 2
+    # Rotating by default: consecutive epochs serve a different slice of the pool.
+    sb.set_epoch(1)
+    epoch1 = {sb._pool_index(i) for i in range(len(sb))}
+    sb.set_epoch(2)
+    epoch2 = {sb._pool_index(i) for i in range(len(sb))}
+    assert epoch1 != epoch2
 
 
 def test_size_bucket_online_captions_selects_caption_number(tmp_path):

@@ -105,6 +105,33 @@ def test_pipeline_data_loader_dataloader_kwargs():
         assert kwargs["persistent_workers"] is False
 
 
+def test_pipeline_data_loader_propagates_epoch_to_dataset():
+    """set_epoch is called on the dataset at creation and on each epoch rollover."""
+
+    class RotatingSynthetic(SyntheticSDXLDataset):
+        rotation_active = True
+
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.epochs_seen = []
+
+        def set_epoch(self, epoch):
+            self.epochs_seen.append(epoch)
+
+    ds = RotatingSynthetic(num_batches=2, micro_batch_size=1, latent_height=64, latent_width=64)
+    mock_model = _make_mock_model()
+    mock_engine = _make_mock_engine()
+    loader = PipelineDataLoader(ds, mock_engine, gradient_accumulation_steps=1, model=mock_model)
+    # Epoch 1 is set when the dataloader is first created.
+    assert ds.epochs_seen == [1]
+    it = iter(loader)
+    # Drive past the end of epoch 1 to trigger the rollover.
+    for _ in range(len(ds) + 1):
+        next(it)
+    assert loader.epoch == 2
+    assert ds.epochs_seen[-1] == 2
+
+
 def test_pipeline_data_loader_reset():
     """reset() restores epoch, num_batches_pulled, next_micro_batch and reinitializes batch iterator."""
     ds = SyntheticSDXLDataset(num_batches=2, micro_batch_size=1, latent_height=64, latent_width=64)

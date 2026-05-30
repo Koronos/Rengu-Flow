@@ -102,14 +102,29 @@ class PipelineDataLoader:
             self.next_micro_batch = next(self.data)
         except StopIteration:
             self._stop_prefetch_thread()
-            if self.recreate_dataloader:
+            self.epoch += 1
+            # Advance the dataset's epoch before re-creating/re-iterating so a non-static
+            # max_images rotates its per-epoch window for the new epoch.
+            self._refresh_dataset_epoch()
+            if self.recreate_dataloader or self._rotation_needs_worker_refresh():
                 self._create_dataloader()
                 self.recreate_dataloader = False
             self.data = self._pull_batches_from_dataloader()
             self.num_batches_pulled = 0
             self.next_micro_batch = None
-            self.epoch += 1
         return ret
+
+    def _refresh_dataset_epoch(self) -> None:
+        """Tell the dataset which epoch we are on (no-op for datasets without set_epoch)."""
+        set_epoch = getattr(self.dataset, "set_epoch", None)
+        if callable(set_epoch):
+            set_epoch(self.epoch)
+
+    def _rotation_needs_worker_refresh(self) -> bool:
+        """Persistent/forked workers hold a stale dataset copy; re-fork them when rotating."""
+        return self.num_dataloader_workers > 0 and getattr(
+            self.dataset, "rotation_active", False
+        )
 
     def _use_thread_prefetch(self) -> bool:
         return self.dataloader_prefetch and self.num_dataloader_workers == 0
@@ -127,6 +142,8 @@ class PipelineDataLoader:
 
     def _create_dataloader(self, skip_first_n_batches=None):
         self._stop_prefetch_thread()
+        # Set before constructing the DataLoader so forked workers inherit the right epoch.
+        self._refresh_dataset_epoch()
         if skip_first_n_batches is not None and skip_first_n_batches > 0:
 
             class SkipFirstN(torch.utils.data.Sampler):

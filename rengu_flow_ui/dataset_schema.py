@@ -20,6 +20,7 @@ def _field(
     option_values: list[Any] | None = None,
     show_if_set: bool = False,
     show_when_field: str = "",
+    min: Any = None,
 ) -> dict[str, Any]:
     imp = "required" if required else ("recommended" if recommended else "advanced")
     out: dict[str, Any] = {
@@ -34,6 +35,8 @@ def _field(
     }
     if default is not None:
         out["default"] = default
+    if min is not None:
+        out["min"] = min
     if option_values is not None:
         out["option_values"] = option_values
     if show_if_set:
@@ -169,7 +172,26 @@ def get_directory_fields() -> list[dict[str, Any]]:
             "number",
             default=1,
             show_if_set=True,
-            description="Fraction of this folder's images used per epoch (1 = all).",
+            description="Fraction of this folder's images used per epoch (1 = all). "
+            "Mutually exclusive with 'Max images per epoch'.",
+        ),
+        _field(
+            "max_images",
+            "Max images per epoch",
+            "integer",
+            min=1,
+            show_if_set=True,
+            description="Absolute cap of images from this folder per epoch (per size bucket). "
+            "Mutually exclusive with 'Subsample ratio'.",
+        ),
+        _field(
+            "static_sampling",
+            "Static sampling (no rotation)",
+            "boolean",
+            default=False,
+            show_if_set=True,
+            description="Use the same images every epoch instead of rotating the window. "
+            "Applies to whichever limiter is set (subsample ratio or max images).",
         ),
         _field("mask_path", "Mask folder", "string", show_if_set=True),
         _field("control_path", "Control folder", "string", show_if_set=True),
@@ -315,6 +337,23 @@ def get_dataset_schema() -> dict[str, Any]:
                     "number",
                     default=1,
                     description="Fraction of images used per epoch (1 = full dataset).",
+                ),
+                _field(
+                    "max_images",
+                    "Max images per epoch",
+                    "integer",
+                    min=1,
+                    description="Default absolute image cap per folder per epoch (per size bucket); "
+                    "rotates each epoch unless 'static_sampling'. Folders may override it. "
+                    "Mutually exclusive with 'subsample_ratio'.",
+                ),
+                _field(
+                    "static_sampling",
+                    "Static sampling (no rotation)",
+                    "boolean",
+                    default=False,
+                    description="Default for whether the active limiter (subsample ratio or max "
+                    "images) uses a fixed subset every epoch instead of rotating.",
                 ),
                 _field("tag_dropout_enabled", "Enable tag dropout", "boolean", default=False),
                 _field(

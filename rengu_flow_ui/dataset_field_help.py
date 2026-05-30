@@ -129,7 +129,31 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "doc": "docs/user/dataset-config.md",
     },
     "subsample_ratio": {
-        "summary": "Use only a fraction of images (e.g. 0.1 for quick tests).",
+        "summary": "Use a fraction of images per epoch. Mutually exclusive with max_images.",
+        "detail": (
+            "Fractional per-epoch limiter (e.g. 0.1). By default the window rotates over the "
+            "whole folder across epochs (set static_sampling to freeze it). Cannot be combined "
+            "with max_images in the same place — pick one."
+        ),
+        "doc": "docs/user/dataset-config.md",
+    },
+    "max_images": {
+        "summary": "Absolute image cap per folder per epoch (per size bucket).",
+        "detail": (
+            "Caps how many images a folder contributes each epoch. By default the window "
+            "rotates over the whole folder across epochs so every image is eventually seen "
+            "(balances folders of different sizes without wasting data). Folders with fewer "
+            "images than the cap repeat up to it. Set static_sampling to freeze the subset. "
+            "Mutually exclusive with subsample_ratio."
+        ),
+        "doc": "docs/user/dataset-config.md",
+    },
+    "static_sampling": {
+        "summary": "Freeze the active limiter to the same images every epoch (no rotation).",
+        "detail": (
+            "Applies to whichever limiter is set (subsample_ratio or max_images). False "
+            "(default) rotates the per-epoch window; True keeps the same subset each epoch."
+        ),
         "doc": "docs/user/dataset-config.md",
     },
 }
