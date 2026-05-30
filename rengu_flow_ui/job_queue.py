@@ -137,6 +137,9 @@ def prepare_job(
         extra_args=extra_args,
         queue_position=queue_position if queue_position is not None else next_queue_position(),
         source_run_dir=source_run_dir,
+        # Snapshot the run's own config (library refs intact) so the run is self-contained
+        # and can seed a clone even if a library config is later edited or deleted.
+        config_content=content or "",
     )
     staging = configs_store.materialize_staging(content, job_stub.id)
     extra_s = merge_job_cli_args(
@@ -215,6 +218,42 @@ def start_job_immediately(**kwargs: Any) -> db.JobRecord:
     bump_pending_after(job.id)
     try_start_next()
     return db.get_job(job.id)
+
+
+def clone_run(
+    source_job_id: str | int,
+    *,
+    num_gpus: int | None = None,
+    output_dir: str | None = None,
+    extra_args: str | None = None,
+    start_immediately: bool = False,
+) -> db.JobRecord:
+    """Create a NEW run seeded with an existing run's config, without its runtime data.
+
+    Implements "edit = create new": the clone reuses the source run's config snapshot
+    (library refs intact) but starts fresh — new run_dir/output, no resume checkpoint,
+    no inherited logs. The source run stays immutable as history.
+    """
+    src = db.get_job(source_job_id)
+    content = src.config_content or ""
+    if not content and src.config_id is not None and configs_store.config_exists(src.config_id):
+        content = configs_store.read_config_text(src.config_id)  # legacy rows without snapshot
+    if not content.strip():
+        raise ValueError(f"Run {source_job_id} has no config content to clone")
+
+    kwargs: dict[str, Any] = dict(
+        config_id=None,
+        content=content,
+        num_gpus=num_gpus if num_gpus is not None else src.num_gpus,
+        resume_from=None,  # fresh run: no data from the previous run
+        output_dir=output_dir,
+        extra_args=extra_args if extra_args is not None else src.extra_args,
+        reset_dataloader=False,
+        reset_optimizer=False,
+    )
+    if start_immediately:
+        return start_job_immediately(**kwargs)
+    return enqueue_job(**kwargs)
 
 
 def update_pending_job(

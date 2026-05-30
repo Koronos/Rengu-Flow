@@ -93,8 +93,14 @@ and docs together.
    guard. Shippable on their own. — **DONE** (`SCHEMA_VERSION` in `db.py`, startup guard in
    `cli.py`, default dir in `settings.py`/`local_config.py`).
 2. **Run model — data layer**: introduce the unified run entity (config inline on the run),
-   keep datasets as-is. Migrate `jobs`/`training_configs` into it. Update job_queue,
-   job_import, runs_scanner.
+   keep datasets as-is. Update job_queue, job_import, runs_scanner.
+   - **Phase 2a — DONE**: each run carries an immutable `config_content` snapshot
+     (`jobs.config_content`, set in `prepare_job`, exposed in the job API). `clone_run` +
+     `POST /api/v1/jobs/{id}/clone` implement "edit = create a new run with the same config
+     but no previous-run data" (fresh run_dir, no resume). `SCHEMA_VERSION` bumped to 2, so
+     the startup guard wipes-and-recreates incompatible local DBs (no users → no migration).
+   - **Phase 2b — TODO**: collapse the create paths into a single create-and-run entry; treat
+     the `training_configs` library as optional presets rather than a required first step.
 3. **API + UI**: collapse the "create config then start job" flow into one create-and-run
    step; implement "edit = clone to new run".
 4. **Migration mode**: export/import to `<id>.toml` with the ignored index section; make the
