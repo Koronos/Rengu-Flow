@@ -109,8 +109,9 @@ and docs together.
    - **FE-2 — DONE**: ConfigEditorView "Run now" / "Add to queue" start a run directly from
      the inline config (POST /jobs with `content`), no mandatory library save. "Save" now
      means "keep as a reusable preset".
-   - **FE-3 — TODO**: reword the config library as optional "presets" (PickForJobBanner,
-     ConfigsListView, JobsView config picker) so the two-step pick flow reads as optional.
+   - **FE-3 — DONE**: the JobsView picker and PickForJobBanner now present the library as
+     optional "presets" and point to "Create & run" (editor single-step) as the primary path;
+     the pick-from-library flow reads as optional.
 4. **Migration mode** — **DONE** (`rengu_flow_ui/library_migration.py`): `export_library` /
    `import_library` round-trip configs and datasets to `<dir>/configs|datasets/<id>.toml`
    with an appended `[__rengu_index]` table the trainer ignores. CLI: `rengu-flow-ui
