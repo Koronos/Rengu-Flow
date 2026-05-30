@@ -28,6 +28,9 @@ rengu.local.toml
 .rengu-flow-ui/
 .renga-flow-ui/
 
+# Installer state (recorded optional profiles for self-heal)
+.rengu-flow/
+
 # Local scratch (datasets, smoke configs, run output)
 tmp/
 

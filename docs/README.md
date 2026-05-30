@@ -34,5 +34,6 @@
   - [Networks](developer/networks.md) — Adapter modules (lora_sdxl, lokr_sdxl), contract, and how to add new networks or models.
   - [Adding optimizers and schedulers](developer/adding-optimizers-and-schedulers.md) — Registry locations, resolution order, how to register custom optimizer or scheduler.
   - [CLI (`rengu`)](developer/cli.md) — Dispatcher, local config, train launcher, install profiles.
+  - [Dependency installer](developer/dependency-installer.md) — Additive, on-demand `rengu_flow/install/` package; profiles, runners, self-heal, git packages.
   - [Web UI](developer/web-ui.md) — Control server layout, API, config/dataset libraries, field help, job queue, host metrics, staging, signals bridge, status file hook.
   - [Full-model training](developer/full-model-training.md) — How full-model mode is chosen, save path, freeze_text_encoders, and future dataset/VAE note.

@@ -1,42 +1,21 @@
-"""Run ``uv sync`` for init/update."""
+"""Backwards-compatible shim. uv runners now live in ``rengu_flow.install.runner``."""
 
 from __future__ import annotations
 
-import subprocess
-from pathlib import Path
+from rengu_flow.install.runner import (
+    run_uv_pip_install,
+    run_uv_pip_install_or_exit,
+    run_uv_sync,
+    run_uv_sync_or_exit,
+    run_uv_venv,
+    run_uv_venv_or_exit,
+)
 
-from rengu_flow.config.local_config import repo_root
-from rengu_flow.install_profiles import uv_sync_argv
-
-
-def run_uv_venv(root: Path | None = None) -> int:
-    """Create the project virtual environment with ``uv venv``."""
-    from rengu_flow.platform_compat import venv_exe
-
-    root = root or repo_root()
-    venv = root / ".venv"
-    if venv_exe(venv, "python").is_file():
-        return 0
-    cmd = ["uv", "venv", str(venv)]
-    print(f"==> {' '.join(cmd)}")
-    proc = subprocess.run(cmd, cwd=str(root))
-    return proc.returncode
-
-
-def run_uv_venv_or_exit(root: Path | None = None) -> None:
-    code = run_uv_venv(root)
-    if code != 0:
-        raise SystemExit(code)
-
-
-def run_uv_sync(profiles: list[str]) -> int:
-    cmd = uv_sync_argv(profiles)
-    print(f"==> {' '.join(cmd)}")
-    proc = subprocess.run(cmd, cwd=str(repo_root()))
-    return proc.returncode
-
-
-def run_uv_sync_or_exit(profiles: list[str]) -> None:
-    code = run_uv_sync(profiles)
-    if code != 0:
-        raise SystemExit(code)
+__all__ = [
+    "run_uv_pip_install",
+    "run_uv_pip_install_or_exit",
+    "run_uv_sync",
+    "run_uv_sync_or_exit",
+    "run_uv_venv",
+    "run_uv_venv_or_exit",
+]

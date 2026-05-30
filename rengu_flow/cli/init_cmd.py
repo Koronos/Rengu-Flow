@@ -12,7 +12,8 @@ from rengu_flow.config.local_config import (
     repo_root,
 )
 from rengu_flow.cli.project_venv import reexec_cli, sync_dependencies
-from rengu_flow.install_profiles import normalize_profiles
+from rengu_flow.install.profiles import normalize_profiles
+from rengu_flow.install.state import record_installed_profiles
 
 
 def add_parser(sub: argparse._SubParsersAction) -> None:
@@ -48,4 +49,5 @@ def run(args: argparse.Namespace) -> None:
         return
     profiles = normalize_profiles(list(args.profiles))
     sync_dependencies(profiles)
+    record_installed_profiles([p for p in profiles if p != "base"])
     reexec_cli()

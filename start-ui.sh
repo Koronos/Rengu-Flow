@@ -61,8 +61,8 @@ for arg in "$@"; do
 done
 
 if [[ ! -x "$RENGU" ]]; then
-  echo "==> Setting up UI environment (uv sync --extra ui)..."
-  uv sync --extra ui || fail "uv sync --extra ui failed"
+  echo "==> Setting up UI environment (uv sync --inexact --extra ui)..."
+  uv sync --inexact --extra ui || fail "uv sync --inexact --extra ui failed"
 fi
 
 if [[ ! -f "$ROOT/rengu.local.toml" ]]; then

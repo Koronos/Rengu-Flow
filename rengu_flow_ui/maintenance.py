@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from rengu_flow.install_profiles import (
+from rengu_flow.install.profiles import (
     PROFILE_DESCRIPTIONS,
     PROFILE_LABELS,
     normalize_profiles,

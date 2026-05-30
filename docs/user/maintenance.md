@@ -47,6 +47,17 @@ Cosmos training needs the **cosmos_predict2** extra in the **same environment** 
 
 Prefer running copied commands in your training virtualenv. Server-side **Run** is optional and can take a long time; it installs into the Python process that hosts the UI.
 
+## How dependencies are installed (additive, on-demand)
+
+rengu-flow's installer is **additive and never destructive**: it only ever *adds* what's missing and never removes packages you already have. This matters because users install **custom optimizers/schedulers** (referenced by qualified path in TOML) and other packages by hand — those must survive every install/update.
+
+- **Additive sync.** Every `uv sync` rengu-flow runs uses `--inexact`, so syncing one profile (e.g. `ui`) never removes other extras (`cosmos_predict2`, `optim`, `dev`) or your hand-installed packages.
+- **On-demand.** Optional extras are installed only when their modules aren't importable yet. Starting a Cosmos training auto-installs the `cosmos_predict2` extra; launching the UI ensures the `ui` extra; etc.
+- **Git/VCS packages.** Backends uv can't express as a pyproject extra are installed additively with `uv pip install` (register them in `rengu_flow/install/profiles.py::PROFILE_GIT_REQUIREMENTS`).
+- **Self-healing.** Installed profiles are recorded in `.rengu-flow/installed-profiles.json` (gitignored). On UI launch (and `rengu update`) rengu-flow re-ensures them additively, so an environment that lost packages is restored automatically.
+
+> **Caveat — don't launch with `uv run`.** `uv run <cmd>` performs an *exact* sync to the project's base dependencies **before** running, which removes every optional extra and any hand-installed package (this ignores `--inexact`). Launch via **`./rengu …`**, the venv binary **`.venv/bin/rengu …`**, or **`uv run --no-sync rengu …`**. The bundled `./rengu` and `./start-ui.sh` launchers already avoid this; self-healing (above) also recovers if it happens.
+
 ## API (when enabled)
 
 | Method | Path | Description |

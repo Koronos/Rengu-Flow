@@ -5,7 +5,9 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 
-from rengu_flow.cli import training_extras
+# Logic is centralized in rengu_flow.install.manager; the cli.training_extras module is a thin
+# re-export shim, so patch/inspect the manager (the real home) here.
+from rengu_flow.install import manager as training_extras
 from rengu_flow.registry.optimizers import OPTIMIZER_ALIASES, VENDOR_OPTIMIZER_ALIASES
 
 

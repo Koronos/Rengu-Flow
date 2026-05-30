@@ -13,7 +13,8 @@ from pathlib import Path
 from shutil import which
 
 from rengu_flow.config.local_config import ensure_local_config_loaded, repo_root
-from rengu_flow.cli.project_venv import ensure_ui_dependencies, reexec_cli
+from rengu_flow.cli.project_venv import reexec_cli
+from rengu_flow.install import ensure_ui_dependencies, self_heal
 
 
 def add_parser(sub: argparse._SubParsersAction) -> None:
@@ -208,6 +209,7 @@ def run(args: argparse.Namespace) -> None:
 
     if cmd == "start":
         if not args.skip_sync:
+            self_heal()
             ensure_ui_dependencies()
             reexec_cli()
         _build_web(root, force=args.rebuild_web)
@@ -231,6 +233,7 @@ def run(args: argparse.Namespace) -> None:
     if cmd == "dev":
         reload_api = not args.no_reload_api
         if not args.skip_sync:
+            self_heal()
             ensure_ui_dependencies()
             reexec_cli()
         _ensure_node()

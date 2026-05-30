@@ -7,8 +7,8 @@ from pathlib import Path
 
 from rengu_flow.config.local_config import repo_root
 from rengu_flow.cli.platform import require_uv
-from rengu_flow.cli.uv_cmd import run_uv_sync_or_exit, run_uv_venv
-from rengu_flow.install_profiles import normalize_profiles
+from rengu_flow.install.runner import run_uv_sync_or_exit, run_uv_venv
+from rengu_flow.install.profiles import normalize_profiles
 from rengu_flow.platform_compat import reexec, venv_exe
 
 

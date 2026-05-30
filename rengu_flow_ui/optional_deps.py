@@ -4,14 +4,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from rengu_flow.cli.training_extras import ensure_profiles, profile_installed
-from rengu_flow.install_profiles import (
+from rengu_flow.install import ensure_profiles, profile_installed
+from rengu_flow.install.profiles import (
     PROFILE_DESCRIPTIONS,
     PROFILE_LABELS,
     rengu_init_command,
     uv_sync_argv,
 )
-from rengu_flow.install_profiles import normalize_profiles as normalize_install_profiles
+from rengu_flow.install.profiles import normalize_profiles as normalize_install_profiles
 
 OPTIONAL_PROFILE_IDS: tuple[str, ...] = ("cosmos_predict2", "lycoris", "optim")
 

@@ -20,8 +20,15 @@ def test_normalize_profiles_all():
 def test_uv_sync_argv_ui_extra():
     argv = uv_sync_argv(["ui"])
     assert argv[:2] == ["uv", "sync"]
+    # Additive: must never run an exact sync (which would remove other extras / custom packages).
+    assert "--inexact" in argv
     assert "--extra" in argv
     assert "ui" in argv
+
+
+def test_uv_sync_argv_base_is_inexact():
+    argv = uv_sync_argv(["base"])
+    assert argv == ["uv", "sync", "--inexact"]
 
 
 def test_legacy_train_dispatch(monkeypatch):

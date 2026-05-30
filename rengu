@@ -12,8 +12,8 @@ if ! command -v uv >/dev/null 2>&1; then
 fi
 
 if [[ ! -x "$RENGU" ]]; then
-  echo "==> Setting up project environment (uv sync)..."
-  uv sync
+  echo "==> Setting up project environment (uv sync --inexact)..."
+  uv sync --inexact
 fi
 
 exec "$RENGU" "$@"
