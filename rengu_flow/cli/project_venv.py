@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 
@@ -10,6 +9,7 @@ from rengu_flow.config.local_config import repo_root
 from rengu_flow.cli.platform import require_uv
 from rengu_flow.cli.uv_cmd import run_uv_sync_or_exit, run_uv_venv
 from rengu_flow.install_profiles import normalize_profiles
+from rengu_flow.platform_compat import reexec, venv_exe
 
 
 def venv_dir(root: Path | None = None) -> Path:
@@ -17,15 +17,15 @@ def venv_dir(root: Path | None = None) -> Path:
 
 
 def venv_python(root: Path | None = None) -> Path:
-    return venv_dir(root) / "bin" / "python"
+    return venv_exe(venv_dir(root), "python")
 
 
 def venv_rengu(root: Path | None = None) -> Path:
-    return venv_dir(root) / "bin" / "rengu"
+    return venv_exe(venv_dir(root), "rengu")
 
 
 def ensure_project_venv(root: Path | None = None) -> Path:
-    """Create ``.venv`` with ``uv venv`` when missing; return ``.venv/bin/python``."""
+    """Create ``.venv`` with ``uv venv`` when missing; return the venv python interpreter."""
     root = root or repo_root()
     py = venv_python(root)
     if py.is_file():
@@ -33,7 +33,7 @@ def ensure_project_venv(root: Path | None = None) -> Path:
     require_uv()
     run_uv_venv(root)
     if not py.is_file():
-        raise SystemExit("rengu: uv venv finished but .venv/bin/python is missing")
+        raise SystemExit(f"rengu: uv venv finished but {py} is missing")
     return py
 
 
@@ -55,7 +55,11 @@ def ensure_ui_dependencies(*, root: Path | None = None) -> Path:
 
 
 def reexec_cli(argv: list[str] | None = None) -> None:
-    """Run the same CLI from ``.venv/bin/rengu`` when the project venv exists."""
+    """Hand off to the project venv's ``rengu`` (or ``python -m``) when it exists.
+
+    POSIX replaces the process (``execv``); Windows runs it as a child and exits with its
+    code (see ``platform_compat.reexec``).
+    """
     argv = list(argv if argv is not None else sys.argv[1:])
     py = venv_python()
     rengu = venv_rengu()
@@ -64,5 +68,5 @@ def reexec_cli(argv: list[str] | None = None) -> None:
     if Path(sys.executable).resolve() == py.resolve():
         return
     if rengu.is_file():
-        os.execv(str(rengu), [str(rengu), *argv])
-    os.execv(str(py), [str(py), "-m", "rengu_flow.cli", *argv])
+        reexec(rengu, argv)
+    reexec(py, ["-m", "rengu_flow.cli", *argv])

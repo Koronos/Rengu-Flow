@@ -39,6 +39,36 @@ def snapshot_global_step_dirs(save_root: Path) -> set[str]:
     }
 
 
+def _read_latest_pointer_name(latest: Path) -> str | None:
+    """Return the checkpoint dir name ``latest`` points to (symlink target or text content)."""
+    try:
+        if latest.is_symlink():
+            return Path(os.readlink(latest)).name
+        if latest.is_file():
+            return latest.read_text(encoding="utf-8", errors="replace").strip() or None
+    except OSError:
+        return None
+    return None
+
+
+def _write_latest_pointer(latest: Path, target_name: str) -> None:
+    """Point ``latest`` at *target_name*: symlink on POSIX, plain-text file as fallback.
+
+    DeepSpeed reads ``latest`` as the plain-text checkpoint tag, so the text fallback is a
+    valid pointer too — and it avoids the Administrator / developer-mode privilege that
+    ``os.symlink`` requires on Windows.
+    """
+    if latest.is_symlink() or latest.exists():
+        try:
+            latest.unlink()
+        except OSError:
+            pass
+    try:
+        latest.symlink_to(target_name)
+    except OSError:
+        latest.write_text(target_name, encoding="utf-8")
+
+
 def rollback_failed_checkpoint(save_root: Path, before: set[str], after: set[str]) -> None:
     """Remove checkpoint dirs created during a failed save and fix ``latest`` if needed."""
     new_dirs = sorted(after - before)
@@ -48,28 +78,23 @@ def rollback_failed_checkpoint(save_root: Path, before: set[str], after: set[str
             print(f"Rolling back incomplete checkpoint directory {name}")
             shutil.rmtree(path)
     latest = save_root / "latest"
-    if not latest.exists():
+    if not (latest.exists() or latest.is_symlink()):
         return
-    try:
-        target = latest.resolve()
-    except OSError:
-        return
-    if target.is_dir() and target.name in new_dirs:
+    pointed = _read_latest_pointer_name(latest)
+    if pointed and pointed in new_dirs:
         remaining = sorted(
             (save_root / n for n in before if (save_root / n).is_dir()),
             key=lambda p: global_step_sort_key(p.name),
         )
         if remaining:
             print(f"Restoring latest pointer to {remaining[-1].name}")
-            if latest.is_symlink():
-                latest.unlink()
-            elif latest.is_file():
-                latest.unlink()
-            latest.symlink_to(remaining[-1].name)
+            _write_latest_pointer(latest, remaining[-1].name)
         else:
             print("Removing broken latest checkpoint pointer")
-            if latest.is_symlink() or latest.is_file():
+            try:
                 latest.unlink()
+            except OSError:
+                pass
 
 
 def atomic_save_safetensors(

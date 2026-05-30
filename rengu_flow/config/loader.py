@@ -21,7 +21,7 @@ def load_config(path: str | Path, make_pickleable: bool = True) -> dict[str, Any
         Config dict. If make_pickleable, nested structures are plain dicts/lists.
     """
     path = Path(path)
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         config = toml.load(f)
     if make_pickleable:
         config = json.loads(json.dumps(config))
@@ -85,9 +85,9 @@ def load_eval_dataset_config(eval_entry: str | dict[str, Any]) -> tuple[str, dic
     """
     if isinstance(eval_entry, str):
         name = f"eval_{Path(eval_entry).stem}"
-        with open(eval_entry) as f:
+        with open(eval_entry, encoding="utf-8") as f:
             return name, toml.load(f)
     name = eval_entry["name"]
     config_path = eval_entry["config"]
-    with open(config_path) as f:
+    with open(config_path, encoding="utf-8") as f:
         return name, toml.load(f)

@@ -27,9 +27,16 @@ def detect_cache_format(path: Path) -> str | None:
     return None
 
 
-def open_disk_cache(path: str | Path, fingerprint: str, *, shard_size_gb: float = 10.0):
+def open_disk_cache(
+    path: str | Path,
+    fingerprint: str,
+    *,
+    shard_size_gb: float = 10.0,
+    cache_format: str | None = None,
+):
     """Return a v2 ``CacheV2`` instance for *path*."""
     del shard_size_gb  # v1-only parameter; kept for call-site compatibility
+    del cache_format  # v1/v2 selector; only v2 exists now, kept for call-site compatibility
     path = Path(path)
     detected = detect_cache_format(path)
     if detected is not None and detected != CACHE_FORMAT_V2:
