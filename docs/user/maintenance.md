@@ -29,6 +29,22 @@ You must type `RESET` in the confirmation dialog. The CLI equivalent is:
 ./rengu ui reset-db
 ```
 
+### Back up / restore the library (migration)
+
+Configs and datasets are portable as TOML files, so you can back them up or carry them across
+a schema change (the DB is disposable; these files are the durable copy):
+
+```bash
+rengu-flow-ui export-library ./library-backup   # writes configs/<id>.toml + datasets/<id>.toml
+rengu-flow-ui import-library ./library-backup    # restores rows under their original ids
+rengu-flow-ui import-library ./library-backup --overwrite  # replace existing ids
+```
+
+Each exported file is a valid training/dataset TOML with an extra `[__rengu_index]` table
+(id, name, timestamps) that the trainer ignores. Import skips files it does not recognize and,
+without `--overwrite`, ids that already exist. Run history (jobs) is not part of this export —
+finished run folders are re-added with **Import run** instead.
+
 ### Git submodules
 
 Runs `git submodule update --init --recursive` in the repository root. **rengu-flow** normally has no `.gitmodules` (Cosmos code is vendored in-tree); this is mainly useful if you use a diffusion-pipe-style clone with submodules. The page still reports submodule status when `.gitmodules` exists.
