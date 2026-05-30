@@ -103,6 +103,14 @@ and docs together.
      the `training_configs` library as optional presets rather than a required first step.
 3. **API + UI**: collapse the "create config then start job" flow into one create-and-run
    step; implement "edit = clone to new run".
+   - **FE-1 — DONE**: `api.cloneJob` + Clone button in JobsView rows and RunDetailView
+     (uses `POST /jobs/{id}/clone`). `JobRecord.config_content` exposed; `JobStartBody`
+     gains optional `content` and optional `config_id`.
+   - **FE-2 — DONE**: ConfigEditorView "Run now" / "Add to queue" start a run directly from
+     the inline config (POST /jobs with `content`), no mandatory library save. "Save" now
+     means "keep as a reusable preset".
+   - **FE-3 — TODO**: reword the config library as optional "presets" (PickForJobBanner,
+     ConfigsListView, JobsView config picker) so the two-step pick flow reads as optional.
 4. **Migration mode**: export/import to `<id>.toml` with the ignored index section; make the
    schema guard offer migrate instead of wipe.
 
