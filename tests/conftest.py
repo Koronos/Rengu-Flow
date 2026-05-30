@@ -87,9 +87,13 @@ def ui_data_tmp(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
 def _isolated_ui_sqlite(
     request: pytest.FixtureRequest,
     monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
+    tmp_path_factory: pytest.TempPathFactory,
 ) -> None:
-    """Per-test temp jobs.db unless a test already uses ui_data_tmp or ui_client."""
+    """Per-test temp jobs.db unless a test already uses ui_data_tmp or ui_client.
+
+    Uses a dedicated temp dir (not the test's ``tmp_path``) so it never pollutes tests that
+    enumerate their own ``tmp_path`` (e.g. checkpoint/export retention).
+    """
     if request.node.get_closest_marker("no_ui_db"):
         return
     if "ui_data_tmp" in request.fixturenames:
@@ -100,7 +104,7 @@ def _isolated_ui_sqlite(
         or "maintenance_client" in request.fixturenames
     ):
         return
-    base = tmp_path / "ui_auto"
+    base = tmp_path_factory.mktemp("ui_auto")
     _patch_ui_data_paths(monkeypatch, base)
     _init_ui_data_dir(base)
 
