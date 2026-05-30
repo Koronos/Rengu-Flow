@@ -1,0 +1,111 @@
+# Proposed redesign: unified run model + library migration mode
+
+> **Status: PROPOSED — not yet implemented.** This document captures a design direction
+> for discussion. It does **not** describe current behavior. Until implemented, the code
+> still uses the two-step config-library → job flow described in
+> [web-ui.md](web-ui.md) and [cli.md](../user/cli.md).
+
+## 1. Motivation
+
+Today Rengu separates two concepts with two user steps:
+
+1. **Config** — a TOML stored in the `training_configs` library table; created/edited in
+   the config editor.
+2. **Job** — a row in the `jobs` table that *references* a config by `config_id` and adds
+   runtime data (pid, run_dir, output_dir, state, queue position, logs).
+
+This forces "first author a config, then start a job from it". The desired model (as in
+ai-toolkit) is **a single entity and a single step**: you create a *run* that already
+carries its full configuration plus its runtime relation (where it runs, output dir,
+status). There is no separate "save the config first" step.
+
+Editing an existing run should **not** mutate the finished run: it is a **"create new"**
+seeded with the previous run's configuration but **without** the previous run's runtime
+data (new run_dir, fresh state, no inherited logs/checkpoints).
+
+## 2. Proposed model
+
+A single **Run** entity owns:
+
+- **Configuration** — the full training TOML, inline (the same content the trainer reads).
+- **Runtime relation** — output/run directory, state (`pending`/`running`/`finished`/…),
+  pid, queue position, started/finished timestamps, exit code, log path.
+- **Identity** — see §3.
+
+"Edit" = clone the configuration into a new Run; the old Run stays immutable as history.
+
+Datasets remain a separate library entity (they are shared across runs and referenced by
+id), but the **config-as-separate-library-record** step goes away: a run carries its own
+config. (Open question §6: keep an optional "config templates/presets" library for reuse,
+or rely purely on "clone an existing run".)
+
+## 3. Identity and naming (decided)
+
+- **ids are always integer autoincrement.** No mixed/slug primary keys — a single id
+  scheme is simpler to reason about and is the API reference key. (We explicitly rejected
+  string/slug ids: "un enfoque mixto, si bien es tolerante, complica saber dónde se usa
+  uno u otro".)
+- **Human identification uses names, not ids.** The string-id idea was really about
+  *identifying* runs/configs/datasets; that need is met by names:
+  - Datasets already store a `name` column (the script-mode dataset TOML carries no name).
+  - Configs/runs are identified by their `run_name` (from the TOML).
+  - Names may collide; ids never do. The id is the unambiguous API handle.
+
+## 4. Library as a TOML store + migration mode (planned)
+
+The SQLite DB exists mainly to avoid scattering TOML files everywhere. Conceptually each
+row is **a TOML blob in one field plus a few index columns** derived from it
+(`model_type`, `dataset_ref`, `run_name`, `directory_count`, timestamps…).
+
+**Migration mode** (export/import) is the durable, schema-independent format:
+
+- **Export**: dump every DB row to a `<id>.toml` file. The index columns are written into
+  a dedicated section the trainer's validator **ignores** (e.g. `[__rengu_index]`), so the
+  exported file is still a valid training/dataset TOML.
+- **Import**: a separate process reads those TOML files back, **ignoring any section/keys
+  it does not recognize** (forward/backward tolerant). Re-import rebuilds the index columns
+  from content.
+
+This makes the DB disposable: the TOML files are the source of truth you can re-import into
+any schema version.
+
+## 5. Schema-change guard (IMPLEMENTED — Phase 1, interim)
+
+Until migration mode exists, a **schema version** is stored in the DB (e.g.
+`PRAGMA user_version`, mirrored by `maintenance.SCHEMA_VERSION`). On startup, if an existing
+DB's version differs from the code's:
+
+- Warn the user that the schema changed and the DB is **incompatible**.
+- Offer a **Yes/No**: **Yes** → wipe and recreate empty (data lost); **No** → abort and tell
+  them to use the previous app version (or, once available, export→migrate).
+- Fresh DBs are stamped with the current version, so this never fires in tests or first run.
+
+## 6. Data directory location (IMPLEMENTED — Phase 1)
+
+Move local UI state out of the hidden `.rengu-flow-ui/` into a **non-hidden, git-ignored
+`data/`** folder at the repo root (overridable via `RENGU_FLOW_UI_DATA`). Easier for users
+to find the DB, logs, and staging. Update `.gitignore`, `settings.py`, launcher scripts,
+and docs together.
+
+## 7. Phased implementation (proposal)
+
+1. **Independent, low-risk now** (no model change): data dir → `data/`; schema-version
+   guard. Shippable on their own. — **DONE** (`SCHEMA_VERSION` in `db.py`, startup guard in
+   `cli.py`, default dir in `settings.py`/`local_config.py`).
+2. **Run model — data layer**: introduce the unified run entity (config inline on the run),
+   keep datasets as-is. Migrate `jobs`/`training_configs` into it. Update job_queue,
+   job_import, runs_scanner.
+3. **API + UI**: collapse the "create config then start job" flow into one create-and-run
+   step; implement "edit = clone to new run".
+4. **Migration mode**: export/import to `<id>.toml` with the ignored index section; make the
+   schema guard offer migrate instead of wipe.
+
+## 8. Impact on the failing `job_import` test
+
+`tests/test_job_import.py::test_preview_and_import_run` asserts `job.config_id == run.name`
+and `config_exists(run.name)` — i.e. the **rejected** slug-id design. Under this redesign:
+
+- ids stay integer autoincrement; the run name is preserved as a **name**, not the id.
+- The test must be rewritten to the new contract once the run model lands (Phase 2/3).
+- **Interim**: mark it `xfail`/skip with a reason linking here, so the suite stays green and
+  the deferral is explicit. Do **not** hack slug ids in just to make it pass.
