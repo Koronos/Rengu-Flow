@@ -51,7 +51,7 @@ or rely purely on "clone an existing run".)
   - Configs/runs are identified by their `run_name` (from the TOML).
   - Names may collide; ids never do. The id is the unambiguous API handle.
 
-## 4. Library as a TOML store + migration mode (planned)
+## 4. Library as a TOML store + migration mode (IMPLEMENTED — Phase 4)
 
 The SQLite DB exists mainly to avoid scattering TOML files everywhere. Conceptually each
 row is **a TOML blob in one field plus a few index columns** derived from it
@@ -111,8 +111,12 @@ and docs together.
      means "keep as a reusable preset".
    - **FE-3 — TODO**: reword the config library as optional "presets" (PickForJobBanner,
      ConfigsListView, JobsView config picker) so the two-step pick flow reads as optional.
-4. **Migration mode**: export/import to `<id>.toml` with the ignored index section; make the
-   schema guard offer migrate instead of wipe.
+4. **Migration mode** — **DONE** (`rengu_flow_ui/library_migration.py`): `export_library` /
+   `import_library` round-trip configs and datasets to `<dir>/configs|datasets/<id>.toml`
+   with an appended `[__rengu_index]` table the trainer ignores. CLI: `rengu-flow-ui
+   export-library <dir>` / `import-library <dir> [--overwrite]`. The schema guard message
+   now points users to export before wiping. (Runs/jobs stay disk-backed and are re-imported
+   via `job_import`.)
 
 ## 8. Impact on the failing `job_import` test
 

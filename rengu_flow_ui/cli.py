@@ -31,7 +31,9 @@ def _ensure_schema_compatible() -> None:
     print(
         f"The UI database schema changed (file is v{stored}, this build needs "
         f"v{SCHEMA_VERSION}). The existing library (configs, datasets, job history) is "
-        "incompatible and there is no automatic migration yet."
+        "incompatible. To keep your configs/datasets, abort and run "
+        "`rengu-flow-ui export-library <dir>` on the previous app version, then "
+        "`import-library <dir>` after upgrading."
     )
     if not sys.stdin.isatty():
         raise SystemExit(
@@ -63,6 +65,21 @@ def main(argv: list[str] | None = None) -> None:
         "reset-db",
         help="Delete jobs.db and recreate empty tables (configs, datasets, jobs)",
     )
+    export_p = sub.add_parser(
+        "export-library",
+        help="Export config & dataset library to <dir>/configs and <dir>/datasets as TOML",
+    )
+    export_p.add_argument("dir", help="Destination directory")
+    import_p = sub.add_parser(
+        "import-library",
+        help="Import config & dataset library from a directory produced by export-library",
+    )
+    import_p.add_argument("dir", help="Source directory")
+    import_p.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Replace rows whose id already exists (default: skip existing)",
+    )
     args = parser.parse_args(argv)
 
     if args.command == "reset-db":
@@ -70,6 +87,23 @@ def main(argv: list[str] | None = None) -> None:
 
         path = reset_ui_database()
         print(f"Reset UI database: {path}")
+        return
+
+    if args.command == "export-library":
+        from rengu_flow_ui.library_migration import export_library
+
+        counts = export_library(args.dir)
+        print(f"Exported {counts['configs']} configs, {counts['datasets']} datasets to {args.dir}")
+        return
+
+    if args.command == "import-library":
+        from rengu_flow_ui.library_migration import import_library
+
+        counts = import_library(args.dir, overwrite=args.overwrite)
+        print(
+            f"Imported {counts['configs']} configs, {counts['datasets']} datasets "
+            f"({counts['skipped']} skipped) from {args.dir}"
+        )
         return
 
     if args.command == "serve":
