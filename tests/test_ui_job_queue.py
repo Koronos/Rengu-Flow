@@ -172,3 +172,66 @@ def test_prepare_job_cache_flags(job_config: int, monkeypatch: pytest.MonkeyPatc
 def test_merge_job_cli_args_rejects_cache_only_with_trust() -> None:
     with pytest.raises(ValueError, match="cache_only and trust_cache"):
         job_queue.merge_job_cli_args("", cache_only=True, trust_cache=True)
+
+
+def test_prepare_job_snapshots_config_content(
+    job_config: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("rengu_flow_ui.job_queue.try_start_next", lambda: None)
+    job = job_queue.prepare_job(
+        config_id=job_config,
+        content=None,
+        num_gpus=1,
+        resume_from=None,
+        output_dir=None,
+        extra_args="",
+        reset_dataloader=False,
+        reset_optimizer=False,
+    )
+    # The run carries its own config snapshot (library content), independent of the library.
+    assert 'type = "sdxl"' in job.config_content
+
+
+def test_clone_run_creates_fresh_run_from_snapshot(
+    job_config: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("rengu_flow_ui.job_queue.try_start_next", lambda: None)
+    src = job_queue.prepare_job(
+        config_id=job_config,
+        content=None,
+        num_gpus=2,
+        resume_from="/tmp/prev/checkpoint",
+        output_dir=None,
+        extra_args="--foo",
+        reset_dataloader=False,
+        reset_optimizer=False,
+    )
+    clone = job_queue.clone_run(src.id)
+
+    assert clone.id != src.id
+    assert clone.state == "pending"
+    assert clone.config_content == src.config_content  # same config
+    assert clone.num_gpus == src.num_gpus  # inherited runtime knobs
+    assert clone.extra_args == src.extra_args
+    assert clone.resume_from is None  # fresh: no data from the previous run
+    assert clone.run_dir is None
+
+
+def test_clone_run_uses_library_config_when_no_snapshot(
+    job_config: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Legacy rows without a snapshot fall back to the referenced library config."""
+    monkeypatch.setattr("rengu_flow_ui.job_queue.try_start_next", lambda: None)
+    src = job_queue.prepare_job(
+        config_id=job_config,
+        content=None,
+        num_gpus=1,
+        resume_from=None,
+        output_dir=None,
+        extra_args="",
+        reset_dataloader=False,
+        reset_optimizer=False,
+    )
+    db.update_job(src.id, config_content="")  # simulate a legacy row
+    clone = job_queue.clone_run(src.id)
+    assert 'type = "sdxl"' in clone.config_content

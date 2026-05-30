@@ -16,7 +16,7 @@ from rengu_flow_ui.settings import db_path, ensure_data_dirs
 # mismatch, asks the user to wipe-and-recreate or stay on the previous app version. Until a
 # TOML export/import migration exists (see docs/developer/run-model-redesign.md), a bump
 # means existing local libraries are discarded.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 def _coerce_job_id(job_id: str | int) -> int:
@@ -48,6 +48,10 @@ class JobRecord:
     extra_args: str
     queue_position: int | None = None
     source_run_dir: str | None = None
+    # Immutable snapshot of the run's own config TOML (library refs intact, pre-staging).
+    # Makes a run self-contained: it survives edits/deletes of any library config and is
+    # the seed for "edit = clone to a new run". Empty for legacy/imported rows.
+    config_content: str = ""
 
 
 def _connect() -> sqlite3.Connection:
@@ -86,7 +90,8 @@ def init_db() -> None:
                 finished_at TEXT,
                 exit_code INTEGER,
                 extra_args TEXT NOT NULL DEFAULT '',
-                queue_position INTEGER
+                queue_position INTEGER,
+                config_content TEXT NOT NULL DEFAULT ''
             )
             """
         )
@@ -123,6 +128,8 @@ def _migrate_jobs_table(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE jobs ADD COLUMN queue_position INTEGER")
     if "source_run_dir" not in cols:
         conn.execute("ALTER TABLE jobs ADD COLUMN source_run_dir TEXT")
+    if "config_content" not in cols:
+        conn.execute("ALTER TABLE jobs ADD COLUMN config_content TEXT NOT NULL DEFAULT ''")
 
 
 @contextmanager
@@ -155,6 +162,11 @@ def _row_to_job(row: sqlite3.Row) -> JobRecord:
         extra_args=row["extra_args"] or "",
         queue_position=row["queue_position"] if "queue_position" in row.keys() else None,
         source_run_dir=row["source_run_dir"] if "source_run_dir" in row.keys() else None,
+        config_content=(
+            row["config_content"]
+            if "config_content" in row.keys() and row["config_content"] is not None
+            else ""
+        ),
     )
 
 
@@ -222,6 +234,7 @@ def create_job(
     extra_args: str = "",
     queue_position: int | None = None,
     source_run_dir: str | None = None,
+    config_content: str = "",
 ) -> JobRecord:
     now = datetime.now(timezone.utc).isoformat()
     cfg_id = config_id
@@ -231,8 +244,8 @@ def create_job(
             INSERT INTO jobs (
                 config_id, config_path, state, pid, run_dir, output_dir,
                 num_gpus, resume_from, log_path, started_at, extra_args, queue_position,
-                source_run_dir
-            ) VALUES (?, ?, 'pending', NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?)
+                source_run_dir, config_content
+            ) VALUES (?, ?, 'pending', NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 cfg_id,
@@ -245,6 +258,7 @@ def create_job(
                 extra_args,
                 queue_position,
                 source_run_dir,
+                config_content,
             ),
         )
         job_id = int(cur.lastrowid)
@@ -289,6 +303,7 @@ def update_job(job_id: str | int, **fields: Any) -> JobRecord:
         "extra_args",
         "queue_position",
         "source_run_dir",
+        "config_content",
     }
     parts = []
     values: list[Any] = []

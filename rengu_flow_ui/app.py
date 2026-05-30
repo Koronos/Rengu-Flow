@@ -89,6 +89,15 @@ class JobUpdate(BaseModel):
     reset_optimizer: bool | None = None
 
 
+class RunClone(BaseModel):
+    """Optional overrides when cloning a run into a new one (config is reused as-is)."""
+
+    num_gpus: int | None = Field(default=None, ge=1)
+    output_dir: str | None = None
+    extra_args: str | None = None
+    start_immediately: bool = False
+
+
 class MaintenanceResetBody(BaseModel):
     confirmation: str | None = None
     confirm: bool = False
@@ -785,6 +794,25 @@ def create_app() -> FastAPI:
             raise HTTPException(400, str(e))
         return _job_dict(job)
 
+    @app.post(f"{API_PREFIX}/jobs/{{job_id}}/clone")
+    def clone_job(job_id: str, body: RunClone | None = None) -> dict[str, Any]:
+        from rengu_flow_ui import job_queue
+
+        body = body or RunClone()
+        try:
+            job = job_queue.clone_run(
+                job_id,
+                num_gpus=body.num_gpus,
+                output_dir=body.output_dir,
+                extra_args=body.extra_args,
+                start_immediately=body.start_immediately,
+            )
+        except KeyError:
+            raise HTTPException(404, "Job not found")
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        return _job_dict(job)
+
     @app.delete(f"{API_PREFIX}/jobs/{{job_id}}")
     def delete_job(job_id: str) -> dict[str, str]:
         from rengu_flow_ui import job_queue
@@ -1128,4 +1156,5 @@ def _job_dict(job: db.JobRecord) -> dict[str, Any]:
         "extra_args": job.extra_args,
         "queue_position": job.queue_position,
         "source_run_dir": job.source_run_dir,
+        "config_content": job.config_content,
     }
