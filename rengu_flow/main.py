@@ -886,6 +886,11 @@ def run_prepared(args) -> None:
 def main(argv: list[str] | None = None):
     load_local_config()
     apply_local_config_to_environ()
+    # Re-apply after [training.env] may have set expandable_segments (rengu_flow/__init__ already
+    # ran it pre-torch-import; this catches a value injected by apply_local_config_to_environ).
+    from rengu_flow.platform_compat import configure_cuda_allocator
+
+    configure_cuda_allocator()
     run_prepared(parse_args(argv))
 
 

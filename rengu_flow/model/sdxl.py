@@ -439,6 +439,14 @@ class SDXLPipeline(BasePipeline):
                 text_enc_2_dict[name[len("text_encoder_2.") :]] = p
             else:
                 raise RuntimeError(f"Unexpected parameter: {name}")
+        # When the text encoders are frozen (freeze_text_encoders) or their embeddings are
+        # cached, they are absent from the trained state dict. Source them from the live modules
+        # so the exported checkpoint is still a complete SDXL model. DatasetManager.cache keeps
+        # them on CPU for full-model SDXL precisely so this read succeeds.
+        if not text_enc_dict:
+            text_enc_dict = {k: v.detach().cpu() for k, v in self.text_encoder.state_dict().items()}
+        if not text_enc_2_dict:
+            text_enc_2_dict = {k: v.detach().cpu() for k, v in self.text_encoder_2.state_dict().items()}
         vae_state_dict = self.vae.state_dict()
         unet_state_dict = convert_unet_state_dict(unet_state_dict)
         unet_state_dict = {"model.diffusion_model." + k: v for k, v in unet_state_dict.items()}
