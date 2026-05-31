@@ -2,7 +2,7 @@
 
 Canonical list of **not-yet-implemented** or **deferred** work for Rengu. Developer specs may still use **`[TODO]`** inline; this file is the durable backlog.
 
-**Design context:** [developer/architecture.md](developer/architecture.md). **Specifications:** [spec/](spec/). **Last updated:** 2026-05-29.
+**Design context:** [developer/architecture.md](developer/architecture.md). **Specifications:** [spec/](spec/). **Last updated:** 2026-05-31.
 
 ---
 
@@ -46,6 +46,7 @@ Canonical list of **not-yet-implemented** or **deferred** work for Rengu. Develo
 | ID | Item | Source | Notes |
 |----|------|--------|-------|
 | P2-2 | **Safetensors pack per bucket** | [poc-cpu-ram-results.md](developer/poc-cpu-ram-results.md) | Alternative on-disk layout to stacked `.bin` (cache v2). |
+| P2-3 | **Block-swap overlapped prefetch + Linux/multi-GPU validation** | [spec/sdxl-full-finetune-low-vram.md](spec/sdxl-full-finetune-low-vram.md) | `block_swap_prefetch` is opt-in/off — counterproductive on 8 GB WSL (sysmem spill); validate on native Linux / larger GPU, add GPU-buffer-reuse so pulls don't alloc fresh tensors each step. Also validate `pipeline_stages > 1` / multi-GPU + the DeepSpeed `_broadcast_model`/`PipelineModule.to` no-ops there. WSL2 was dev-only. |
 
 ---
 
@@ -54,6 +55,7 @@ Canonical list of **not-yet-implemented** or **deferred** work for Rengu. Develo
 | ID | Item | Source | Notes |
 |----|------|--------|-------|
 | P3-1 | **`save_full_model` TOML flag** | [spec/save-full-model-flag.md](spec/save-full-model-flag.md), [checkpoint-and-save.md](developer/checkpoint-and-save.md) | Not read by `Saver`; full export today = omit `[adapter]`. |
+| P3-2 | **UI: expose full-model block swap + `block_swap_prefetch`** | [spec/sdxl-full-finetune-low-vram.md](spec/sdxl-full-finetune-low-vram.md), [vram-optimization.md](developer/vram-optimization.md) | `rengu_flow_ui/config_schema.py` + `config_field_help.py` + `model_config_rules.py`: add `block_swap_prefetch` field (feature-gated by `block_swap`), allow/clarify `blocks_to_swap` for full finetune (needs `gradient_release`), and surface the low-VRAM recipe. Applies to SDXL + Cosmos. Backend works; UI not yet updated. |
 
 ---
 
