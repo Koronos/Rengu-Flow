@@ -110,9 +110,42 @@ Short tuning smokes (30 steps) are only **previews** for CI and quick regression
 | **`activation_checkpointing = true`** | Required for typical VRAM on 16 GB; `false` caused **OOM** in tuning (~16 GB peak). |
 | **`reentrant_activation_checkpointing = true`** | Default for `cosmos_predict2` when AC is on (`rengu_flow/config/defaults.py`); modest steady-state gain vs `false`. |
 | **`compile = true`** | Enables **`pipeline_model.compile()`** (diffusion-pipe parity). After Inductor warmup, steady steps were ~**0.51 s** vs ~**0.68–0.70 s** without compile on the same LoKR setup — worthwhile when the run is long enough to amortize slower early steps. Optional: `compile_mode = "reduce-overhead"`. |
-| **`blocks_to_swap`** | Offload DiT blocks to CPU between steps when VRAM is tight (`pipeline_stages = 1`, adapter required). Start around half the block count and tune. |
+| **`blocks_to_swap`** | Offload DiT blocks (`transformer.blocks`) to CPU and stream them on demand when VRAM is tight (`pipeline_stages = 1`). Works for **both adapters and full finetune** (full finetune additionally requires `optimizer.gradient_release = true`). Start around half the block count and tune; on very small cards swap most of them. See [VRAM optimization](../developer/vram-optimization.md). |
 | **`cache_dedup_text_embeddings = true`** | Speeds `--cache_only` when many images share the same caption (tag-heavy sets). |
 | **`micro_batch_size_per_gpu`** | Set from VRAM; use **`gradient_accumulation_steps`** for effective batch without OOM. |
+
+### Very low VRAM (≈8 GB)
+
+The DiT is large, so on an 8 GB card lean on block swap of `transformer.blocks` plus the shared
+low-VRAM stack. Measured on an 8 GB RTX 3000 Ada (WSL2), 3-step smoke at the CC0 dataset:
+
+- **Cosmos LoRA + `blocks_to_swap` (most blocks)**: ~**1.6 GB** peak — block swap streams the frozen
+  DiT, only the adapter + a couple of blocks stay resident.
+- **Cosmos full finetune + block swap**: omit `[adapter]`, set `optimizer.gradient_release = true`
+  (required — each block's optimizer step runs in the backward while it is resident), a frugal
+  optimizer (Adafactor, or `genericoptim` with `cpu_offload`), `cache_text_embeddings = true`
+  (keeps the Qwen3/T5 text encoder out of the training graph) and `activation_checkpointing = true`.
+
+```toml
+blocks_to_swap = 24            # of ~28 DiT blocks; keep a few resident. pipeline_stages = 1.
+activation_checkpointing = true
+
+[model]
+type = "cosmos_predict2"
+dtype = "bfloat16"
+cache_text_embeddings = true
+# transformer_dtype = "float8_e4m3fn"   # optional: load DiT blocks in fp8 to cut load/VRAM further
+
+[optimizer]
+type = "transformers.optimization.Adafactor"
+lr = 1.0e-5
+scale_parameter = false
+relative_step = false
+warmup_init = false
+gradient_release = true        # required for full-finetune block swap
+```
+
+The same lever interactions and trade-offs (and the WSL2 allocator caveat) are documented once, model-agnostically, in [VRAM optimization](../developer/vram-optimization.md) — block swap there is described for SDXL's UNet but the mechanism (`HookBlockSwapOffloader`) and the recipe are identical for Cosmos's DiT.
 
 ### Do not use (Cosmos)
 
@@ -155,6 +188,6 @@ python -m rengu_flow.main --config my.toml --validate-only
 
 Optional: `[train.oom_skip]` for single-GPU OOM resilience — see [Training loop and eval](training-loop-and-eval.md) and `examples/config_oom_skip.toml`.
 
-Out of scope for this austere path: **`load_and_fuse_adapter`** (use `load_adapter_weights` only), ComfyUI submodule. **Block swap** during training is supported when `[adapter]` is set and `pipeline_stages = 1` — see [training loop](training-loop-and-eval.md#block-swap). Dataset **augmentation MVP** is supported — see [dataset augmentation](dataset-augmentation.md).
+Out of scope for this austere path: **`load_and_fuse_adapter`** (use `load_adapter_weights` only), ComfyUI submodule. **Block swap** during training is supported for both adapters and full finetune (full finetune also needs `optimizer.gradient_release = true`), with `pipeline_stages = 1` — see [training loop](training-loop-and-eval.md#block-swap) and [VRAM optimization](../developer/vram-optimization.md). Dataset **augmentation MVP** is supported — see [dataset augmentation](dataset-augmentation.md).
 
 **Training previews** are supported via `[preview]` and the `preview` signal file when `pipeline_stages = 1` — see [Training previews](previews.md). For **Anima**, a practical default is `num_inference_steps = 20`, `guidance_scale = 4`, `width`/`height = 512` on 16 GB GPUs.

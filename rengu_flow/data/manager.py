@@ -272,19 +272,14 @@ class DatasetManager:
             self._handle_task(task)
 
         if unload_models:
-            model_name = getattr(self.model, "name", None)
-            # Full-model SDXL writes a complete checkpoint (UNet + VAE + both text encoders) at
-            # save time, so every submodel's weights must survive on CPU. Adapter runs only emit
-            # the adapter, so frozen submodels can go to meta to free RAM (VAE still kept on CPU
-            # because save_model reads its state dict). See save_model and docs full-model-training.
-            sdxl_full_finetune = model_name == "sdxl" and not (self.model.config.get("adapter"))
-            for i, submodel in enumerate(self.submodels):
+            # The model decides which submodels must keep their weights on CPU (because save_model
+            # reads them) vs. can go to meta to free RAM. Default: none. SDXL keeps the VAE always,
+            # and all submodels for a full-model checkpoint. Keeps model-specific save semantics out
+            # of the data layer.
+            for submodel in self.submodels:
                 if not isinstance(submodel, nn.Module):
                     continue
-                keep_on_cpu = model_name == "sdxl" and (
-                    submodel is self.vae or sdxl_full_finetune
-                )
-                submodel.to("cpu" if keep_on_cpu else "meta")
+                submodel.to("cpu" if self.model.keep_submodel_on_cpu_after_cache(submodel) else "meta")
 
         dist.barrier()
         if is_main_process():

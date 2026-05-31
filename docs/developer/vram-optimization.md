@@ -64,13 +64,17 @@ change embeddings per step. The full checkpoint still includes the (frozen) TE/V
 full-model SDXL.
 
 ### 6. `blocks_to_swap = N` (block swap)
-Stream UNet blocks between CPU RAM and the GPU so only a few are resident
-([`HookBlockSwapOffloader`](../../rengu_flow/training/block_swap.py)). SDXL's UNet has **7 swappable
-blocks** (3 down + mid + 3 up); `blocks_to_swap=6` keeps **1 resident**. This is what drops resident
-weights from 5.1 GB to ~1 block. *Requires `gradient_release`* for full-model training (the
-per-parameter step runs while the block is on the GPU; a monolithic `optimizer.step()` would need
-every block resident at once). `pipeline_stages` must be 1. *Side effect:* CPU↔GPU transfer cost per
-step (see the measured curve below).
+Stream blocks between CPU RAM and the GPU so only a few are resident
+([`HookBlockSwapOffloader`](../../rengu_flow/training/block_swap.py)). Model-agnostic: each model
+declares its swappable blocks (`get_block_swap_modules`) and roots (`_block_swap_root_modules`); the
+base does the rest. SDXL's UNet has **7 swappable blocks** (3 down + mid + 3 up); `blocks_to_swap=6`
+keeps **1 resident**, dropping resident weights from 5.1 GB to ~1 block. Cosmos's DiT has **~28
+blocks** (`transformer.blocks`) — same mechanism, swap most of them (Cosmos LoRA + heavy swap was
+~1.6 GB on 8 GB). For **adapter** training the offloader keeps the small trainable params resident
+and swaps only the frozen base (so DeepSpeed's end-of-step grad reduction never sees a CPU grad);
+for **full-model** training it *requires `gradient_release`* (the per-parameter step runs while the
+block is on the GPU; a monolithic `optimizer.step()` would need every block resident at once).
+`pipeline_stages` must be 1. *Side effect:* CPU↔GPU transfer cost per step (see the curve below).
 
 ### 7. `block_swap_prefetch = true` (overlapped transfer — situational)
 Opt-in: pin the swapped blocks' CPU memory and prefetch the next block on a side CUDA stream while

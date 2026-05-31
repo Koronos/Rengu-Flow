@@ -57,6 +57,40 @@ def test_forward_pre_hook_marks_resident() -> None:
     assert len(off._resident) <= off.resident_cap
 
 
+def test_swap_trainable_false_keeps_trainable_resident_and_disables_prefetch() -> None:
+    blocks = _blocks(4)
+    # freeze the second Linear of each block; keep the first trainable
+    for b in blocks:
+        b[1].weight.requires_grad_(False)
+        b[1].bias.requires_grad_(False)
+    off = HookBlockSwapOffloader(
+        blocks, blocks_to_swap=2, device="cpu", prefetch=True, swap_trainable=False
+    )
+    assert off._swap_trainable is False
+    assert off._prefetch is False  # prefetch requires swap_trainable
+    # offloading a block must not crash and must leave trainable params trainable
+    off._offload_block_to_cpu(blocks[0])
+    assert blocks[0][0].weight.requires_grad is True
+    assert blocks[0][1].weight.requires_grad is False
+
+
+def test_swap_trainable_true_moves_whole_block() -> None:
+    blocks = _blocks(3)
+    off = HookBlockSwapOffloader(blocks, blocks_to_swap=2, device="cpu", swap_trainable=True)
+    assert off._swap_trainable is True
+    off._offload_block_to_cpu(blocks[0])  # whole-block path; no error on CPU
+    assert next(blocks[0].parameters()).device.type == "cpu"
+
+
+def test_keep_submodel_on_cpu_after_cache_default_false() -> None:
+    from rengu_flow.model.base import BasePipeline
+
+    class _M(BasePipeline):
+        pass
+
+    assert _M().keep_submodel_on_cpu_after_cache(object()) is False
+
+
 def test_teardown_removes_hooks() -> None:
     blocks = _blocks(3)
     off = HookBlockSwapOffloader(blocks, blocks_to_swap=2, device="cpu")
