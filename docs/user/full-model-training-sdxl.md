@@ -43,6 +43,11 @@ freeze_text_encoders = true
 - **`freeze_text_encoders = false`** (default): UNet and both text encoders are trained.
 - **`freeze_text_encoders = true`**: Only the UNet is trained; text encoders are frozen.
 
+To **train the text encoders** alongside the UNet, also set `cache_text_embeddings = false` (they
+must run live each step). With block swap this is validated to fit 8 GB, but it is **tight** (the
+encoders add ~1.6 GB resident) and slower — on a small card prefer UNet-only (`freeze_text_encoders
+= true` + cached embeddings); train the encoders on a larger GPU. See [VRAM optimization](../developer/vram-optimization.md).
+
 Example: see `examples/full_model_sdxl_unet_only.toml`.
 
 ## Saving full models

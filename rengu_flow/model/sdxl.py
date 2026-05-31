@@ -616,10 +616,14 @@ class SDXLPipeline(BasePipeline):
 
     def _block_swap_root_modules(self) -> list:
         # The UNet holds the swappable down/mid/up blocks; the generic _place_for_block_swap puts
-        # the rest (conv_in, time/add embeddings, conv_out, …) on the GPU. Text encoders are handled
-        # by the cache unload, not here. The hook-based offloader works even though to_layers()
-        # flattens each block into several pipeline layers.
-        return [self.diffusers_pipeline.unet]
+        # the rest (conv_in, time/add embeddings, conv_out, …) on the GPU. The hook-based offloader
+        # works even though to_layers() flattens each block into several pipeline layers. When text
+        # embeddings are cached the encoders are unloaded to meta (not roots); when they are trained
+        # (cache_text_embeddings = false) they stay in the graph, so place them on the GPU too.
+        roots = [self.diffusers_pipeline.unet]
+        if not self.cache_text_embeddings:
+            roots += [self.text_encoder, self.text_encoder_2]
+        return roots
 
     def to_layers(self):
         layers = [
