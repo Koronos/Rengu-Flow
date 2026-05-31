@@ -545,6 +545,29 @@ def get_sections() -> list[dict[str, Any]]:
                     min_value=0,
                     when_capability="block_swap",
                 ),
+                _field(
+                    "block_swap_prefetch",
+                    "Block-swap prefetch (overlap)",
+                    "boolean",
+                    default=False,
+                    importance="advanced",
+                    when_capability="block_swap",
+                    # Only meaningful when blocks are actually being swapped AND the optimizer steps
+                    # per-parameter in the backward (gradient_release). Without gradient_release the
+                    # offloader keeps trainable params resident and forces prefetch off (see
+                    # HookBlockSwapOffloader), so the toggle would be a no-op — hide it there.
+                    when={
+                        "all": [
+                            {"form_nonempty": "blocks_to_swap", "exclude_zero": True},
+                            {
+                                "form_map_truthy": {
+                                    "path": "optimizer.extra_params",
+                                    "key": "gradient_release",
+                                }
+                            },
+                        ]
+                    },
+                ),
                 _field("compile", "torch.compile", "boolean", default=False, importance="advanced"),
                 _field("x_axis_examples", "TensorBoard x-axis = examples", "boolean"),
                 _field("caching_batch_size", "Dataset cache batch size", "integer", default=1),

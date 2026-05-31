@@ -36,6 +36,44 @@ def test_blocks_to_swap_visible_when_model_supports_block_swap() -> None:
     assert field_visible(field, sdxl_form, caps) is True
 
 
+def test_block_swap_prefetch_gated_by_capability_blocks_and_gradient_release() -> None:
+    schema = get_schema()
+    field = next(
+        f for s in schema["sections"] for f in s["fields"] if f["path"] == "block_swap_prefetch"
+    )
+    assert field.get("when_capability") == "block_swap"
+    caps = schema["registries"]["model_capabilities"]
+
+    gr = {"optimizer.extra_params": {"gradient_release": True}}
+
+    # No blocks being swapped → hidden even with gradient_release.
+    assert field_visible(field, {"model.type": "sdxl", "blocks_to_swap": 0, **gr}, caps) is False
+    # Swapping blocks but no gradient_release (e.g. adapter run) → backend ignores prefetch → hidden.
+    assert field_visible(field, {"model.type": "sdxl", "blocks_to_swap": 6}, caps) is False
+    assert (
+        field_visible(
+            field,
+            {"model.type": "sdxl", "blocks_to_swap": 6,
+             "optimizer.extra_params": {"gradient_release": False}},
+            caps,
+        )
+        is False
+    )
+    # Blocks swapped + gradient_release truthy → shown (SDXL and Cosmos).
+    assert field_visible(field, {"model.type": "sdxl", "blocks_to_swap": 6, **gr}, caps) is True
+    assert field_visible(field, {"model.type": "cosmos_predict2", "blocks_to_swap": 20, **gr}, caps) is True
+    # String "true" from the KV widget is treated as truthy.
+    assert (
+        field_visible(
+            field,
+            {"model.type": "sdxl", "blocks_to_swap": 6,
+             "optimizer.extra_params": {"gradient_release": "true"}},
+            caps,
+        )
+        is True
+    )
+
+
 def test_llm_adapter_fields_hidden_until_set() -> None:
     schema = get_schema()
     caps = schema["registries"]["model_capabilities"]

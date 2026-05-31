@@ -32,6 +32,17 @@ export function isFormValueFilled(value: unknown): boolean {
   return true;
 }
 
+const FALSY_FORM_STRINGS = new Set(["", "false", "0", "no", "off", "none"]);
+
+/** Truthiness for form values that may arrive as booleans, numbers, or strings.
+ *  The optimizer KV widget can store e.g. `gradient_release` as `true` or `"true"`. */
+export function isTruthyFormValue(value: unknown): boolean {
+  if (value === undefined || value === null || value === false) return false;
+  if (value === 0) return false;
+  if (typeof value === "string") return !FALSY_FORM_STRINGS.has(value.trim().toLowerCase());
+  return Boolean(value);
+}
+
 /** Value shown in controls: explicit form/TOML value, else schema default. */
 export function fieldEffectiveValue(field: SchemaField, form: FormValues): unknown {
   if (field.path in form) {
@@ -201,6 +212,15 @@ function evalVisibilityClause(
     if (!isFormValueFilled(val)) return false;
     if (clause.exclude_zero && (val === 0 || val === 0.0 || val === "0")) return false;
     return true;
+  }
+
+  if (clause.form_map_truthy !== undefined) {
+    const spec = clause.form_map_truthy;
+    const container = getFormValue(form, spec.path);
+    if (!container || typeof container !== "object" || Array.isArray(container)) {
+      return false;
+    }
+    return isTruthyFormValue((container as Record<string, unknown>)[spec.key]);
   }
 
   if (clause.when_model_has_adapter) {

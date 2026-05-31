@@ -527,12 +527,30 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "doc": "docs/user/training-cosmos-predict2-lora-lokr-finetune.md",
     },
     "blocks_to_swap": {
-        "summary": "Offload UNet/DiT blocks to CPU between steps (adapter training only).",
+        "summary": "Stream UNet/DiT blocks between CPU and GPU so only a few stay resident.",
         "detail": (
-            "SDXL and Cosmos Predict2. Requires [adapter] and pipeline_stages = 1. "
-            "Combine with activation_checkpointing on 16 GB GPUs."
+            "SDXL and Cosmos Predict2; requires pipeline_stages = 1. Works for both adapter and "
+            "full-model training: adapters keep their small trainable params resident, while "
+            "full-model (no [adapter]) additionally requires optimizer.gradient_release so the "
+            "per-parameter step runs while the block is on the GPU. On ~8 GB cards this is the "
+            "lever that makes a full SDXL fine-tune fit (e.g. blocks_to_swap = 6 → ~4.3 GB). "
+            "Combine with activation_checkpointing. With gradient_release set, the Block-swap "
+            "prefetch toggle appears. See the low-VRAM recipe in the doc."
         ),
-        "doc": "docs/user/training-cosmos-predict2-lora-lokr-finetune.md",
+        "doc": "docs/developer/vram-optimization.md",
+    },
+    "block_swap_prefetch": {
+        "summary": "Overlap block transfers on a side CUDA stream (situational; off by default).",
+        "detail": (
+            "Pins the swapped blocks' CPU memory and prefetches the next block while the current "
+            "one computes, to hide CPU↔GPU transfer latency. Only takes effect with "
+            "optimizer.gradient_release (full-model training — adapter runs keep trainable params "
+            "resident and force prefetch off) and when blocks_to_swap leaves ≥2 blocks resident, so "
+            "it only helps where there is VRAM headroom (bigger GPUs / native Linux). On an 8 GB "
+            "WSL2 box it is counterproductive — the extra resident block pushes past the "
+            "sysmem-paging threshold and steps get slower — so leave it off there."
+        ),
+        "doc": "docs/developer/vram-optimization.md",
     },
     "compile": {
         "summary": "torch.compile on the DeepSpeed pipeline (recommended for long runs).",

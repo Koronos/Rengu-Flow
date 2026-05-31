@@ -34,6 +34,7 @@ def _validation_error() -> type[Exception]:
 # Training keys that only apply when the model capability sets the matching feature.
 FEATURE_GATED_TRAINING_KEYS: dict[str, str] = {
     "blocks_to_swap": "block_swap",
+    "block_swap_prefetch": "block_swap",
     "disable_block_swap_for_eval": "block_swap",
     "disable_block_swap_for_preview": "block_swap",
 }

@@ -56,6 +56,17 @@ def test_blocks_to_swap_allowed_for_cosmos() -> None:
     validate_config_model_rules(cfg)
 
 
+def test_block_swap_prefetch_allowed_for_sdxl() -> None:
+    cfg = {
+        "dataset": "d.toml",
+        "model": {"type": "sdxl", "dtype": "bfloat16", "checkpoint_path": "x.safetensors"},
+        "optimizer": {"type": "adamw", "gradient_release": True},
+        "blocks_to_swap": 6,
+        "block_swap_prefetch": True,
+    }
+    validate_training_keys_for_model(cfg)
+
+
 def test_validate_config_uses_rules_for_sdxl_checkpoint() -> None:
     cfg = {
         "dataset": "d.toml",

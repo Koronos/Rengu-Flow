@@ -12,6 +12,7 @@ export interface VisibilityClause {
   equals?: unknown;
   form_nonempty?: string;
   exclude_zero?: boolean;
+  form_map_truthy?: { path: string; key: string };
   when_model_has_adapter?: boolean;
   field?: string;
   in?: unknown[];

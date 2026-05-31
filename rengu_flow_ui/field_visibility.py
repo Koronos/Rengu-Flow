@@ -28,6 +28,24 @@ def _form_value(form: dict[str, Any], path: str) -> Any:
     return form.get(path)
 
 
+_FALSY_STRINGS = {"", "false", "0", "no", "off", "none"}
+
+
+def _is_truthy(value: Any) -> bool:
+    """Truthiness for form values that may arrive as bools, numbers, or strings.
+
+    The optimizer KV widget can store ``gradient_release`` as ``True`` or the string
+    ``"true"`` (and likewise the falsy variants), so normalize before testing.
+    """
+    if value is None or value is False:
+        return False
+    if value in (0, 0.0):
+        return False
+    if isinstance(value, str):
+        return value.strip().lower() not in _FALSY_STRINGS
+    return bool(value)
+
+
 def _is_nonempty(value: Any) -> bool:
     if value is None:
         return False
@@ -85,6 +103,13 @@ def eval_visibility_clause(clause: dict[str, Any], form: dict[str, Any], capabil
         if clause.get("exclude_zero") and val in (0, 0.0, "0"):
             return False
         return True
+
+    if "form_map_truthy" in clause:
+        spec = clause["form_map_truthy"] or {}
+        container = _form_value(form, spec.get("path", ""))
+        if not isinstance(container, dict):
+            return False
+        return _is_truthy(container.get(spec.get("key")))
 
     if clause.get("when_model_has_adapter"):
         if not model_supports_adapters(capabilities, _form_value(form, "model.type")):

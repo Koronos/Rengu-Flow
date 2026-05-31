@@ -101,7 +101,7 @@ The config **form shows fields for the selected model type** (SDXL vs Cosmos pat
 
 - Required weights must be set.
 - Some Cosmos keys exist only in raw TOML (e.g. `t5_path` instead of `llm_path`).
-- **Training block swap** (`blocks_to_swap`) appears when the model supports it (SDXL, Cosmos). Requires an adapter config. See [Shared training techniques](../developer/training-techniques.md). Cosmos preview may also use `preview.preview_blocks_to_swap`.
+- **Training block swap** (`blocks_to_swap`) appears when the model supports it (SDXL, Cosmos). Works for both adapter and **full-model** training — full-model also needs `optimizer.gradient_release`. The **Block-swap prefetch** (`block_swap_prefetch`) toggle appears only once `blocks_to_swap > 0` **and** `optimizer.gradient_release` is set — the case where the backend can actually overlap transfers (adapter runs keep trainable params resident and ignore it). It is an opt-in overlap that helps on larger GPUs but is counterproductive on tight 8 GB WSL2 (off by default). See [VRAM optimization](../developer/vram-optimization.md) and [Shared training techniques](../developer/training-techniques.md). Cosmos preview may also use `preview.preview_blocks_to_swap`.
 
 If Validate fails on a hidden field, check the **TOML** tab for leftover keys from another model type.
 
