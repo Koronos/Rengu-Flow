@@ -111,3 +111,45 @@ def test_train_launcher_builds_deepspeed_cmd(tmp_path, monkeypatch):
     assert cmd[0].endswith("deepspeed")
     assert "--num_gpus=1" in cmd
     assert "rengu_flow.main" in cmd
+    # DeepSpeed's launcher needs --module (NOT -m) to run a module target. Guard the contract.
+    assert "--module" in cmd
+    assert "-m" not in cmd
+    assert cmd[cmd.index("--module") + 1] == "rengu_flow.main"
+    assert any(a.startswith("--master_port=") for a in cmd)
+
+
+def test_base_train_command_uses_module(tmp_path, monkeypatch):
+    from rengu_flow.cli import train_launcher
+
+    monkeypatch.setattr(train_launcher, "which", lambda _: "/usr/bin/deepspeed")
+    cmd = train_launcher.base_train_command(tmp_path / "t.toml", num_gpus=2, master_port=29500)
+    assert cmd[0].endswith("deepspeed")
+    assert "--num_gpus=2" in cmd
+    assert "--master_port=29500" in cmd
+    assert "--module" in cmd and "-m" not in cmd
+    assert cmd[cmd.index("--module") + 1] == "rengu_flow.main"
+
+
+def test_base_train_command_python_fallback(tmp_path, monkeypatch):
+    from rengu_flow.cli import train_launcher
+
+    monkeypatch.setattr(train_launcher, "which", lambda _: None)
+    cmd = train_launcher.base_train_command(tmp_path / "t.toml", num_gpus=1)
+    # Without deepspeed on PATH, fall back to `python -m rengu_flow.main`.
+    assert cmd[1] == "-m"
+    assert cmd[2] == "rengu_flow.main"
+
+
+def test_ui_job_command_uses_module(tmp_path, monkeypatch):
+    """The web UI launcher must share the same --module contract as the CLI (RF-01/RF-02)."""
+    from rengu_flow.cli import train_launcher
+    from rengu_flow_ui.jobs import build_train_command as ui_build
+
+    monkeypatch.setattr(train_launcher, "which", lambda _: "/usr/bin/deepspeed")
+    monkeypatch.setattr(train_launcher, "_pick_master_port", lambda _req: 29500)
+    cmd = ui_build(tmp_path / "train.toml", num_gpus=2)
+    assert cmd[0].endswith("deepspeed")
+    assert "--num_gpus=2" in cmd
+    assert "--master_port=29500" in cmd
+    assert "--module" in cmd and "-m" not in cmd
+    assert cmd[cmd.index("--module") + 1] == "rengu_flow.main"

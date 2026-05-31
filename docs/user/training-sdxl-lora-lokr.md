@@ -6,9 +6,9 @@ This guide explains how to train SDXL with **LoRA** or **LoKr** (LyCORIS) adapte
 
 - A TOML config file with `[model]` (type `sdxl`), `[optimizer]`, and `dataset`.
 - An SDXL **base model** path in `model.checkpoint_path` — usually one large `.safetensors` file (not a LoRA).
-- For LoKr, you can optionally install the LyCORIS backend:  
-  `pip install rengu-flow[lycoris]`  
-  If you do not install it, LoKr still works using the built-in (vendored) implementation.
+- For LoKr, no extra install is needed: SDXL uses the built-in (vendored) LoKr backend, which
+  integrates with the DeepSpeed pipeline (adapter weights live on each `nn.Linear`, so they are
+  placed on the GPU and trained). The LyCORIS package is not required for SDXL LoKr.
 
 ## Config: LoRA
 
@@ -86,8 +86,8 @@ For a folder of images (not synthetic data):
 3. Run cache only, then training:
 
 ```bash
-deepspeed --num_gpus=1 -m rengu_flow.main --config my.toml --cache_only
-deepspeed --num_gpus=1 -m rengu_flow.main --config my.toml
+deepspeed --num_gpus=1 --module rengu_flow.main --config my.toml --cache_only
+deepspeed --num_gpus=1 --module rengu_flow.main --config my.toml
 ```
 
 Cache is stored under each directory’s `cache/sdxl/`. Use `--regenerate_cache` after changing images or captions; `--trust_cache` when nothing changed.
@@ -98,7 +98,7 @@ Cache is stored under each directory’s `cache/sdxl/`. Use `--regenerate_cache`
 
 1. Install: `pip install -e .` (or `pip install rengu-flow[lycoris]` for optional LyCORIS backend).
 2. Run with DeepSpeed, e.g.:  
-   `deepspeed --num_gpus=1 -m rengu_flow.main --config examples/minimal_config_lora_sdxl.toml`  
+   `deepspeed --num_gpus=1 --module rengu_flow.main --config examples/minimal_config_lora_sdxl.toml`  
    For real data, use a config with `dataset = "..."` and no `synthetic_num_batches`.
 3. Check the log for `Run dir: ...` to see where checkpoints and adapters are saved.
 

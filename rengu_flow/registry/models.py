@@ -29,6 +29,27 @@ def register_model(name: str) -> Callable[[type], type]:
     return decorator
 
 
+# type/alias -> pipeline module, imported lazily in get_model so an SDXL run doesn't pull in the
+# Cosmos pipeline (and its cosmos-only deps). Model enumeration/validation come from
+# model_capabilities, not these imports, so deferring is safe.
+_BUILTIN_MODEL_MODULES: dict[str, str] = {
+    "sdxl": "rengu_flow.model.sdxl",
+    "cosmos_predict2": "rengu_flow.model.cosmos_predict2",
+    "anima": "rengu_flow.model.cosmos_predict2",  # alias registered inside the cosmos module
+}
+
+
+def _ensure_model_imported(key: str) -> None:
+    """Import the pipeline module for ``key`` so its @register_model side-effects run."""
+    if key in model_registry:
+        return
+    module = _BUILTIN_MODEL_MODULES.get(key)
+    if module is not None:
+        import importlib
+
+        importlib.import_module(module)
+
+
 def get_model(config: dict[str, Any]) -> ModelPipelineProtocol:
     """Resolve and instantiate model from config['model']['type'] via registry.
 
@@ -43,10 +64,10 @@ def get_model(config: dict[str, Any]) -> ModelPipelineProtocol:
     if model_type is None:
         raise KeyError("config['model'] must contain 'type'")
     key = str(model_type).lower()
+    _ensure_model_imported(key)
     if key not in model_registry:
-        raise ValueError(
-            f"Unknown model type '{model_type}'. Registered: {sorted(model_registry)}."
-        )
+        known = sorted(set(model_registry) | set(_BUILTIN_MODEL_MODULES))
+        raise ValueError(f"Unknown model type '{model_type}'. Known: {known}.")
     return model_registry[key](config)
 
 
@@ -56,12 +77,3 @@ def register_model_alias(alias: str, canonical: str) -> None:
     if key not in model_registry:
         raise KeyError(f"Canonical model '{canonical}' is not registered")
     model_registry[alias.lower()] = model_registry[key]
-
-
-def _register_builtin_models() -> None:
-    """Import pipeline modules so @register_model decorators run (avoids circular import)."""
-    import rengu_flow.model.sdxl  # noqa: F401
-    import rengu_flow.model.cosmos_predict2  # noqa: F401
-
-
-_register_builtin_models()

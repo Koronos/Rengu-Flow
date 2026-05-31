@@ -25,7 +25,9 @@ def resolve_job_run_dir(job: db.JobRecord) -> Path | None:
         p = Path(job.run_dir)
         if p.is_dir():
             return p.resolve()
-    if job.output_dir:
+    # Newest-folder fallback only for active jobs: a terminal job without a run_dir must not
+    # borrow an unrelated run's folder (that made every finished job show the latest progress).
+    if job.output_dir and job.state in ACTIVE_STATES:
         runs = runs_scanner.scan_output_runs(job.output_dir)
         if runs:
             return Path(runs[-1]["path"]).resolve()

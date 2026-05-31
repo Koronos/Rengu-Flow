@@ -31,7 +31,9 @@ Run from Linux or WSL. See [CLI guide](cli.md) for all commands.
 
 ### Optional dependencies (Cosmos, LyCORIS, optimizers)
 
-When you **start training** from the UI or run `rengu train` / `rengu validate` / `rengu cache`, Rengu reads your training TOML and runs `uv sync` for any missing extras (for example **Cosmos Predict2** when `[model] type = "cosmos_predict2"`). You do not need maintenance mode or a separate install step.
+Core training dependencies (PyTorch, **torchvision**, DeepSpeed) are always installed by the base sync, so **SDXL trains with only the `[ui]` extra** — no model-specific extra required.
+
+When you **start training** from the UI or run `rengu train` / `rengu validate` / `rengu cache`, Rengu reads your training TOML and runs `uv sync` for any *additional* model-specific extras it needs (for example the **Cosmos Predict2** text stack when `[model] type = "cosmos_predict2"`, **LyCORIS** for LoKr, or the **optim** extra for extended optimizers). You do not need maintenance mode or a separate install step.
 
 ### Settings (`rengu.local.toml`)
 

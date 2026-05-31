@@ -3,20 +3,15 @@
 from __future__ import annotations
 
 import os
+import re
 import shlex
-import sys
 from pathlib import Path
 
+from rengu_flow.cli.train_launcher import _pick_master_port, base_train_command
 from rengu_flow.cli.training_extras import ensure_training_extras
 from rengu_flow.platform_compat import pid_alive, terminate_process_tree
 from rengu_flow_ui import db
 from rengu_flow_ui.subprocess_util import popen_repo_subprocess
-
-
-def _which(cmd: str) -> str | None:
-    from shutil import which
-
-    return which(cmd)
 
 
 def build_train_command(
@@ -26,12 +21,9 @@ def build_train_command(
     resume_from: str | None = None,
     extra_args: list[str] | None = None,
 ) -> list[str]:
+    # Free --master_port so successive jobs don't collide on the default.
     extra = extra_args or []
-    deepspeed = _which("deepspeed")
-    if deepspeed:
-        cmd = [deepspeed, f"--num_gpus={num_gpus}", "-m", "rengu_flow.main", "--config", str(config_path)]
-    else:
-        cmd = [sys.executable, "-m", "rengu_flow.main", "--config", str(config_path)]
+    cmd = base_train_command(config_path, num_gpus=num_gpus, master_port=_pick_master_port(0))
     if resume_from:
         cmd.extend(["--resume_from_checkpoint", resume_from])
     cmd.extend(extra)
@@ -99,22 +91,68 @@ def poll_job(job_id: str) -> db.JobRecord:
     job = db.get_job(job_id)
     if job.state not in ("running", "stopping"):
         return job
+    # Capture each job's real run_dir from its log so the UI doesn't fall back to the newest
+    # output folder (which made every job show the same progress).
+    if not job.run_dir:
+        rd = _parse_run_dir_from_log(job)
+        if rd:
+            db.update_job(job_id, run_dir=rd)
+            job = db.get_job(job_id)
     if job.pid is not None and pid_alive(job.pid):
         return job
-    # Process is gone (missing or dead pid): reconcile the stale state.
-    # A job we were stopping becomes "stopped"; an unattended running job becomes "finished".
-    final_state = "stopped" if job.state == "stopping" else "finished"
+    # PID gone: reconcile. stopping -> stopped; else nonzero exit -> failed, 0/unknown -> finished.
+    exit_code = _read_exit_code(job)
+    if job.state == "stopping":
+        final_state = "stopped"
+    elif exit_code not in (0, None):
+        final_state = "failed"
+    else:
+        final_state = "finished"
     db.update_job(
         job_id,
         state=final_state,
         finished_at=_now(),
-        exit_code=_read_exit_code(job),
+        exit_code=exit_code,
         pid=None,
     )
     return db.get_job(job_id)
 
 
+def _read_log_text(job: db.JobRecord) -> str:
+    path = Path(job.log_path)
+    if not path.is_file():
+        return ""
+    return path.read_bytes().decode("utf-8", errors="replace")
+
+
+_RUN_DIR_RE = re.compile(r"^Run dir:\s*(.+?)\s*$", re.MULTILINE)
+
+
+def _parse_run_dir_from_log(job: db.JobRecord) -> str | None:
+    """The trainer prints `Run dir: <path>` (relative to the repo root) on rank 0."""
+    m = _RUN_DIR_RE.search(_read_log_text(job))
+    if not m:
+        return None
+    from rengu_flow_ui import settings
+
+    p = Path(m.group(1))
+    if not p.is_absolute():
+        p = settings.repo_root() / p
+    return str(p.resolve()) if p.is_dir() else None
+
+
 def _read_exit_code(job: db.JobRecord) -> int | None:
+    """Best-effort exit code parsed from the job log (the process is detached, no wait())."""
+    text = _read_log_text(job)
+    if not text:
+        return None
+    codes = re.findall(r"exits with return code\s*=\s*(-?\d+)", text)
+    if codes:
+        return int(codes[-1])
+    if "exits successfully" in text:
+        return 0
+    if "Traceback (most recent call last)" in text or re.search(r"^\S*: error:", text, re.MULTILINE):
+        return 1
     return None
 
 

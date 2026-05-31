@@ -66,7 +66,7 @@ Example: see `examples/full_model_sdxl_unet_only.toml`.
 
 1. Use a config **without** an `[adapter]` section.
 2. Run with DeepSpeed, e.g.:  
-   `deepspeed --num_gpus=1 -m rengu_flow.main --config examples/full_model_sdxl.toml`
+   `deepspeed --num_gpus=1 --module rengu_flow.main --config examples/full_model_sdxl.toml`
 3. Check the log for `Run dir: ...` and for `Full-model SDXL: text encoders frozen` if you set `freeze_text_encoders = true`.
 
 ## Block swapping (recommended on small GPUs)
