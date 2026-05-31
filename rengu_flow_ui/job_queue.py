@@ -16,9 +16,10 @@ def _job_sort_key(job: db.JobRecord) -> tuple:
         "running": 0,
         "stopping": 1,
         "pending": 2,
-        "finished": 3,
-        "stopped": 4,
-        "failed": 5,
+        "new": 3,
+        "finished": 4,
+        "stopped": 5,
+        "failed": 6,
     }
     pos = job.queue_position if job.queue_position is not None else 999999
     return (state_order.get(job.state, 9), pos, job.started_at or "")
@@ -72,6 +73,7 @@ def merge_job_cli_args(
     *,
     cache_only: bool = False,
     trust_cache: bool = False,
+    regenerate_cache: bool = False,
     reset_dataloader: bool = False,
     reset_optimizer: bool = False,
 ) -> str:
@@ -79,12 +81,15 @@ def merge_job_cli_args(
 
     ``cache_only`` (cache latents/text-embeds then exit) and ``trust_cache`` (skip the
     cache freshness check) are mutually exclusive — passing both raises ``ValueError``.
+    Existing cache flags in ``extra_args`` are stripped first so this is the single
+    source of truth for the cache toggles.
     """
     if cache_only and trust_cache:
         raise ValueError(
             "cache_only and trust_cache are mutually exclusive — pick one."
         )
-    tokens = (extra_args or "").split()
+    managed = {"--cache_only", "--trust_cache", "--regenerate_cache"}
+    tokens = [t for t in (extra_args or "").split() if t not in managed]
 
     def _add(flag: str) -> None:
         if flag not in tokens:
@@ -98,6 +103,8 @@ def merge_job_cli_args(
         _add("--cache_only")
     if trust_cache:
         _add("--trust_cache")
+    if regenerate_cache:
+        _add("--regenerate_cache")
     return " ".join(tokens)
 
 
@@ -169,28 +176,34 @@ def enqueue_continue_run(
     run_path: str,
     content: str,
     *,
-    config_id: str | None = None,
-    save_to_library: bool = False,
     num_gpus: int = 1,
     extra_args: str = "",
     reset_dataloader: bool = False,
     reset_optimizer: bool = False,
+    resume_from: str | None = None,
+    from_scratch: bool = False,
     enqueue: bool = True,
     start_immediately: bool = False,
 ) -> db.JobRecord:
-    """Queue training that resumes ``run_path`` using ``content`` (typically edited run TOML)."""
+    """Queue training that resumes ``run_path`` using ``content`` (typically edited run TOML).
+
+    ``resume_from`` overrides the checkpoint to resume from (a ``global_stepN`` folder
+    name); when omitted the run's ``latest`` pointer is used. ``from_scratch=True``
+    ignores all checkpoints and trains from step 0 in the same folder.
+    """
     from rengu_flow_ui.job_import import resolve_run_path
     from rengu_flow_ui.run_config import resume_checkpoint_arg
 
     run_dir = resolve_run_path(run_path)
     cfg = toml.loads(content)
-    resume_arg = resume_checkpoint_arg(run_dir, cfg)
-    cid = config_id
-    if save_to_library:
-        cid = configs_store.insert_config(content)
+    if from_scratch:
+        resume_arg: str | None = None
+    elif resume_from:
+        resume_arg = resume_from
+    else:
+        resume_arg = resume_checkpoint_arg(run_dir, cfg)
 
     kwargs = dict(
-        config_id=cid if save_to_library else None,
         content=content,
         num_gpus=num_gpus,
         resume_from=resume_arg,
@@ -236,13 +249,10 @@ def clone_run(
     """
     src = db.get_job(source_job_id)
     content = src.config_content or ""
-    if not content and src.config_id is not None and configs_store.config_exists(src.config_id):
-        content = configs_store.read_config_text(src.config_id)  # legacy rows without snapshot
     if not content.strip():
         raise ValueError(f"Run {source_job_id} has no config content to clone")
 
     kwargs: dict[str, Any] = dict(
-        config_id=None,
         content=content,
         num_gpus=num_gpus if num_gpus is not None else src.num_gpus,
         resume_from=None,  # fresh run: no data from the previous run
@@ -250,6 +260,9 @@ def clone_run(
         extra_args=extra_args if extra_args is not None else src.extra_args,
         reset_dataloader=False,
         reset_optimizer=False,
+        cache_only=src.cache_only,
+        trust_cache=src.trust_cache,
+        regenerate_cache=src.regenerate_cache,
     )
     if start_immediately:
         return start_job_immediately(**kwargs)
@@ -259,17 +272,21 @@ def clone_run(
 def update_pending_job(
     job_id: str,
     *,
-    config_id: str | None = None,
+    content: str | None = None,
     num_gpus: int | None = None,
     resume_from: str | None = None,
     output_dir: str | None = None,
     extra_args: str | None = None,
     reset_dataloader: bool | None = None,
     reset_optimizer: bool | None = None,
+    cache_only: bool | None = None,
+    trust_cache: bool | None = None,
+    regenerate_cache: bool | None = None,
 ) -> db.JobRecord:
+    """Edit a saved (``new``) or pending run: config TOML, launch params, cache flags."""
     job = db.get_job(job_id)
-    if job.state != "pending":
-        raise ValueError("Only pending jobs can be edited")
+    if job.state not in ("pending", "new"):
+        raise ValueError("Only saved (new) or pending jobs can be edited")
 
     fields: dict[str, Any] = {}
     if num_gpus is not None:
@@ -278,39 +295,92 @@ def update_pending_job(
         fields["resume_from"] = resume_from or None
     if output_dir is not None:
         fields["output_dir"] = output_dir or None
-    if extra_args is not None:
-        fields["extra_args"] = extra_args
 
-    if config_id is not None:
-        content = configs_store.read_config_text(config_id)
-        staging = configs_store.materialize_staging(content, job_id)
-        fields["config_id"] = config_id
-        fields["config_path"] = str(staging)
-        cfg = toml.loads(staging.read_text(encoding="utf-8"))
-        if output_dir is None and "output_dir" in cfg:
-            fields.setdefault("output_dir", cfg.get("output_dir", "output"))
+    # Resolved cache state (current column value unless overridden).
+    co = job.cache_only if cache_only is None else cache_only
+    tc = job.trust_cache if trust_cache is None else trust_cache
+    rc = job.regenerate_cache if regenerate_cache is None else regenerate_cache
+    cache_changed = any(v is not None for v in (cache_only, trust_cache, regenerate_cache))
+    if cache_changed:
+        fields["cache_only"] = int(co)
+        fields["trust_cache"] = int(tc)
+        fields["regenerate_cache"] = int(rc)
 
-    if reset_dataloader is not None or reset_optimizer is not None:
-        extra = shlex.split(job.extra_args) if job.extra_args else []
-        flags = {"--reset_dataloader", "--reset_optimizer"}
-        extra = [a for a in extra if a not in flags]
-        if reset_dataloader:
-            extra.append("--reset_dataloader")
-        if reset_optimizer:
-            extra.append("--reset_optimizer")
-        fields["extra_args"] = " ".join(extra)
+    if content is not None:
+        fields["config_content"] = content
+        # Re-stage immediately only for pending runs (drafts stage on enqueue).
+        if job.state == "pending":
+            staging = configs_store.materialize_staging(content, job_id)
+            fields["config_path"] = str(staging)
+            cfg = toml.loads(staging.read_text(encoding="utf-8"))
+            if output_dir is None and "output_dir" in cfg:
+                fields.setdefault("output_dir", cfg.get("output_dir", "output"))
+
+    # Recompute extra_args when the caller changed it, the reset toggles, or cache flags.
+    if extra_args is not None or reset_dataloader is not None or reset_optimizer is not None or cache_changed:
+        base = extra_args if extra_args is not None else job.extra_args
+        tokens = shlex.split(base) if base else []
+        if reset_dataloader is not None or reset_optimizer is not None:
+            tokens = [t for t in tokens if t not in ("--reset_dataloader", "--reset_optimizer")]
+            if reset_dataloader:
+                tokens.append("--reset_dataloader")
+            if reset_optimizer:
+                tokens.append("--reset_optimizer")
+        fields["extra_args"] = merge_job_cli_args(
+            " ".join(tokens), cache_only=co, trust_cache=tc, regenerate_cache=rc
+        )
 
     if fields:
         db.update_job(job_id, **fields)
     return db.get_job(job_id)
 
 
-def delete_pending_job(job_id: str) -> None:
+def delete_job_record(job_id: str) -> None:
+    """Delete a run from the DB only (never touches files on disk).
+
+    Allowed for saved (``new``), pending, and terminal runs. A run that is still
+    running/stopping must be stopped first.
+    """
     job = db.get_job(job_id)
-    if job.state != "pending":
-        raise ValueError("Only pending jobs can be removed from the queue")
+    if job.state in ("running", "stopping"):
+        raise ValueError("Stop the run before deleting it")
     db.delete_job(job_id)
     _normalize_queue_positions()
+
+
+def reorder_queue(ordered_ids: list[int]) -> list[db.JobRecord]:
+    """Set ``queue_position`` for pending jobs to match ``ordered_ids`` order.
+
+    Non-pending or unknown ids are ignored; pending jobs missing from the list are
+    appended after, preserving their previous relative order.
+    """
+    listed = [int(x) for x in ordered_ids]
+    listed_set = set(listed)
+    pos = 0
+    for jid in listed:
+        try:
+            j = db.get_job(jid)
+        except KeyError:
+            continue
+        if j.state != "pending":
+            continue
+        db.update_job(jid, queue_position=pos)
+        pos += 1
+    remaining = sorted(
+        [
+            j
+            for j in db.list_jobs(limit=500)
+            if j.state == "pending" and j.id not in listed_set
+        ],
+        key=lambda j: (
+            j.queue_position if j.queue_position is not None else 999999,
+            j.started_at or "",
+        ),
+    )
+    for j in remaining:
+        db.update_job(j.id, queue_position=pos)
+        pos += 1
+    return [j for j in list_jobs_sorted() if j.state == "pending"]
 
 
 def move_queue(job_id: str, direction: str) -> db.JobRecord:

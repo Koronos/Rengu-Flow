@@ -16,6 +16,7 @@ from rengu_flow_ui.run_config import RunConfigError, read_run_config_dict
 
 ACTIVE_STATES = frozenset({"running", "stopping"})
 QUEUED_STATES = frozenset({"pending"})
+NEW_STATES = frozenset({"new"})
 TERMINAL_STATES = frozenset({"finished", "failed", "stopped"})
 
 
@@ -123,7 +124,6 @@ def _job_to_training_run(job: db.JobRecord) -> dict[str, Any]:
         "key": f"job:{job.id}",
         "kind": "job",
         "job_id": job.id,
-        "config_id": job.config_id,
         "state": job.state,
         "run_dir": str(run_dir) if run_dir else job.run_dir,
         "run_name": run_name,
@@ -135,6 +135,9 @@ def _job_to_training_run(job: db.JobRecord) -> dict[str, Any]:
         "started_at": job.started_at,
         "finished_at": job.finished_at,
         "exit_code": job.exit_code,
+        "cache_only": job.cache_only,
+        "trust_cache": job.trust_cache,
+        "regenerate_cache": job.regenerate_cache,
         "progress": progress,
         "has_tensorboard": bool(run_dir and list(run_dir.glob("events.out.tfevents.*"))),
     }
@@ -149,7 +152,6 @@ def _disk_to_training_run(desc: dict[str, Any]) -> dict[str, Any]:
         "key": f"disk:{run_name}",
         "kind": "disk",
         "job_id": None,
-        "config_id": None,
         "state": "on_disk",
         "run_dir": str(run_dir),
         "run_name": run_name,
@@ -161,6 +163,9 @@ def _disk_to_training_run(desc: dict[str, Any]) -> dict[str, Any]:
         "started_at": None,
         "finished_at": None,
         "exit_code": None,
+        "cache_only": False,
+        "trust_cache": False,
+        "regenerate_cache": False,
         "progress": progress,
         "has_tensorboard": bool(desc.get("has_tensorboard")),
     }
@@ -173,9 +178,11 @@ def _sort_runs(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
             return (0, 0, row.get("started_at") or "")
         if state in QUEUED_STATES:
             return (1, row.get("queue_position") if row.get("queue_position") is not None else 999, "")
+        if state in NEW_STATES:
+            return (2, 0, row.get("started_at") or "")
         if state == "on_disk":
-            return (3, 0, row.get("run_name") or "")
-        return (2, 0, row.get("finished_at") or row.get("started_at") or "")
+            return (4, 0, row.get("run_name") or "")
+        return (3, 0, row.get("finished_at") or row.get("started_at") or "")
 
     return sorted(items, key=sort_key)
 
@@ -234,6 +241,8 @@ def list_training_runs(
             items = [r for r in items if r["state"] in ACTIVE_STATES]
         elif sf == "queued":
             items = [r for r in items if r["state"] in QUEUED_STATES]
+        elif sf == "new":
+            items = [r for r in items if r["state"] in NEW_STATES]
         elif sf == "finished":
             items = [r for r in items if r["state"] in TERMINAL_STATES]
         elif sf in ("disk", "on_disk"):
@@ -249,13 +258,14 @@ def list_training_runs(
 
     running = sum(1 for r in items if r["state"] in ACTIVE_STATES)
     pending = sum(1 for r in items if r["state"] in QUEUED_STATES)
+    saved = sum(1 for r in items if r["state"] in NEW_STATES)
 
     return {
         "items": page_items,
         "total": total,
         "page": page,
         "page_size": page_size,
-        "stats": {"running": running, "pending": pending},
+        "stats": {"running": running, "pending": pending, "saved": saved},
     }
 
 

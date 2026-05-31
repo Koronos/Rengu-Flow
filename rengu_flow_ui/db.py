@@ -16,7 +16,7 @@ from rengu_flow_ui.settings import db_path, ensure_data_dirs
 # mismatch, asks the user to wipe-and-recreate or stay on the previous app version. Until a
 # TOML export/import migration exists (see docs/developer/run-model-redesign.md), a bump
 # means existing local libraries are discarded.
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 def _coerce_job_id(job_id: str | int) -> int:
@@ -33,7 +33,6 @@ def _coerce_job_id(job_id: str | int) -> int:
 @dataclass
 class JobRecord:
     id: int
-    config_id: int | None
     config_path: str
     state: str
     pid: int | None
@@ -49,9 +48,14 @@ class JobRecord:
     queue_position: int | None = None
     source_run_dir: str | None = None
     # Immutable snapshot of the run's own config TOML (library refs intact, pre-staging).
-    # Makes a run self-contained: it survives edits/deletes of any library config and is
-    # the seed for "edit = clone to a new run". Empty for legacy/imported rows.
+    # Makes a run self-contained and is the seed for "new run from config".
+    # Empty for legacy/imported rows.
     config_content: str = ""
+    # Cache toggles, mirrored from extra_args so the queue UI can show/edit them
+    # without parsing the CLI string.
+    cache_only: bool = False
+    trust_cache: bool = False
+    regenerate_cache: bool = False
 
 
 def _connect() -> sqlite3.Connection:
@@ -62,7 +66,7 @@ def _connect() -> sqlite3.Connection:
 
 
 def reset_ui_database() -> Path:
-    """Delete jobs.db and recreate an empty schema (configs, datasets, jobs)."""
+    """Delete jobs.db and recreate an empty schema (datasets, jobs)."""
     ensure_data_dirs()
     path = db_path()
     if path.exists():
@@ -77,7 +81,6 @@ def init_db() -> None:
             """
             CREATE TABLE IF NOT EXISTS jobs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                config_id INTEGER,
                 config_path TEXT NOT NULL,
                 state TEXT NOT NULL,
                 pid INTEGER,
@@ -91,11 +94,14 @@ def init_db() -> None:
                 exit_code INTEGER,
                 extra_args TEXT NOT NULL DEFAULT '',
                 queue_position INTEGER,
-                config_content TEXT NOT NULL DEFAULT ''
+                source_run_dir TEXT,
+                config_content TEXT NOT NULL DEFAULT '',
+                cache_only INTEGER NOT NULL DEFAULT 0,
+                trust_cache INTEGER NOT NULL DEFAULT 0,
+                regenerate_cache INTEGER NOT NULL DEFAULT 0
             )
             """
         )
-        _migrate_jobs_table(conn)
         init_library_tables(conn)
         conn.execute(f"PRAGMA user_version = {int(SCHEMA_VERSION)}")
         conn.commit()
@@ -122,16 +128,6 @@ def schema_action(stored: int | None, current: int = SCHEMA_VERSION) -> str:
     return "incompatible"
 
 
-def _migrate_jobs_table(conn: sqlite3.Connection) -> None:
-    cols = {row[1] for row in conn.execute("PRAGMA table_info(jobs)").fetchall()}
-    if "queue_position" not in cols:
-        conn.execute("ALTER TABLE jobs ADD COLUMN queue_position INTEGER")
-    if "source_run_dir" not in cols:
-        conn.execute("ALTER TABLE jobs ADD COLUMN source_run_dir TEXT")
-    if "config_content" not in cols:
-        conn.execute("ALTER TABLE jobs ADD COLUMN config_content TEXT NOT NULL DEFAULT ''")
-
-
 @contextmanager
 def _cursor() -> Iterator[sqlite3.Cursor]:
     conn = _connect()
@@ -143,11 +139,9 @@ def _cursor() -> Iterator[sqlite3.Cursor]:
 
 
 def _row_to_job(row: sqlite3.Row) -> JobRecord:
-    raw_cfg = row["config_id"]
-    config_id = int(raw_cfg) if raw_cfg is not None else None
+    keys = row.keys()
     return JobRecord(
         id=int(row["id"]),
-        config_id=config_id,
         config_path=row["config_path"],
         state=row["state"],
         pid=row["pid"],
@@ -160,13 +154,16 @@ def _row_to_job(row: sqlite3.Row) -> JobRecord:
         finished_at=row["finished_at"],
         exit_code=row["exit_code"],
         extra_args=row["extra_args"] or "",
-        queue_position=row["queue_position"] if "queue_position" in row.keys() else None,
-        source_run_dir=row["source_run_dir"] if "source_run_dir" in row.keys() else None,
+        queue_position=row["queue_position"] if "queue_position" in keys else None,
+        source_run_dir=row["source_run_dir"] if "source_run_dir" in keys else None,
         config_content=(
             row["config_content"]
-            if "config_content" in row.keys() and row["config_content"] is not None
+            if "config_content" in keys and row["config_content"] is not None
             else ""
         ),
+        cache_only=bool(row["cache_only"]) if "cache_only" in keys else False,
+        trust_cache=bool(row["trust_cache"]) if "trust_cache" in keys else False,
+        regenerate_cache=bool(row["regenerate_cache"]) if "regenerate_cache" in keys else False,
     )
 
 
@@ -185,7 +182,6 @@ def create_imported_job(
     *,
     run_dir: str,
     config_path: str,
-    config_id: int | None,
     log_path: str,
     output_dir: str,
     started_at: str,
@@ -193,21 +189,20 @@ def create_imported_job(
     exit_code: int | None = 0,
     extra_args: str = "",
     source_run_dir: str | None = None,
+    config_content: str = "",
 ) -> JobRecord:
     """Register a finished script-mode run for UI history and monitoring."""
     src = source_run_dir or run_dir
-    cfg_id = config_id
     with _cursor() as cur:
         cur.execute(
             """
             INSERT INTO jobs (
-                config_id, config_path, state, pid, run_dir, output_dir,
+                config_path, state, pid, run_dir, output_dir,
                 num_gpus, resume_from, log_path, started_at, finished_at,
-                exit_code, extra_args, queue_position, source_run_dir
-            ) VALUES (?, ?, 'finished', NULL, ?, ?, 1, NULL, ?, ?, ?, ?, ?, NULL, ?)
+                exit_code, extra_args, queue_position, source_run_dir, config_content
+            ) VALUES (?, 'finished', NULL, ?, ?, 1, NULL, ?, ?, ?, ?, ?, NULL, ?, ?)
             """,
             (
-                cfg_id,
                 config_path,
                 run_dir,
                 output_dir,
@@ -217,6 +212,7 @@ def create_imported_job(
                 exit_code,
                 extra_args,
                 src,
+                config_content,
             ),
         )
         job_id = int(cur.lastrowid)
@@ -226,8 +222,8 @@ def create_imported_job(
 def create_job(
     *,
     config_path: str,
-    config_id: int | None,
     log_path: str,
+    state: str = "pending",
     num_gpus: int = 1,
     resume_from: str | None = None,
     output_dir: str | None = None,
@@ -235,21 +231,23 @@ def create_job(
     queue_position: int | None = None,
     source_run_dir: str | None = None,
     config_content: str = "",
+    cache_only: bool = False,
+    trust_cache: bool = False,
+    regenerate_cache: bool = False,
 ) -> JobRecord:
     now = datetime.now(timezone.utc).isoformat()
-    cfg_id = config_id
     with _cursor() as cur:
         cur.execute(
             """
             INSERT INTO jobs (
-                config_id, config_path, state, pid, run_dir, output_dir,
+                config_path, state, pid, run_dir, output_dir,
                 num_gpus, resume_from, log_path, started_at, extra_args, queue_position,
-                source_run_dir, config_content
-            ) VALUES (?, ?, 'pending', NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                source_run_dir, config_content, cache_only, trust_cache, regenerate_cache
+            ) VALUES (?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                cfg_id,
                 config_path,
+                state,
                 output_dir,
                 num_gpus,
                 resume_from,
@@ -259,6 +257,9 @@ def create_job(
                 queue_position,
                 source_run_dir,
                 config_content,
+                int(cache_only),
+                int(trust_cache),
+                int(regenerate_cache),
             ),
         )
         job_id = int(cur.lastrowid)
@@ -296,7 +297,6 @@ def update_job(job_id: str | int, **fields: Any) -> JobRecord:
         "output_dir",
         "finished_at",
         "exit_code",
-        "config_id",
         "config_path",
         "num_gpus",
         "resume_from",
@@ -304,6 +304,9 @@ def update_job(job_id: str | int, **fields: Any) -> JobRecord:
         "queue_position",
         "source_run_dir",
         "config_content",
+        "cache_only",
+        "trust_cache",
+        "regenerate_cache",
     }
     parts = []
     values: list[Any] = []

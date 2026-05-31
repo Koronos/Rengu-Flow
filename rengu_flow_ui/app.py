@@ -64,7 +64,6 @@ class ValidateBody(BaseModel):
 
 
 class RunStart(BaseModel):
-    config_id: int | str | None = None
     content: str | None = None
     num_gpus: int = Field(default=1, ge=1)
     resume_from: str | None = None
@@ -74,19 +73,24 @@ class RunStart(BaseModel):
     reset_optimizer: bool = False
     cache_only: bool = False
     trust_cache: bool = False
+    regenerate_cache: bool = False
     enqueue: bool = True
     start_immediately: bool = False
+    save_for_later: bool = False
     source_run_dir: str | None = None
 
 
 class JobUpdate(BaseModel):
-    config_id: int | str | None = None
+    content: str | None = None
     num_gpus: int | None = Field(default=None, ge=1)
     resume_from: str | None = None
     output_dir: str | None = None
     extra_args: str | None = None
     reset_dataloader: bool | None = None
     reset_optimizer: bool | None = None
+    cache_only: bool | None = None
+    trust_cache: bool | None = None
+    regenerate_cache: bool | None = None
 
 
 class RunClone(BaseModel):
@@ -115,8 +119,6 @@ class JobImportPreviewBody(BaseModel):
 
 class JobImportBody(BaseModel):
     run_path: str
-    import_config: bool = True
-    config_id: str | None = None
     import_dataset: bool = True
     dataset_id: str | None = None
     allow_duplicate: bool = False
@@ -127,14 +129,18 @@ class ContinueRunBody(BaseModel):
 
     run_path: str
     content: str
-    config_id: str | None = None
-    save_to_library: bool = False
     num_gpus: int = Field(default=1, ge=1)
     extra_args: str = ""
     reset_dataloader: bool = False
     reset_optimizer: bool = False
+    resume_from: str | None = None
+    from_scratch: bool = False
     enqueue: bool = True
     start_immediately: bool = False
+
+
+class QueueReorderBody(BaseModel):
+    ids: list[int]
 
 
 class SignalBody(BaseModel):
@@ -225,28 +231,7 @@ def create_app() -> FastAPI:
                 return JSONResponse(status_code=401, content={"detail": "Invalid token"})
         return await call_next(request)
 
-    # --- Configs ---
-    @app.get(f"{API_PREFIX}/configs")
-    def list_configs(
-        q: str | None = None,
-        page: int | None = Query(None, ge=1),
-        page_size: int = Query(20, ge=1, le=100),
-        sort: str = Query("id", description="id | name | created_at | updated_at"),
-        order: str = Query("desc", description="asc | desc"),
-    ) -> dict[str, Any]:
-        if page is not None:
-            return configs_store.search_configs_page(
-                q or "", page=page, page_size=page_size, sort=sort, order=order
-            )
-        return {"configs": configs_store.list_configs_summary(sort=sort, order=order)}
-
-    @app.get(f"{API_PREFIX}/configs/{{config_id}}")
-    def get_config(config_id: str) -> dict[str, str]:
-        try:
-            return {"id": config_id, "content": configs_store.read_config_text(config_id)}
-        except FileNotFoundError:
-            raise HTTPException(404, "Config not found")
-
+    # --- Training config TOML: validation + export (no standalone library) ---
     def _training_export_response(content: str, bundle_stem: str) -> Response:
         from rengu_flow_ui.training_export import build_training_export_zip
 
@@ -262,81 +247,26 @@ def create_app() -> FastAPI:
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
 
-    @app.get(f"{API_PREFIX}/configs/{{config_id}}/export")
-    def export_config(config_id: str) -> Response:
-        try:
-            content = configs_store.read_config_text(config_id)
-        except FileNotFoundError:
-            raise HTTPException(404, "Config not found")
-        return _training_export_response(content, bundle_stem=str(config_id))
-
     @app.post(f"{API_PREFIX}/configs/export-bundle")
     def export_config_bundle(body: ConfigExportBody) -> Response:
         stem = (body.name or "training_export").strip() or "training_export"
         return _training_export_response(body.content, bundle_stem=stem)
 
-    @app.post(f"{API_PREFIX}/configs")
-    def post_config(body: ConfigCreate) -> dict[str, int]:
-        cid = configs_store.create_config(body.content)
-        return {"id": cid}
-
-    @app.post(f"{API_PREFIX}/configs/import")
-    def import_config(body: ConfigCreate) -> dict[str, int]:
-        cid = configs_store.create_config(body.content)
-        return {"id": cid}
-
-    @app.put(f"{API_PREFIX}/configs/{{config_id}}")
-    def put_config(config_id: str, body: ConfigUpdate) -> dict[str, int]:
-        if not configs_store.config_exists(config_id):
-            raise HTTPException(404, "Config not found")
-        cid = configs_store.update_config_text(config_id, body.content)
-        return {"id": cid}
-
-    @app.delete(f"{API_PREFIX}/configs/{{config_id}}")
-    def delete_config(config_id: str) -> dict[str, bool]:
-        try:
-            configs_store.delete_config(config_id)
-        except FileNotFoundError:
-            raise HTTPException(404, "Config not found")
-        return {"ok": True}
-
-    @app.post(f"{API_PREFIX}/configs/{{config_id}}/duplicate")
-    def duplicate_config_route(config_id: str) -> dict[str, int]:
-        try:
-            nid = configs_store.duplicate_config(config_id)
-        except FileNotFoundError:
-            raise HTTPException(404, "Config not found")
-        return {"id": nid}
-
-    @app.post(f"{API_PREFIX}/configs/{{config_id}}/validate")
-    def validate_config_id(config_id: str) -> dict[str, Any]:
-        try:
-            text = configs_store.read_config_text(config_id)
-        except FileNotFoundError:
-            raise HTTPException(404, "Config not found")
-        return configs_store.validate_toml_text(text)
-
     @app.post(f"{API_PREFIX}/validate")
     def validate_inline(body: ValidateBody) -> dict[str, Any]:
         if body.content is not None:
             return configs_store.validate_toml_text(body.content)
-        if body.config_id:
-            return validate_config_id(body.config_id)
-        raise HTTPException(400, "Provide content or config_id")
+        raise HTTPException(400, "Provide content")
 
     @app.post(f"{API_PREFIX}/validate-only")
     def validate_only_run(body: ValidateBody) -> dict[str, Any]:
-        path: Path | None = None
-        if body.config_id:
-            path = configs_store.write_config_temp_for_validate(body.config_id)
-        elif body.content:
-            import tempfile
+        if not body.content:
+            raise HTTPException(400, "Provide content")
+        import tempfile
 
-            tmp = Path(tempfile.mkdtemp(dir=configs_store.staging_dir()))
-            path = tmp / "validate.toml"
-            path.write_text(body.content, encoding="utf-8")
-        else:
-            raise HTTPException(400, "Provide content or config_id")
+        tmp = Path(tempfile.mkdtemp(dir=configs_store.staging_dir()))
+        path = tmp / "validate.toml"
+        path.write_text(body.content, encoding="utf-8")
         cmd = [sys.executable, "-m", "rengu_flow.main", "--config", str(path), "--validate-only"]
         proc = subprocess.run(
             cmd,
@@ -724,12 +654,12 @@ def create_app() -> FastAPI:
             job = job_queue.enqueue_continue_run(
                 body.run_path,
                 body.content,
-                config_id=body.config_id,
-                save_to_library=body.save_to_library,
                 num_gpus=body.num_gpus,
                 extra_args=body.extra_args,
                 reset_dataloader=body.reset_dataloader,
                 reset_optimizer=body.reset_optimizer,
+                resume_from=body.resume_from,
+                from_scratch=body.from_scratch,
                 enqueue=body.enqueue,
                 start_immediately=body.start_immediately,
             )
@@ -743,16 +673,10 @@ def create_app() -> FastAPI:
     def start_job(body: RunStart) -> dict[str, Any]:
         from rengu_flow_ui import job_queue
 
-        if not body.config_id and not body.content and not body.source_run_dir:
-            raise HTTPException(400, "Provide config_id, content, or source_run_dir")
-        if body.config_id:
-            try:
-                configs_store.read_config_text(body.config_id)
-            except FileNotFoundError:
-                raise HTTPException(404, "Config not found")
+        if not body.content and not body.source_run_dir:
+            raise HTTPException(400, "Provide content or source_run_dir")
 
         kwargs = dict(
-            config_id=body.config_id,
             content=body.content,
             num_gpus=body.num_gpus,
             resume_from=body.resume_from,
@@ -762,10 +686,13 @@ def create_app() -> FastAPI:
             reset_optimizer=body.reset_optimizer,
             cache_only=body.cache_only,
             trust_cache=body.trust_cache,
+            regenerate_cache=body.regenerate_cache,
             source_run_dir=body.source_run_dir,
         )
         try:
-            if body.start_immediately or not body.enqueue:
+            if body.save_for_later:
+                job = job_queue.save_draft(**kwargs)
+            elif body.start_immediately or not body.enqueue:
                 job = job_queue.start_job_immediately(**kwargs)
             else:
                 job = job_queue.enqueue_job(**kwargs)
@@ -780,19 +707,89 @@ def create_app() -> FastAPI:
         try:
             job = job_queue.update_pending_job(
                 job_id,
-                config_id=body.config_id,
+                content=body.content,
                 num_gpus=body.num_gpus,
                 resume_from=body.resume_from,
                 output_dir=body.output_dir,
                 extra_args=body.extra_args,
                 reset_dataloader=body.reset_dataloader,
                 reset_optimizer=body.reset_optimizer,
+                cache_only=body.cache_only,
+                trust_cache=body.trust_cache,
+                regenerate_cache=body.regenerate_cache,
             )
         except KeyError:
             raise HTTPException(404, "Job not found")
         except ValueError as e:
             raise HTTPException(400, str(e))
         return _job_dict(job)
+
+    @app.post(f"{API_PREFIX}/jobs/{{job_id}}/enqueue")
+    def enqueue_saved_job(job_id: str) -> dict[str, Any]:
+        """Promote a saved (new) run into the pending queue."""
+        from rengu_flow_ui import job_queue
+
+        try:
+            job = job_queue.enqueue_existing(job_id)
+        except KeyError:
+            raise HTTPException(404, "Job not found")
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        return _job_dict(job)
+
+    @app.post(f"{API_PREFIX}/jobs/queue/reorder")
+    def reorder_queue(body: QueueReorderBody) -> dict[str, Any]:
+        from rengu_flow_ui import job_queue
+
+        pending = job_queue.reorder_queue(body.ids)
+        return {"queue": [_job_dict(j) for j in pending]}
+
+    @app.get(f"{API_PREFIX}/jobs/{{job_id}}/seed")
+    def seed_job_config(job_id: str) -> dict[str, str]:
+        """Config TOML for a new run cloned from this one (run_name gets a _N suffix)."""
+        import toml
+
+        from rengu_flow_ui import configs_store
+
+        try:
+            job = db.get_job(job_id)
+        except KeyError:
+            raise HTTPException(404, "Job not found")
+        content = job.config_content or ""
+        if not content.strip():
+            raise HTTPException(400, "This run has no config content to copy")
+        try:
+            cfg = toml.loads(content)
+            base = cfg.get("run_name")
+            if isinstance(base, str) and base.strip():
+                cfg["run_name"] = configs_store.next_run_name(base)
+                content = toml.dumps(cfg)
+        except Exception:
+            pass
+        return {"content": content}
+
+    @app.get(f"{API_PREFIX}/jobs/{{job_id}}/checkpoints")
+    def job_checkpoints(job_id: str) -> dict[str, Any]:
+        from rengu_flow_ui import training_hub
+        from rengu_flow_ui.run_config import list_checkpoints
+
+        try:
+            job = db.get_job(job_id)
+        except KeyError:
+            raise HTTPException(404, "Job not found")
+        run_dir = training_hub.resolve_job_run_dir(job)
+        if run_dir is None:
+            return {"checkpoints": [], "run_dir": None}
+        return {"checkpoints": list_checkpoints(run_dir), "run_dir": str(run_dir)}
+
+    @app.get(f"{API_PREFIX}/runs/checkpoints")
+    def run_checkpoints(run_dir: str = Query(..., description="Run folder path")) -> dict[str, Any]:
+        from rengu_flow_ui.run_config import list_checkpoints
+
+        try:
+            return {"checkpoints": list_checkpoints(run_dir), "run_dir": run_dir}
+        except Exception as e:
+            raise HTTPException(400, str(e))
 
     @app.post(f"{API_PREFIX}/jobs/{{job_id}}/clone")
     def clone_job(job_id: str, body: RunClone | None = None) -> dict[str, Any]:
@@ -818,7 +815,7 @@ def create_app() -> FastAPI:
         from rengu_flow_ui import job_queue
 
         try:
-            job_queue.delete_pending_job(job_id)
+            job_queue.delete_job_record(job_id)
         except KeyError:
             raise HTTPException(404, "Job not found")
         except ValueError as e:
@@ -1141,7 +1138,6 @@ def create_app() -> FastAPI:
 def _job_dict(job: db.JobRecord) -> dict[str, Any]:
     return {
         "id": job.id,
-        "config_id": job.config_id,
         "config_path": job.config_path,
         "state": job.state,
         "pid": job.pid,
@@ -1157,4 +1153,7 @@ def _job_dict(job: db.JobRecord) -> dict[str, Any]:
         "queue_position": job.queue_position,
         "source_run_dir": job.source_run_dir,
         "config_content": job.config_content,
+        "cache_only": job.cache_only,
+        "trust_cache": job.trust_cache,
+        "regenerate_cache": job.regenerate_cache,
     }

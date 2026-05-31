@@ -80,7 +80,6 @@ def _safe_int_column(val: Any, default: int = 0) -> int:
 
 
 _DATASET_SORT_KEYS = frozenset({"id", "name", "created_at", "updated_at"})
-_CONFIG_SORT_KEYS = frozenset({"id", "name", "created_at", "updated_at"})
 DEFAULT_LIBRARY_SORT = "id"
 DEFAULT_LIBRARY_ORDER = "desc"
 
@@ -91,10 +90,9 @@ def normalize_library_sort(
     *,
     table: str = "datasets",
 ) -> tuple[str, str]:
-    """Return validated ``(sort_key, asc|desc)`` for library list queries."""
-    allowed = _DATASET_SORT_KEYS if table == "datasets" else _CONFIG_SORT_KEYS
+    """Return validated ``(sort_key, asc|desc)`` for dataset library list queries."""
     key = (sort or DEFAULT_LIBRARY_SORT).strip().lower()
-    if key not in allowed:
+    if key not in _DATASET_SORT_KEYS:
         key = DEFAULT_LIBRARY_SORT
     direction = (order or DEFAULT_LIBRARY_ORDER).strip().lower()
     if direction not in ("asc", "desc"):
@@ -112,12 +110,7 @@ def _library_order_clause(
     dir_sql = direction.upper()
     id_tie = f", id {dir_sql}"
     if key == "name":
-        if table == "datasets":
-            return f"ORDER BY name COLLATE NOCASE {dir_sql}{id_tie}"
-        return (
-            "ORDER BY COALESCE(json_extract(meta_json, '$.run_name'), '') "
-            f"COLLATE NOCASE {dir_sql}{id_tie}"
-        )
+        return f"ORDER BY name COLLATE NOCASE {dir_sql}{id_tie}"
     if key == "id":
         return f"ORDER BY id {dir_sql}"
     return f"ORDER BY {key} {dir_sql}{id_tie}"
@@ -133,19 +126,6 @@ def _connect() -> sqlite3.Connection:
 def init_library_tables(conn: sqlite3.Connection) -> None:
     conn.execute(
         """
-        CREATE TABLE IF NOT EXISTS training_configs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            content TEXT NOT NULL,
-            model_type TEXT,
-            dataset_ref TEXT,
-            meta_json TEXT NOT NULL DEFAULT '{}',
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
-        )
-        """
-    )
-    conn.execute(
-        """
         CREATE TABLE IF NOT EXISTS datasets (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             content TEXT NOT NULL,
@@ -155,12 +135,6 @@ def init_library_tables(conn: sqlite3.Connection) -> None:
             updated_at TEXT NOT NULL
         )
         """
-    )
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_training_configs_model ON training_configs(model_type)"
-    )
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_training_configs_updated ON training_configs(updated_at)"
     )
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_datasets_updated ON datasets(updated_at)"
@@ -206,43 +180,6 @@ def _cursor() -> Iterator[sqlite3.Cursor]:
         conn.close()
 
 
-def _extract_config_index(content: str) -> tuple[str | None, str | None, dict[str, Any]]:
-    try:
-        cfg = toml.loads(content)
-    except Exception:
-        return None, None, {}
-    model = cfg.get("model") if isinstance(cfg.get("model"), dict) else {}
-    model_type = model.get("type") if isinstance(model, dict) else None
-    dataset_val = cfg.get("dataset")
-    def _index_dataset_ref(raw: str | None) -> str | None:
-        if not raw:
-            return None
-        if is_library_dataset_ref(raw):
-            try:
-                return f"{DATASET_REF_PREFIX}{library_dataset_id_from_ref(raw)}"
-            except ValueError:
-                return raw
-        return raw
-
-    if isinstance(dataset_val, str):
-        dataset_ref = _index_dataset_ref(dataset_val.strip() or None)
-    elif isinstance(dataset_val, list):
-        parts = [x.strip() for x in dataset_val if isinstance(x, str) and x.strip()]
-        dataset_ref = _index_dataset_ref(parts[0] if parts else None)
-    else:
-        dataset_ref = None
-    meta: dict[str, Any] = {}
-    if isinstance(cfg.get("run_name"), str):
-        meta["run_name"] = cfg["run_name"]
-    if isinstance(cfg.get("output_dir"), str):
-        meta["output_dir"] = cfg["output_dir"]
-    return (
-        str(model_type) if model_type is not None else None,
-        dataset_ref,
-        meta,
-    )
-
-
 def _extract_dataset_index(content: str) -> tuple[int, dict[str, Any]]:
     from rengu_flow_ui.dataset_form import parse_toml_to_form
 
@@ -274,173 +211,6 @@ def _extract_dataset_index(content: str) -> tuple[int, dict[str, Any]]:
     if paths:
         meta["directory_paths"] = paths[:32]
     return len(paths), meta
-
-
-# --- Training configs ---
-
-
-def list_config_ids() -> list[int]:
-    with _connect() as conn:
-        init_library_tables(conn)
-        rows = conn.execute(
-            f"SELECT id FROM training_configs {_library_order_clause(table='configs')}"
-        ).fetchall()
-    return [int(r["id"]) for r in rows]
-
-
-def _config_summary_row(r: sqlite3.Row) -> dict[str, Any]:
-    meta = _safe_meta_json(r["meta_json"])
-    return {
-        "id": int(r["id"]),
-        "model_type": r["model_type"],
-        "dataset_ref": r["dataset_ref"],
-        "created_at": r["created_at"],
-        "updated_at": r["updated_at"],
-        "run_name": meta.get("run_name"),
-    }
-
-
-def list_configs_summary(
-    *,
-    sort: str | None = None,
-    order: str | None = None,
-) -> list[dict[str, Any]]:
-    clause = _library_order_clause(sort, order, table="configs")
-    with _connect() as conn:
-        init_library_tables(conn)
-        rows = conn.execute(
-            f"""
-            SELECT id, model_type, dataset_ref, created_at, updated_at, meta_json
-            FROM training_configs {clause}
-            """
-        ).fetchall()
-    return [_config_summary_row(r) for r in rows]
-
-
-def search_configs(
-    q: str = "",
-    *,
-    page: int = 1,
-    page_size: int = 20,
-    sort: str | None = None,
-    order: str | None = None,
-) -> dict[str, Any]:
-    page = max(1, page)
-    page_size = max(1, min(100, page_size))
-    offset = (page - 1) * page_size
-    term = (q or "").strip()
-    like = f"%{term}%"
-    where = ""
-    params: list[Any] = []
-    if term:
-        where = (
-            "WHERE CAST(id AS TEXT) LIKE ? OR COALESCE(model_type, '') LIKE ? "
-            "OR COALESCE(dataset_ref, '') LIKE ?"
-        )
-        params = [like, like, like]
-    with _connect() as conn:
-        init_library_tables(conn)
-        total_row = conn.execute(
-            f"SELECT COUNT(*) AS n FROM training_configs {where}",
-            params,
-        ).fetchone()
-        total = int(total_row["n"]) if total_row else 0
-        clause = _library_order_clause(sort, order, table="configs")
-        rows = conn.execute(
-            f"""
-            SELECT id, model_type, dataset_ref, created_at, updated_at, meta_json
-            FROM training_configs {where}
-            {clause}
-            LIMIT ? OFFSET ?
-            """,
-            (*params, page_size, offset),
-        ).fetchall()
-    return {
-        "items": [_config_summary_row(r) for r in rows],
-        "total": total,
-        "page": page,
-        "page_size": page_size,
-    }
-
-
-def config_exists(config_id: str | int) -> bool:
-    cid = _coerce_record_id(config_id)
-    with _connect() as conn:
-        init_library_tables(conn)
-        row = conn.execute(
-            "SELECT 1 FROM training_configs WHERE id = ?", (cid,)
-        ).fetchone()
-    return row is not None
-
-
-def read_config_text(config_id: str | int) -> str:
-    cid = _coerce_record_id(config_id)
-    with _connect() as conn:
-        init_library_tables(conn)
-        row = conn.execute(
-            "SELECT content FROM training_configs WHERE id = ?", (cid,)
-        ).fetchone()
-    if row is None:
-        raise FileNotFoundError(config_id)
-    return row["content"]
-
-
-def insert_config(content: str) -> int:
-    now = _now()
-    model_type, dataset_ref, meta = _extract_config_index(content)
-    meta_json = json.dumps(meta)
-    with _cursor() as cur:
-        cur.execute(
-            """
-            INSERT INTO training_configs (
-                content, model_type, dataset_ref, meta_json, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (content, model_type, dataset_ref, meta_json, now, now),
-        )
-        return int(cur.lastrowid)
-
-
-def update_config_text(config_id: str | int, content: str) -> int:
-    cid = _coerce_record_id(config_id)
-    now = _now()
-    model_type, dataset_ref, meta = _extract_config_index(content)
-    meta_json = json.dumps(meta)
-    with _cursor() as cur:
-        cur.execute(
-            """
-            UPDATE training_configs
-            SET content = ?, model_type = ?, dataset_ref = ?, meta_json = ?, updated_at = ?
-            WHERE id = ?
-            """,
-            (content, model_type, dataset_ref, meta_json, now, cid),
-        )
-        if cur.rowcount == 0:
-            raise FileNotFoundError(config_id)
-    return cid
-
-
-def delete_config(config_id: str | int) -> None:
-    cid = _coerce_record_id(config_id)
-    with _cursor() as cur:
-        cur.execute("DELETE FROM training_configs WHERE id = ?", (cid,))
-        if cur.rowcount == 0:
-            raise FileNotFoundError(config_id)
-
-
-def duplicate_config(config_id: str | int) -> int:
-    text = read_config_text(config_id)
-    return insert_config(text)
-
-
-def write_config_temp_file(config_id: str | int, *, staging_dir) -> "Path":
-    from pathlib import Path
-
-    cid = _coerce_record_id(config_id)
-    path = Path(staging_dir) / f"_validate_{cid}.toml"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(read_config_text(cid), encoding="utf-8")
-    return path
 
 
 # --- Datasets ---

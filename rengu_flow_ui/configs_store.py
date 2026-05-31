@@ -1,7 +1,13 @@
-"""Training config library: SQLite storage, validation, job staging."""
+"""Training config validation, run-name helpers, and job staging.
+
+The standalone config library was removed: a run carries its own TOML snapshot
+(``JobRecord.config_content``). This module keeps the pieces still needed —
+TOML validation, dataset-ref resolution into staging, and ``next_run_name``.
+"""
 
 from __future__ import annotations
 
+import re
 import shutil
 from pathlib import Path
 from typing import Any
@@ -20,44 +26,6 @@ from rengu_flow_ui.config_form import _dtype_to_str
 from rengu_flow_ui.optimizer_form import collect_optimizer_betas_validation_errors
 from rengu_flow_ui.registry_probe import probe_resolution, resolution_errors
 from rengu_flow_ui.settings import ensure_data_dirs, staging_dir
-
-# Re-export for callers
-_safe_id = library_db._safe_id
-list_config_ids = library_db.list_config_ids
-read_config_text = library_db.read_config_text
-insert_config = library_db.insert_config
-update_config_text = library_db.update_config_text
-delete_config = library_db.delete_config
-duplicate_config = library_db.duplicate_config
-
-
-def create_config(content: str) -> int:
-    return insert_config(content)
-
-
-def config_exists(config_id: str | int) -> bool:
-    return library_db.config_exists(config_id)
-
-
-def list_configs_summary(
-    *,
-    sort: str | None = None,
-    order: str | None = None,
-) -> list[dict[str, Any]]:
-    return library_db.list_configs_summary(sort=sort, order=order)
-
-
-def search_configs_page(
-    q: str,
-    *,
-    page: int,
-    page_size: int,
-    sort: str | None = None,
-    order: str | None = None,
-) -> dict[str, Any]:
-    return library_db.search_configs(
-        q, page=page, page_size=page_size, sort=sort, order=order
-    )
 
 
 def _config_json_safe(config: dict[str, Any]) -> dict[str, Any]:
@@ -180,9 +148,44 @@ def materialize_staging(
     return out
 
 
-def import_example(src: Path) -> int:
-    return insert_config(src.read_text(encoding="utf-8"))
+def _run_name_in_use(name: str) -> bool:
+    """True if any existing job (snapshot) or output run folder already uses ``name``."""
+    from rengu_flow_ui import db, runs_scanner
+    from rengu_flow_ui.paths import resolve_repo_path
+
+    target = name.strip()
+    if not target:
+        return False
+    for job in db.list_jobs(limit=1000):
+        content = job.config_content or ""
+        if not content:
+            continue
+        try:
+            cfg = toml.loads(content)
+        except Exception:
+            continue
+        if isinstance(cfg.get("run_name"), str) and cfg["run_name"].strip() == target:
+            return True
+    try:
+        root = resolve_repo_path("output")
+        for desc in runs_scanner.scan_output_runs(root):
+            if desc.get("name") == target:
+                return True
+    except Exception:
+        pass
+    return False
 
 
-def write_config_temp_for_validate(config_id: str | int) -> Path:
-    return library_db.write_config_temp_file(config_id, staging_dir=staging_dir())
+def next_run_name(base: str) -> str:
+    """Return ``base`` with an incremental ``_N`` suffix that is not already in use.
+
+    Strips a trailing ``_<digits>`` from ``base`` first so cloning a clone keeps a
+    single counter (``run_2`` -> ``run_3`` rather than ``run_2_2``).
+    """
+    stem = re.sub(r"_\d+$", "", (base or "").strip()) or "run"
+    n = 2
+    while True:
+        candidate = f"{stem}_{n}"
+        if not _run_name_in_use(candidate):
+            return candidate
+        n += 1

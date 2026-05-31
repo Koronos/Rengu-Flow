@@ -46,6 +46,45 @@ def resume_checkpoint_arg(run_path: str | Path, config: dict[str, Any] | None = 
     return str(run_dir.resolve())
 
 
+def list_checkpoints(run_path: str | Path) -> list[dict[str, Any]]:
+    """Checkpoints available to resume from, newest first.
+
+    Each entry: ``{name, step, is_latest, suspect}``. ``is_latest`` marks the folder
+    recorded in the run's ``latest`` pointer (the last known-good save). ``suspect`` is
+    true for any checkpoint saved *after* the latest pointer — these can be truncated or
+    corrupt (e.g. the disk filled up mid-save), so the UI flags them with a warning.
+    """
+    from rengu_flow.utils.saver import (
+        list_checkpoint_dirs,
+        parse_checkpoint_step,
+        read_latest_pointer,
+    )
+
+    run_dir = resolve_run_path(str(run_path))
+    dirs = list_checkpoint_dirs(run_dir)  # ascending by step
+    if not dirs:
+        return []
+    latest_name = read_latest_pointer(run_dir)
+    if latest_name is None:
+        # No pointer recorded: treat the highest-step checkpoint as latest.
+        latest_name = dirs[-1].name
+    latest_step = parse_checkpoint_step(latest_name)
+    out: list[dict[str, Any]] = []
+    for path in dirs:
+        step = parse_checkpoint_step(path.name)
+        suspect = latest_step is not None and step is not None and step > latest_step
+        out.append(
+            {
+                "name": path.name,
+                "step": step,
+                "is_latest": path.name == latest_name,
+                "suspect": suspect,
+            }
+        )
+    out.sort(key=lambda c: (c["step"] if c["step"] is not None else -1), reverse=True)
+    return out
+
+
 def describe_run_config(run_path: str | Path) -> dict[str, Any]:
     run_dir = resolve_run_path(str(run_path))
     config_path = runs_scanner.pick_main_config_path(run_dir)

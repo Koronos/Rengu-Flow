@@ -8,7 +8,7 @@ from typing import Any
 
 import toml
 
-from rengu_flow_ui import configs_store, datasets_store, db, library_db
+from rengu_flow_ui import datasets_store, db, library_db
 from rengu_flow_ui import runs_scanner
 from rengu_flow_ui.paths import resolve_repo_path
 from rengu_flow_ui.settings import logs_dir
@@ -74,8 +74,6 @@ def preview_import(run_path: str) -> dict[str, Any]:
 def import_run(
     run_path: str,
     *,
-    import_config: bool = True,
-    config_id: str | None = None,
     import_dataset: bool = True,
     dataset_id: str | None = None,
     allow_duplicate: bool = False,
@@ -97,64 +95,31 @@ def import_run(
     if config_path is None:
         raise JobImportError("No training config .toml found in the run folder")
 
-    lib_config_id: int | None = None
-    if import_config:
-        lib_config_id = _import_config_from_run(
-            run_dir,
-            config_path,
-            config_id=config_id,
-            import_dataset=import_dataset,
-            dataset_id=dataset_id,
-        )
-    elif import_dataset:
+    # The imported run is self-contained via its config_content snapshot; there is no
+    # separate config library. Optionally add the run's dataset TOML to the dataset library.
+    config_content = config_path.read_text(encoding="utf-8")
+    if import_dataset:
         ds_path = _dataset_file_in_run(run_dir, config_path)
         if ds_path is not None:
-            datasets_store.insert_dataset(ds_path.read_text(encoding="utf-8"))
+            datasets_store.insert_dataset(
+                ds_path.read_text(encoding="utf-8"),
+                name=f"{run_dir.name} dataset",
+            )
 
     started_at, finished_at = _infer_timestamps(run_dir, desc)
-    log_path = _write_import_log(run_dir, config_path, lib_config_id)
+    log_path = _write_import_log(run_dir, config_path)
 
     return db.create_imported_job(
         run_dir=run_dir_s,
         config_path=str(config_path.resolve()),
-        config_id=lib_config_id,
         output_dir=str(run_dir.parent),
         log_path=str(log_path),
         started_at=started_at,
         finished_at=finished_at,
         exit_code=0,
         source_run_dir=run_dir_s,
+        config_content=config_content,
     )
-
-
-def _import_config_from_run(
-    run_dir: Path,
-    config_path: Path,
-    *,
-    config_id: str | None,
-    import_dataset: bool,
-    dataset_id: str | None,
-) -> int:
-    content = config_path.read_text(encoding="utf-8")
-    try:
-        cfg = toml.loads(content)
-    except Exception as e:
-        raise JobImportError(f"Could not parse config TOML: {e}") from e
-
-    if import_dataset:
-        ds_path = _dataset_file_in_run(run_dir, config_path, cfg)
-        if ds_path is not None:
-            did = datasets_store.insert_dataset(
-                ds_path.read_text(encoding="utf-8"),
-                name=f"{run_dir.name} dataset",
-            )
-            cfg["dataset"] = datasets_store.dataset_library_ref(did)
-
-    # Library ids stay integer autoincrement; identify the imported run by name instead —
-    # label the config with the run folder name (run_name) so it is recognizable in the
-    # library, mirroring how datasets carry a name.
-    cfg.setdefault("run_name", run_dir.name)
-    return configs_store.insert_config(toml.dumps(cfg))
 
 
 def _dataset_file_in_run(
@@ -208,7 +173,7 @@ def _infer_timestamps(run_dir: Path, desc: dict[str, Any]) -> tuple[str, str | N
     return started_at, finished_at
 
 
-def _write_import_log(run_dir: Path, config_path: Path, config_id: str | None) -> Path:
+def _write_import_log(run_dir: Path, config_path: Path) -> Path:
     logs_dir().mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
     log_path = logs_dir() / f"imported-{run_dir.name}-{stamp}.log"
@@ -216,9 +181,7 @@ def _write_import_log(run_dir: Path, config_path: Path, config_id: str | None) -
         f"--- imported script run: {run_dir.name} ---",
         f"Run dir: {run_dir}",
         f"Config: {config_path}",
+        "",
     ]
-    if config_id:
-        lines.append(f"Library config id: {config_id}")
-    lines.append("")
     log_path.write_text("\n".join(lines), encoding="utf-8")
     return log_path
