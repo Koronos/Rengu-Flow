@@ -180,7 +180,10 @@ def _build_optimizer(
             optimizer_dict[p].step()
             optimizer_dict[p].zero_grad()
 
-        for p in model_parameters:
+        # Register only on params that actually got a per-parameter optimizer. get_param_groups may
+        # drop/freeze some (e.g. Cosmos lr=0 groups → requires_grad_(False)); those are not in
+        # optimizer_dict, and torch refuses a post-accumulate hook on a tensor without a gradient.
+        for p in optimizer_dict:
             p.register_post_accumulate_grad_hook(optimizer_hook)
 
         return GradientReleaseOptimizerWrapper(list(optimizer_dict.values()))
@@ -308,22 +311,11 @@ def _run_training(args, config):
                 "(the per-parameter optimizer step must run during the backward pass while each "
                 "block is on the GPU)."
             )
-        # Stop DeepSpeed from moving the whole model onto the GPU at init (that transient 5+ GB
-        # spike spills to shared RAM on small cards). prepare_block_swap_training() then places only
-        # the small non-swappable parts on the GPU and keeps the blocks on CPU until pulled.
-        def _noop_to(self, *args, **kwargs):
-            return self
+        # Keep DeepSpeed from hauling the whole model onto the GPU at init / broadcasting CPU blocks;
+        # the offloader + prepare_block_swap_training own placement (see block_swap docstring).
+        from rengu_flow.training.block_swap import patch_deepspeed_for_block_swap
 
-        import deepspeed.pipe as ds_pipe
-
-        ds_pipe.PipelineModule.to = _noop_to
-        # DeepSpeed's init-time _broadcast_model issues an NCCL broadcast per parameter, which fails
-        # on the CPU-resident blocks ("No backend type associated with device type cpu"). With a
-        # single rank that broadcast is a no-op anyway, so skip it and let the blocks stay on CPU.
-        if int(os.environ.get("WORLD_SIZE", "1")) == 1:
-            import deepspeed.runtime.engine as ds_engine
-
-            ds_engine.DeepSpeedEngine._broadcast_model = lambda self: None
+        patch_deepspeed_for_block_swap()
         model.enable_block_swap(config["blocks_to_swap"])
 
     layers = model.to_layers()

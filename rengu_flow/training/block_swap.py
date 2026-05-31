@@ -2,11 +2,32 @@
 
 from __future__ import annotations
 
+import os
 from collections import OrderedDict
 from typing import Protocol, runtime_checkable
 
 import torch
 from torch import nn
+
+
+def patch_deepspeed_for_block_swap() -> None:
+    """Make DeepSpeed leave block placement to the offloader.
+
+    Block swap keeps the model mostly on CPU and streams blocks on demand, but DeepSpeed wants to
+    (1) move the whole pipeline module onto the GPU at init — a transient multi-GB spike that spills
+    to shared RAM on small cards — and (2) broadcast every parameter across the data-parallel group,
+    which NCCL can't do for CPU-resident blocks. We neutralize both: ``PipelineModule.to`` becomes a
+    no-op (the model's ``prepare_block_swap_training`` does placement), and the per-parameter
+    ``_broadcast_model`` is skipped on a single rank (where it is a no-op anyway). Keeping this
+    DeepSpeed-internals knowledge here, next to the offloader, rather than inline in the orchestrator.
+    """
+    import deepspeed.pipe as ds_pipe
+
+    ds_pipe.PipelineModule.to = lambda self, *args, **kwargs: self
+    if int(os.environ.get("WORLD_SIZE", "1")) == 1:
+        import deepspeed.runtime.engine as ds_engine
+
+        ds_engine.DeepSpeedEngine._broadcast_model = lambda self: None
 
 
 @runtime_checkable
@@ -107,6 +128,7 @@ class HookBlockSwapOffloader:
         blocks_to_swap: int,
         device: torch.device | str = "cuda",
         prefetch: bool = False,
+        swap_trainable: bool = True,
     ):
         self.blocks: list[nn.Module] = list(blocks)
         self.num_blocks = len(self.blocks)
@@ -114,12 +136,24 @@ class HookBlockSwapOffloader:
         self.resident_cap = max(1, self.num_blocks - self.blocks_to_swap)
         self.device = torch.device(device)
         self._enabled = self.blocks_to_swap > 0
-        # Prefetch needs room to hold the running block plus the one being pulled ahead, and a CUDA
-        # device for the side stream. It overlaps the next block's H2D copy with the current block's
-        # compute; correctness never depends on it (ensure_resident always falls back to a blocking
-        # pull), so a mis-speculated prefetch under activation-checkpointing recompute only costs a
-        # little speed, never correctness.
-        self._prefetch = bool(prefetch) and self.resident_cap >= 2 and self.device.type == "cuda"
+        # When can a block's *trainable* params be evicted to CPU? Only when gradient_release runs
+        # each parameter's optimizer step inside the backward (then no end-of-step grad reduction
+        # touches them). Otherwise — adapter training, where the small trainable params live *inside*
+        # the swapped blocks — DeepSpeed flattens all gradients at step end and would hit cpu+cuda
+        # tensors. So with swap_trainable=False we keep requires_grad params GPU-resident and swap
+        # only the frozen base weights (this is what makes block swap safe for LoRA/LoKr).
+        self._swap_trainable = bool(swap_trainable)
+        # Prefetch needs room to hold the running block plus the one being pulled ahead, a CUDA
+        # device for the side stream, and (for now) full-block swapping. It overlaps the next block's
+        # H2D copy with the current block's compute; correctness never depends on it (ensure_resident
+        # always falls back to a blocking pull), so a mis-speculated prefetch under activation-
+        # checkpointing recompute only costs a little speed, never correctness.
+        self._prefetch = (
+            bool(prefetch)
+            and self._swap_trainable
+            and self.resident_cap >= 2
+            and self.device.type == "cuda"
+        )
         self._resident: "OrderedDict[int, None]" = OrderedDict()
         self._block_of_module: dict[int, int] = {}
         self._handles: list = []
@@ -156,6 +190,18 @@ class HookBlockSwapOffloader:
             self._params[idx] = cached
         return cached
 
+    def _offload_block_to_cpu(self, block: nn.Module) -> None:
+        """Move a block to CPU. With ``swap_trainable`` move the whole block; otherwise keep the
+        (small) trainable params GPU-resident and offload only the frozen weights + buffers, so an
+        end-of-step gradient reduction never sees a trainable grad on CPU (adapter training)."""
+        if self._swap_trainable:
+            block.to("cpu")
+            return
+        for p in block.parameters():
+            p.data = p.data.to(self.device if p.requires_grad else "cpu")
+        for buf in block.buffers():
+            buf.data = buf.data.to("cpu")
+
     # --------------------------------------------------------------- simple (synchronous) path
     def _ensure_resident_sync(self, block_idx: int) -> None:
         if block_idx in self._resident:
@@ -165,7 +211,7 @@ class HookBlockSwapOffloader:
         self._resident[block_idx] = None
         while len(self._resident) > self.resident_cap:
             evict_idx, _ = self._resident.popitem(last=False)
-            self.blocks[evict_idx].to("cpu")
+            self._offload_block_to_cpu(self.blocks[evict_idx])
 
     # --------------------------------------------------------------- overlapped (prefetch) path
     def _pull_async(self, idx: int) -> None:
@@ -195,7 +241,7 @@ class HookBlockSwapOffloader:
                 self._cpu[id(p)].copy_(gpu, non_blocking=True)
                 p.data = self._cpu[id(p)]
                 gpu.record_stream(self._stream)
-                self._gpu[id(p)] = None
+                self._gpu.pop(id(p), None)
         self._resident.pop(idx, None)
         self._pull_event.pop(idx, None)
 
@@ -240,8 +286,9 @@ class HookBlockSwapOffloader:
         if not self._enabled:
             return
         for block in self.blocks:
-            block.to("cpu")
+            self._offload_block_to_cpu(block)
         if self._prefetch:
+            # prefetch implies swap_trainable, so all params are eligible to pin and stream.
             self._cpu.clear()
             self._gpu.clear()
             for block in self.blocks:

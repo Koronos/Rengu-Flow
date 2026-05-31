@@ -143,7 +143,7 @@ class BasePipeline:
         return []
 
     def enable_block_swap(self, blocks_to_swap: int | str | None) -> None:
-        from rengu_flow.training.block_swap import BlockSwapOffloader, NoopOffloader
+        from rengu_flow.training.block_swap import HookBlockSwapOffloader, NoopOffloader
 
         import torch
 
@@ -153,15 +153,60 @@ class BasePipeline:
             raise NotImplementedError("Block swapping is not implemented for this model")
         if n > 0:
             device = "cuda" if torch.cuda.is_available() else "cpu"
-            self._block_swap_offloader = BlockSwapOffloader(modules, n, device=device)
+            config = getattr(self, "config", {}) or {}
+            prefetch = bool(config.get("block_swap_prefetch", False))
+            # Only safe to swap trainable params out when gradient_release steps them in the backward
+            # (otherwise DeepSpeed's end-of-step grad reduction would hit CPU-resident grads). Adapter
+            # runs keep their (small) trainable params resident; see HookBlockSwapOffloader.
+            swap_trainable = bool((config.get("optimizer") or {}).get("gradient_release", False))
+            self._block_swap_offloader = HookBlockSwapOffloader(
+                modules, n, device=device, prefetch=prefetch, swap_trainable=swap_trainable
+            )
             self.offloader = self._block_swap_offloader
         else:
             self._block_swap_offloader = None
             self.offloader = NoopOffloader()
 
+    def _block_swap_root_modules(self) -> list:
+        """Return the top-level module(s) that contain the swappable blocks (e.g. the UNet, the
+        DiT). Models that support block swap implement this; the generic ``_place_for_block_swap``
+        uses it. Keep it to the genuinely model-specific bit — which roots — not the placement logic."""
+        raise NotImplementedError(
+            "Block swap requires the model to implement _block_swap_root_modules"
+        )
+
+    def _place_for_block_swap(self, device) -> None:
+        """Place the small non-swappable modules on ``device`` and leave the swappable blocks on CPU
+        (the offloader streams those on demand). Generic across models: within each root module, any
+        immediate child that contains a swappable block is left on CPU; everything else moves to the
+        device. Runs after ``deepspeed.initialize`` (via ``prepare_block_swap_training``) so the full
+        model is never resident on the GPU at once."""
+        # Work at the tensor level (not module children): adapters like PEFT wrap the model
+        # (PeftModel → base_model → model), so the swappable blocks can be nested arbitrarily deep.
+        # Move every param/buffer that does NOT belong to a swappable block onto the device; the
+        # block tensors are left to the offloader's apply_training_layout (honors swap_trainable),
+        # called right after this.
+        swappable = self.get_block_swap_modules()
+        swappable_tensor_ids = {id(t) for m in swappable for t in m.parameters()}
+        swappable_tensor_ids |= {id(t) for m in swappable for t in m.buffers()}
+        for root in self._block_swap_root_modules():
+            for p in root.parameters():
+                if id(p) not in swappable_tensor_ids:
+                    p.data = p.data.to(device)
+            for buf in root.buffers():
+                if id(buf) not in swappable_tensor_ids:
+                    buf.data = buf.data.to(device)
+
     def prepare_block_swap_training(self) -> None:
-        if self._block_swap_offloader is not None:
-            self._block_swap_offloader.apply_training_layout()
+        if self._block_swap_offloader is None:
+            return
+        import torch
+
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        self._place_for_block_swap(device)
+        self._block_swap_offloader.apply_training_layout()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
     def prepare_block_swap_inference(self, disable_block_swap: bool = False) -> None:
         if self._block_swap_offloader is None:
@@ -238,3 +283,10 @@ class BasePipeline:
     def freeze_text_encoders(self) -> None:
         """Optional: freeze text encoder parameters for full-model UNet-only training. No-op if not supported."""
         pass
+
+    def keep_submodel_on_cpu_after_cache(self, submodel: Any) -> bool:
+        """After caching, may a submodel (VAE / text encoder) be unloaded to ``meta``, or must its
+        weights stay on CPU because ``save_model`` will read them? Default: meta (return False).
+        Models whose checkpoint includes a submodel override this. Called by ``DatasetManager.cache``
+        so model-specific save semantics stay out of the data layer."""
+        return False

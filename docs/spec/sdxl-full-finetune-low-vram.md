@@ -78,11 +78,24 @@ but see below.
 
 ## Validation status
 
-**Validated on WSL2 / 8 GB (this work):**
-- Full SDXL fine-tune (no adapter) trains and writes a complete `model.safetensors` (UNet+VAE+both
-  TEs), ~4.3 GB at `blocks_to_swap=6`.
-- Cosmos LoRA + SDXL LoRA smokes train (sanity that the env/stack is healthy).
-- Unit tests for `configure_cuda_allocator` and `HookBlockSwapOffloader` (sync path).
+**Validated on WSL2 / 8 GB (this work).** Both models, all three modes, 3-step smokes (process
+`cuda_peak`):
+
+| | LoRA | LoRA + block swap | full finetune + block swap |
+|---|---|---|---|
+| **SDXL** (256px) | ✓ | ✓ | ✓ 4.32 GB, writes complete `model.safetensors` |
+| **Cosmos** (512px) | ✓ 4.98 GB | ✓ 1.65 GB | ✓ 1.74 GB |
+
+Block swap is now model-agnostic: `enable_block_swap` / `prepare_block_swap_training` /
+`_place_for_block_swap` live in `base.py`; models declare only `get_block_swap_modules` +
+`_block_swap_root_modules`. Two correctness fixes landed for adapter + Cosmos paths:
+- The offloader keeps trainable params GPU-resident unless `gradient_release` (otherwise DeepSpeed's
+  end-of-step grad reduction hits CPU grads) — needed for LoRA/LoKr block swap.
+- `_place_for_block_swap` works at the tensor level so PEFT-wrapped models (SDXL LoRA wraps the UNet
+  in a `PeftModel`) place their non-block tensors correctly.
+- gradient_release registers hooks only on params that got an optimizer (skips frozen `lr=0` groups,
+  e.g. Cosmos `llm_adapter_lr=0`).
+Unit tests cover `configure_cuda_allocator`, the offloader (sync + swap_trainable), and placement.
 
 **Needs validation on native Linux (handing off):**
 - The whole low-VRAM full-finetune path on a real Linux GPU (no WSL2 sysmem paging) — expected
