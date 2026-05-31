@@ -1,11 +1,9 @@
-"""Tests for UI training config store and staging."""
+"""Tests for run TOML validation and job staging (run_staging)."""
 
 from pathlib import Path
 
-import pytest
+from rengu_flow_ui import datasets_store, library_db, run_staging
 import toml
-
-from rengu_flow_ui import configs_store, datasets_store, library_db
 
 
 MINIMAL_TOML = """
@@ -34,31 +32,12 @@ num_repeats = 1
 """
 
 
-def test_safe_id_sanitizes() -> None:
-    assert configs_store._safe_id("  foo bar!!  ") == "foo_bar"
-
-
-def test_config_library_crud(ui_data_tmp: Path) -> None:
-    cid = configs_store.insert_config(MINIMAL_TOML)
-    assert cid in configs_store.list_config_ids()
-    assert configs_store.config_exists(cid)
-    dup = configs_store.duplicate_config(cid)
-    assert dup != cid
-    configs_store.delete_config(cid)
-    with pytest.raises(FileNotFoundError):
-        configs_store.read_config_text(cid)
-
-
 def test_materialize_staging_resolves_library_dataset(ui_data_tmp: Path) -> None:
     did = datasets_store.insert_dataset(DATASET_TOML)
     ref = library_db.dataset_library_ref(did)
     content = MINIMAL_TOML.replace("rengu-flow-dataset:my_dataset", ref)
-    cid = configs_store.insert_config(content)
 
-    staging = configs_store.materialize_staging(
-        configs_store.read_config_text(cid),
-        "job-abc",
-    )
+    staging = run_staging.materialize_staging(content, "job-abc")
     assert staging.name == "train.toml"
     cfg = toml.loads(staging.read_text(encoding="utf-8"))
     assert Path(cfg["dataset"]).is_absolute()
@@ -72,7 +51,7 @@ def test_materialize_staging_absolute_dataset_unchanged(ui_data_tmp: Path) -> No
         'dataset = "rengu-flow-dataset:my_dataset"',
         f'dataset = "{abs_ds}"',
     )
-    out = configs_store.materialize_staging(content, "job-abs")
+    out = run_staging.materialize_staging(content, "job-abs")
     cfg = toml.loads(out.read_text(encoding="utf-8"))
     assert cfg["dataset"] == str(abs_ds.resolve())
 
@@ -92,7 +71,7 @@ def test_materialize_staging_does_not_persist_defaults(ui_data_tmp: Path) -> Non
         )
         + '\n[adapter]\ntype = "lora"\nrank = 8\n'
     )
-    out = configs_store.materialize_staging(content, "job-defaults")
+    out = run_staging.materialize_staging(content, "job-defaults")
     raw = out.read_text(encoding="utf-8")
     cfg = toml.loads(raw)
     assert cfg["model"]["dtype"] == "bfloat16"
@@ -102,7 +81,7 @@ def test_materialize_staging_does_not_persist_defaults(ui_data_tmp: Path) -> Non
 
 
 def test_validate_rejects_bad_toml() -> None:
-    assert configs_store.validate_toml_text("not valid {{{")["ok"] is False
+    assert run_staging.validate_toml_text("not valid {{{")["ok"] is False
 
 
 def test_materialize_staging_merges_multiple_datasets(ui_data_tmp: Path) -> None:
@@ -116,7 +95,7 @@ def test_materialize_staging_merges_multiple_datasets(ui_data_tmp: Path) -> None
         'dataset = "rengu-flow-dataset:my_dataset"',
         f"dataset = [{ref_a!r}, {ref_b!r}]",
     )
-    out = configs_store.materialize_staging(content, "job-merge")
+    out = run_staging.materialize_staging(content, "job-merge")
     cfg = toml.loads(out.read_text(encoding="utf-8"))
     merged_path = Path(cfg["dataset"])
     assert merged_path.is_file()
@@ -128,7 +107,7 @@ def test_validate_accepts_dataset_list(ui_data_tmp: Path, minimal_config: dict) 
     did = datasets_store.insert_dataset(DATASET_TOML)
     ref = library_db.dataset_library_ref(did)
     minimal_config["dataset"] = [ref, ref]
-    r = configs_store.validate_toml_text(toml.dumps(minimal_config))
+    r = run_staging.validate_toml_text(toml.dumps(minimal_config))
     assert r["ok"] is True
 
 
@@ -136,7 +115,7 @@ def test_validate_accepts_minimal(ui_data_tmp: Path, minimal_config: dict) -> No
     did = datasets_store.insert_dataset(DATASET_TOML)
     minimal_config["dataset"] = library_db.dataset_library_ref(did)
     text = toml.dumps(minimal_config)
-    r = configs_store.validate_toml_text(text)
+    r = run_staging.validate_toml_text(text)
     assert r["ok"] is True
     assert "config" in r
     assert isinstance(r["config"]["model"]["dtype"], str)

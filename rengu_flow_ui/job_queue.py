@@ -7,8 +7,19 @@ from pathlib import Path
 from typing import Any
 import toml
 
-from rengu_flow_ui import configs_store, db, jobs
+from rengu_flow_ui import db, jobs, run_staging
 from rengu_flow_ui.settings import logs_dir
+
+
+def _resolve_run_content(content: str | None, source_run_dir: str | None) -> str:
+    """Return the run's TOML, reading it from ``source_run_dir`` when not given inline."""
+    if content:
+        return content
+    if source_run_dir:
+        from rengu_flow_ui.run_config import read_run_config_text
+
+        return read_run_config_text(source_run_dir)
+    raise ValueError("Provide content or source_run_dir")
 
 
 def _job_sort_key(job: db.JobRecord) -> tuple:
@@ -110,7 +121,6 @@ def merge_job_cli_args(
 
 def prepare_job(
     *,
-    config_id: str | int | None,
     content: str | None,
     num_gpus: int,
     resume_from: str | None,
@@ -120,23 +130,14 @@ def prepare_job(
     reset_optimizer: bool,
     cache_only: bool = False,
     trust_cache: bool = False,
+    regenerate_cache: bool = False,
     queue_position: int | None = None,
     source_run_dir: str | None = None,
 ) -> db.JobRecord:
-    if config_id:
-        content = configs_store.read_config_text(config_id)
-    elif content:
-        pass
-    elif source_run_dir:
-        from rengu_flow_ui.run_config import read_run_config_text
-
-        content = read_run_config_text(source_run_dir)
-    else:
-        raise ValueError("Provide config_id, content, or source_run_dir")
+    content = _resolve_run_content(content, source_run_dir)
 
     job_stub = db.create_job(
         config_path="",
-        config_id=config_id,
         log_path=str(logs_dir() / "pending.log"),
         num_gpus=num_gpus,
         resume_from=resume_from,
@@ -146,13 +147,17 @@ def prepare_job(
         source_run_dir=source_run_dir,
         # Snapshot the run's own config (library refs intact) so the run is self-contained
         # and can seed a clone even if a library config is later edited or deleted.
-        config_content=content or "",
+        config_content=content,
+        cache_only=cache_only,
+        trust_cache=trust_cache,
+        regenerate_cache=regenerate_cache,
     )
-    staging = configs_store.materialize_staging(content, job_stub.id)
+    staging = run_staging.materialize_staging(content, job_stub.id)
     extra_s = merge_job_cli_args(
         extra_args,
         cache_only=cache_only,
         trust_cache=trust_cache,
+        regenerate_cache=regenerate_cache,
         reset_dataloader=reset_dataloader,
         reset_optimizer=reset_optimizer,
     )
@@ -269,6 +274,76 @@ def clone_run(
     return enqueue_job(**kwargs)
 
 
+def save_draft(
+    *,
+    content: str | None,
+    num_gpus: int,
+    resume_from: str | None,
+    output_dir: str | None,
+    extra_args: str,
+    reset_dataloader: bool,
+    reset_optimizer: bool,
+    cache_only: bool = False,
+    trust_cache: bool = False,
+    regenerate_cache: bool = False,
+    source_run_dir: str | None = None,
+) -> db.JobRecord:
+    """Save a run as a ``new`` draft: stored config + params, no staging, no queue slot.
+
+    A draft does not compete for the runner (``try_start_next`` only looks at ``pending``);
+    it is materialized into staging only when promoted via :func:`enqueue_existing`.
+    """
+    content = _resolve_run_content(content, source_run_dir)
+    extra_s = merge_job_cli_args(
+        extra_args,
+        cache_only=cache_only,
+        trust_cache=trust_cache,
+        regenerate_cache=regenerate_cache,
+        reset_dataloader=reset_dataloader,
+        reset_optimizer=reset_optimizer,
+    )
+    out_dir = output_dir or toml.loads(content).get("output_dir", "output")
+    job = db.create_job(
+        config_path="",
+        log_path=str(logs_dir() / "draft.log"),
+        state="new",
+        num_gpus=num_gpus,
+        resume_from=resume_from,
+        output_dir=out_dir,
+        extra_args=extra_s,
+        queue_position=None,
+        source_run_dir=str(Path(source_run_dir).resolve()) if source_run_dir else None,
+        config_content=content,
+        cache_only=cache_only,
+        trust_cache=trust_cache,
+        regenerate_cache=regenerate_cache,
+    )
+    return db.get_job(job.id)
+
+
+def enqueue_existing(job_id: str | int) -> db.JobRecord:
+    """Promote a saved ``new`` draft into the pending queue and start it if idle."""
+    job = db.get_job(job_id)
+    if job.state != "new":
+        raise ValueError("Only saved (new) runs can be enqueued")
+    content = job.config_content or ""
+    if not content.strip():
+        raise ValueError(f"Run {job_id} has no config content to enqueue")
+    staging = run_staging.materialize_staging(content, job_id)
+    cfg = toml.loads(staging.read_text(encoding="utf-8"))
+    out_dir = job.output_dir or cfg.get("output_dir", "output")
+    db.update_job(
+        job_id,
+        state="pending",
+        config_path=str(staging),
+        log_path=str(logs_dir() / f"{job_id}.log"),
+        output_dir=out_dir,
+        queue_position=next_queue_position(),
+    )
+    try_start_next()
+    return db.get_job(job_id)
+
+
 def update_pending_job(
     job_id: str,
     *,
@@ -310,7 +385,7 @@ def update_pending_job(
         fields["config_content"] = content
         # Re-stage immediately only for pending runs (drafts stage on enqueue).
         if job.state == "pending":
-            staging = configs_store.materialize_staging(content, job_id)
+            staging = run_staging.materialize_staging(content, job_id)
             fields["config_path"] = str(staging)
             cfg = toml.loads(staging.read_text(encoding="utf-8"))
             if output_dir is None and "output_dir" in cfg:

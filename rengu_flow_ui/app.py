@@ -17,7 +17,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from rengu_flow_ui import configs_store, datasets_store, db, jobs, live_stream, metrics_tb, runs_scanner, signals
+from rengu_flow_ui import datasets_store, db, jobs, live_stream, metrics_tb, run_staging, runs_scanner, signals
 from rengu_flow_ui.dataset_form import form_to_toml as dataset_form_to_toml
 from rengu_flow_ui.dataset_form import parse_toml_to_form
 from rengu_flow_ui.dataset_image_preview import (
@@ -45,14 +45,6 @@ from rengu_flow_ui.settings import (
 API_PREFIX = "/api/v1"
 
 
-class ConfigCreate(BaseModel):
-    content: str
-
-
-class ConfigUpdate(BaseModel):
-    content: str
-
-
 class ConfigExportBody(BaseModel):
     content: str
     name: str | None = None
@@ -60,7 +52,6 @@ class ConfigExportBody(BaseModel):
 
 class ValidateBody(BaseModel):
     content: str | None = None
-    config_id: str | None = None
 
 
 class RunStart(BaseModel):
@@ -255,7 +246,7 @@ def create_app() -> FastAPI:
     @app.post(f"{API_PREFIX}/validate")
     def validate_inline(body: ValidateBody) -> dict[str, Any]:
         if body.content is not None:
-            return configs_store.validate_toml_text(body.content)
+            return run_staging.validate_toml_text(body.content)
         raise HTTPException(400, "Provide content")
 
     @app.post(f"{API_PREFIX}/validate-only")
@@ -264,7 +255,7 @@ def create_app() -> FastAPI:
             raise HTTPException(400, "Provide content")
         import tempfile
 
-        tmp = Path(tempfile.mkdtemp(dir=configs_store.staging_dir()))
+        tmp = Path(tempfile.mkdtemp(dir=run_staging.staging_dir()))
         path = tmp / "validate.toml"
         path.write_text(body.content, encoding="utf-8")
         cmd = [sys.executable, "-m", "rengu_flow.main", "--config", str(path), "--validate-only"]
@@ -516,17 +507,6 @@ def create_app() -> FastAPI:
         cid = datasets_store.import_example(src)
         return {"id": cid, "dataset_ref": datasets_store.dataset_library_ref(cid)}
 
-    @app.post(f"{API_PREFIX}/configs/import-example")
-    def import_config_example(
-        path: str = Query(..., description="Example path under repo examples/"),
-    ) -> dict[str, int]:
-        try:
-            src = resolve_example_path(path)
-        except (PathError, FileNotFoundError):
-            raise HTTPException(404, "Example file not found")
-        cid = configs_store.import_example(src)
-        return {"id": cid}
-
     # --- Train hub (unified jobs + disk runs) ---
     @app.get(f"{API_PREFIX}/train/runs")
     def list_train_runs(
@@ -626,8 +606,6 @@ def create_app() -> FastAPI:
         try:
             job = job_import.import_run(
                 body.run_path,
-                import_config=body.import_config,
-                config_id=body.config_id,
                 import_dataset=body.import_dataset,
                 dataset_id=body.dataset_id,
                 allow_duplicate=body.allow_duplicate,
@@ -749,8 +727,6 @@ def create_app() -> FastAPI:
         """Config TOML for a new run cloned from this one (run_name gets a _N suffix)."""
         import toml
 
-        from rengu_flow_ui import configs_store
-
         try:
             job = db.get_job(job_id)
         except KeyError:
@@ -762,7 +738,7 @@ def create_app() -> FastAPI:
             cfg = toml.loads(content)
             base = cfg.get("run_name")
             if isinstance(base, str) and base.strip():
-                cfg["run_name"] = configs_store.next_run_name(base)
+                cfg["run_name"] = run_staging.next_run_name(base)
                 content = toml.dumps(cfg)
         except Exception:
             pass

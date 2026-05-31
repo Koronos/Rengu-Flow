@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from rengu_flow_ui import configs_store, db
+from rengu_flow_ui import db
 
 MINIMAL_TOML = """
 dataset = "examples/minimal_dataset.toml"
@@ -51,61 +51,6 @@ def test_schema_and_dataset_schema(ui_client) -> None:
     assert "presets" in aug
     assert "strategies" in aug
     assert any(p["name"] == "easy" for p in aug["presets"])
-
-
-def test_configs_search_paginated(ui_client, ui_data_tmp: Path) -> None:
-    for _ in range(3):
-        configs_store.insert_config(MINIMAL_TOML)
-    r = ui_client.get("/api/v1/configs", params={"page": 1, "page_size": 2})
-    assert r.status_code == 200
-    body = r.json()
-    assert body["total"] >= 3
-    assert len(body["items"]) == 2
-    assert body["page"] == 1
-
-    r2 = ui_client.get("/api/v1/configs")
-    assert r2.status_code == 200
-    assert "configs" in r2.json()
-
-
-def test_config_crud_via_api(ui_client, ui_data_tmp: Path) -> None:
-    r = ui_client.post("/api/v1/configs", json={"content": MINIMAL_TOML})
-    assert r.status_code == 200
-    cid = r.json()["id"]
-    assert isinstance(cid, int)
-
-    r = ui_client.get(f"/api/v1/configs/{cid}")
-    assert r.status_code == 200
-    assert "sdxl" in r.json()["content"]
-
-    r = ui_client.get("/api/v1/configs")
-    ids = [c["id"] for c in r.json()["configs"]]
-    assert cid in ids
-
-    updated = MINIMAL_TOML + '\nrun_name = "test"\n'
-    r = ui_client.put(f"/api/v1/configs/{cid}", json={"content": updated})
-    assert r.status_code == 200
-
-    r = ui_client.post(f"/api/v1/configs/{cid}/duplicate")
-    assert r.status_code == 200
-    dup_id = r.json()["id"]
-    assert dup_id != cid
-
-    r = ui_client.delete(f"/api/v1/configs/{cid}")
-    assert r.status_code == 200
-
-
-def test_config_import_preserves_full_toml(ui_client) -> None:
-    example = (Path(__file__).resolve().parents[1] / "examples" / "minimal_config_lora_sdxl.toml").read_text(
-        encoding="utf-8"
-    )
-    r = ui_client.post("/api/v1/configs/import", json={"content": example})
-    assert r.status_code == 200
-    cid = r.json()["id"]
-    stored = ui_client.get(f"/api/v1/configs/{cid}").json()["content"]
-    assert "lr_scheduler" in stored
-    assert "checkpoint_path" in stored
-    assert "[lr_scheduler_args]" in stored
 
 
 def test_config_render_toml_merge_preserves_scheduler(ui_client) -> None:
@@ -276,8 +221,6 @@ def test_registry_probe(ui_client) -> None:
 
 
 def test_jobs_enqueue_mocked(ui_client, ui_data_tmp: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    job_cfg = configs_store.insert_config(MINIMAL_TOML)
-
     def fake_start(job: db.JobRecord) -> int:
         db.update_job(job.id, state="running", pid=12345)
         return 12345
@@ -287,16 +230,15 @@ def test_jobs_enqueue_mocked(ui_client, ui_data_tmp: Path, monkeypatch: pytest.M
 
     r = ui_client.post(
         "/api/v1/jobs",
-        json={"config_id": job_cfg, "num_gpus": 1, "enqueue": True},
+        json={"content": MINIMAL_TOML, "num_gpus": 1, "enqueue": True},
     )
     assert r.status_code == 200
     job = r.json()
     assert job["state"] in ("running", "pending")
-    assert job["config_id"] == job_cfg
 
     r_cache = ui_client.post(
         "/api/v1/jobs",
-        json={"config_id": job_cfg, "num_gpus": 1, "cache_only": True, "enqueue": True},
+        json={"content": MINIMAL_TOML, "num_gpus": 1, "cache_only": True, "enqueue": True},
     )
     assert r_cache.status_code == 200
     assert "--cache_only" in r_cache.json()["extra_args"]
@@ -321,9 +263,9 @@ def test_tensorboard_start_missing_dir(ui_client) -> None:
 
 def test_auth_token_required(ui_client_auth) -> None:
     client, headers = ui_client_auth
-    r = client.get("/api/v1/configs")
+    r = client.get("/api/v1/jobs")
     assert r.status_code == 401
     assert "Invalid token" in r.json()["detail"]
 
-    r2 = client.get("/api/v1/configs", headers=headers)
+    r2 = client.get("/api/v1/jobs", headers=headers)
     assert r2.status_code == 200

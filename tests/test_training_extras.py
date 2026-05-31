@@ -114,7 +114,6 @@ def test_jobs_start_calls_ensure_training_extras(tmp_path, monkeypatch):
 
     job = jobs.db.JobRecord(
         id=1,
-        config_id=None,
         config_path=str(tmp_path / "c.toml"),
         log_path=str(tmp_path / "log.txt"),
         state="pending",

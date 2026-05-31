@@ -10,7 +10,6 @@ from rengu_flow_ui import db, job_queue, jobs
 def _pending_job(ui_data_tmp) -> db.JobRecord:
     return db.create_job(
         config_path="configs/x.toml",
-        config_id=None,
         log_path=str(ui_data_tmp / "logs" / "job.log"),
         output_dir=str(ui_data_tmp / "output"),
     )

@@ -1,15 +1,17 @@
-"""Export/import the config & dataset library to/from TOML files (migration mode).
+"""Export/import the dataset library to/from TOML files (migration mode).
 
 The SQLite library is mostly a TOML blob per row plus derived index columns. This module
 makes those rows portable and schema-independent:
 
-- **Export** writes ``configs/<id>.toml`` and ``datasets/<id>.toml``. Each file is the row's
-  stored TOML content with a trailing ``[__rengu_index]`` table (id / kind / name /
-  timestamps) appended. The trainer ignores unknown top-level tables, so an exported file is
-  still a valid training/dataset TOML.
+- **Export** writes ``datasets/<id>.toml``. Each file is the row's stored TOML content with a
+  trailing ``[__rengu_index]`` table (id / kind / name / timestamps) appended. The trainer
+  ignores unknown top-level tables, so an exported file is still a valid dataset TOML.
 - **Import** reads those files back, strips the index table, and restores each row under its
   original id (re-deriving the index columns from content). Files without a valid index, or
   keys it does not recognize, are skipped — so the format tolerates older/newer exports.
+
+The standalone config library was removed (runs now carry their own TOML snapshot), so only
+datasets are migrated here.
 
 See ``docs/developer/run-model-redesign.md`` §4.
 """
@@ -39,30 +41,12 @@ def _record_file_text(content: str, index: dict[str, Any]) -> str:
 
 
 def export_library(dest_dir: str | Path) -> dict[str, int]:
-    """Write every config and dataset row to ``<dest>/configs`` and ``<dest>/datasets``."""
+    """Write every dataset row to ``<dest>/datasets``."""
     dest = Path(dest_dir)
-    (dest / "configs").mkdir(parents=True, exist_ok=True)
     (dest / "datasets").mkdir(parents=True, exist_ok=True)
-    counts = {"configs": 0, "datasets": 0}
+    counts = {"datasets": 0}
     with library_db._connect() as conn:
         library_db.init_library_tables(conn)
-        for row in conn.execute(
-            "SELECT id, content, created_at, updated_at FROM training_configs"
-        ).fetchall():
-            (dest / "configs" / f"{row['id']}.toml").write_text(
-                _record_file_text(
-                    row["content"],
-                    {
-                        "id": row["id"],
-                        "kind": "config",
-                        "name": "",
-                        "created_at": row["created_at"],
-                        "updated_at": row["updated_at"],
-                    },
-                ),
-                encoding="utf-8",
-            )
-            counts["configs"] += 1
         for row in conn.execute(
             "SELECT id, name, content, created_at, updated_at FROM datasets"
         ).fetchall():
@@ -111,64 +95,36 @@ def import_library(src_dir: str | Path, *, overwrite: bool = False) -> dict[str,
     skipped (existing or unrecognized), per kind.
     """
     src = Path(src_dir)
-    counts = {"configs": 0, "datasets": 0, "skipped": 0}
+    counts = {"datasets": 0, "skipped": 0}
     verb = "INSERT OR REPLACE" if overwrite else "INSERT OR IGNORE"
     with library_db._cursor() as cur:
-        for kind, subdir, table in (
-            ("config", "configs", "training_configs"),
-            ("dataset", "datasets", "datasets"),
-        ):
-            folder = src / subdir
-            if not folder.is_dir():
+        folder = src / "datasets"
+        if not folder.is_dir():
+            return counts
+        for path in sorted(folder.glob("*.toml")):
+            rec = _read_record(path)
+            if rec is None or (rec["kind"] and rec["kind"] != "dataset"):
+                counts["skipped"] += 1
                 continue
-            for path in sorted(folder.glob("*.toml")):
-                rec = _read_record(path)
-                if rec is None or (rec["kind"] and rec["kind"] != kind):
-                    counts["skipped"] += 1
-                    continue
-                if kind == "config":
-                    model_type, dataset_ref, meta = library_db._extract_config_index(
-                        rec["content"]
-                    )
-                    cur.execute(
-                        f"""
-                        {verb} INTO training_configs (
-                            id, content, model_type, dataset_ref, meta_json,
-                            created_at, updated_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        (
-                            rec["id"],
-                            rec["content"],
-                            model_type,
-                            dataset_ref,
-                            json.dumps(meta),
-                            rec["created_at"],
-                            rec["updated_at"],
-                        ),
-                    )
-                else:
-                    directory_count, meta = library_db._extract_dataset_index(rec["content"])
-                    cur.execute(
-                        f"""
-                        {verb} INTO datasets (
-                            id, content, name, directory_count, meta_json,
-                            created_at, updated_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        (
-                            rec["id"],
-                            rec["content"],
-                            rec["name"],
-                            directory_count,
-                            json.dumps(meta),
-                            rec["created_at"],
-                            rec["updated_at"],
-                        ),
-                    )
-                counts["configs" if kind == "config" else "datasets"] += (
-                    1 if cur.rowcount else 0
-                )
-                if not cur.rowcount:
-                    counts["skipped"] += 1
+            directory_count, meta = library_db._extract_dataset_index(rec["content"])
+            cur.execute(
+                f"""
+                {verb} INTO datasets (
+                    id, content, name, directory_count, meta_json,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    rec["id"],
+                    rec["content"],
+                    rec["name"],
+                    directory_count,
+                    json.dumps(meta),
+                    rec["created_at"],
+                    rec["updated_at"],
+                ),
+            )
+            counts["datasets"] += 1 if cur.rowcount else 0
+            if not cur.rowcount:
+                counts["skipped"] += 1
     return counts

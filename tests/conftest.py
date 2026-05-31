@@ -63,7 +63,7 @@ def _patch_ui_data_paths(monkeypatch: pytest.MonkeyPatch, base: Path) -> None:
     monkeypatch.setattr("rengu_flow_ui.settings.db_path", _db_path)
     monkeypatch.setattr("rengu_flow_ui.db.db_path", _db_path)
     monkeypatch.setattr("rengu_flow_ui.library_db.db_path", _db_path)
-    monkeypatch.setattr("rengu_flow_ui.configs_store.staging_dir", lambda: base / "staging")
+    monkeypatch.setattr("rengu_flow_ui.run_staging.staging_dir", lambda: base / "staging")
 
 
 def _init_ui_data_dir(base: Path) -> None:

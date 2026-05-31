@@ -196,7 +196,6 @@ def _matches_query(row: dict[str, Any], term: str) -> bool:
         str(x or "")
         for x in (
             row.get("key"),
-            row.get("config_id"),
             row.get("run_name"),
             row.get("label"),
             row.get("state"),

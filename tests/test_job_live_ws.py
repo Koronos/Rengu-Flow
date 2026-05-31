@@ -12,7 +12,6 @@ from rengu_flow_ui import db, live_stream
 def _running_job(ui_data_tmp: Path, *, run_dir: Path, log_path: Path) -> db.JobRecord:
     job = db.create_job(
         config_path="configs/x.toml",
-        config_id=None,
         log_path=str(log_path),
         output_dir=str(run_dir.parent),
     )

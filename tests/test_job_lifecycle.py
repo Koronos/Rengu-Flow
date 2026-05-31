@@ -8,7 +8,6 @@ from rengu_flow_ui import db, jobs
 def _make_running_job(log: Path) -> db.JobRecord:
     job = db.create_job(
         config_path="x",
-        config_id=None,
         log_path=str(log),
         num_gpus=1,
         output_dir="output",
@@ -21,7 +20,7 @@ def _make_running_job(log: Path) -> db.JobRecord:
 def test_update_job_persists_log_path(ui_data_tmp: Path) -> None:
     """RF-07 root cause: log_path was missing from update_job's allowed set, so the per-job
     log path was silently dropped and every job kept the shared pending.log."""
-    job = db.create_job(config_path="", config_id=None, log_path="logs/pending.log", num_gpus=1)
+    job = db.create_job(config_path="", log_path="logs/pending.log", num_gpus=1)
     db.update_job(job.id, log_path="logs/42.log")
     assert db.get_job(job.id).log_path == "logs/42.log"
 

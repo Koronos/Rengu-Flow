@@ -16,7 +16,7 @@ import toml
 
 from rengu_flow.config import load_config, set_config_defaults, validate_config
 from rengu_flow.config.validation import collect_validation_errors
-from rengu_flow_ui.configs_store import validate_toml_text
+from rengu_flow_ui.run_staging import validate_toml_text
 from rengu_flow_ui.datasets_store import validate_dataset_text
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent

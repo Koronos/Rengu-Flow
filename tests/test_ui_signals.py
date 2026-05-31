@@ -52,7 +52,6 @@ def test_job_signal_api(ui_client, ui_data_tmp: Path) -> None:
     run_dir.mkdir(parents=True)
     job = db.create_job(
         config_path="configs/x.toml",
-        config_id=None,
         log_path=str(ui_data_tmp / "logs" / "job.log"),
         output_dir=str(ui_data_tmp / "output"),
     )
@@ -69,7 +68,6 @@ def test_job_signal_rejects_stopped_job(ui_client, ui_data_tmp: Path) -> None:
     run_dir.mkdir(parents=True)
     job = db.create_job(
         config_path="configs/x.toml",
-        config_id=None,
         log_path=str(ui_data_tmp / "logs" / "job.log"),
         output_dir=str(ui_data_tmp / "output"),
     )
@@ -95,7 +93,6 @@ def test_run_dir_accepts_signals_with_active_job(ui_data_tmp: Path) -> None:
     run_dir.mkdir()
     job = db.create_job(
         config_path="configs/x.toml",
-        config_id=None,
         log_path=str(ui_data_tmp / "logs" / "job.log"),
         output_dir=str(ui_data_tmp / "output"),
     )

@@ -10,7 +10,7 @@ import pytest
 import toml
 
 from rengu_flow.config.dataset_library_ref import dataset_library_ref
-from rengu_flow_ui import datasets_store, library_db
+from rengu_flow_ui import datasets_store
 from rengu_flow_ui.training_export import (
     absolutize_dataset_config,
     build_training_export_zip,
@@ -91,10 +91,13 @@ def test_build_zip_with_file_path_dataset(examples_dir: Path) -> None:
 
 
 def test_export_config_api_returns_zip(ui_client) -> None:
-    cid = library_db.insert_config(
+    content = (
         'dataset = "examples/minimal_dataset.toml"\n[model]\ntype = "sdxl"\ndtype = "bfloat16"\ncheckpoint_path = "x"\n[optimizer]\ntype = "adamw"\nlr = 1e-4\n'
     )
-    r = ui_client.get(f"/api/v1/configs/{cid}/export")
+    r = ui_client.post(
+        "/api/v1/configs/export-bundle",
+        json={"content": content, "name": "my_run"},
+    )
     assert r.status_code == 200
     assert r.headers["content-type"] == "application/zip"
     assert "attachment" in r.headers.get("content-disposition", "")

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from rengu_flow_ui import configs_store, datasets_store, job_import
+from rengu_flow_ui import datasets_store, job_import
 from rengu_flow_ui.job_import import JobImportError
 
 
@@ -52,11 +52,8 @@ def test_preview_and_import_run(ui_data_tmp: Path) -> None:
     job = job_import.import_run(str(run))
     assert job.state == "finished"
     assert job.run_dir == str(run.resolve())
-    # Library ids stay integer autoincrement; the run is identified by name, not id.
-    assert isinstance(job.config_id, int)
-    assert configs_store.config_exists(job.config_id)
-    # The imported config is labelled after the run (run_name) for identification.
-    assert run.name in configs_store.read_config_text(job.config_id)
+    # The run carries its config inline as a snapshot.
+    assert 'type = "sdxl"' in job.config_content
     # The imported dataset is stored and named after the run.
     ds_names = [d["name"] for d in datasets_store.list_datasets_summary()]
     assert f"{run.name} dataset" in ds_names
@@ -76,7 +73,7 @@ def test_import_via_api(ui_client, ui_data_tmp: Path) -> None:
 
     r2 = ui_client.post(
         "/api/v1/jobs/import",
-        json={"run_path": str(run), "import_config": True, "import_dataset": True},
+        json={"run_path": str(run), "import_dataset": True},
     )
     assert r2.status_code == 200
     body = r2.json()

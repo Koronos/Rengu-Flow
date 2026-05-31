@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from rengu_flow_ui import configs_store, datasets_store, library_db
+from rengu_flow_ui import datasets_store, db, library_db
 
 
 @pytest.fixture
@@ -46,21 +46,24 @@ def test_maintenance_status_when_enabled(maintenance_client) -> None:
 
 
 def test_database_reset_recreates_tables(maintenance_client, ui_data_tmp) -> None:
-    cid = configs_store.insert_config('dataset = "x"\n[model]\ntype = "sdxl"\n')
     did = datasets_store.insert_dataset("resolutions = [512]\nframe_buckets = [1]\n")
-    assert library_db.config_exists(cid)
+    job = db.create_job(
+        config_path="",
+        log_path="x",
+        config_content='dataset = "x"\n[model]\ntype = "sdxl"\n',
+    )
     assert library_db.dataset_exists(did)
 
     r = maintenance_client.post("/api/v1/maintenance/database/reset", json={"confirmation": "RESET"})
     assert r.status_code == 200
     data = r.json()
     assert data["ok"] is True
-    assert "training_configs" in data["tables_after"]
     assert "datasets" in data["tables_after"]
     assert "jobs" in data["tables_after"]
 
-    assert not library_db.config_exists(cid)
     assert not library_db.dataset_exists(did)
+    with pytest.raises(KeyError):
+        db.get_job(job.id)
 
 
 def test_database_reset_requires_confirm(ui_client, maintenance_on) -> None:

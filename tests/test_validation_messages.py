@@ -7,7 +7,7 @@ from rengu_flow.config.validation import (
     validate_config,
     ConfigValidationError,
 )
-from rengu_flow_ui.configs_store import validate_toml_text
+from rengu_flow_ui.run_staging import validate_toml_text
 
 
 def test_validate_empty_content_lists_issues() -> None:

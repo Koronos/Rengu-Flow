@@ -2,7 +2,7 @@
 
 import pytest
 
-from rengu_flow_ui import configs_store, db, job_queue
+from rengu_flow_ui import db, job_queue
 
 _CFG = """
 dataset = "x.toml"
@@ -23,10 +23,8 @@ def test_enqueue_two_pending_sorted(ui_data_tmp, monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr("rengu_flow_ui.jobs.start_job", fake_start)
     monkeypatch.setattr("rengu_flow_ui.jobs.poll_job", lambda job_id: db.get_job(job_id))
 
-    cid = configs_store.insert_config(_CFG)
     j1 = job_queue.enqueue_job(
-        config_id=cid,
-        content=None,
+        content=_CFG,
         num_gpus=1,
         resume_from=None,
         output_dir=None,
@@ -35,8 +33,7 @@ def test_enqueue_two_pending_sorted(ui_data_tmp, monkeypatch: pytest.MonkeyPatch
         reset_optimizer=False,
     )
     j2 = job_queue.enqueue_job(
-        config_id=cid,
-        content=None,
+        content=_CFG,
         num_gpus=2,
         resume_from=None,
         output_dir=None,
@@ -53,10 +50,8 @@ def test_enqueue_two_pending_sorted(ui_data_tmp, monkeypatch: pytest.MonkeyPatch
 
 def test_update_pending_job(ui_data_tmp, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("rengu_flow_ui.job_queue.try_start_next", lambda: None)
-    cid = configs_store.insert_config(_CFG)
     job = job_queue.enqueue_job(
-        config_id=cid,
-        content=None,
+        content=_CFG,
         num_gpus=1,
         resume_from=None,
         output_dir=None,
