@@ -29,13 +29,13 @@ def test_resident_cap_and_lru_eviction() -> None:
     blocks = _blocks(5)
     off = HookBlockSwapOffloader(blocks, blocks_to_swap=3, device="cpu")  # cap = 5 - 3 = 2
     assert off.enabled is True and off.resident_cap == 2
-    off._ensure_resident(0)
-    off._ensure_resident(1)
+    off._ensure_resident_sync(0)
+    off._ensure_resident_sync(1)
     assert set(off._resident) == {0, 1}
-    off._ensure_resident(2)  # evicts LRU (0)
+    off._ensure_resident_sync(2)  # evicts LRU (0)
     assert set(off._resident) == {1, 2}
-    off._ensure_resident(1)  # touch 1 -> most-recently-used
-    off._ensure_resident(3)  # evicts LRU (2), not 1
+    off._ensure_resident_sync(1)  # touch 1 -> most-recently-used
+    off._ensure_resident_sync(3)  # evicts LRU (2), not 1
     assert set(off._resident) == {1, 3}
 
 

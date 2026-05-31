@@ -616,7 +616,10 @@ class SDXLPipeline(BasePipeline):
         if n > 0:
             device = "cuda" if torch.cuda.is_available() else "cpu"
             self._block_swap_offloader = HookBlockSwapOffloader(
-                self.get_block_swap_modules(), n, device=device
+                self.get_block_swap_modules(),
+                n,
+                device=device,
+                prefetch=bool(self.config.get("block_swap_prefetch", False)),
             )
             self.offloader = self._block_swap_offloader
         else:

@@ -69,13 +69,14 @@ Example: see `examples/full_model_sdxl_unet_only.toml`.
 **Training block swap** (`blocks_to_swap`) now works for **full-model** SDXL, not just adapters. It keeps only a few UNet blocks resident on the GPU and streams the rest from CPU RAM on demand, which on an 8 GB card cuts steady-state VRAM (~6.9 GB → ~4–6 GB) and avoids the WSL2 sysmem paging that otherwise makes steps ~3× slower.
 
 ```toml
-blocks_to_swap = 5   # SDXL UNet has 7 swappable blocks (3 down + mid + 3 up); 5 keeps ~2 resident
+blocks_to_swap = 6   # SDXL UNet has 7 swappable blocks (3 down + mid + 3 up); 6 keeps 1 resident
 
 [optimizer]
 gradient_release = true   # REQUIRED with full-model block swap
 ```
 
 - **`gradient_release = true` is required** for full-model block swap: each block's optimizer step runs *inside* the backward pass while that block is on the GPU. A normal end-of-step `optimizer.step()` would need every trainable block resident at once, defeating the swap. (Adapter training does not need this — the base is frozen.)
-- Higher `blocks_to_swap` = less VRAM, more CPU↔GPU transfer. `pipeline_stages` must be `1`.
+- Higher `blocks_to_swap` = less VRAM. On an 8 GB card, `blocks_to_swap=6` (1 resident block, ~4.3 GB) is fastest because it stays well clear of the WSL2 sysmem-paging threshold — counter-intuitively, *more* swapping is faster there. `pipeline_stages` must be `1`.
+- `block_swap_prefetch = true` (opt-in, off by default) overlaps transfer with compute, but is counterproductive on tight 8 GB WSL2 (needs ≥2 resident blocks); expected to help on bigger GPUs / native Linux.
 
-See [Training loop — block swap](training-loop-and-eval.md) and [Shared training techniques](../developer/training-techniques.md).
+See [VRAM optimization](../developer/vram-optimization.md) for the measured curve and how the levers interact, plus [Training loop — block swap](training-loop-and-eval.md) and [Shared training techniques](../developer/training-techniques.md).

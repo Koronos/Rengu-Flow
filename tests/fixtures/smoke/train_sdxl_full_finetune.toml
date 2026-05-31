@@ -19,10 +19,11 @@ caching_batch_size = 1
 save_every_n_steps = 5
 save_every_n_epochs = 999
 activation_checkpointing = true
-# Block-swap most of the 7 UNet blocks to CPU (keep ~2 resident). Drops steady-state VRAM from
-# ~6.9 GB to ~5.9 GB and ~3x the step throughput on 8 GB by avoiding WSL2 sysmem paging. Requires
-# gradient_release (below): each block's optimizer step runs in the backward while it's resident.
-blocks_to_swap = 5
+# Block-swap 6 of the 7 UNet blocks to CPU (keep 1 resident). On an 8 GB card this drops the
+# training process from ~6.9 GB to ~4.3 GB and ~5x the step throughput vs no swap, by staying well
+# clear of the WSL2 sysmem-paging threshold (~6 GB). Requires gradient_release (below): each
+# block's optimizer step runs in the backward while it's resident. See docs/developer/vram-optimization.md.
+blocks_to_swap = 6
 bench = true
 
 [model]
