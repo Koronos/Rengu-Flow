@@ -1,0 +1,76 @@
+# Working on Rengu-Flow from WSL (and Windows)
+
+This repo runs on **WSL2 + NVIDIA** — training needs CUDA inside WSL, and the code lives on the
+WSL ext4 filesystem. These conventions avoid the WSL/Windows pitfalls that repeatedly bite agents
+and contributors.
+
+## TL;DR
+- Do **all** work inside WSL (shell, git, `uv`, training, UI). Don't drive training/scripts from
+  Windows CMD/PowerShell.
+- Use `uv` for everything Python.
+- Line endings: the repo ships a `.gitattributes` that forces **LF** on shell scripts. On any
+  Windows git that touches this repo, set `core.autocrlf=input` (never `true`).
+
+## Running things (from WSL)
+| Task | Command |
+|------|---------|
+| Install (base) | `uv sync` |
+| Install + web UI | `uv sync --extra ui` |
+| CLI | `./rengu <cmd>` — or `uv run rengu <cmd>` if the launcher won't execute (see CRLF below) |
+| Web UI (dev) | `uv run rengu ui dev --no-open` → Vite `http://127.0.0.1:5173`, API `:8765` |
+| Tests | `uv run --extra dev pytest` (pytest is in the `dev` extra) |
+| UI/Cosmos/LoKr tests | add `--extra ui --extra cosmos_predict2 --extra lycoris` |
+| GPU smoke | `./scripts/run_model_smoke.sh sdxl\|sdxl_lokr\|cosmos\|cosmos_lokr` |
+
+Open the dev UI from a **Windows browser** at `http://127.0.0.1:5173` — WSL2 forwards `localhost`,
+so no extra config is needed. The FastAPI/Vite servers themselves must run in WSL (GPU + deps).
+
+## Model paths
+Copy `.env.example` → `.env` (gitignored) and set `RENGU_SDXL_CHECKPOINT_PATH` and
+`RENGU_COSMOS_{TRANSFORMER,VAE,LLM}_PATH`. Training and the smoke scripts read these.
+
+## Pitfall #1 — CRLF line endings
+If `./rengu` or any `scripts/*.sh` fails with:
+
+```
+/usr/bin/env: 'bash\r': No such file or directory
+```
+
+the file was checked out with CRLF. Fixes:
+- The repo's `.gitattributes` forces LF for `*.sh`, `rengu`, `*.py`, etc. After it lands, run once:
+  `git add --renormalize . && git commit -m "Normalize line endings"`.
+- On Windows: `git config --global core.autocrlf input` (do **not** use `true` for this repo).
+- Quick local unblock without touching git: `sed -i 's/\r$//' rengu scripts/*.sh`, or just use
+  `uv run rengu ...` (runs the console-script entry point, bypassing the shebang).
+
+## Pitfall #2 — git worktrees created from Windows
+A git worktree created **from Windows** gets a `.git` file pointing at a UNC gitdir:
+
+```
+gitdir: //wsl.localhost/ubuntu/home/.../.git/worktrees/<name>
+```
+
+WSL's git cannot resolve that path, so **every git command in the worktree fails** with
+`fatal: not a git repository: //wsl.localhost/...`. Avoid or work around it:
+
+- **Preferred — create worktrees from inside WSL** so the gitdir is a POSIX path and git just works:
+  ```bash
+  git -C ~/Rengu-Flow worktree add .claude/worktrees/<name> -b <branch>
+  ```
+- If you're stuck with a UNC-gitdir worktree, either do git work from the main checkout
+  (`~/Rengu-Flow`), or drive git with explicit POSIX paths:
+  ```bash
+  git --git-dir="$HOME/Rengu-Flow/.git/worktrees/<name>" \
+      --work-tree="$HOME/Rengu-Flow/.claude/worktrees/<name>" <cmd>
+  ```
+- Operating on the worktree with **Windows** git also trips "dubious ownership"; if you must, add
+  `git config --global --add safe.directory '%(prefix)///wsl.localhost/...'`. Committing from
+  Windows can also re-introduce CRLF — prefer committing from WSL.
+
+## Pitfall #3 — running shell against UNC paths from Windows
+Don't `cd` into `\\wsl.localhost\...` from Windows CMD/PowerShell — UNC paths aren't valid working
+directories and the shell silently falls back to `C:\Windows`, so relative paths and scripts break.
+Run the WSL shell instead.
+
+## Don't commit
+`.env`, `data/`, `output/`, `tmp/`, and local venvs are gitignored — keep them out of commits.
