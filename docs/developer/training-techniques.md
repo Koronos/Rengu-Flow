@@ -16,9 +16,12 @@ Cross-model VRAM, speed, and quality helpers. Pipeline models only supply **whic
 
 - **Base:** [`BasePipeline.enable_block_swap`](../../rengu_flow/model/base.py) calls `get_block_swap_modules()`.
 - **Cosmos:** `transformer.blocks` — [`TransformerLayer`](../../rengu_flow/model/cosmos_predict2/layers.py).
-- **SDXL:** UNet `down_blocks` / `mid_block` / `up_blocks` — [`Unet*BlockLayer`](../../rengu_flow/model/sdxl.py).
+- **SDXL:** UNet `down_blocks` / `mid_block` / `up_blocks` via hook-based `HookBlockSwapOffloader`
+  ([`SDXLPipeline.enable_block_swap`](../../rengu_flow/model/sdxl.py)) — works for adapters AND
+  full-model (full-model additionally requires `optimizer.gradient_release`).
 - **Preview (Cosmos):** `preview.preview_blocks_to_swap` uses the same `BlockSwapOffloader`.
-- Requires `[adapter]` and `pipeline_stages = 1` for DeepSpeed `PipelineModule.to` noop (see [`main.py`](../../rengu_flow/main.py)).
+- Requires `pipeline_stages = 1`. DeepSpeed places the model on the GPU; `main.py` then calls
+  `prepare_block_swap_training()` after `deepspeed.initialize` to push swappable blocks to CPU.
 
 ## Cache TE dedup
 

@@ -293,19 +293,37 @@ def _run_training(args, config):
         if config["model"].get("freeze_text_encoders", False):
             model.freeze_text_encoders()
 
-    # Block swapping (when used) only works with adapters; full-model training must not enable it.
+    # Block swapping is supported for adapters and for full-model training. Full-model swap
+    # requires gradient_release: each block's optimizer step then runs inside the backward while
+    # that block is resident on the GPU. A monolithic optimizer.step() would instead need every
+    # trainable block resident at once, defeating the swap. DeepSpeed places the model on the GPU
+    # normally; prepare_block_swap_training() (after initialize) pushes swappable blocks to CPU,
+    # and the offloader pulls them back on demand.
     if config.get("blocks_to_swap", 0):
-        if not config.get("adapter"):
+        if config.get("pipeline_stages", 1) != 1:
+            raise ValueError("Block swapping requires pipeline_stages = 1.")
+        if not config.get("adapter") and not config["optimizer"].get("gradient_release"):
             raise ValueError(
-                "Block swapping only works when training adapters (LoRA/LoKr). "
-                "Omit blocks_to_swap for full-model training."
+                "Block swapping for full-model training requires optimizer.gradient_release = true "
+                "(the per-parameter optimizer step must run during the backward pass while each "
+                "block is on the GPU)."
             )
-        if config.get("pipeline_stages", 1) == 1:
-            # Prevent DeepSpeed from moving blocks to GPU; we manage placement ourselves.
-            def _noop_to(self, *args, **kwargs):
-                pass
-            import deepspeed.pipe as ds_pipe
-            ds_pipe.PipelineModule.to = _noop_to
+        # Stop DeepSpeed from moving the whole model onto the GPU at init (that transient 5+ GB
+        # spike spills to shared RAM on small cards). prepare_block_swap_training() then places only
+        # the small non-swappable parts on the GPU and keeps the blocks on CPU until pulled.
+        def _noop_to(self, *args, **kwargs):
+            return self
+
+        import deepspeed.pipe as ds_pipe
+
+        ds_pipe.PipelineModule.to = _noop_to
+        # DeepSpeed's init-time _broadcast_model issues an NCCL broadcast per parameter, which fails
+        # on the CPU-resident blocks ("No backend type associated with device type cpu"). With a
+        # single rank that broadcast is a no-op anyway, so skip it and let the blocks stay on CPU.
+        if int(os.environ.get("WORLD_SIZE", "1")) == 1:
+            import deepspeed.runtime.engine as ds_engine
+
+            ds_engine.DeepSpeedEngine._broadcast_model = lambda self: None
         model.enable_block_swap(config["blocks_to_swap"])
 
     layers = model.to_layers()
@@ -384,6 +402,11 @@ def _run_training(args, config):
     model_engine._support_torch_style_backward = True
     model_engine._configure_optimizer(get_optimizer, parameters_to_train)
     optimizer = model_engine.optimizer
+
+    # DeepSpeed has now placed the model on the GPU; push swappable blocks back to CPU so steady
+    # state stays under the VRAM ceiling. The offloader's hooks pull each block on demand.
+    if config.get("blocks_to_swap", 0):
+        model.prepare_block_swap_training()
 
     from rengu_flow.training.ema import TrainingEMA
 
