@@ -606,6 +606,42 @@ class SDXLPipeline(BasePipeline):
         modules.extend(unet.up_blocks)
         return modules
 
+    def enable_block_swap(self, blocks_to_swap) -> None:
+        """Use the hook-based offloader: SDXL's to_layers() flattens each UNet block into several
+        pipeline layers, so the block.forward (and the base offloader's wait/submit calls) never
+        runs. Hooks on the block leaf modules drive swapping regardless of layer granularity."""
+        from rengu_flow.training.block_swap import HookBlockSwapOffloader, NoopOffloader
+
+        n = int(blocks_to_swap or 0)
+        if n > 0:
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            self._block_swap_offloader = HookBlockSwapOffloader(
+                self.get_block_swap_modules(), n, device=device
+            )
+            self.offloader = self._block_swap_offloader
+        else:
+            self._block_swap_offloader = None
+            self.offloader = NoopOffloader()
+
+    def _place_unet_for_block_swap(self, device) -> None:
+        """Put the small non-swappable UNet parts (conv_in, time/add embeddings, conv_out, …) on
+        `device` and keep the swappable down/mid/up blocks on CPU. Combined with the DeepSpeed
+        ``PipelineModule.to`` no-op, the full UNet is never resident on the GPU at once — only the
+        non-swappable parts plus whatever blocks the offloader has pulled in."""
+        unet = self.diffusers_pipeline.unet
+        swappable = {"down_blocks", "mid_block", "up_blocks"}
+        for name, child in unet.named_children():
+            child.to("cpu" if name in swappable else device)
+
+    def prepare_block_swap_training(self) -> None:
+        if self._block_swap_offloader is None:
+            return
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        self._place_unet_for_block_swap(device)
+        self._block_swap_offloader.apply_training_layout()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
     def to_layers(self):
         layers = [
             InitialLayer(

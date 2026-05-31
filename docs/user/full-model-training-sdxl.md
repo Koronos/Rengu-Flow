@@ -64,6 +64,18 @@ Example: see `examples/full_model_sdxl_unet_only.toml`.
    `deepspeed --num_gpus=1 -m rengu_flow.main --config examples/full_model_sdxl.toml`
 3. Check the log for `Run dir: ...` and for `Full-model SDXL: text encoders frozen` if you set `freeze_text_encoders = true`.
 
-## Block swapping
+## Block swapping (recommended on small GPUs)
 
-**Training block swap** (`blocks_to_swap`) applies only to **adapter** training (LoRA/LoKr). Full-model configs must leave it unset or `0`. See [Training loop — block swap](training-loop-and-eval.md) and [Shared training techniques](../developer/training-techniques.md).
+**Training block swap** (`blocks_to_swap`) now works for **full-model** SDXL, not just adapters. It keeps only a few UNet blocks resident on the GPU and streams the rest from CPU RAM on demand, which on an 8 GB card cuts steady-state VRAM (~6.9 GB → ~4–6 GB) and avoids the WSL2 sysmem paging that otherwise makes steps ~3× slower.
+
+```toml
+blocks_to_swap = 5   # SDXL UNet has 7 swappable blocks (3 down + mid + 3 up); 5 keeps ~2 resident
+
+[optimizer]
+gradient_release = true   # REQUIRED with full-model block swap
+```
+
+- **`gradient_release = true` is required** for full-model block swap: each block's optimizer step runs *inside* the backward pass while that block is on the GPU. A normal end-of-step `optimizer.step()` would need every trainable block resident at once, defeating the swap. (Adapter training does not need this — the base is frozen.)
+- Higher `blocks_to_swap` = less VRAM, more CPU↔GPU transfer. `pipeline_stages` must be `1`.
+
+See [Training loop — block swap](training-loop-and-eval.md) and [Shared training techniques](../developer/training-techniques.md).

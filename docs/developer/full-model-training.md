@@ -32,7 +32,17 @@ The method is optional on the model contract (default no-op in `rengu_flow/model
 
 ## Block swap
 
-**Training block swap** is implemented for adapter training on SDXL and Cosmos ([training-techniques.md](training-techniques.md)). Full-model configs must not set `blocks_to_swap` (validation and `main.py` enforce adapter-only).
+**Training block swap** works for full-model SDXL as well as adapters. SDXL uses a hook-based
+offloader (`HookBlockSwapOffloader` in [`block_swap.py`](../../rengu_flow/training/block_swap.py)):
+because `SDXLPipeline.to_layers()` flattens each UNet block into several pipeline layers, the
+block's own `forward` never runs, so the offloader registers forward-pre / full-backward-pre hooks
+on each block's leaf modules and pulls the block onto the GPU on demand (LRU eviction keeps
+`num_blocks - blocks_to_swap` resident). `main.py` lets DeepSpeed place the model on the GPU, then
+calls `model.prepare_block_swap_training()` after `deepspeed.initialize` to push swappable blocks to
+CPU. Full-model block swap **requires `optimizer.gradient_release`** so the per-parameter step runs
+inside the backward while the block is resident (enforced in `main.py`). `pipeline_stages` must be 1.
+Cosmos still uses the layer-driven `BlockSwapOffloader` (its `TransformerLayer.forward` calls
+`wait_for_block`/`submit_move_blocks_forward`).
 
 ## Dataset cache and VAE unload (SDXL)
 
