@@ -22,13 +22,13 @@ Repo-root [`rengu`](../../rengu) runs `uv sync` if needed, then `exec .venv/bin/
 | [`rengu_flow/cli/train_launcher.py`](../../rengu_flow/cli/train_launcher.py) | DeepSpeed argv + `[training.env]` merge |
 | [`rengu_flow/config/local_config.py`](../../rengu_flow/config/local_config.py) | Parse `rengu.local.toml`, apply UI env |
 | [`rengu_flow/install_profiles.py`](../../rengu_flow/install_profiles.py) | Profile names → `uv sync --extra` |
-| [`rengu_flow/main.py`](../../rengu_flow/main.py) | `parse_args` / `run_prepared` — still used by DeepSpeed `-m rengu_flow.main` |
+| [`rengu_flow/main.py`](../../rengu_flow/main.py) | `parse_args` / `run_prepared` — still used by DeepSpeed `--module rengu_flow.main` |
 
 ## Training launcher
 
 [`rengu_flow_ui/jobs.py`](../../rengu_flow_ui/jobs.py) calls `build_train_command` and `training_subprocess_env` from `train_launcher.py` so UI jobs and `rengu train` share defaults from `rengu.local.toml`.
 
-DeepSpeed subprocesses should continue to use `-m rengu_flow.main` so the CLI does not need to be on `PATH` inside workers.
+DeepSpeed subprocesses use `--module rengu_flow.main` (DeepSpeed's launcher flag for a module target — **not** `-m`, which it rejects) so the CLI does not need to be on `PATH` inside workers.
 
 ## Extending install profiles
 

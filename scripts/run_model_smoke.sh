@@ -19,16 +19,16 @@ if [[ ! -x "${DEEPSPEED}" ]]; then
 fi
 
 MODEL="${1:-}"
-if [[ "${MODEL}" != "sdxl" && "${MODEL}" != "cosmos" ]]; then
-  echo "Usage: $0 sdxl|cosmos" >&2
-  exit 1
-fi
-
-if [[ "${MODEL}" == "sdxl" ]]; then
-  CONFIG="${REPO_ROOT}/tests/fixtures/smoke/train_sdxl.toml"
-else
-  CONFIG="${REPO_ROOT}/tests/fixtures/smoke/train_cosmos_predict2.toml"
-fi
+case "${MODEL}" in
+  sdxl)        CONFIG="${REPO_ROOT}/tests/fixtures/smoke/train_sdxl.toml" ;;
+  sdxl_lokr)   CONFIG="${REPO_ROOT}/tests/fixtures/smoke/train_sdxl_lokr.toml" ;;
+  cosmos)      CONFIG="${REPO_ROOT}/tests/fixtures/smoke/train_cosmos_predict2.toml" ;;
+  cosmos_lokr) CONFIG="${REPO_ROOT}/tests/fixtures/smoke/train_cosmos_predict2_lokr.toml" ;;
+  *)
+    echo "Usage: $0 sdxl|sdxl_lokr|cosmos|cosmos_lokr" >&2
+    exit 1
+    ;;
+esac
 
 "${VENV}/bin/python" -m rengu_flow.config.local_env "${CONFIG}"
 

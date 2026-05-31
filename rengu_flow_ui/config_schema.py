@@ -237,9 +237,14 @@ def _preview_section() -> dict[str, Any]:
                 "preview.enabled",
                 "Enabled",
                 "boolean",
-                default=True,
+                default=False,
                 when=when_preview,
                 importance="recommended",
+                description=(
+                    "Off by default — generating samples during training adds significant "
+                    "VRAM and time (a 1024×1024 SDXL preview can OOM on small GPUs). Enable "
+                    "it explicitly when you want in-training samples."
+                ),
             ),
             _field(
                 "preview.preview_every_n_steps",

@@ -255,7 +255,9 @@ async function save() {
     await editor.saveExisting();
     return;
   }
-  newConfigId.value = "my_config";
+  // Default the new config id to run_name (already id-safe) so it needn't be retyped.
+  const runName = typeof form.value?.run_name === "string" ? form.value.run_name.trim() : "";
+  newConfigId.value = runName || "my_config";
   newDialogVisible.value = true;
 }
 

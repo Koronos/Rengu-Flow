@@ -105,8 +105,8 @@ Requires `pip install -e ".[ui,dev]"` (FastAPI TestClient + httpx).
 Not run in CI. With `.[cosmos_predict2]` installed and real checkpoint paths:
 
 ```bash
-deepspeed --num_gpus=1 -m rengu_flow.main --config my.toml --cache_only
-deepspeed --num_gpus=1 -m rengu_flow.main --config my.toml
+deepspeed --num_gpus=1 --module rengu_flow.main --config my.toml --cache_only
+deepspeed --num_gpus=1 --module rengu_flow.main --config my.toml
 ```
 
 Repeat for `examples/minimal_config_cosmos_predict2_{lora,lokr,finetune}.toml`. Success: cache on disk, training loop runs, run dir contains `adapter_model.safetensors` (LoRA/LoKr) or `model.safetensors` (finetune).

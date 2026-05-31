@@ -77,6 +77,30 @@ def test_materialize_staging_absolute_dataset_unchanged(ui_data_tmp: Path) -> No
     assert cfg["dataset"] == str(abs_ds.resolve())
 
 
+def test_materialize_staging_does_not_persist_defaults(ui_data_tmp: Path) -> None:
+    """RF-03: set_config_defaults() mutates the config in place — it converts dtype strings
+    into torch.dtype objects (serialized as "torch.bfloat16") and injects alpha=rank into
+    [adapter]. Persisting those into the staged train.toml makes the trainer abort
+    (KeyError 'torch.bfloat16' / "Remove alpha from [adapter]"). The staged file must keep
+    the user's values verbatim (only the dataset path is resolved)."""
+    abs_ds = ui_data_tmp / "abs.toml"
+    abs_ds.write_text(DATASET_TOML, encoding="utf-8")
+    content = (
+        MINIMAL_TOML.replace(
+            'dataset = "rengu-flow-dataset:my_dataset"',
+            f'dataset = "{abs_ds}"',
+        )
+        + '\n[adapter]\ntype = "lora"\nrank = 8\n'
+    )
+    out = configs_store.materialize_staging(content, "job-defaults")
+    raw = out.read_text(encoding="utf-8")
+    cfg = toml.loads(raw)
+    assert cfg["model"]["dtype"] == "bfloat16"
+    assert "torch." not in raw
+    assert "alpha" not in cfg["adapter"]
+    assert cfg["adapter"]["rank"] == 8
+
+
 def test_validate_rejects_bad_toml() -> None:
     assert configs_store.validate_toml_text("not valid {{{")["ok"] is False
 

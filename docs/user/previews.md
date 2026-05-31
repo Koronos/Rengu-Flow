@@ -4,6 +4,8 @@ During training you can generate **sample images** from fixed prompts and view t
 
 Previews are supported for **SDXL** (`model.type = "sdxl"`) and **Cosmos Predict2** (`model.type = "cosmos_predict2"` or `anima`). Cosmos requires **`pipeline_stages = 1`** (single-GPU DiT path).
 
+> **Previews are off by default** (`preview.enabled = false`). Generating samples during training costs extra VRAM and time — a 1024×1024 SDXL preview can OOM on small GPUs (e.g. 8 GB). Enable it only when you want in-training samples, and lower `width`/`height` if you are tight on VRAM.
+
 ## Config editor (web UI)
 
 On the training config **Previews** tab:

@@ -46,6 +46,28 @@ def merge_training_env(
     return env
 
 
+def base_train_command(
+    config_path: Path,
+    *,
+    num_gpus: int,
+    master_port: int | None = None,
+) -> list[str]:
+    """Base argv to launch the trainer, shared by the CLI and the web UI.
+
+    DeepSpeed's launcher needs ``--module`` (not ``-m``) for a module target; falls back to
+    ``python -m`` when deepspeed is absent.
+    """
+    deepspeed = which("deepspeed")
+    if deepspeed:
+        cmd = [deepspeed, f"--num_gpus={num_gpus}"]
+        if master_port is not None:
+            cmd.append(f"--master_port={master_port}")
+        cmd += ["--module", "rengu_flow.main", "--config", str(config_path)]
+    else:
+        cmd = [sys.executable, "-m", "rengu_flow.main", "--config", str(config_path)]
+    return cmd
+
+
 def build_train_command(
     config_path: Path,
     *,
@@ -66,11 +88,7 @@ def build_train_command(
     if extra_args:
         merged_extra.extend(extra_args)
 
-    deepspeed = which("deepspeed")
-    if deepspeed:
-        cmd = [deepspeed, f"--num_gpus={ngpus}", f"--master_port={port}", "-m", "rengu_flow.main", "--config", str(config_path)]
-    else:
-        cmd = [sys.executable, "-m", "rengu_flow.main", "--config", str(config_path)]
+    cmd = base_train_command(config_path, num_gpus=ngpus, master_port=port)
     if resume_from:
         cmd.extend(["--resume_from_checkpoint", resume_from])
     cmd.extend(merged_extra)

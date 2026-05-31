@@ -295,6 +295,7 @@ def update_job(job_id: str | int, **fields: Any) -> JobRecord:
         "pid",
         "run_dir",
         "output_dir",
+        "log_path",
         "finished_at",
         "exit_code",
         "config_path",

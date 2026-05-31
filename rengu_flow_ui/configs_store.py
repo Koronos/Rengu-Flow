@@ -140,7 +140,12 @@ def materialize_staging(
     job_staging = staging_dir() / str(job_id)
     job_staging.mkdir(parents=True, exist_ok=True)
     config = toml.loads(content)
-    set_config_defaults(config)
+    # Validate on a copy: set_config_defaults() is not idempotent (injects alpha, turns dtype
+    # strings into torch.dtype objects) and the trainer re-applies it to the staged file.
+    # Persist only the dataset-ref resolution below.
+    import copy
+
+    set_config_defaults(copy.deepcopy(config))
     if "dataset" in config:
         _materialize_dataset_for_job(config, job_staging)
     out = job_staging / "train.toml"

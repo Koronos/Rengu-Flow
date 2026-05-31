@@ -19,18 +19,8 @@ except ImportError:
     LYCORIS_AVAILABLE = False
 
 
-def _target_linear_names(containers):
-    """Return list of module names that are nn.Linear under the given containers."""
-    names = []
-    for container in containers:
-        for name, submodule in container.named_modules():
-            if isinstance(submodule, nn.Linear):
-                names.append(name)
-    return names
-
-
 # ---------------------------------------------------------------------------
-# Vendored LoKr (when LyCORIS is not installed)
+# Vendored LoKr
 # ---------------------------------------------------------------------------
 
 def _inject_lokr_into_linear(module, rank, alpha, factor=-1, decompose_both=False, full_matrix=False, dtype=torch.float32):
@@ -121,8 +111,12 @@ def _fuse_vendored_on_module(module):
     return n
 
 
-def _apply_lokr_vendored(module, target_module_names, adapter_config, state_dict_key_prefix=""):
-    """Apply vendored LoKr to every target nn.Linear in module."""
+def _apply_lokr_vendored(module, containers, adapter_config, state_dict_key_prefix=""):
+    """Inject vendored LoKr into every nn.Linear under ``containers`` (in-place).
+
+    Params are registered on each nn.Linear, so they live inside the tree ``to_layers()``
+    flattens — DeepSpeed then places and trains them like the base weights.
+    """
     rank = adapter_config["rank"]
     alpha = adapter_config["alpha"]
     factor = adapter_config.get("factor", -1)
@@ -131,15 +125,13 @@ def _apply_lokr_vendored(module, target_module_names, adapter_config, state_dict
     dtype = adapter_config["dtype"]
 
     count = 0
-    for mod_name in target_module_names:
-        parts = mod_name.split(".")
-        parent = module
-        for part in parts[:-1]:
-            parent = getattr(parent, part)
-        sub = getattr(parent, parts[-1])
-        if isinstance(sub, nn.Linear):
-            _inject_lokr_into_linear(sub, rank, alpha, factor, decompose_both, full_matrix, dtype)
-            count += 1
+    for container in containers:
+        if container is None:
+            continue
+        for sub in container.modules():
+            if isinstance(sub, nn.Linear) and not hasattr(sub, "_lokr_scale"):
+                _inject_lokr_into_linear(sub, rank, alpha, factor, decompose_both, full_matrix, dtype)
+                count += 1
 
     for name, p in module.named_parameters():
         p.original_name = state_dict_key_prefix + name
@@ -169,43 +161,16 @@ def configure(unet, text_encoder, text_encoder_2, adapter_config):
     def freeze_and_apply_vendored(module, containers, prefix):
         for p in module.parameters():
             p.requires_grad_(False)
-        targets = _target_linear_names(containers)
-        _apply_lokr_vendored(module, targets, adapter_config, prefix)
+        _apply_lokr_vendored(module, containers, adapter_config, prefix)
 
-    if LYCORIS_AVAILABLE:
-        # LyCORIS path: one wrapper per root module
-        for module, containers, prefix in [
-            (unet, [unet.down_blocks, unet.mid_block, unet.up_blocks], "unet."),
-            (text_encoder, [text_encoder], "text_encoder."),
-            (text_encoder_2, [text_encoder_2], "text_encoder_2."),
-        ]:
-            for p in module.parameters():
-                p.requires_grad_(False)
-            LycorisNetwork.apply_preset({"target_name": [".*"]})
-            lycoris_net = create_lycoris(
-                module,
-                1.0,
-                linear_dim=rank,
-                linear_alpha=alpha,
-                algo="lokr",
-                factor=factor,
-                decompose_both=decompose_both,
-                full_matrix=full_matrix,
-            )
-            lycoris_net.apply_to()
-            setattr(module, "_lycoris_net", lycoris_net)
-            for name, p in module.named_parameters():
-                p.original_name = prefix + name
-                if p.requires_grad and dtype is not None:
-                    p.data = p.data.to(dtype)
-        if is_main_process():
-            print("LoKr: using LyCORIS backend")
-    else:
-        if is_main_process():
-            print("LoKr: using vendored backend (install lycoris-lora for LyCORIS)")
-        freeze_and_apply_vendored(unet, [unet.down_blocks, unet.mid_block, unet.up_blocks], "unet.")
-        freeze_and_apply_vendored(text_encoder, [text_encoder], "text_encoder.")
-        freeze_and_apply_vendored(text_encoder_2, [text_encoder_2], "text_encoder_2.")
+    # Always vendored for SDXL: the LyCORIS backend hangs its adapter off the model root, so its
+    # params fall outside the DeepSpeed pipeline layers (not placed on GPU, not trained). The
+    # vendored path registers params on each nn.Linear instead.
+    freeze_and_apply_vendored(unet, [unet.down_blocks, unet.mid_block, unet.up_blocks], "unet.")
+    freeze_and_apply_vendored(text_encoder, [text_encoder], "text_encoder.")
+    freeze_and_apply_vendored(text_encoder_2, [text_encoder_2], "text_encoder_2.")
+    if is_main_process():
+        print("LoKr (SDXL): using vendored backend")
 
 
 def save(save_dir, state_dict, adapter_config):
