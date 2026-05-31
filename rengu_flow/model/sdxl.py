@@ -329,6 +329,14 @@ class SDXLPipeline(BasePipeline):
     def get_vae(self):
         return self.vae
 
+    def keep_submodel_on_cpu_after_cache(self, submodel) -> bool:
+        # Full-model SDXL writes a complete checkpoint (UNet + VAE + both text encoders), so every
+        # submodel's weights must survive on CPU. Adapter runs only emit the adapter — keep just the
+        # VAE, which save_model still reads. (Otherwise frozen submodels go to meta to free RAM.)
+        if self.config.get("adapter"):
+            return submodel is self.vae
+        return True
+
     def get_text_encoders(self):
         if not self.cache_text_embeddings:
             return []
@@ -439,6 +447,14 @@ class SDXLPipeline(BasePipeline):
                 text_enc_2_dict[name[len("text_encoder_2.") :]] = p
             else:
                 raise RuntimeError(f"Unexpected parameter: {name}")
+        # When the text encoders are frozen (freeze_text_encoders) or their embeddings are
+        # cached, they are absent from the trained state dict. Source them from the live modules
+        # so the exported checkpoint is still a complete SDXL model. DatasetManager.cache keeps
+        # them on CPU for full-model SDXL precisely so this read succeeds.
+        if not text_enc_dict:
+            text_enc_dict = {k: v.detach().cpu() for k, v in self.text_encoder.state_dict().items()}
+        if not text_enc_2_dict:
+            text_enc_2_dict = {k: v.detach().cpu() for k, v in self.text_encoder_2.state_dict().items()}
         vae_state_dict = self.vae.state_dict()
         unet_state_dict = convert_unet_state_dict(unet_state_dict)
         unet_state_dict = {"model.diffusion_model." + k: v for k, v in unet_state_dict.items()}
@@ -597,6 +613,17 @@ class SDXLPipeline(BasePipeline):
             modules.append(unet.mid_block)
         modules.extend(unet.up_blocks)
         return modules
+
+    def _block_swap_root_modules(self) -> list:
+        # The UNet holds the swappable down/mid/up blocks; the generic _place_for_block_swap puts
+        # the rest (conv_in, time/add embeddings, conv_out, …) on the GPU. The hook-based offloader
+        # works even though to_layers() flattens each block into several pipeline layers. When text
+        # embeddings are cached the encoders are unloaded to meta (not roots); when they are trained
+        # (cache_text_embeddings = false) they stay in the graph, so place them on the GPU too.
+        roots = [self.diffusers_pipeline.unet]
+        if not self.cache_text_embeddings:
+            roots += [self.text_encoder, self.text_encoder_2]
+        return roots
 
     def to_layers(self):
         layers = [

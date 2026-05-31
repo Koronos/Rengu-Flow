@@ -25,6 +25,8 @@ extra_args = ""
 # Uncomment only what you need (consumer / RTX 40xx examples):
 # NCCL_P2P_DISABLE = "1"
 # NCCL_IB_DISABLE = "1"
-# PYTORCH_CUDA_ALLOC_CONF = "expandable_segments:True"
+# PYTORCH_CUDA_ALLOC_CONF = "expandable_segments:True"  # native Linux ONLY (see note)
+# WSL2: leave PYTORCH_CUDA_ALLOC_CONF unset — expandable_segments crashes cuDNN conv on WSL
+# ("device not ready"). rengu forces expandable_segments:False automatically on WSL.
 # RENGU_TUNING_TF32_APPLY = "1"   # Ampere+ only; enables TF32 matmul/cudnn in rengu_flow.main
 # CUDA_VISIBLE_DEVICES = "0"

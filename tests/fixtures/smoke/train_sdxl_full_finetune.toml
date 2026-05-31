@@ -1,0 +1,48 @@
+# SDXL FULL finetune smoke (no adapter) tuned to fit ~8GB VRAM. Milestone 1: NO block swap.
+# Low-VRAM stack: bf16 + gradient_release (per-param fused backward frees grads) +
+#   genericoptim (factored 2nd moment, no momentum, CPU-offloaded state, Kahan bf16) +
+#   activation checkpointing + cached text embeddings (text encoders unloaded after cache).
+# Model path: RENGU_SDXL_CHECKPOINT_PATH in repo-root `.env` (see `.env.example`), same as
+# train_sdxl.toml. On WSL leave PYTORCH_CUDA_ALLOC_CONF unset — rengu forces expandable_segments
+# off there automatically (see rengu_flow.platform_compat).
+#   deepspeed --num_gpus=1 -m rengu_flow.main \
+#     --config tests/fixtures/smoke/train_sdxl_full_finetune.toml
+
+dataset = "tests/fixtures/smoke/dataset_cc0_256.toml"
+output_dir = "output"
+max_steps = 5
+micro_batch_size_per_gpu = 1
+gradient_accumulation_steps = 1
+pipeline_stages = 1
+logging_steps = 1
+caching_batch_size = 1
+save_every_n_steps = 5
+save_every_n_epochs = 999
+activation_checkpointing = true
+# Block-swap 6 of the 7 UNet blocks to CPU (keep 1 resident). On an 8 GB card this drops the
+# training process from ~6.9 GB to ~4.3 GB and ~5x the step throughput vs no swap, by staying well
+# clear of the WSL2 sysmem-paging threshold (~6 GB). Requires gradient_release (below): each
+# block's optimizer step runs in the backward while it's resident. See docs/developer/vram-optimization.md.
+blocks_to_swap = 6
+bench = true
+
+[model]
+type = "sdxl"
+dtype = "bfloat16"
+# Full SDXL single-file checkpoint (Illustrious-XL-v2.0 downloaded to the project tmp/).
+cache_text_embeddings = true
+# Redundant with cache_text_embeddings (TEs leave the graph) but explicit: train UNet only.
+freeze_text_encoders = true
+
+# Adafactor: factored 2nd moment (tiny state) + beta1=None (no 1st-moment buffer).
+# Unlike GenericOptim's Kahan path it keeps NO full-size per-parameter buffer and does NO
+# CPU<->GPU transfer inside the backward, which is what 8GB and gradient_release need.
+[optimizer]
+type = "transformers.optimization.Adafactor"
+lr = 1.0e-5
+scale_parameter = false
+relative_step = false
+warmup_init = false
+# Per-parameter optimizer step inside backward; gradients are freed immediately so the
+# full-model gradient tensor is never resident at once (the key 8GB lever without block swap).
+gradient_release = true

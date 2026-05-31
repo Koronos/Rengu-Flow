@@ -287,6 +287,17 @@ class CosmosPredict2Pipeline(BasePipeline):
             return []
         return list(self.transformer.blocks)
 
+    def _block_swap_root_modules(self) -> list:
+        # The DiT holds the swappable transformer.blocks; the generic _place_for_block_swap puts the
+        # rest (embedders, final_layer, llm_adapter) on the GPU. The text encoder is a root only when
+        # it is still in the training graph (uncached); when cached, the cache unload placed it on
+        # meta and it must stay there. block.forward runs for Cosmos (one TransformerLayer per block),
+        # so its no-op wait/submit calls are harmless under the hook-based offloader.
+        roots = [self.transformer]
+        if not self.cache_text_embeddings and isinstance(self.text_encoder, nn.Module):
+            roots.append(self.text_encoder)
+        return roots
+
     def to_layers(self):
         transformer = self.transformer
         text_encoder = None if self.cache_text_embeddings else self.text_encoder

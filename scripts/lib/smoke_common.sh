@@ -7,7 +7,14 @@ VENV="${VENV:-${REPO_ROOT}/.venv}"
 setup_smoke_gpu_env() {
   export NCCL_P2P_DISABLE="${NCCL_P2P_DISABLE:-1}"
   export NCCL_IB_DISABLE="${NCCL_IB_DISABLE:-1}"
-  export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
+  # expandable_segments uses CUDA's cuMemMap, which crashes cuDNN conv workspace on WSL2/WDDM
+  # ("CUDA driver error: device not ready"). Only enable it off WSL. rengu_flow.main also
+  # neutralizes it internally on WSL (rengu_flow.platform_compat) as a backstop.
+  if grep -qi microsoft /proc/version 2>/dev/null; then
+    export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:False}"
+  else
+    export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
+  fi
   local nvidia_libs
   nvidia_libs="$("${VENV}/bin/python" -c "
 import pathlib, sysconfig

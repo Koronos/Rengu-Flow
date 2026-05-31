@@ -38,6 +38,62 @@ def _detect_wsl() -> bool:
 IS_WSL = _detect_wsl()
 
 
+# ----------------------------------------------------------------------- CUDA allocator (WSL)
+
+_CUDA_ALLOC_ENV = "PYTORCH_CUDA_ALLOC_CONF"
+# WSL2 has no working "No Sysmem Fallback" switch, so near the VRAM ceiling the driver silently
+# pages to host RAM (huge, erratic step times) instead of OOMing. These native-allocator knobs cut
+# fragmentation so we hit that wall less. They are *defaults*: a value the user set explicitly wins.
+_WSL_ALLOC_DEFAULTS = {
+    "garbage_collection_threshold": "0.8",
+    "max_split_size_mb": "256",
+}
+
+
+def configure_cuda_allocator(*, is_wsl: bool | None = None, env: dict | None = None, log: bool = True) -> str | None:
+    """Apply WSL-safe CUDA caching-allocator settings. No-op off WSL.
+
+    On WSL2/WDDM the expandable-segments allocator uses CUDA's virtual-memory APIs
+    (``cuMemMap`` / ``cuMemSetAccess``). Those raise ``CUDA driver error: device not ready`` when
+    cuDNN allocates convolution workspace, so any conv model (e.g. SDXL's UNet) crashes early in
+    the backward pass; transformer-only models don't allocate that workspace, which is why the
+    failure looks model-specific. This forces ``expandable_segments:False`` regardless of what the
+    shell or ``[training.env]`` set, and fills in low-fragmentation defaults, preserving any knob
+    the user set explicitly.
+
+    MUST run before the first ``import torch`` in the process — the caching allocator parses
+    ``PYTORCH_CUDA_ALLOC_CONF`` when torch is imported. ``rengu_flow/__init__`` calls it for exactly
+    that reason (this module is stdlib-only at import time, so it is safe to call that early).
+    Returns the resulting env value, or ``None`` when not on WSL.
+    """
+    env = os.environ if env is None else env
+    is_wsl = IS_WSL if is_wsl is None else is_wsl
+    if not is_wsl:
+        return None
+
+    pairs: dict[str, str] = {}
+    for part in env.get(_CUDA_ALLOC_ENV, "").split(","):
+        part = part.strip()
+        if not part or ":" not in part:
+            continue
+        key, _, val = part.partition(":")
+        pairs[key.strip()] = val.strip()
+
+    had_expandable_true = pairs.get("expandable_segments", "").lower() == "true"
+    pairs["expandable_segments"] = "False"
+    for key, val in _WSL_ALLOC_DEFAULTS.items():
+        pairs.setdefault(key, val)
+
+    env[_CUDA_ALLOC_ENV] = ",".join(f"{k}:{v}" for k, v in pairs.items())
+    if log and had_expandable_true:
+        print(
+            "rengu_flow: WSL detected — forcing expandable_segments:False "
+            "(cuMemMap is unsupported under WSL2/WDDM and crashes cuDNN conv workspace with "
+            f"'CUDA driver error: device not ready'). {_CUDA_ALLOC_ENV}={env[_CUDA_ALLOC_ENV]}"
+        )
+    return env[_CUDA_ALLOC_ENV]
+
+
 # --------------------------------------------------------------------------- venv layout
 
 

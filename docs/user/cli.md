@@ -123,6 +123,11 @@ PYTORCH_CUDA_ALLOC_CONF = "expandable_segments:True"
 RENGU_TUNING_TF32_APPLY = "1"
 ```
 
+> **WSL2 note.** Do **not** set `PYTORCH_CUDA_ALLOC_CONF = "expandable_segments:True"` on WSL: its
+> `cuMemMap` path is unsupported under WSL2/WDDM and crashes cuDNN convolutions (SDXL's UNet) with
+> `CUDA driver error: device not ready`. Rengu detects WSL and forces `expandable_segments:False`
+> automatically (plus low-fragmentation defaults), so you can leave this key unset there.
+
 ### `RENGU_TUNING_TF32_APPLY`
 
 Rengu-flow-specific flag (not a standard CUDA variable). When set to `"1"`, training enables TF32 matmul/cuDNN and `cudnn.benchmark` on Ampere/Ada GPUs (e.g. RTX 30xx/40xx). Leave unset on older GPUs or if you do not want this behavior.

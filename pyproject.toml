@@ -11,10 +11,11 @@ license = "GPL-3.0-or-later"
 requires-python = ">=3.10,<3.14"
 dependencies = [
     "toml>=0.10.2",
-    # Pinned to the newest tested-working CUDA build: 2.10.0+cu130 (CUDA 13). 2.12.0+cu130
-    # currently ships a broken nvshmem dependency closure on the cu130 index (libnvshmem_host.so.3).
-    "torch==2.10.0",
-    "deepspeed>=0.12.0",
+    # Pinned to the tested CUDA 13 build: 2.12.0+cu130. DeepSpeed >= 0.19 requires torch >= 2.11
+    # (it skips its compiled C++/CUDA ops otherwise); pairing 0.19 with torch 2.10 left those ops
+    # unbuilt. Keep torch and deepspeed bumped together so that contract holds.
+    "torch==2.12.0",
+    "deepspeed==0.19.0",
     "diffusers>=0.25.0",
     "peft>=0.10.0",
     "safetensors>=0.4.0",
@@ -32,7 +33,7 @@ lycoris = ["lycoris-lora"]
 cosmos_predict2 = [
     "transformers>=4.51.0",
     "accelerate>=0.30.0",
-    "torchvision==0.25.0",
+    "torchvision==0.27.0",
     "einops>=0.7.0",
 ]
 optim = [
@@ -71,8 +72,12 @@ markers = [
     "no_ui_db: skip the autouse UI sqlite fixture (for tests that don't touch the UI store)",
 ]
 
-# Tested stack (WSL2 + NVIDIA, May 2026): Python 3.13, torch 2.10.0+cu130 (CUDA 13),
-# deepspeed 0.18.6, transformers 5.2, diffusers 0.36 — verified end-to-end (Cosmos LoRA smoke).
+# Tested stack (WSL2 + NVIDIA, May 2026): Python 3.13, torch 2.12.0+cu130 (CUDA 13),
+# torchvision 0.27.0+cu130, deepspeed 0.19.0, transformers 5.9, diffusers 0.37 — verified
+# end-to-end on an 8 GB RTX 3000 Ada (Cosmos LoRA + SDXL LoRA + SDXL full-finetune smokes).
+# WSL note: do NOT set PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True — its cuMemMap path
+# raises "CUDA driver error: device not ready" under WSL2/WDDM (cuDNN conv workspace). rengu_flow
+# neutralizes it automatically on WSL (see rengu_flow.platform_compat.configure_cuda_allocator).
 # torch/torchvision come from the PyTorch CUDA 13.0 index; CUDA Toolkit 13.x must be installed
 # (provides nvcc for DeepSpeed JIT ops). See docs for native-Windows install (prebuilt wheel).
 # Not `explicit`: the cu130 index must also serve torch's transitive nvidia-*-cu13 runtime

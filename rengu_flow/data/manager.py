@@ -272,14 +272,14 @@ class DatasetManager:
             self._handle_task(task)
 
         if unload_models:
-            model_name = getattr(self.model, "name", None)
-            for i, submodel in enumerate(self.submodels):
+            # The model decides which submodels must keep their weights on CPU (because save_model
+            # reads them) vs. can go to meta to free RAM. Default: none. SDXL keeps the VAE always,
+            # and all submodels for a full-model checkpoint. Keeps model-specific save semantics out
+            # of the data layer.
+            for submodel in self.submodels:
                 if not isinstance(submodel, nn.Module):
                     continue
-                if model_name == "sdxl" and submodel is self.vae:
-                    submodel.to("cpu")
-                else:
-                    submodel.to("meta")
+                submodel.to("cpu" if self.model.keep_submodel_on_cpu_after_cache(submodel) else "meta")
 
         dist.barrier()
         if is_main_process():
