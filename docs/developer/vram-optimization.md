@@ -63,6 +63,13 @@ change embeddings per step. The full checkpoint still includes the (frozen) TE/V
 [`DatasetManager.cache`](../../rengu_flow/data/manager.py) keeps them on CPU (not `meta`) for
 full-model SDXL.
 
+*Training the text encoders too* (`freeze_text_encoders = false`, `cache_text_embeddings = false`):
+supported — they then run live each step and are placed on the GPU by block swap
+(`_block_swap_root_modules` includes them when uncached) and trained via `gradient_release`. On 8 GB
+this **fits but is tight** (the two CLIP encoders add ~1.6 GB resident, pushing near the WSL2 sysmem
+threshold → slower, erratic steps). Prefer UNet-only (freeze + cache) for speed on small cards; TE
+training has comfortable headroom on bigger GPUs (or, future, by block-swapping the TE layers too).
+
 ### 6. `blocks_to_swap = N` (block swap)
 Stream blocks between CPU RAM and the GPU so only a few are resident
 ([`HookBlockSwapOffloader`](../../rengu_flow/training/block_swap.py)). Model-agnostic: each model
