@@ -4,6 +4,7 @@
     fullscreen
     :close-on-click-modal="false"
     :close-on-press-escape="!saving"
+    :show-close="false"
     class="dataset-form-modal"
     @update:model-value="onToggle"
     @closed="onClosed"
@@ -15,6 +16,10 @@
           <el-button :icon="CircleCheck" @click="onValidate">Validate</el-button>
           <el-button :icon="Upload" @click="triggerImport">Import TOML…</el-button>
           <el-button type="primary" :loading="saving" @click="onSave">Save</el-button>
+          <el-divider direction="vertical" class="dfm__sep" />
+          <el-tooltip content="Close" :show-after="300">
+            <el-button :icon="Close" circle size="large" class="dfm__close" @click="modal.close()" />
+          </el-tooltip>
         </div>
       </div>
     </template>
@@ -99,7 +104,7 @@
 import { computed, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { ElLoadingDirective, ElMessage } from "element-plus";
-import { CircleCheck, Upload } from "@element-plus/icons-vue";
+import { CircleCheck, Close, Upload } from "@element-plus/icons-vue";
 import { api } from "../api";
 import { downloadBlob } from "../lib/downloadBlob";
 import { formatError } from "../lib/formatError";
@@ -213,6 +218,20 @@ function onClosed(): void {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+.dfm__sep {
+  height: 1.6em;
+  margin: 0 2px;
+}
+.dfm__close {
+  font-size: 18px;
+  color: var(--el-text-color-regular);
+  border-color: var(--el-border-color);
+}
+.dfm__close:hover {
+  color: var(--el-color-danger);
+  border-color: var(--el-color-danger);
+  background: var(--el-color-danger-light-9);
 }
 .title-row {
   display: flex;
