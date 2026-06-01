@@ -476,8 +476,14 @@ def get_sections() -> list[dict[str, Any]]:
                 _field(
                     "image_micro_batch_size_per_gpu",
                     "Image micro batch per GPU",
-                    "json",
-                    description="Dict or int for mixed modalities.",
+                    "integer",
+                    min_value=1,
+                    importance="advanced",
+                    description=(
+                        "Per-GPU micro-batch for image-only steps when mixing image+video; "
+                        "falls back to micro_batch_size_per_gpu. For an advanced per-modality "
+                        "dict, edit it in the TOML tab."
+                    ),
                 ),
                 _field(
                     "gradient_accumulation_steps",
