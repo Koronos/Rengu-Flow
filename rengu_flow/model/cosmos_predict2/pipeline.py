@@ -400,11 +400,12 @@ class CosmosPredict2Pipeline(BasePipeline):
         state["vae_was_meta"] = True
 
     def ensure_text_encoder_for_preview(self, device: str | torch.device = "cuda") -> None:
-        """Load text encoder weights onto *device* when caching left them on ``meta``."""
-        state = getattr(self, "_preview_restore_state", None)
-        if state is None:
-            self._preview_restore_state = {}
-            state = self._preview_restore_state
+        """Make the text encoder available on *device* for a preview.
+
+        When caching freed it to ``meta`` it is loaded from disk the *first* time, but we then
+        keep it resident on CPU between previews (see ``restore_after_preview``), so later
+        previews only pay a CPU->GPU copy instead of re-reading ~1.2 GB from disk each time.
+        """
         try:
             param = next(self.text_encoder.parameters())
         except StopIteration:
@@ -415,12 +416,13 @@ class CosmosPredict2Pipeline(BasePipeline):
             _, _, text_encoder, _, _ = load_text_stack(self.model_config)
             text_encoder.requires_grad_(False)
             self.text_encoder = text_encoder
-            state["text_encoder_was_meta"] = True
+            # Freed by caching: its home between previews is CPU (host RAM), not meta/GPU.
+            self._preview_te_rest_device = torch.device("cpu")
             if is_main_process():
                 print("rengu_flow: text encoder ready for preview.", flush=True)
-        else:
-            state.setdefault("text_encoder_was_meta", False)
-            state["text_encoder_device"] = param.device
+        elif getattr(self, "_preview_te_rest_device", None) is None:
+            # Resident (e.g. used during training): remember where to put it back afterwards.
+            self._preview_te_rest_device = param.device
         self.text_encoder.to(device)
 
     def offload_text_encoder_after_encode(self, preview_cfg: dict) -> None:
@@ -433,10 +435,7 @@ class CosmosPredict2Pipeline(BasePipeline):
             return
         if param.device.type == "meta":
             return
-        state = getattr(self, "_preview_restore_state", None) or {}
-        state["text_encoder_device"] = param.device
         self.text_encoder.to("cpu")
-        self._preview_restore_state = state
 
     def ensure_transformer_for_preview(self, device: str | torch.device = "cuda") -> None:
         """Use in-memory DiT on GPU for Euler (do not reload weights from disk)."""
@@ -474,12 +473,14 @@ class CosmosPredict2Pipeline(BasePipeline):
         self._preview_offloader = None
         if state.get("vae_was_meta"):
             self.vae.model.to("meta")
-        if state.get("text_encoder_was_meta"):
-            self.text_encoder.to("meta")
-        else:
-            te_dev = state.get("text_encoder_device")
-            if te_dev is not None:
-                self.text_encoder.to(te_dev)
+        # Park the text encoder on its resting device (CPU when caching freed it, else its
+        # original device) — never back to meta, so the next preview skips the disk reload.
+        rest = getattr(self, "_preview_te_rest_device", None) or torch.device("cpu")
+        try:
+            next(self.text_encoder.parameters())
+            self.text_encoder.to(rest)
+        except StopIteration:
+            pass
         if state.get("transformer_was_training"):
             self.transformer.train()
         self._preview_restore_state = None
