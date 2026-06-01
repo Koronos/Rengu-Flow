@@ -585,15 +585,6 @@ def get_sections() -> list[dict[str, Any]]:
                 _field("cache_num_proc", "Cache CPU workers", "integer", default=8, min_value=1),
                 _field("cache_keep_in_memory", "Keep HF slice in RAM during cache", "boolean", default=False),
                 _field(
-                    "cache_format",
-                    "Disk cache format",
-                    "select",
-                    options=["v2", "v1"],
-                    default="v2",
-                    importance="advanced",
-                    description="v2 = mmap bf16 stacks (default). v1 = legacy pickle shards.",
-                ),
-                _field(
                     "cache_dedup_text_embeddings",
                     "Dedup text embeddings on cache",
                     "boolean",

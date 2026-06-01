@@ -439,16 +439,6 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "detail": "false saves RAM on large datasets; train reads still use OS page cache.",
         "doc": "docs/user/training-loop-and-eval.md",
     },
-    "cache_format": {
-        "summary": "On-disk layout for latent and text-embedding cache.",
-        "detail": (
-            "v2 (default): stacked bf16 tensors + SQLite metadata — faster reads, less disk. "
-            "v1: legacy pickle shards. Changing format invalidates the fingerprint; run "
-            "--regenerate_cache or delete cache/<model>/ latents and text_embeddings_* folders. "
-            "Existing v1 dirs are auto-detected on load when unchanged."
-        ),
-        "doc": "docs/user/training-loop-and-eval.md",
-    },
     "dataloader_num_workers": {
         "summary": "Parallel workers loading cached batches during training.",
         "detail": "Try 2–4 on Linux if the GPU waits on disk. Use dataloader_prefetch instead when 0.",
