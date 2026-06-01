@@ -111,7 +111,14 @@
                 </template>
 
                 <el-divider content-position="left">Compute</el-divider>
-                <el-form-item label="GPUs">
+                <el-form-item>
+                  <template #label>
+                    <span class="launch-label">
+                      <span>GPUs</span>
+                      <FieldHelpIcon :field="(HELP.numGpus as unknown as SchemaField)" />
+                      <code class="cli-flag">deepspeed --num_gpus</code>
+                    </span>
+                  </template>
                   <el-input-number v-model="numGpus" :min="1" :max="64" />
                 </el-form-item>
 
@@ -126,7 +133,14 @@
                       Start from scratch (ignore checkpoints)
                     </el-checkbox>
                   </el-form-item>
-                  <el-form-item v-if="!fromScratch" label="Resume from checkpoint">
+                  <el-form-item v-if="!fromScratch">
+                    <template #label>
+                      <span class="launch-label">
+                        <span>Resume from checkpoint</span>
+                        <FieldHelpIcon :field="(HELP.resumeFrom as unknown as SchemaField)" />
+                        <code class="cli-flag">--resume_from_checkpoint</code>
+                      </span>
+                    </template>
                     <el-select
                       v-model="resumeFrom"
                       placeholder="latest"
@@ -159,17 +173,29 @@
 
                 <el-divider content-position="left">Cache</el-divider>
                 <el-form-item>
-                  <el-checkbox v-model="cacheOnly">
-                    Cache only — build the dataset cache, then exit (no training)
-                  </el-checkbox>
+                  <span class="launch-label">
+                    <el-checkbox v-model="cacheOnly">
+                      Cache only — build the dataset cache, then exit (no training)
+                    </el-checkbox>
+                    <FieldHelpIcon :field="(HELP.cacheOnly as unknown as SchemaField)" />
+                    <code class="cli-flag">--cache_only</code>
+                  </span>
                 </el-form-item>
-                <el-form-item>
-                  <el-checkbox v-model="trustCache">
-                    Use existing cache (skip the freshness check)
-                  </el-checkbox>
-                  <el-checkbox v-model="regenerateCache">
-                    Regenerate cache (force a full rebuild)
-                  </el-checkbox>
+                <el-form-item class="cache-toggles">
+                  <span class="launch-label">
+                    <el-checkbox v-model="trustCache">
+                      Use existing cache (skip the freshness check)
+                    </el-checkbox>
+                    <FieldHelpIcon :field="(HELP.trustCache as unknown as SchemaField)" />
+                    <code class="cli-flag">--trust_cache</code>
+                  </span>
+                  <span class="launch-label">
+                    <el-checkbox v-model="regenerateCache">
+                      Regenerate cache (force a full rebuild)
+                    </el-checkbox>
+                    <FieldHelpIcon :field="(HELP.regenerateCache as unknown as SchemaField)" />
+                    <code class="cli-flag">--regenerate_cache</code>
+                  </span>
                 </el-form-item>
               </el-form>
             </el-card>
@@ -201,6 +227,7 @@ import { downloadBlob } from "../lib/downloadBlob";
 import { formatError } from "../lib/formatError";
 import ConfigFormField from "../components/ConfigFormField.vue";
 import ConfigFormSectionCard from "../components/ConfigFormSectionCard.vue";
+import FieldHelpIcon from "../components/FieldHelpIcon.vue";
 import ImportTomlOverlay from "../components/ImportTomlOverlay.vue";
 import RunDatasetsTab from "../components/RunDatasetsTab.vue";
 import {
@@ -244,6 +271,32 @@ const importOverlay = ref<InstanceType<typeof ImportTomlOverlay> | null>(null);
 const activeTab = ref("setup");
 const submitting = ref(false);
 const exporting = ref(false);
+
+// Help/CLI annotations for the hand-built launch controls (mirrors how
+// schema-driven config fields show a help icon + a monospace flag/path hint).
+const HELP = {
+  numGpus: {
+    path: "num_gpus",
+    help: "Number of GPUs for the DeepSpeed launcher for this run.",
+    doc_path: "docs/user/cli.md",
+  },
+  cacheOnly: {
+    help: "Build the dataset cache (latents + text embeddings) and exit without training.",
+    doc_path: "docs/developer/dataset-and-cache.md",
+  },
+  trustCache: {
+    help: "Skip the cache freshness check and reuse the existing cache as-is.",
+    doc_path: "docs/developer/dataset-and-cache.md",
+  },
+  regenerateCache: {
+    help: "Force a full rebuild of the dataset cache.",
+    doc_path: "docs/developer/dataset-and-cache.md",
+  },
+  resumeFrom: {
+    help: "Checkpoint folder this launch resumes from (overrides the resume_from_checkpoint config value).",
+    doc_path: "docs/user/cli.md",
+  },
+} as const;
 
 // Launch params (kept local; persisted on submit).
 const numGpus = ref(1);
@@ -628,6 +681,22 @@ async function exportBundle(): Promise<void> {
 .checkpoint-select {
   width: 100%;
   max-width: 420px;
+}
+.launch-label {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.cli-flag {
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--el-text-color-secondary);
+}
+.cache-toggles :deep(.el-form-item__content) {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
 }
 .resume-hint {
   display: block;
