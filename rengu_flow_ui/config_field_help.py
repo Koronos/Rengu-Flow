@@ -440,13 +440,23 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "doc": "docs/user/training-loop-and-eval.md",
     },
     "dataloader_num_workers": {
-        "summary": "Parallel workers loading cached batches during training.",
-        "detail": "Try 2–4 on Linux if the GPU waits on disk. Use dataloader_prefetch instead when 0.",
+        "summary": "Subprocess workers that load batches in parallel during training.",
+        "detail": (
+            "0 (default) loads in the main process — fine here because cached (v2) latents read "
+            "fast, so the GPU rarely waits on data. Raise to 2–4 on Linux only if you see the GPU "
+            "idle waiting for batches (>0 is problematic on Windows/macOS). When kept at 0, "
+            "dataloader_prefetch is the companion overlap knob."
+        ),
         "doc": "docs/user/training-loop-and-eval.md",
     },
     "dataloader_prefetch": {
-        "summary": "Background thread loads the next batch while training.",
-        "detail": "Only applies when dataloader_num_workers is 0.",
+        "summary": "Background thread that preloads the next batch while the current step trains.",
+        "detail": (
+            "Off by default: loading is synchronous, which is fine because cached (v2) reads are "
+            "cheap and the GPU rarely waits. Only applies when dataloader_num_workers = 0. Turn it "
+            "on to overlap loading the next batch (the next step's data, not the whole epoch) with "
+            "the current step's compute — useful if you see the GPU idle between steps."
+        ),
         "doc": "docs/user/training-loop-and-eval.md",
     },
     "dataloader_pin_memory": {
