@@ -936,24 +936,22 @@ function editRun(row: TrainingRunRow) {
   router.push({ name: "run-edit", params: { id: String(row.job_id) } });
 }
 
-/** True when a run can be resumed (has a folder/checkpoint) or retried (failed, has a config). */
+/** A terminal run can be continued/retried in place (reuses its record); drafts use Edit instead. */
 function canContinue(row: TrainingRunRow | undefined): boolean {
-  return !!row?.run_dir || (!!row?.job_id && row?.state === "failed");
+  return !isDraft(row) && (!!row?.job_id || !!row?.run_dir);
 }
 
 function continueRun(row: TrainingRunRow) {
-  // Resume an existing run folder when there is a checkpoint to continue from.
-  if (row?.run_dir) {
-    if (row.job_id) {
-      router.push({ name: "run-continue", params: { id: String(row.job_id) } });
-    } else {
-      // Filesystem-only run with no job id: fall back to the path query.
-      router.push({ name: "run-new", query: { continue_run: row.run_dir } });
-    }
+  // Reuse the existing record: the continue form resumes from a checkpoint when the run has a
+  // folder, or re-runs from scratch when it does not (e.g. failed at setup). No new record.
+  if (row?.job_id) {
+    router.push({ name: "run-continue", params: { id: String(row.job_id) } });
     return;
   }
-  // No folder/checkpoint (e.g. a run that failed at setup) → retry from the same config.
-  if (row?.job_id) void newRunFromConfig(row.job_id);
+  // Filesystem-only run with no record yet: continue by path (creates one).
+  if (row?.run_dir) {
+    router.push({ name: "run-new", query: { continue_run: row.run_dir } });
+  }
 }
 </script>
 

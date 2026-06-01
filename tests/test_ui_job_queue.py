@@ -143,6 +143,30 @@ def test_continue_existing_reuses_record(
     assert draft.state == "new"
 
 
+def test_continue_existing_without_folder_reuses_record(
+    job_content: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A run that never made a folder (failed at setup) is retried in place — no new row."""
+    monkeypatch.setattr("rengu_flow_ui.job_queue.try_start_next", lambda: None)
+    job = job_queue.prepare_job(
+        content=job_content,
+        num_gpus=1,
+        resume_from=None,
+        output_dir=None,
+        extra_args="",
+        reset_dataloader=False,
+        reset_optimizer=False,
+    )
+    db.update_job(job.id, state="failed", run_dir=None, source_run_dir=None)
+    before = len(db.list_jobs())
+
+    cont = job_queue.continue_existing(job.id, content=job_content)
+    assert cont.id == job.id  # same record, no duplicate
+    assert cont.state == "pending"
+    assert cont.resume_from is None  # nothing to resume — from scratch
+    assert len(db.list_jobs()) == before
+
+
 def test_enqueue_does_not_autostart(job_content: str, monkeypatch: pytest.MonkeyPatch) -> None:
     """Adding to the queue only enqueues (pending) — it must never launch a runner."""
     calls: list[int] = []

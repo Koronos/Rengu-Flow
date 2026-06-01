@@ -519,17 +519,19 @@ async function init(): Promise<void> {
       error.value = formatError(e);
     }
   } else if (isContinue.value && route.name === "run-continue" && routeJobId.value) {
-    // Continue by job id: resolve the run folder server-side.
+    // Continue by job id: reuse this record. Resume its folder when it has one, otherwise
+    // re-run from scratch with its config (e.g. a run that failed at setup, no folder yet).
     try {
       const j = await api.getJob(routeJobId.value);
-      const runDir = j.run_dir || j.source_run_dir;
-      if (!runDir) {
-        error.value = "This job has no run folder to continue from.";
-        return;
-      }
       numGpus.value = j.num_gpus ?? 1;
-      await editor.loadContinuation(runDir);
-      await loadCheckpoints({ jobId: routeJobId.value });
+      const runDir = j.run_dir || j.source_run_dir;
+      if (runDir) {
+        await editor.loadContinuation(runDir);
+        await loadCheckpoints({ jobId: routeJobId.value });
+      } else {
+        await editor.loadContent(j.config_content ?? "");
+        fromScratch.value = true;
+      }
     } catch (e) {
       error.value = formatError(e);
     }

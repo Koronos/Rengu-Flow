@@ -271,12 +271,12 @@ def continue_existing(
     job = db.get_job(job_id)
     if job.state in ("running", "stopping"):
         raise ValueError("Stop the run before continuing it")
+    # A run with a folder/checkpoint resumes; one without (e.g. failed at setup) re-runs from
+    # scratch in place. Either way the same record is reused — never a new row.
     run_dir = job.run_dir or job.source_run_dir
-    if not run_dir:
-        raise ValueError("This run has no output folder to continue from")
 
     cfg = toml.loads(content)
-    if from_scratch:
+    if from_scratch or not run_dir:
         resume_arg: str | None = None
     elif resume_from:
         resume_arg = resume_from
@@ -284,7 +284,8 @@ def continue_existing(
         resume_arg = resume_checkpoint_arg(Path(run_dir), cfg)
 
     staging = run_staging.materialize_staging(content, job_id)
-    _sync_config_to_run_folder(run_dir, staging)
+    if run_dir:
+        _sync_config_to_run_folder(run_dir, staging)
     extra_s = merge_job_cli_args(
         extra_args,
         cache_only=job.cache_only,
@@ -293,7 +294,7 @@ def continue_existing(
         reset_dataloader=reset_dataloader,
         reset_optimizer=reset_optimizer,
     )
-    resolved_dir = str(Path(run_dir).resolve())
+    resolved_dir = str(Path(run_dir).resolve()) if run_dir else None
     db.update_job(
         job_id,
         state="pending" if enqueue else "new",

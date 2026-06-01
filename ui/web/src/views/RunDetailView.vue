@@ -18,13 +18,10 @@
             Stop TensorBoard
           </el-button>
         </template>
-        <el-button
-          v-else-if="mode === 'job' && job?.id"
-          type="primary"
-          @click="newRunFromThisConfig"
-        >
-          New run from this config
-        </el-button>
+        <template v-else-if="mode === 'job' && job?.id">
+          <el-button type="primary" @click="goContinueTraining">Retry run</el-button>
+          <el-button @click="newRunFromThisConfig">New run from this config</el-button>
+        </template>
       </div>
     </div>
 
@@ -83,7 +80,7 @@
           {{
             runDir
               ? "Load run TOML, edit epochs/steps, resume in this folder"
-              : "This run has no checkpoint to resume — start a fresh run from the same config (edit, then add to the queue)."
+              : "No checkpoint to resume — Retry re-runs this same record from scratch; New run creates a separate one."
           }}
         </el-text>
       </div>
