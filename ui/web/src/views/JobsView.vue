@@ -8,6 +8,10 @@
           <span v-if="stats.pending">{{ stats.pending }} in queue</span>
         </el-text>
       </div>
+      <el-space wrap>
+        <el-button type="primary" :icon="Plus" @click="newRun">New run</el-button>
+        <el-button :icon="FolderOpened" @click="openImportDialog">Import existing run</el-button>
+      </el-space>
     </div>
 
     <el-alert v-if="error" type="error" :title="error" show-icon class="mb-12" />
@@ -43,247 +47,173 @@
       </template>
     </TrainLivePanel>
 
-    <el-card shadow="never" class="page-section">
-      <template #header>
-        <div class="launch-head">
-          <span>New training run</span>
-          <el-button size="small" :icon="FolderOpened" @click="openImportDialog">Import existing run</el-button>
-        </div>
-      </template>
-      <el-form label-position="top" class="launch-form">
-        <el-form-item label="Training config" required>
-          <div v-if="!hasAnyConfig" class="page-panel config-block--compact">
-            <span class="page-hint">No saved presets yet — create a config and run it in one step.</span>
-            <el-button type="primary" size="small" @click="goCreateConfig">Create &amp; run</el-button>
-          </div>
-          <div v-else-if="!configId" class="page-panel">
-            <p class="page-hint">
-              Create a config and run it in one step, or reuse a saved preset from the library.
-            </p>
-            <el-space wrap>
-              <el-button type="primary" @click="goCreateConfig">Create &amp; run</el-button>
-              <el-button @click="goPickConfig">Use a saved preset</el-button>
-            </el-space>
-          </div>
-          <div v-else class="page-panel">
-            <div class="config-selected-row">
-              <code class="config-id">{{ configId }}</code>
-              <el-tag v-if="configValid === true" type="success" size="small">Valid</el-tag>
-              <el-tag v-else-if="configValid === false" type="danger" size="small">Needs fixes</el-tag>
-            </div>
-            <el-space wrap>
-              <el-button @click="goPickConfig">Change</el-button>
-              <el-button type="primary" plain @click="goEditConfig">Edit before run</el-button>
-              <el-button :icon="CircleCheck" :loading="validating" @click="checkConfig">
-                Validate
-              </el-button>
-            </el-space>
-          </div>
-        </el-form-item>
-
-        <el-row :gutter="16">
-          <el-col :xs="12" :sm="6" :md="4">
-            <el-form-item label="GPUs">
-              <el-input-number
-                v-model="numGpus"
-                :min="1"
-                :max="64"
-                class="w-full"
-                v-bind="ariaLabel('Number of GPUs for this job')"
-              />
-              <el-text type="info" size="small" class="page-hint hint">
-                DeepSpeed GPU count for this launch (default from local config is 1).
-              </el-text>
-            </el-form-item>
-          </el-col>
-          <el-col :xs="24" :sm="24" :md="10">
-            <el-form-item label="Resume folder">
-              <el-input
-                v-model="resumeFrom"
-                placeholder="20250217_14-30-00"
-                clearable
-                class="w-full"
-                v-bind="ariaLabel('Resume run folder name under output_dir')"
-              />
-              <el-text type="info" size="small" class="page-hint hint">
-                Folder name under your config’s <code>output_dir</code> (not a full path). Loads
-                <code>latest</code> checkpoint via <code>--resume_from_checkpoint</code>.
-              </el-text>
-            </el-form-item>
-          </el-col>
-        </el-row>
-
-        <el-form-item class="cache-options">
-          <el-checkbox v-model="trustCache" :disabled="regenerateCache">
-            Use existing cache (skip rebuild)
-          </el-checkbox>
-          <el-checkbox v-model="regenerateCache" class="cache-option-second">
-            Regenerate cache
-          </el-checkbox>
-          <el-text type="info" size="small" class="page-hint hint block-hint">
-            Default: build or refresh cache as needed. Enable “Use existing cache” after a
-            successful <strong>Build cache</strong> run (<code>--trust_cache</code>). Use
-            “Regenerate cache” after changing images or captions.
-          </el-text>
-        </el-form-item>
-
-        <div class="launch-actions">
-          <el-button type="primary" :icon="Plus" :disabled="!canLaunch" @click="enqueue">
-            Add to queue
-          </el-button>
-          <el-button :icon="VideoPlay" :disabled="!canLaunch" @click="startNow">
-            Start now
-          </el-button>
-        </div>
-        <el-text type="info" size="small" class="page-hint hint">
-          One job runs at a time. Queued jobs start automatically when the current run finishes.
-        </el-text>
-
-        <el-divider content-position="left">Dataset cache only</el-divider>
-        <div class="launch-actions">
-          <el-button :disabled="!canLaunch" @click="enqueueCache">
-            Build cache / Generar caché (queue)
-          </el-button>
-          <el-button :icon="VideoPlay" :disabled="!canLaunch" @click="startCacheNow">
-            Build cache (start now)
-          </el-button>
-        </div>
-        <el-text type="info" size="small" class="page-hint hint">
-          Pre-compute latents and text embeddings without training (<code>--cache_only</code>).
-          Recommended before long Cosmos runs. Does not use the resume folder.
-        </el-text>
-      </el-form>
-    </el-card>
-
     <div class="page-toolbar">
       <el-input
         v-model="listQuery"
         clearable
-        placeholder="Search config, run folder…"
+        placeholder="Search run folder, name…"
         class="page-toolbar-search"
-        @clear="loadRuns(1)"
+        @input="loadRuns"
+        @clear="loadRuns"
       />
-      <el-select v-model="stateFilter" clearable placeholder="All states" class="page-toolbar-filter" @change="loadRuns(1)">
-        <el-option label="Active" value="active" />
-        <el-option label="Queued" value="queued" />
-        <el-option label="Finished" value="finished" />
-        <el-option label="On disk only" value="disk" />
-      </el-select>
-      <el-tooltip content="Refresh runs list" :show-after="300">
-        <el-button
-          size="small"
-          :icon="Refresh"
-          circle
-          :loading="listRefreshing"
-          @click="refreshFull"
-        />
+      <el-tooltip content="Refresh" :show-after="300">
+        <el-button size="small" :icon="Refresh" circle :loading="listRefreshing" @click="refreshFull" />
       </el-tooltip>
     </div>
 
-    <div class="runs-table-wrap">
-    <el-table
-      v-loading="listLoading"
-      :data="runs"
-      stripe
-      size="small"
-      class="runs-table"
-      @row-click="openRun"
-    >
-      <el-table-column label="State" width="88">
-        <template #default="{ row }">
-          <el-tag :type="stateTag(row.state)" size="small" :effect="row.state === 'running' ? 'dark' : 'light'">
-            {{ row.state }}
-          </el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column label="Run" min-width="100" show-overflow-tooltip>
-        <template #default="{ row }">
-          {{ row.label || row.run_name || "—" }}
-        </template>
-      </el-table-column>
-      <el-table-column prop="config_id" label="Config" min-width="120" show-overflow-tooltip class-name="col-config" />
-      <el-table-column label="Progress" min-width="120" show-overflow-tooltip class-name="col-progress">
-        <template #default="{ row }">
-          <el-tag
-            v-if="row.progress?.phase === 'waiting_disk_export'"
-            type="warning"
-            size="small"
-            class="phase-tag"
-          >
-            Disk wait
-          </el-tag>
-          <template v-if="row.progress?.step != null">
-            step {{ row.progress.step }}
-            <template v-if="row.progress.max_steps">/ {{ row.progress.max_steps }}</template>
-            <template v-if="row.progress.percent != null"> ({{ row.progress.percent }}%)</template>
-            <span v-if="row.progress.loss != null" class="loss-cell">
-              · {{ Number(row.progress.loss).toFixed(4) }}
-            </span>
-            <span v-if="formatRunProgressHint(row.progress)" class="loss-cell">
-              · {{ formatRunProgressHint(row.progress) }}
-            </span>
-          </template>
-          <span v-else-if="row.progress?.phase !== 'waiting_disk_export'">—</span>
-        </template>
-      </el-table-column>
-      <el-table-column label="Updated" min-width="132" show-overflow-tooltip class-name="col-updated">
-        <template #default="{ row }">
-          {{ formatTime(row.progress?.updated_at || row.finished_at || row.started_at) }}
-        </template>
-      </el-table-column>
-      <el-table-column label="" width="188" align="right" class-name="col-actions">
-        <template #default="{ row }">
-          <el-space class="row-actions" @click.stop>
-            <el-tooltip content="Open run" placement="top">
-              <el-button size="small" :icon="View" circle @click.stop="openRun(row as TrainingRunRow)" />
-            </el-tooltip>
-            <el-tooltip v-if="row.config_id" content="Edit config" placement="top">
-              <el-button size="small" :icon="Edit" circle @click.stop="goEditConfigId(row.config_id)" />
-            </el-tooltip>
-            <el-tooltip v-if="row.run_dir" content="Continue training" placement="top">
-              <el-button size="small" :icon="VideoPlay" circle @click.stop="goContinue(row as TrainingRunRow)" />
-            </el-tooltip>
-            <el-tooltip v-if="row.job_id" content="Clone to new run" placement="top">
-              <el-button size="small" :icon="CopyDocument" circle @click.stop="cloneRun(row.job_id)" />
-            </el-tooltip>
-            <template v-if="row.state === 'pending'">
-              <el-tooltip content="Run now" placement="top">
-                <el-button size="small" :icon="VideoPlay" circle @click.stop="startQueuedNow(row.job_id)" />
-              </el-tooltip>
-              <el-tooltip content="Move up" placement="top">
-                <el-button size="small" :icon="Top" circle @click.stop="move(row.job_id, 'up')" />
-              </el-tooltip>
-              <el-tooltip content="Move down" placement="top">
-                <el-button size="small" :icon="Bottom" circle @click.stop="move(row.job_id, 'down')" />
-              </el-tooltip>
-              <el-tooltip content="Remove" placement="top">
-                <el-button size="small" :icon="Delete" circle @click.stop="removeQueued(row.job_id)" />
-              </el-tooltip>
-            </template>
-            <el-tooltip v-if="row.state === 'running' || row.state === 'stopping'" content="Stop" placement="top">
-              <el-button size="small" :icon="VideoPause" circle @click.stop="stop(row.job_id)" />
-            </el-tooltip>
+    <!-- Saved drafts -->
+    <el-card v-if="savedRuns.length" shadow="never" class="page-section">
+      <template #header><span>Saved</span></template>
+      <div class="run-rows">
+        <div v-for="row in savedRuns" :key="row.key" class="run-row">
+          <div class="run-row__main">
+            <el-tag :type="stateTag(row.state)" size="small">new</el-tag>
+            <span class="run-row__name">{{ row.label || row.run_name || "—" }}</span>
+          </div>
+          <el-space class="run-row__actions">
+            <el-button size="small" type="primary" :icon="Plus" @click="addToQueue(row.job_id)">
+              Add to queue
+            </el-button>
+            <el-button size="small" :icon="Edit" @click="editRun(row)">Edit</el-button>
+            <el-button size="small" :icon="CopyDocument" @click="newRunFromConfig(row.job_id)">
+              New from config
+            </el-button>
+            <el-button size="small" :icon="Delete" @click="removeRun(row)">Delete</el-button>
           </el-space>
-        </template>
-      </el-table-column>
-    </el-table>
-    </div>
+        </div>
+      </div>
+    </el-card>
 
-    <div v-if="runsTotal > listPageSize" class="runs-pagination">
-      <el-pagination
-        v-model:current-page="listPage"
-        v-model:page-size="listPageSize"
-        :total="runsTotal"
-        :page-sizes="[10, 20, 50]"
-        layout="total, sizes, prev, pager, next"
-        small
-        background
-        @current-change="loadRuns"
-        @size-change="() => loadRuns(1)"
+    <!-- Queue: running (pinned) + pending (drag & drop) -->
+    <el-card shadow="never" class="page-section">
+      <template #header><span>Queue</span></template>
+      <el-empty
+        v-if="!runningRuns.length && !pendingRuns.length"
+        description="Nothing running or queued."
+        :image-size="56"
       />
-    </div>
+      <div v-else class="run-rows">
+        <div v-for="row in runningRuns" :key="row.key" class="run-row run-row--active">
+          <div class="run-row__main">
+            <el-tag :type="stateTag(row.state)" size="small" effect="dark">{{ row.state }}</el-tag>
+            <span class="run-row__name">{{ row.label || row.run_name || "—" }}</span>
+            <span v-if="row.progress?.step != null" class="run-row__progress">
+              step {{ row.progress.step }}<template v-if="row.progress.max_steps">/{{ row.progress.max_steps }}</template>
+            </span>
+          </div>
+          <el-space class="run-row__actions">
+            <el-button size="small" :icon="View" @click="openRun(row)">Open</el-button>
+            <el-button size="small" :icon="VideoPause" @click="stop(row.job_id)">Stop</el-button>
+          </el-space>
+        </div>
 
-    <el-empty v-if="!listLoading && !runs.length" description="No training runs yet — start one above." />
+        <div v-if="runningRuns.length && pendingRuns.length" class="queue-sep" />
+
+        <div ref="pendingListEl" class="run-rows run-rows--pending">
+          <div
+            v-for="row in pendingRuns"
+            :key="row.key"
+            class="run-row run-row--pending"
+          >
+            <div class="run-row__main">
+              <el-icon class="drag-handle"><Rank /></el-icon>
+              <el-tag :type="stateTag(row.state)" size="small">queued</el-tag>
+              <span class="run-row__name">{{ row.label || row.run_name || "—" }}</span>
+            </div>
+            <el-space class="run-row__actions">
+              <el-button size="small" :icon="VideoPlay" @click="startQueuedNow(row.job_id)">Run now</el-button>
+              <el-button size="small" :icon="Edit" @click="editRun(row)">Edit</el-button>
+              <el-button size="small" :icon="CopyDocument" @click="newRunFromConfig(row.job_id)">
+                New from config
+              </el-button>
+              <el-button size="small" :icon="Delete" @click="removeRun(row)">Delete</el-button>
+            </el-space>
+          </div>
+        </div>
+      </div>
+    </el-card>
+
+    <!-- History -->
+    <el-card shadow="never" class="page-section">
+      <template #header><span>History</span></template>
+      <el-table
+        v-loading="listLoading"
+        :data="historyRuns"
+        stripe
+        size="small"
+        class="runs-table"
+        @row-click="openRun"
+      >
+        <el-table-column label="State" width="92">
+          <template #default="{ row }">
+            <el-tag :type="stateTag(row.state)" size="small">{{ stateLabel(row.state) }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="Run" min-width="140" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.label || row.run_name || "—" }}</template>
+        </el-table-column>
+        <el-table-column label="Progress" min-width="140" show-overflow-tooltip>
+          <template #default="{ row }">
+            <template v-if="row.progress?.step != null">
+              step {{ row.progress.step }}
+              <template v-if="row.progress.max_steps">/ {{ row.progress.max_steps }}</template>
+              <span v-if="row.progress.loss != null" class="loss-cell">
+                · {{ Number(row.progress.loss).toFixed(4) }}
+              </span>
+            </template>
+            <span v-else>—</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="Updated" min-width="150" show-overflow-tooltip>
+          <template #default="{ row }">
+            {{ formatTime(row.progress?.updated_at || row.finished_at || row.started_at) }}
+          </template>
+        </el-table-column>
+        <el-table-column label="" width="320" align="right">
+          <template #default="{ row }">
+            <el-space class="row-actions" @click.stop>
+              <el-button size="small" :icon="View" @click.stop="openRun(row as TrainingRunRow)">Open</el-button>
+              <el-button
+                v-if="row.run_dir"
+                size="small"
+                :icon="VideoPlay"
+                @click.stop="continueRun(row as TrainingRunRow)"
+              >
+                Continue
+              </el-button>
+              <el-button
+                v-if="row.job_id"
+                size="small"
+                :icon="CopyDocument"
+                @click.stop="newRunFromConfig(row.job_id)"
+              >
+                New from config
+              </el-button>
+              <el-button
+                v-if="row.kind !== 'disk'"
+                size="small"
+                :icon="Delete"
+                @click.stop="removeRun(row as TrainingRunRow)"
+              >
+                Delete
+              </el-button>
+            </el-space>
+          </template>
+        </el-table-column>
+      </el-table>
+      <el-empty
+        v-if="!listLoading && !historyRuns.length"
+        description="No finished runs yet."
+        :image-size="56"
+      />
+    </el-card>
+
+    <RunFormModal
+      v-model="modalOpen"
+      :mode="modalMode"
+      :job="modalJob"
+      @submitted="onModalSubmitted"
+    />
 
     <el-dialog
       v-model="importOpen"
@@ -346,9 +276,7 @@
 
       <el-descriptions v-if="importPreview?.run" :column="1" border size="small" class="mt-12">
         <el-descriptions-item label="Folder">{{ importPreview.run.name }}</el-descriptions-item>
-        <el-descriptions-item label="Config">
-          {{ importPreview.config_path || "—" }}
-        </el-descriptions-item>
+        <el-descriptions-item label="Config">{{ importPreview.config_path || "—" }}</el-descriptions-item>
         <el-descriptions-item label="Artifacts">
           {{ importPreview.run.artifacts?.length || 0 }}
         </el-descriptions-item>
@@ -358,12 +286,6 @@
       </el-descriptions>
 
       <el-divider />
-      <el-checkbox v-model="importForm.import_config">Add training config to library</el-checkbox>
-      <el-form v-if="importForm.import_config" label-position="top" class="mt-8">
-        <el-form-item label="Library config id">
-          <el-input v-model="importForm.config_id" placeholder="auto from folder name" />
-        </el-form-item>
-      </el-form>
       <el-checkbox v-model="importForm.import_dataset">Add dataset TOML to library (if present)</el-checkbox>
       <el-form v-if="importForm.import_dataset" label-position="top" class="mt-8">
         <el-form-item label="Library dataset id">
@@ -383,109 +305,55 @@
         </el-button>
       </template>
     </el-dialog>
-
-    <el-dialog v-model="editOpen" title="Edit queued job" width="480px" destroy-on-close>
-      <el-form label-position="top">
-        <el-form-item label="Config">
-          <el-select
-            v-model="editForm.config_id"
-            filterable
-            remote
-            reserve-keyword
-            placeholder="Search configs…"
-            :remote-method="searchConfigOptions"
-            class="w-full"
-          >
-            <el-option
-              v-for="c in configOptions"
-              :key="c.id"
-              :label="c.model_type ? `${c.id} (${c.model_type})` : c.id"
-              :value="c.id"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="GPUs">
-          <el-input-number v-model="editForm.num_gpus" :min="1" :max="64" class="w-full" />
-        </el-form-item>
-        <el-form-item label="Resume folder">
-          <PathFieldControl
-            v-model="editForm.resume_from"
-            placeholder="optional"
-            expect="dir"
-            input-class="w-full"
-          />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="editOpen = false">Cancel</el-button>
-        <el-button type="primary" @click="saveEdit">Save</el-button>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from "vue";
-import { useRouter } from "vue-router";
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import { ElLoadingDirective, ElMessage, ElMessageBox } from "element-plus";
 import {
-  Bottom,
-  CircleCheck,
   CopyDocument,
   Delete,
   Edit,
   FolderOpened,
   Plus,
-  Top,
-  View,
+  Rank,
   Refresh,
+  View,
   VideoPause,
   VideoPlay,
 } from "@element-plus/icons-vue";
+import Sortable from "sortablejs";
 import { api } from "../api";
 import AutoRefreshBar from "../components/AutoRefreshBar.vue";
+import RunFormModal from "../components/RunFormModal.vue";
 import TrainLivePanel from "../components/TrainLivePanel.vue";
 import PathFieldControl from "../components/PathFieldControl.vue";
 import { useAutoRefresh } from "../composables/useAutoRefresh";
 import { useTrainLiveStream } from "../composables/useTrainLiveStream";
-import { ariaLabel } from "../lib/aria";
 import { TRAIN_LIVE_REFRESH_STORAGE_KEY } from "../lib/autoRefresh";
 import { formatError } from "../lib/formatError";
-import { formatRunProgressHint } from "../lib/formatRunProgress";
-import { getJobConfigId, setJobConfigId } from "../lib/jobConfigPick";
-import type {
-  ConfigSearchItem,
-  ImportCandidatesResult,
-  ImportRunPreview,
-  JobRecord,
-  JobStartBody,
-  TrainingRunRow,
-} from "../types/api";
+import { useConfigEditorStore } from "../stores/configEditor";
+import type { ImportCandidatesResult, ImportRunPreview, JobRecord, TrainingRunRow } from "../types/api";
 
 const router = useRouter();
+const route = useRoute();
 const vLoading = ElLoadingDirective;
+const editor = useConfigEditorStore();
 
 const runs = ref<TrainingRunRow[]>([]);
-const runsTotal = ref(0);
-const listPage = ref(1);
-const listPageSize = ref(20);
 const listQuery = ref("");
-const stateFilter = ref("");
 const listLoading = ref(false);
 const listRefreshing = ref(false);
 const activeRun = ref<TrainingRunRow | null>(null);
 const stats = ref({ running: 0, pending: 0 });
-const hasAnyConfig = ref(false);
-const configOptions = ref<ConfigSearchItem[]>([]);
-const configId = ref<string | null>(getJobConfigId());
-const configValid = ref<boolean | null>(null);
-const validating = ref(false);
-const numGpus = ref(1);
-const resumeFrom = ref("");
-const trustCache = ref(false);
-const regenerateCache = ref(false);
 const error = ref("");
 const pollWarning = ref("");
+
+const modalOpen = ref(false);
+const modalMode = ref<"create" | "edit" | "continue">("create");
+const modalJob = ref<TrainingRunRow | null>(null);
 
 const importOpen = ref(false);
 const importRunPath = ref("");
@@ -494,30 +362,26 @@ const importCandidates = ref<NonNullable<ImportCandidatesResult["runs"]>>([]);
 const importPreview = ref<ImportRunPreview | null>(null);
 const importPreviewLoading = ref(false);
 const importSaving = ref(false);
-const importForm = reactive({
-  import_config: true,
-  import_dataset: true,
-  config_id: "",
-  dataset_id: "",
-});
+const importForm = reactive({ import_dataset: true, dataset_id: "" });
 
-const editOpen = ref(false);
-const editJobId = ref("");
-const editForm = reactive({
-  config_id: "",
-  num_gpus: 1,
-  resume_from: "",
-});
+const pendingListEl = ref<HTMLElement | null>(null);
+let sortable: Sortable | null = null;
 
-const runningJobs = computed(() =>
-  runs.value.filter((j) => j.state === "running" || j.state === "stopping")
+const savedRuns = computed(() => runs.value.filter((r) => r.state === "new"));
+const runningRuns = computed(() =>
+  runs.value.filter((r) => r.state === "running" || r.state === "stopping")
 );
-
-const canLaunch = computed(() => Boolean(configId.value && hasAnyConfig.value));
+const pendingRuns = computed(() => runs.value.filter((r) => r.state === "pending"));
+const historyRuns = computed(() =>
+  runs.value.filter((r) =>
+    ["finished", "stopped", "failed", "on_disk"].includes(String(r.state))
+  )
+);
 
 function stateTag(state: string | undefined): "primary" | "success" | "warning" | "info" | "danger" {
   if (state === "running" || state === "stopping") return "success";
   if (state === "pending") return "warning";
+  if (state === "new") return "info";
   if (state === "finished") return "info";
   if (state === "on_disk") return "primary";
   if (state === "stopped") return "warning";
@@ -525,16 +389,20 @@ function stateTag(state: string | undefined): "primary" | "success" | "warning" 
   return "info";
 }
 
+function stateLabel(state: string | undefined): string {
+  if (state === "finished") return "Finished";
+  if (state === "stopped") return "Stopped";
+  if (state === "failed") return "Error";
+  if (state === "on_disk") return "On disk";
+  return String(state ?? "—");
+}
+
 function formatTime(iso: string | null | undefined): string {
   if (!iso) return "—";
   return String(iso).slice(0, 19).replace("T", " ");
 }
 
-function runFolderLabel(row: TrainingRunRow): string {
-  if (!row.run_dir) return "—";
-  const parts = String(row.run_dir).replace(/\\/g, "/").split("/");
-  return parts[parts.length - 1] || row.run_dir;
-}
+// --- Import dialog ---
 
 function openImportDialog() {
   importOpen.value = true;
@@ -544,9 +412,7 @@ function openImportDialog() {
 function resetImportDialog() {
   importRunPath.value = "";
   importPreview.value = null;
-  importForm.import_config = true;
   importForm.import_dataset = true;
-  importForm.config_id = "";
   importForm.dataset_id = "";
 }
 
@@ -568,12 +434,7 @@ async function previewImportRun() {
   try {
     const data = await api.previewJobImport(path);
     importPreview.value = data;
-    if (!importForm.config_id) {
-      importForm.config_id = String(data.suggested_config_id || "");
-    }
-    if (!importForm.dataset_id) {
-      importForm.dataset_id = String(data.suggested_dataset_id || "");
-    }
+    if (!importForm.dataset_id) importForm.dataset_id = String(data.suggested_dataset_id || "");
   } catch (e) {
     ElMessage.error(formatError(e));
   } finally {
@@ -588,8 +449,6 @@ async function confirmImportRun() {
   try {
     const job = await api.importJobFromRun({
       run_path: path,
-      import_config: importForm.import_config,
-      config_id: importForm.config_id.trim() || undefined,
       import_dataset: importForm.import_dataset,
       dataset_id: importForm.dataset_id.trim() || undefined,
     });
@@ -604,44 +463,18 @@ async function confirmImportRun() {
   }
 }
 
-async function refreshConfigAvailability(): Promise<void> {
-  try {
-    const r = await api.searchConfigs({ q: "", page: 1, page_size: 1 });
-    hasAnyConfig.value = (r.total ?? 0) > 0;
-  } catch {
-    hasAnyConfig.value = false;
-  }
-}
+// --- Runs list ---
 
-async function searchConfigOptions(query: string): Promise<void> {
-  try {
-    const r = await api.searchConfigs({ q: query || "", page: 1, page_size: 30 });
-    configOptions.value = r.items || [];
-  } catch {
-    configOptions.value = [];
-  }
-}
-
-function syncConfigSelection() {
-  const stored = getJobConfigId();
-  if (stored) {
-    configId.value = stored;
-  }
-}
-
-async function loadRuns(page = listPage.value): Promise<void> {
+async function loadRuns(): Promise<void> {
   listLoading.value = true;
-  listPage.value = page;
   try {
     const data = await api.trainRuns({
-      page: listPage.value,
-      page_size: listPageSize.value,
+      page: 1,
+      page_size: 100,
       q: listQuery.value.trim(),
-      state: stateFilter.value || "",
       include_disk: true,
     });
     runs.value = data.items || [];
-    runsTotal.value = data.total ?? 0;
     stats.value = data.stats || { running: 0, pending: 0 };
   } catch (e) {
     error.value = formatError(e);
@@ -666,8 +499,7 @@ async function refreshActive(): Promise<boolean> {
 async function refreshFull(): Promise<void> {
   listRefreshing.value = true;
   try {
-    await Promise.all([loadRuns(listPage.value), refreshActive(), refreshConfigAvailability()]);
-    syncConfigSelection();
+    await Promise.all([loadRuns(), refreshActive()]);
     pollWarning.value = "";
   } catch (e) {
     pollWarning.value = formatError(e);
@@ -676,9 +508,7 @@ async function refreshFull(): Promise<void> {
   }
 }
 
-const hasLiveRun = computed(
-  () => !!activeRun.value || (stats.value.running ?? 0) > 0
-);
+const hasLiveRun = computed(() => !!activeRun.value || (stats.value.running ?? 0) > 0);
 
 const activeJobId = computed(() => {
   const id = activeRun.value?.job_id;
@@ -688,7 +518,7 @@ const activeJobId = computed(() => {
 const liveStream = useTrainLiveStream(activeJobId, {
   onRunFinished: () => {
     void refreshActive().then((ok) => {
-      if (ok && !activeRun.value) void loadRuns(listPage.value);
+      if (ok && !activeRun.value) void loadRuns();
     });
   },
 });
@@ -707,32 +537,22 @@ function mergeLiveIntoActiveRun(): void {
   const row = activeRun.value;
   if (!row) return;
   const next = { ...row };
-  if (liveProgress.value) {
-    next.progress = liveProgress.value;
-  }
-  if (Object.keys(liveScalars.value).length) {
-    next.scalars = liveScalars.value;
-  }
-  if (livePreviewImages.value.length) {
-    next.preview_images = livePreviewImages.value;
-  }
+  if (liveProgress.value) next.progress = liveProgress.value;
+  if (Object.keys(liveScalars.value).length) next.scalars = liveScalars.value;
+  if (livePreviewImages.value.length) next.preview_images = livePreviewImages.value;
   activeRun.value = next;
 }
 
 watch(
   () => [liveProgress.value, liveScalars.value, livePreviewImages.value] as const,
   () => {
-    if (activeRun.value && !liveUseHttpFallback.value) {
-      mergeLiveIntoActiveRun();
-    }
+    if (activeRun.value && !liveUseHttpFallback.value) mergeLiveIntoActiveRun();
   },
   { deep: true }
 );
 
 watch(activeJobId, (id, prev) => {
-  if (id && id !== prev) {
-    void refreshActive();
-  }
+  if (id && id !== prev) void refreshActive();
 });
 
 const {
@@ -755,173 +575,93 @@ const {
     if (activeRun.value && !liveUseHttpFallback.value && liveProgress.value) {
       mergeLiveIntoActiveRun();
     }
-    if (hadActive && !activeRun.value) {
-      await loadRuns(listPage.value);
-    }
+    if (hadActive && !activeRun.value) await loadRuns();
   },
   isActive: () => hasLiveRun.value && liveUseHttpFallback.value,
 });
 
+// --- Drag & drop reordering of the pending queue ---
+
+function setupSortable(): void {
+  if (sortable || !pendingListEl.value) return;
+  sortable = Sortable.create(pendingListEl.value, {
+    handle: ".drag-handle",
+    animation: 150,
+    onEnd: (evt) => {
+      const ids = pendingRuns.value.map((r) => r.job_id).filter(Boolean) as (string | number)[];
+      if (evt.oldIndex == null || evt.newIndex == null) return;
+      const [moved] = ids.splice(evt.oldIndex, 1);
+      ids.splice(evt.newIndex, 0, moved);
+      void api
+        .reorderQueue(ids)
+        .then(refreshFull)
+        .catch((e) => ElMessage.error(formatError(e)));
+    },
+  });
+}
+
+watch(
+  () => pendingRuns.value.length,
+  async (n) => {
+    await nextTick();
+    if (n > 0) setupSortable();
+    else {
+      sortable?.destroy();
+      sortable = null;
+    }
+  }
+);
+
 onMounted(() => {
   void refreshFull();
-});
-
-function goPickConfig() {
-  router.push({ name: "configs-list", query: { pick: "job" } });
-}
-
-function goEditConfig() {
-  if (!configId.value) return;
-  router.push({ name: "configs-detail", params: { configId: String(configId.value) } });
-}
-
-function goCreateConfig() {
-  router.push({ name: "configs-new" });
-}
-
-async function checkConfig(): Promise<void> {
-  if (!configId.value) return;
-  validating.value = true;
-  configValid.value = null;
-  try {
-    const cfg = await api.getConfig(configId.value);
-    const r = await api.validate(cfg.content);
-    configValid.value = !!r.ok;
-    if (!r.ok) {
-      ElMessage.warning(r.error || "Config is not valid yet");
-    }
-  } catch (e) {
-    configValid.value = false;
-    ElMessage.error(formatError(e));
-  } finally {
-    validating.value = false;
-  }
-}
-
-watch(configId, (id, prev) => {
-  if (id && id !== prev) {
-    void checkConfig();
+  // "Continue training" from a run-detail page lands here with ?continue_run=<run_dir>.
+  const cr = route.query.continue_run;
+  if (typeof cr === "string" && cr) {
+    const parts = cr.replace(/\\/g, "/").split("/").filter(Boolean);
+    continueRun({
+      key: `continue:${cr}`,
+      kind: "disk",
+      state: "on_disk",
+      run_dir: cr,
+      run_name: parts[parts.length - 1] ?? cr,
+      num_gpus: 1,
+    } as TrainingRunRow);
+    void router.replace({ name: "jobs" });
   }
 });
 
-watch(regenerateCache, (on) => {
-  if (on) trustCache.value = false;
+onBeforeUnmount(() => {
+  sortable?.destroy();
+  sortable = null;
 });
+
+// --- Navigation / row actions ---
 
 function goJob(id: string) {
   router.push({ name: "job-detail", params: { id } });
 }
 
-async function cloneRun(id: string | null | undefined): Promise<void> {
-  if (!id) return;
-  try {
-    const job = await api.cloneJob(String(id));
-    ElMessage.success(`Cloned to a new run (job #${job.id})`);
-    await refreshFull();
-    goJob(String(job.id));
-  } catch (e) {
-    ElMessage.error(formatError(e));
-  }
-}
-
 function openRun(row: TrainingRunRow) {
   if (!row) return;
   if (row.kind === "job" && row.job_id != null) {
-    goJob(row.job_id);
+    goJob(String(row.job_id));
     return;
   }
-  if (row.run_name) {
-    router.push({ name: "run-detail", params: { name: row.run_name } });
-  }
-}
-
-function goEditConfigId(id: string | number | null | undefined) {
-  if (!id) return;
-  router.push({ name: "configs-detail", params: { configId: String(id) } });
-}
-
-function goContinue(row: TrainingRunRow) {
-  if (!row?.run_dir) return;
-  router.push({ name: "configs-new", query: { continue_run: row.run_dir } });
-}
-
-function trainingJobBody(cacheOnly: boolean): JobStartBody | null {
-  const selectedConfigId = configId.value;
-  if (!selectedConfigId) return null;
-  return {
-    config_id: selectedConfigId,
-    num_gpus: numGpus.value,
-    resume_from: cacheOnly ? undefined : resumeFrom.value || undefined,
-    cache_only: cacheOnly,
-    trust_cache: cacheOnly ? false : trustCache.value,
-    regenerate_cache: regenerateCache.value,
-    enqueue: !cacheOnly,
-    start_immediately: false,
-  };
-}
-
-async function submitJob(body: JobStartBody, successMessage: string) {
-  error.value = "";
-  setJobConfigId(String(body.config_id));
-  try {
-    await api.startJob(body);
-    ElMessage.success(successMessage);
-    await refreshFull();
-  } catch (e) {
-    error.value = formatError(e);
-    ElMessage.error(formatError(e));
-  }
-}
-
-async function enqueue() {
-  if (!canLaunch.value) return;
-  const body = trainingJobBody(false);
-  if (!body) return;
-  await submitJob({ ...body, enqueue: true, start_immediately: false }, "Added to queue");
-}
-
-async function startNow() {
-  if (!canLaunch.value) return;
-  const body = trainingJobBody(false);
-  if (!body) return;
-  await submitJob(
-    { ...body, enqueue: false, start_immediately: true },
-    "Job started or queued at front"
-  );
-}
-
-async function enqueueCache() {
-  if (!canLaunch.value) return;
-  const body = trainingJobBody(true);
-  if (!body) return;
-  await submitJob({ ...body, enqueue: true, start_immediately: false }, "Cache build queued");
-}
-
-async function startCacheNow() {
-  if (!canLaunch.value) return;
-  const body = trainingJobBody(true);
-  if (!body) return;
-  await submitJob(
-    { ...body, enqueue: false, start_immediately: true },
-    "Cache build started or queued at front"
-  );
+  if (row.run_name) router.push({ name: "run-detail", params: { name: row.run_name } });
 }
 
 async function stop(id: string | null | undefined) {
   if (!id) return;
-  await api.stopJob(id);
+  await api.stopJob(String(id));
   ElMessage.info("Stop requested");
   await refreshFull();
 }
 
-async function sendRunSignal(
-  row: { job_id?: string | null },
-  type: string
-) {
+async function sendRunSignal(row: { job_id?: string | null }, type: string) {
   const id = row?.job_id;
   if (!id) return;
   try {
-    await api.sendJobSignal(id, type);
+    await api.sendJobSignal(String(id), type);
     ElMessage.success(`Signal "${type}" sent`);
     await refreshFull();
   } catch (e) {
@@ -929,51 +669,92 @@ async function sendRunSignal(
   }
 }
 
-async function move(id: string | null | undefined, direction: "up" | "down") {
-  if (!id) return;
-  await api.moveJobQueue(id, direction);
-  await refreshFull();
-}
-
 async function startQueuedNow(id: string | null | undefined) {
   if (!id) return;
-  await api.startJobNow(id);
+  await api.startJobNow(String(id));
   ElMessage.success("Moved to front");
   await refreshFull();
 }
 
-async function removeQueued(id: string | null | undefined) {
+async function addToQueue(id: string | null | undefined) {
   if (!id) return;
-  await ElMessageBox.confirm("Remove this job from the queue?", "Confirm", { type: "warning" });
-  await api.deleteJob(id);
-  ElMessage.success("Removed");
-  await refreshFull();
+  try {
+    await api.enqueueJob(String(id));
+    ElMessage.success("Added to queue");
+    await refreshFull();
+  } catch (e) {
+    ElMessage.error(formatError(e));
+  }
 }
 
-function openEdit(row: JobRecord) {
-  editJobId.value = row.id;
-  editForm.config_id = row.config_id != null ? String(row.config_id) : "";
-  editForm.num_gpus = row.num_gpus || 1;
-  editForm.resume_from = row.resume_from || "";
-  searchConfigOptions(String(row.config_id || ""));
-  editOpen.value = true;
+async function removeRun(row: TrainingRunRow) {
+  if (!row?.job_id) return;
+  await ElMessageBox.confirm(
+    "Removes this run from the list only. Files on disk (checkpoints, logs, samples) are NOT deleted.",
+    "Delete run",
+    { type: "warning", confirmButtonText: "Delete", cancelButtonText: "Cancel" }
+  );
+  try {
+    await api.deleteJob(String(row.job_id));
+    ElMessage.success("Removed from list");
+    await refreshFull();
+  } catch (e) {
+    ElMessage.error(formatError(e));
+  }
 }
 
-async function saveEdit() {
-  await api.updateJob(editJobId.value, {
-    config_id: editForm.config_id,
-    num_gpus: editForm.num_gpus,
-    resume_from: editForm.resume_from || null,
-  });
-  editOpen.value = false;
-  ElMessage.success("Queue job updated");
-  await refreshFull();
+// --- Modal openers ---
+
+async function newRun() {
+  await editor.fetchSchema();
+  await editor.newConfig();
+  modalMode.value = "create";
+  modalJob.value = null;
+  modalOpen.value = true;
+}
+
+async function newRunFromConfig(id: string | null | undefined) {
+  if (!id) return;
+  try {
+    const { content } = await api.seedJobConfig(String(id));
+    await editor.fetchSchema();
+    await editor.loadContent(content);
+    modalMode.value = "create";
+    modalJob.value = null;
+    modalOpen.value = true;
+  } catch (e) {
+    ElMessage.error(formatError(e));
+  }
+}
+
+function editRun(row: TrainingRunRow) {
+  modalMode.value = "edit";
+  modalJob.value = row;
+  modalOpen.value = true;
+}
+
+function continueRun(row: TrainingRunRow) {
+  if (!row?.run_dir) return;
+  modalMode.value = "continue";
+  modalJob.value = row;
+  modalOpen.value = true;
+}
+
+function onModalSubmitted(_job: JobRecord) {
+  void refreshFull();
 }
 </script>
 
 <style scoped>
 .jobs-page {
   max-width: 100%;
+}
+.page-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 .stats-line {
   display: flex;
@@ -983,101 +764,86 @@ async function saveEdit() {
   color: var(--el-color-success);
   font-weight: 600;
 }
-.launch-head {
+.page-section {
+  margin-top: var(--rf-space-md);
+}
+.page-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: var(--rf-space-md);
+}
+.page-toolbar-search {
+  max-width: 320px;
+}
+.run-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.run-rows--pending {
+  margin-top: 0;
+}
+.run-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--rf-space-sm);
+  gap: 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: var(--el-border-radius-base);
+  background: var(--el-bg-color);
   flex-wrap: wrap;
-  font-weight: 600;
 }
-.launch-form {
+.run-row--active {
+  border-color: var(--el-color-success-light-5);
+  background: var(--el-color-success-light-9);
+}
+.run-row--pending {
+  cursor: default;
+}
+.run-row__main {
   display: flex;
-  flex-direction: column;
-  gap: var(--rf-space-sm);
-}
-.launch-form :deep(.el-form-item) {
-  margin-bottom: 0;
-}
-.launch-form :deep(.el-form-item__label) {
-  padding-bottom: 4px;
-  line-height: 1.3;
-}
-.launch-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--rf-space-xs);
-  margin-bottom: var(--rf-space-xs);
-}
-.hint {
-  display: block;
-}
-.block-hint {
-  margin-top: 4px;
-}
-.cache-options :deep(.el-form-item__content) {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
-}
-.cache-option-second {
-  margin-left: 0;
-}
-.config-block--compact {
-  display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: var(--rf-space-sm);
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
 }
-.config-block--compact .page-hint {
-  margin: 0;
+.run-row__name {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.page-panel {
-  padding: 14px;
+.run-row__progress {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
 }
-.config-selected-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--rf-space-xs);
-  margin-bottom: var(--rf-space-xs);
+.drag-handle {
+  cursor: grab;
+  color: var(--el-text-color-secondary);
 }
-.config-id {
-  font-family: var(--rf-font-mono);
-  font-size: 13px;
+.queue-sep {
+  height: 1px;
+  background: var(--el-border-color);
+  margin: 4px 0;
 }
-.runs-table-wrap {
-  width: 100%;
-  max-width: 100%;
-  overflow-x: auto;
+.loss-cell {
+  color: var(--el-text-color-secondary);
 }
 .runs-table {
   width: 100%;
-  cursor: pointer;
 }
-@media (max-width: 960px) {
-  .runs-table :deep(.col-updated),
-  .runs-table :deep(.col-config) {
-    display: none;
-  }
-}
-.loss-cell {
-  font-family: var(--rf-font-mono);
-  font-size: 12px;
-}
-.runs-pagination {
-  margin-top: var(--rf-space-sm);
-  display: flex;
-  justify-content: flex-end;
-}
-.row-actions {
-  justify-content: flex-end;
-}
-.mt-8 {
-  margin-top: var(--rf-space-xs);
+.mb-12 {
+  margin-bottom: 12px;
 }
 .mt-12 {
-  margin-top: var(--rf-space-sm);
+  margin-top: 12px;
+}
+.mt-8 {
+  margin-top: 8px;
+}
+.w-full {
+  width: 100%;
 }
 </style>

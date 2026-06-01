@@ -54,27 +54,7 @@ export interface Paginated<T> {
   page_size?: number;
 }
 
-// --- Configs ---
-
-export interface ConfigMeta {
-  id: number | string;
-  run_name?: string;
-  model_type?: string;
-  dataset?: string;
-  created_at?: string;
-  updated_at?: string;
-}
-
-export interface ConfigDetail {
-  id: number | string;
-  content: string;
-  meta?: ConfigMeta;
-}
-
-export interface ConfigSearchItem extends ConfigMeta {
-  preview?: Record<string, unknown>;
-  dataset_ref?: string;
-}
+// --- Library (datasets) shared shapes ---
 
 export interface DuplicateConfigResult {
   id: number | string;
@@ -173,6 +153,7 @@ export interface DatasetFolderSuggestion {
 // --- Jobs & training hub ---
 
 export type JobState =
+  | "new"
   | "pending"
   | "running"
   | "stopping"
@@ -182,7 +163,6 @@ export type JobState =
 
 export interface JobRecord {
   id: string;
-  config_id?: number | string;
   config_path?: string;
   state: JobState | string;
   pid?: number | null;
@@ -197,6 +177,9 @@ export interface JobRecord {
   extra_args?: string[];
   queue_position?: number | null;
   source_run_dir?: string | null;
+  cache_only?: boolean;
+  trust_cache?: boolean;
+  regenerate_cache?: boolean;
   status?: RunStatusFile | null;
   signals_available?: boolean;
   /** Immutable snapshot of the run's own config TOML (library refs intact). */
@@ -209,9 +192,7 @@ export interface JobListResult {
 }
 
 export interface JobStartBody {
-  /** Library preset id. Provide this OR `content` (inline TOML) — content wins the run. */
-  config_id?: number | string;
-  /** Inline config TOML for a single-step create-and-run (no library save required). */
+  /** Inline config TOML for the run (the run carries its own snapshot). */
   content?: string;
   num_gpus?: number;
   resume_from?: string;
@@ -227,6 +208,9 @@ export interface JobStartBody {
   regenerate_cache?: boolean;
   enqueue?: boolean;
   start_immediately?: boolean;
+  /** Save as a `new` draft instead of queuing. */
+  save_for_later?: boolean;
+  source_run_dir?: string;
 }
 
 export interface CloneJobBody {
@@ -243,25 +227,37 @@ export interface JobPatchBody {
 
 export interface JobImportBody {
   run_path: string;
-  config_id?: number | string;
   dataset_id?: number | string;
-  import_config?: boolean;
   import_dataset?: boolean;
+  allow_duplicate?: boolean;
 }
 
 export interface ContinueRunBody {
   run_path: string;
-  config_id?: number | string;
+  content: string;
   num_gpus?: number;
-  content?: string;
-  save_to_library?: boolean;
-  library_id?: string;
-  start_now?: boolean;
-  start_immediately?: boolean;
+  extra_args?: string;
+  reset_dataloader?: boolean;
+  reset_optimizer?: boolean;
+  /** Checkpoint folder name to resume from; omit to use the run's `latest`. */
+  resume_from?: string;
+  /** Ignore checkpoints and train from step 0 in the same folder. */
+  from_scratch?: boolean;
   enqueue?: boolean;
-  trust_cache?: boolean;
-  regenerate_cache?: boolean;
-  cache_only?: boolean;
+  start_immediately?: boolean;
+}
+
+export interface CheckpointInfo {
+  name: string;
+  step: number;
+  is_latest: boolean;
+  /** Saved after `latest` — may be truncated/corrupt (e.g. disk filled). */
+  suspect: boolean;
+}
+
+export interface CheckpointsResult {
+  checkpoints: CheckpointInfo[];
+  run_dir: string | null;
 }
 
 export interface RunProgress {
@@ -291,7 +287,6 @@ export interface TrainingRunRow {
   key: string;
   kind: TrainingRunKind;
   job_id?: string | null;
-  config_id?: number | string | null;
   state: string;
   run_dir?: string | null;
   run_name?: string | null;
@@ -303,6 +298,9 @@ export interface TrainingRunRow {
   started_at?: string | null;
   finished_at?: string | null;
   exit_code?: number | null;
+  cache_only?: boolean;
+  trust_cache?: boolean;
+  regenerate_cache?: boolean;
   progress?: RunProgress | null;
   has_tensorboard?: boolean;
   scalars?: Record<string, { step: number; value: number }[]>;

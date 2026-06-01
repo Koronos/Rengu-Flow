@@ -247,6 +247,54 @@ def test_jobs_enqueue_mocked(ui_client, ui_data_tmp: Path, monkeypatch: pytest.M
     assert r2.status_code == 200
 
 
+def test_jobs_draft_enqueue_reorder_seed_http(
+    ui_client, ui_data_tmp: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Never actually launch a runner during this test.
+    monkeypatch.setattr("rengu_flow_ui.job_queue.try_start_next", lambda: None)
+
+    # Save for later -> a "new" draft: stored config, no queue slot, not started.
+    r = ui_client.post(
+        "/api/v1/jobs",
+        json={"content": MINIMAL_TOML, "num_gpus": 2, "save_for_later": True, "trust_cache": True},
+    )
+    assert r.status_code == 200
+    draft = r.json()
+    assert draft["state"] == "new"
+    assert draft["queue_position"] is None
+    assert draft["num_gpus"] == 2
+    assert draft["trust_cache"] is True
+
+    # Promote the draft into the pending queue.
+    r = ui_client.post(f"/api/v1/jobs/{draft['id']}/enqueue")
+    assert r.status_code == 200
+    assert r.json()["state"] == "pending"
+
+    # Queue two more, then reorder the whole pending list.
+    ids = [draft["id"]]
+    for _ in range(2):
+        rr = ui_client.post("/api/v1/jobs", json={"content": MINIMAL_TOML, "enqueue": True})
+        assert rr.status_code == 200
+        ids.append(rr.json()["id"])
+    reordered = list(reversed(ids))
+    r = ui_client.post(
+        "/api/v1/jobs/queue/reorder", json={"ids": [int(x) for x in reordered]}
+    )
+    assert r.status_code == 200
+    queue = r.json()["queue"]
+    assert [str(j["id"]) for j in queue] == [str(x) for x in reordered]
+
+    # Seed a new run from an existing one: config content is preserved.
+    r = ui_client.get(f"/api/v1/jobs/{draft['id']}/seed")
+    assert r.status_code == 200
+    assert 'type = "sdxl"' in r.json()["content"]
+
+    # A run with no folder yet has no checkpoints.
+    r = ui_client.get(f"/api/v1/jobs/{draft['id']}/checkpoints")
+    assert r.status_code == 200
+    assert r.json()["checkpoints"] == []
+
+
 def test_tensorboard_status(ui_client) -> None:
     r = ui_client.get("/api/v1/tensorboard/status")
     assert r.status_code == 200

@@ -5,17 +5,13 @@
       <div class="app-brand">Rengu</div>
       <nav class="app-nav">
         <el-menu :default-active="activeMenu" class="app-menu app-menu--main" router>
-          <el-menu-item index="/datasets">
-            <el-icon><Files /></el-icon>
-            <span>Datasets</span>
-          </el-menu-item>
-          <el-menu-item index="/configs">
-            <el-icon><Setting /></el-icon>
-            <span>Configs</span>
-          </el-menu-item>
           <el-menu-item index="/runs">
             <el-icon><VideoPlay /></el-icon>
             <span>Runs</span>
+          </el-menu-item>
+          <el-menu-item index="/datasets">
+            <el-icon><Files /></el-icon>
+            <span>Datasets</span>
           </el-menu-item>
         </el-menu>
         <div class="app-menu-bottom">
@@ -63,17 +59,13 @@
           router
           @select="drawerOpen = false"
         >
-          <el-menu-item index="/datasets">
-            <el-icon><Files /></el-icon>
-            <span>Datasets</span>
-          </el-menu-item>
-          <el-menu-item index="/configs">
-            <el-icon><Setting /></el-icon>
-            <span>Configs</span>
-          </el-menu-item>
           <el-menu-item index="/runs">
             <el-icon><VideoPlay /></el-icon>
             <span>Runs</span>
+          </el-menu-item>
+          <el-menu-item index="/datasets">
+            <el-icon><Files /></el-icon>
+            <span>Datasets</span>
           </el-menu-item>
         </el-menu>
         <div class="app-menu-bottom">
@@ -104,7 +96,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { useRoute } from "vue-router";
-import { Document, Files, Menu, Setting, Tools, VideoPlay } from "@element-plus/icons-vue";
+import { Document, Files, Menu, Tools, VideoPlay } from "@element-plus/icons-vue";
 import { api } from "./api";
 import { useBreakpoint } from "./composables/useBreakpoint";
 import DatasetGalleryHost from "./components/DatasetGalleryHost.vue";
@@ -133,10 +125,8 @@ const activeMenu = computed(() => {
   const name = routeName.value;
   if (name === "docs") return "/docs";
   if (name === "maintenance") return "/maintenance";
-  if (name.startsWith("configs-")) return "/configs";
   if (name.startsWith("datasets-")) return "/datasets";
-  if (name === "jobs" || name === "job-detail" || name === "run-detail") return "/runs";
-  return "/configs";
+  return "/runs";
 });
 
 const pageTitle = computed(() => {
@@ -145,9 +135,6 @@ const pageTitle = computed(() => {
     maintenance: "Maintenance",
     jobs: "Runs",
     "job-detail": "Run detail",
-    "configs-list": "Configs",
-    "configs-new": "New config",
-    "configs-detail": "Config",
     "datasets-list": "Datasets",
     "datasets-new": "New dataset",
     "datasets-detail": "Dataset",

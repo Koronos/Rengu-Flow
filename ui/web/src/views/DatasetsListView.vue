@@ -143,7 +143,7 @@ const {
   busy: crudBusy,
   duplicateSelected,
   deleteSelected,
-} = useLibraryCrudActions("dataset", {
+} = useLibraryCrudActions({
   router,
   onDeleted: () => {
     clearSelection();

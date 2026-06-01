@@ -27,7 +27,7 @@
     <div class="live-meta">
       <code v-if="run.label || run.run_name">{{ run.label || run.run_name }}</code>
       <el-text type="info" size="small">
-        config {{ run.config_id ?? "—" }} · {{ run.num_gpus }} GPU
+        {{ run.num_gpus }} GPU
       </el-text>
     </div>
 

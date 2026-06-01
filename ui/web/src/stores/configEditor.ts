@@ -1,11 +1,8 @@
 import { defineStore } from "pinia";
 import { computed, ref, shallowRef } from "vue";
-import { ElMessage } from "element-plus";
-import type { RouteLocationNormalizedLoaded } from "vue-router";
 import { api } from "../api";
 import { formatError } from "../lib/formatError";
 import { sanitizeConfigForm } from "../lib/configFormPayload";
-import { resolveDatasetDisplayLabel } from "../lib/resolveDatasetLabels";
 import {
   getModelCapability,
   modelSupportsAdapters,
@@ -45,28 +42,28 @@ type = "adamw"
 lr = 1.0e-4
 `;
 
+/**
+ * Form/TOML editing state for a single run config, shared by RunFormModal. A run is
+ * materialized only when added to the queue, so this store no longer tracks any standalone
+ * "config library" identity — just the TOML content, the parsed form, validation, and the
+ * optional `continuation` (resume-from-folder) context.
+ */
 export const useConfigEditorStore = defineStore("configEditor", () => {
-  const configId = ref<string | null>(null);
-  const isNew = ref(false);
-  const selectedMeta = ref("");
   const defaultNewConfigToml = ref(FALLBACK_DEFAULT_CONFIG_TOML);
   const content = ref(FALLBACK_DEFAULT_CONFIG_TOML);
   const form = shallowRef<FormValues | null>({ _has_adapter: true });
   const schema = ref<Record<string, unknown> | null>(null);
 
   const loading = ref(false);
-  const saving = ref(false);
   const syncing = ref(false);
   const error = ref("");
   const message = ref("");
   const parseError = ref("");
   const validationErrors = ref<string[]>([]);
   const formVersion = ref(0);
-  const editorTab = ref("form");
 
+  /** Set when editing a run that resumes an existing run folder (continue training). */
   const continuation = ref<{ run_dir: string; resume_from: string } | null>(null);
-  const continuationSaveToLibrary = ref(false);
-  const continuationLibraryId = ref("");
 
   const validationAlertDismiss = createValidationAlertScheduler();
 
@@ -74,21 +71,9 @@ export const useConfigEditorStore = defineStore("configEditor", () => {
     () => (schema.value?.registries as { model_capabilities?: ModelCapabilities })?.model_capabilities ?? {}
   );
 
-  const editingTitle = computed(() => {
-    if (isNew.value && !configId.value) return "New config";
-    if (configId.value) return `Config #${configId.value}`;
-    return "Config";
-  });
-
   const editorRunName = computed(() => {
     const raw = form.value?.run_name;
     return typeof raw === "string" && raw.trim() ? raw.trim() : "";
-  });
-
-  const editorHeadline = computed(() => {
-    if (!configId.value) return editorRunName.value || "";
-    const idPart = `Config #${configId.value}`;
-    return editorRunName.value ? `${idPart} · ${editorRunName.value}` : idPart;
   });
 
   function cleanForm(raw: FormValues): FormValues | null {
@@ -172,6 +157,7 @@ export const useConfigEditorStore = defineStore("configEditor", () => {
   }
 
   async function fetchSchema() {
+    if (schema.value) return schema.value;
     schema.value = (await api.getSchema()) as Record<string, unknown>;
     resolveDefaultNewConfigToml(schema.value);
     return schema.value;
@@ -204,52 +190,21 @@ export const useConfigEditorStore = defineStore("configEditor", () => {
     parseError.value = "";
   }
 
+  /** Reset to a blank new run (default template). */
   async function newConfig() {
-    configId.value = null;
-    isNew.value = true;
-    selectedMeta.value = "";
+    continuation.value = null;
     resetEditorState();
-    editorTab.value = "form";
     await tomlSync.applyToml(resolveDefaultNewConfigToml(schema.value));
   }
 
-  async function openConfig(id: string) {
+  /** Load arbitrary TOML into the editor (seed from another run, or edit a draft/pending run). */
+  async function loadContent(toml: string) {
+    continuation.value = null;
     resetEditorState();
-    const data = (await api.getConfig(id)) as { content: string };
-    configId.value = id;
-    isNew.value = false;
-    content.value = data.content;
-    editorTab.value = "form";
-    try {
-      const summary = (await api.searchConfigs({ q: id, page: 1, page_size: 1 })) as {
-        items?: {
-          id: string;
-          model_type?: string;
-          dataset_ref?: string;
-          run_name?: string;
-        }[];
-      };
-      const row = summary.items?.find((c) => c.id === id);
-      if (row) {
-        const parts: string[] = [];
-        if (row.model_type) parts.push(row.model_type);
-        if (row.dataset_ref) {
-          try {
-            parts.push(await resolveDatasetDisplayLabel(row.dataset_ref));
-          } catch {
-            parts.push(row.dataset_ref);
-          }
-        }
-        selectedMeta.value = parts.join(" · ");
-      } else {
-        selectedMeta.value = "";
-      }
-    } catch {
-      selectedMeta.value = "";
-    }
-    await tomlSync.applyToml(data.content);
+    await tomlSync.applyToml(toml || resolveDefaultNewConfigToml(schema.value));
   }
 
+  /** Load a run's config from its on-disk folder and mark this as a continue-training run. */
   async function loadContinuation(runPath: string) {
     resetEditorState();
     const data = (await api.getRunConfig(runPath)) as {
@@ -261,59 +216,11 @@ export const useConfigEditorStore = defineStore("configEditor", () => {
       run_dir: data.run_dir,
       resume_from: data.resume_from,
     };
-    continuationLibraryId.value = `${data.run_dir.split("/").pop()}_continued`;
-    configId.value = null;
-    isNew.value = true;
-    selectedMeta.value = "from run folder";
-    editorTab.value = "form";
     await tomlSync.applyToml(data.content);
   }
 
   function clearContinuation() {
     continuation.value = null;
-  }
-
-  async function saveExisting() {
-    if (!configId.value) return false;
-    saving.value = true;
-    error.value = "";
-    message.value = "";
-    try {
-      await tomlSync.flushSync();
-      await api.saveConfig(configId.value, content.value);
-      message.value = "Saved.";
-      ElMessage.success("Saved");
-      return true;
-    } catch (e) {
-      error.value = formatError(e);
-      ElMessage.error(error.value);
-      throw e;
-    } finally {
-      saving.value = false;
-    }
-  }
-
-  async function createNew(id: string) {
-    const trimmed = (id || "").trim();
-    if (!trimmed) return false;
-    saving.value = true;
-    error.value = "";
-    message.value = "";
-    try {
-      await tomlSync.flushSync();
-      await api.createConfig(trimmed, content.value);
-      configId.value = trimmed;
-      isNew.value = false;
-      message.value = "Saved.";
-      ElMessage.success("Created");
-      return true;
-    } catch (e) {
-      error.value = formatError(e);
-      ElMessage.error(error.value);
-      throw e;
-    } finally {
-      saving.value = false;
-    }
   }
 
   async function validateConfig({ quiet = false }: { quiet?: boolean } = {}) {
@@ -371,85 +278,6 @@ export const useConfigEditorStore = defineStore("configEditor", () => {
     }
   }
 
-  async function queueContinuation({
-    startNow,
-    saveToLibrary,
-    libraryId,
-  }: {
-    startNow: boolean;
-    saveToLibrary: boolean;
-    libraryId?: string;
-  }) {
-    if (!continuation.value) return null;
-    error.value = "";
-    try {
-      await tomlSync.flushSync();
-      const job = await api.continueRun({
-        run_path: continuation.value.run_dir,
-        content: content.value,
-        save_to_library: saveToLibrary,
-        config_id: saveToLibrary ? libraryId?.trim() || undefined : undefined,
-        enqueue: !startNow,
-        start_immediately: startNow,
-      });
-      ElMessage.success(startNow ? "Continuation started" : "Continuation queued");
-      clearContinuation();
-      return job;
-    } catch (e) {
-      error.value = formatError(e);
-      ElMessage.error(error.value);
-      throw e;
-    }
-  }
-
-  async function openFromRoute(route: RouteLocationNormalizedLoaded) {
-    error.value = "";
-    message.value = "";
-    loading.value = true;
-    try {
-      await fetchSchema();
-      const cr = route.query.continue_run;
-      if (typeof cr === "string" && cr) {
-        await loadContinuation(cr);
-        return;
-      }
-      if (route.name === "configs-new") {
-        await newConfig();
-        return;
-      }
-      const id = String(route.params.configId || "").trim();
-      if (!id) throw new Error("Missing config id");
-      await openConfig(id);
-    } catch (e) {
-      error.value = formatError(e);
-      throw e;
-    } finally {
-      loading.value = false;
-    }
-  }
-
-  async function bootstrapPickForJob(storedConfigId: string) {
-    if (!storedConfigId) return;
-    loading.value = true;
-    try {
-      if (!schema.value) await fetchSchema();
-      await openConfig(storedConfigId);
-    } catch {
-      /* config may have been deleted */
-    } finally {
-      loading.value = false;
-    }
-  }
-
-  function clearSelection() {
-    configId.value = null;
-    isNew.value = false;
-    selectedMeta.value = "";
-    content.value = "";
-    form.value = null;
-    formVersion.value += 1;
-  }
-
   function clearValidationFeedback() {
     validationAlertDismiss.clearAll();
     validationErrors.value = [];
@@ -463,49 +291,33 @@ export const useConfigEditorStore = defineStore("configEditor", () => {
 
   function dispose() {
     tomlSync.resetSyncState();
-    configId.value = null;
-    isNew.value = false;
-    selectedMeta.value = "";
     content.value = defaultNewConfigToml.value;
     form.value = null;
-    schema.value = null;
     loading.value = false;
-    saving.value = false;
     syncing.value = false;
     error.value = "";
     message.value = "";
     parseError.value = "";
     validationErrors.value = [];
     formVersion.value = 0;
-    editorTab.value = "form";
     continuation.value = null;
-    continuationSaveToLibrary.value = false;
-    continuationLibraryId.value = "";
     validationAlertDismiss.clearAll();
   }
 
   return {
-    configId,
-    selectedMeta,
     content,
     form,
     schema,
     modelCapabilities,
     loading,
-    saving,
     syncing,
     error,
     message,
     parseError,
     validationErrors,
     formVersion,
-    editorTab,
     continuation,
-    continuationSaveToLibrary,
-    continuationLibraryId,
-    editingTitle,
     editorRunName,
-    editorHeadline,
     setContent: tomlSync.setContent,
     setForm,
     patchFormField,
@@ -513,18 +325,12 @@ export const useConfigEditorStore = defineStore("configEditor", () => {
     flushSync: tomlSync.flushSync,
     fetchSchema,
     newConfig,
-    openConfig,
+    loadContent,
     loadContinuation,
     clearContinuation,
-    saveExisting,
-    createNew,
     validateConfig,
     clearValidationFeedback,
     clearValidationErrorBar,
-    queueContinuation,
-    openFromRoute,
-    bootstrapPickForJob,
-    clearSelection,
     dispose,
   };
 });

@@ -2,9 +2,8 @@ import { errorMessageFromResponseBody } from "./lib/formatError";
 import { filenameFromContentDisposition } from "./lib/downloadBlob";
 import type { FormValues } from "./types/forms";
 import type {
-  ConfigDetail,
+  CheckpointsResult,
   ConfigSchemaResponse,
-  ConfigSearchItem,
   ContinueRunBody,
   CloneJobBody,
   DatasetComposeResult,
@@ -79,59 +78,21 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 }
 
 export const api = {
-  listConfigs: () => request<ConfigSearchItem[]>("/configs"),
-
-  searchConfigs: (params: QueryParams) => {
-    const q = withDefaultPagination(params, { page: "1", page_size: "20" });
-    return request<Paginated<ConfigSearchItem>>(`/configs?${q.toString()}`);
-  },
-
-  getConfig: (id: number | string) => request<ConfigDetail>(`/configs/${id}`),
-
-  saveConfig: (id: number | string, content: string) =>
-    request<ConfigDetail>(`/configs/${id}`, {
-      method: "PUT",
-      body: JSON.stringify({ content }),
-    }),
-
-  createConfig: (id: number | string, content: string) =>
-    request<ConfigDetail>("/configs", {
-      method: "POST",
-      body: JSON.stringify({ id, content }),
-    }),
-
-  deleteConfig: (id: number | string) =>
-    request<void>(`/configs/${id}`, { method: "DELETE" }),
-
   validate: (content: string) =>
     request<ValidateResult>("/validate", {
       method: "POST",
       body: JSON.stringify({ content }),
     }),
 
-  duplicate: (id: number | string) =>
-    request<DuplicateConfigResult>(`/configs/${id}/duplicate`, { method: "POST" }),
-
-  importConfig: (content: string, id?: number | string) =>
-    request<ImportConfigResult>("/configs/import", {
-      method: "POST",
-      body: JSON.stringify({ id, content }),
-    }),
-
+  /** Export the run's config + resolved dataset TOMLs as a ZIP for CLI training. */
   async exportConfigBundle(
-    configId: number | string,
-    content?: string
+    name: string,
+    content: string
   ): Promise<ExportBundleResult> {
-    const hasInline = typeof content === "string";
-    const url = hasInline
-      ? `${API}/configs/export-bundle`
-      : `${API}/configs/${encodeURIComponent(String(configId))}/export`;
-    const res = await fetch(url, {
-      method: hasInline ? "POST" : "GET",
-      headers: hasInline ? { "Content-Type": "application/json" } : {},
-      body: hasInline
-        ? JSON.stringify({ content, name: configId || "training_export" })
-        : undefined,
+    const res = await fetch(`${API}/configs/export-bundle`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content, name: name || "training_export" }),
     });
     if (!res.ok) {
       const text = await res.text();
@@ -147,7 +108,7 @@ export const api = {
     const blob = await res.blob();
     const filename =
       filenameFromContentDisposition(res.headers.get("Content-Disposition")) ||
-      `${configId || "training_export"}.zip`;
+      `${name || "training_export"}.zip`;
     return { blob, filename };
   },
 
@@ -207,6 +168,26 @@ export const api = {
     }),
 
   deleteJob: (id: string) => request<void>(`/jobs/${id}`, { method: "DELETE" }),
+
+  /** Config TOML for a new run seeded from an existing one (run_name gets a _N suffix). */
+  seedJobConfig: (id: string) => request<{ content: string }>(`/jobs/${id}/seed`),
+
+  /** Promote a saved (new) draft into the pending queue. */
+  enqueueJob: (id: string) =>
+    request<JobRecord>(`/jobs/${id}/enqueue`, { method: "POST" }),
+
+  /** Set the pending-queue order from an explicit list of job ids. */
+  reorderQueue: (ids: (string | number)[]) =>
+    request<{ queue: JobRecord[] }>("/jobs/queue/reorder", {
+      method: "POST",
+      body: JSON.stringify({ ids: ids.map((x) => Number(x)) }),
+    }),
+
+  jobCheckpoints: (id: string) =>
+    request<CheckpointsResult>(`/jobs/${id}/checkpoints`),
+
+  runCheckpoints: (runDir: string) =>
+    request<CheckpointsResult>(`/runs/checkpoints?run_dir=${encodeURIComponent(runDir)}`),
 
   moveJobQueue: (id: string, direction: "up" | "down") =>
     request<JobRecord>(`/jobs/${id}/queue/move?direction=${direction}`, {

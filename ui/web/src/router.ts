@@ -1,11 +1,4 @@
-import {
-  createRouter,
-  createWebHistory,
-  type NavigationGuardNext,
-  type RouteLocationNormalized,
-} from "vue-router";
-import ConfigEditorView from "./views/ConfigEditorView.vue";
-import ConfigsListView from "./views/ConfigsListView.vue";
+import { createRouter, createWebHistory } from "vue-router";
 import DatasetsListView from "./views/DatasetsListView.vue";
 import DatasetEditorView from "./views/DatasetEditorView.vue";
 import DocsView from "./views/DocsView.vue";
@@ -13,35 +6,10 @@ import MaintenanceView from "./views/MaintenanceView.vue";
 import JobsView from "./views/JobsView.vue";
 import RunDetailView from "./views/RunDetailView.vue";
 
-function configsListLegacyRedirect(
-  to: RouteLocationNormalized,
-  _from: RouteLocationNormalized,
-  next: NavigationGuardNext
-) {
-  const { config, new: isNew, continue_run, pick, ...rest } = to.query;
-  if (isNew === "1") {
-    return next({
-      name: "configs-new",
-      query: continue_run ? { continue_run, ...rest } : rest,
-    });
-  }
-  if (typeof continue_run === "string" && continue_run) {
-    return next({ name: "configs-new", query: { continue_run, ...rest } });
-  }
-  if (typeof config === "string" && config) {
-    return next({
-      name: "configs-detail",
-      params: { configId: config },
-      query: pick ? { pick, ...rest } : rest,
-    });
-  }
-  return next();
-}
-
 const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: "/", redirect: "/configs" },
+    { path: "/", redirect: "/runs" },
     { path: "/docs", name: "docs", component: DocsView },
     { path: "/maintenance", name: "maintenance", component: MaintenanceView },
     { path: "/runs/jobs/:id", name: "job-detail", component: RunDetailView, props: { mode: "job" } },
@@ -54,19 +22,6 @@ const router = createRouter({
     },
     { path: "/jobs/:id", redirect: (to) => `/runs/jobs/${to.params.id}` },
     { path: "/jobs", redirect: "/runs" },
-    {
-      path: "/configs",
-      name: "configs-list",
-      component: ConfigsListView,
-      beforeEnter: configsListLegacyRedirect,
-    },
-    { path: "/configs/new", name: "configs-new", component: ConfigEditorView },
-    {
-      path: "/configs/:configId",
-      name: "configs-detail",
-      component: ConfigEditorView,
-      props: true,
-    },
     { path: "/datasets", name: "datasets-list", component: DatasetsListView },
     { path: "/datasets/new", name: "datasets-new", component: DatasetEditorView },
     {
