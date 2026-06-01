@@ -96,10 +96,10 @@
           </el-tab-pane>
 
           <el-tab-pane label="Run" name="queue">
-            <el-card shadow="never" class="queue-card">
-              <el-form label-position="top">
-                <template v-if="runConfigFields.length">
-                  <el-divider content-position="left">Run configuration</el-divider>
+            <div class="tab-sections">
+              <el-card v-if="runConfigFields.length" shadow="never" class="run-section-card">
+                <template #header><span class="run-section-title">Run configuration</span></template>
+                <el-form label-position="top">
                   <ConfigFormField
                     v-for="f in runConfigFields"
                     :key="f.path"
@@ -108,25 +108,31 @@
                     :capabilities="modelCapabilities"
                     @update:path="onFieldUpdate"
                   />
-                </template>
+                </el-form>
+              </el-card>
 
-                <el-divider content-position="left">Compute</el-divider>
-                <el-form-item>
-                  <template #label>
-                    <span class="launch-label">
-                      <span>GPUs</span>
-                      <FieldHelpIcon :field="(HELP.numGpus as unknown as SchemaField)" />
-                      <code class="cli-flag">deepspeed --num_gpus</code>
-                    </span>
-                  </template>
-                  <el-input-number v-model="numGpus" :min="1" :max="64" />
-                </el-form-item>
+              <el-card shadow="never" class="run-section-card">
+                <template #header><span class="run-section-title">Compute</span></template>
+                <el-form label-position="top">
+                  <el-form-item>
+                    <template #label>
+                      <span class="launch-label">
+                        <span>GPUs</span>
+                        <FieldHelpIcon :field="(HELP.numGpus as unknown as SchemaField)" />
+                        <code class="cli-flag">deepspeed --num_gpus</code>
+                      </span>
+                    </template>
+                    <el-input-number v-model="numGpus" :min="1" :max="64" />
+                  </el-form-item>
+                </el-form>
+              </el-card>
 
-                <template v-if="showResume">
-                  <el-divider content-position="left">Resume</el-divider>
+              <el-card v-if="showResume" shadow="never" class="run-section-card">
+                <template #header><span class="run-section-title">Resume</span></template>
+                <el-form label-position="top">
                   <el-text type="info" size="small" class="resume-hint">
-                    Picks the checkpoint this launch resumes from (overrides the
-                    <code>resume_from_checkpoint</code> config value above).
+                    Picks the checkpoint this launch resumes from
+                    (<code>--resume_from_checkpoint</code>).
                   </el-text>
                   <el-form-item>
                     <el-checkbox v-model="fromScratch">
@@ -169,36 +175,40 @@
                     description="No checkpoints found — the run will start from step 0."
                     :image-size="48"
                   />
-                </template>
+                </el-form>
+              </el-card>
 
-                <el-divider content-position="left">Cache</el-divider>
-                <el-form-item>
-                  <span class="launch-label">
-                    <el-checkbox v-model="cacheOnly">
-                      Cache only — build the dataset cache, then exit (no training)
-                    </el-checkbox>
-                    <FieldHelpIcon :field="(HELP.cacheOnly as unknown as SchemaField)" />
-                    <code class="cli-flag">--cache_only</code>
-                  </span>
-                </el-form-item>
-                <el-form-item class="cache-toggles">
-                  <span class="launch-label">
-                    <el-checkbox v-model="trustCache">
-                      Use existing cache (skip the freshness check)
-                    </el-checkbox>
-                    <FieldHelpIcon :field="(HELP.trustCache as unknown as SchemaField)" />
-                    <code class="cli-flag">--trust_cache</code>
-                  </span>
-                  <span class="launch-label">
-                    <el-checkbox v-model="regenerateCache">
-                      Regenerate cache (force a full rebuild)
-                    </el-checkbox>
-                    <FieldHelpIcon :field="(HELP.regenerateCache as unknown as SchemaField)" />
-                    <code class="cli-flag">--regenerate_cache</code>
-                  </span>
-                </el-form-item>
-              </el-form>
-            </el-card>
+              <el-card shadow="never" class="run-section-card">
+                <template #header><span class="run-section-title">Cache</span></template>
+                <el-form label-position="top">
+                  <el-form-item>
+                    <span class="launch-label">
+                      <el-checkbox v-model="cacheOnly">
+                        Cache only — build the dataset cache, then exit (no training)
+                      </el-checkbox>
+                      <FieldHelpIcon :field="(HELP.cacheOnly as unknown as SchemaField)" />
+                      <code class="cli-flag">--cache_only</code>
+                    </span>
+                  </el-form-item>
+                  <el-form-item class="cache-toggles">
+                    <span class="launch-label">
+                      <el-checkbox v-model="trustCache">
+                        Use existing cache (skip the freshness check)
+                      </el-checkbox>
+                      <FieldHelpIcon :field="(HELP.trustCache as unknown as SchemaField)" />
+                      <code class="cli-flag">--trust_cache</code>
+                    </span>
+                    <span class="launch-label">
+                      <el-checkbox v-model="regenerateCache">
+                        Regenerate cache (force a full rebuild)
+                      </el-checkbox>
+                      <FieldHelpIcon :field="(HELP.regenerateCache as unknown as SchemaField)" />
+                      <code class="cli-flag">--regenerate_cache</code>
+                    </span>
+                  </el-form-item>
+                </el-form>
+              </el-card>
+            </div>
           </el-tab-pane>
 
           <el-tab-pane label="TOML" name="toml">
@@ -364,11 +374,13 @@ const setupSections = computed<ConfigSchemaSection[]>(() => {
 });
 const otherSchemaTabs = computed(() => schemaTabs.value.filter((t) => t.id !== "setup"));
 
-// The run-execution config fields, rendered at the top of the Run tab (order preserved).
+// Run-execution config fields shown in the Run tab. `resume_from_checkpoint` is intentionally
+// NOT shown here — resuming is controlled by the checkpoint selector below (it sets the
+// `--resume_from_checkpoint` launch flag); the boolean config value stays editable in the TOML tab.
 const runConfigFields = computed<SchemaField[]>(() => {
   const setup = schemaTabs.value.find((t) => t.id === "setup");
   const general = setup?.sections.find((sec) => sec.id === "general");
-  return (general?.fields ?? []).filter((f) => RUN_CONFIG_PATHS.includes(f.path));
+  return (general?.fields ?? []).filter((f) => f.path === "output_dir");
 });
 
 const isCreate = computed(() => mode.value === "create");
@@ -674,9 +686,17 @@ async function exportBundle(): Promise<void> {
   color: var(--el-text-color-secondary);
   line-height: 1.45;
 }
-.queue-card {
-  max-width: 640px;
+.run-section-card {
   border: 1px solid var(--el-border-color-lighter);
+}
+.run-section-card :deep(.el-card__header) {
+  padding: 12px 16px;
+}
+.run-section-card :deep(.el-card__body) {
+  padding: 12px 16px 16px;
+}
+.run-section-title {
+  font-weight: 600;
 }
 .checkpoint-select {
   width: 100%;
