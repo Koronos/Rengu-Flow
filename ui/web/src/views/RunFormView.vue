@@ -395,11 +395,10 @@ const suspectSelected = computed(
   () => !fromScratch.value && checkpoints.value.find((c) => c.name === resumeFrom.value)?.suspect
 );
 
-const showSaveForLater = computed(() => isCreate.value);
+const showSaveForLater = computed(() => isCreate.value || isContinue.value);
 const showSaveChanges = computed(() => isDraft.value);
 const primaryLabel = computed(() => {
-  if (isContinue.value) return "Continue training";
-  if (isEdit.value) return isDraft.value ? "Add to queue" : "Save changes";
+  if (isEdit.value && !isDraft.value) return "Save changes";
   return cacheOnly.value ? "Build cache (queue)" : "Add to queue";
 });
 
@@ -558,7 +557,20 @@ async function doSubmit(action: "queue" | "draft"): Promise<void> {
   submitting.value = true;
   try {
     await editor.flushSync();
-    if (isContinue.value && continuation.value) {
+    if (action === "draft") {
+      // Save the (possibly continue-) run as a "new" draft, without queuing. For a continue,
+      // source_run_dir + resume_from let it resume the same folder when it is later enqueued.
+      await api.startJob({
+        content: editor.content,
+        num_gpus: numGpus.value,
+        resume_from: resumeArg(),
+        cache_only: cacheOnly.value,
+        trust_cache: trustCache.value,
+        regenerate_cache: regenerateCache.value,
+        save_for_later: true,
+        source_run_dir: isContinue.value ? continuation.value?.run_dir : undefined,
+      });
+    } else if (isContinue.value && continuation.value) {
       await api.continueRun({
         run_path: continuation.value.run_dir,
         content: editor.content,
@@ -577,7 +589,7 @@ async function doSubmit(action: "queue" | "draft"): Promise<void> {
         trust_cache: trustCache.value,
         regenerate_cache: regenerateCache.value,
       });
-      if (action === "queue" && isDraft.value) await api.enqueueJob(id);
+      if (isDraft.value) await api.enqueueJob(id);
     } else {
       await api.startJob({
         content: editor.content,
@@ -586,8 +598,7 @@ async function doSubmit(action: "queue" | "draft"): Promise<void> {
         cache_only: cacheOnly.value,
         trust_cache: trustCache.value,
         regenerate_cache: regenerateCache.value,
-        enqueue: action === "queue",
-        save_for_later: action === "draft",
+        enqueue: true,
       });
     }
     ElMessage.success(action === "draft" ? "Saved for later" : "Added to queue");
