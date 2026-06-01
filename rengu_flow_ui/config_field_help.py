@@ -403,13 +403,22 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "doc": "docs/user/dataset-config.md",
     },
     "partition_method": {
-        "summary": "How layers are split across pipeline stages.",
-        "detail": "parameters (by param count), uniform, or manual with partition_split.",
+        "summary": "How model layers are split across pipeline-parallel stages.",
+        "detail": (
+            "Only matters with pipeline_stages > 1 (pipeline parallelism across multiple GPUs); "
+            "ignored on a single stage / single GPU. parameters (default): balance VRAM by giving "
+            "each stage a similar parameter count. uniform: same number of layers per stage. "
+            "manual: set the exact split points yourself in partition_split. For one GPU, leave it "
+            "alone — use blocks_to_swap + activation checkpointing to save VRAM instead."
+        ),
         "doc": "docs/user/training-loop-and-eval.md",
     },
     "partition_split": {
         "summary": "Manual pipeline stage boundaries (layer indices).",
-        "detail": "Required when partition_method = manual. JSON list of split points.",
+        "detail": (
+            "Only used with pipeline_stages > 1 and partition_method = manual. JSON list of layer "
+            "indices where each stage ends (e.g. [10, 20] for 3 stages)."
+        ),
         "doc": "docs/user/training-loop-and-eval.md",
     },
     "reentrant_activation_checkpointing": {

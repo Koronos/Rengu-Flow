@@ -155,6 +155,25 @@ micro_batch_size_per_gpu = 1
 gradient_accumulation_steps = 4
 ```
 
+**When does `partition_method` apply?** Only with **`pipeline_stages > 1`** — i.e. *pipeline
+parallelism*, where the model's transformer layers are split into stages that run on **different
+GPUs**. On a single GPU (`pipeline_stages = 1`, the default) there is only one stage, so
+`partition_method` is ignored. When there is more than one stage, the method decides which layers
+land on which stage:
+
+- **`parameters`** (default) — give each stage a similar **parameter count** so VRAM is balanced.
+  Because layers differ in size, this rarely means an equal number of layers per stage — but it is
+  usually the best balance for memory.
+- **`uniform`** — give each stage the **same number of layers**. Simpler, but stages can end up
+  with uneven VRAM if some layers are much heavier than others.
+- **`manual`** — you choose the boundaries yourself via **`partition_split`**, a JSON list of layer
+  indices where each stage ends. For example `partition_split = [10, 20]` with `pipeline_stages = 3`
+  puts layers 0–9 on stage 0, 10–19 on stage 1, and 20+ on stage 2.
+
+To reduce VRAM on a **single GPU**, pipeline parallelism is not the tool — use
+[block swap](#block-swap-vram-adapter-training) (`blocks_to_swap`) plus activation checkpointing
+instead.
+
 ## Activation checkpointing
 
 Saves VRAM by recomputing activations in the backward pass. Configure in the main TOML:
