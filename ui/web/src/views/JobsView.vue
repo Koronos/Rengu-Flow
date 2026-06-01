@@ -135,7 +135,23 @@
 
     <!-- History -->
     <el-card shadow="never" class="page-section">
-      <template #header><span>History</span></template>
+      <template #header>
+        <div class="history-header">
+          <span>History</span>
+          <el-select
+            v-model="historyState"
+            size="small"
+            clearable
+            placeholder="All states"
+            class="history-filter"
+          >
+            <el-option label="All" value="" />
+            <el-option label="Finished" value="finished" />
+            <el-option label="Stopped" value="stopped" />
+            <el-option label="Error" value="failed" />
+          </el-select>
+        </div>
+      </template>
       <el-table
         v-loading="listLoading"
         :data="historyRuns"
@@ -169,33 +185,68 @@
             {{ formatTime(row.progress?.updated_at || row.finished_at || row.started_at) }}
           </template>
         </el-table-column>
-        <el-table-column label="" width="320" align="right">
+        <el-table-column label="" width="150" align="right">
           <template #default="{ row }">
-            <el-space class="row-actions" @click.stop>
-              <el-button size="small" :icon="View" @click.stop="openRun(row as TrainingRunRow)">Open</el-button>
-              <el-button
-                v-if="row.run_dir"
-                size="small"
-                :icon="VideoPlay"
-                @click.stop="continueRun(row as TrainingRunRow)"
-              >
-                Continue
-              </el-button>
-              <el-button
-                v-if="row.job_id"
-                size="small"
-                :icon="CopyDocument"
-                @click.stop="newRunFromConfig(row.job_id)"
-              >
-                New from config
-              </el-button>
-              <el-button
-                size="small"
-                :icon="Delete"
-                @click.stop="removeRun(row as TrainingRunRow)"
-              >
-                Delete
-              </el-button>
+            <el-dropdown v-if="isMobile" trigger="click" @click.stop>
+              <el-button size="small" circle :icon="MoreFilled" @click.stop />
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item :icon="View" @click="openRun(row as TrainingRunRow)">
+                    Open
+                  </el-dropdown-item>
+                  <el-dropdown-item
+                    v-if="row.run_dir"
+                    :icon="VideoPlay"
+                    @click="continueRun(row as TrainingRunRow)"
+                  >
+                    Continue training
+                  </el-dropdown-item>
+                  <el-dropdown-item
+                    v-if="row.job_id"
+                    :icon="CopyDocument"
+                    @click="newRunFromConfig(row.job_id)"
+                  >
+                    New run from this config
+                  </el-dropdown-item>
+                  <el-dropdown-item :icon="Delete" @click="removeRun(row as TrainingRunRow)">
+                    Delete from list
+                  </el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
+            <el-space v-else class="row-actions" @click.stop>
+              <el-tooltip content="Open" :show-after="300">
+                <el-button
+                  size="small"
+                  circle
+                  :icon="View"
+                  @click.stop="openRun(row as TrainingRunRow)"
+                />
+              </el-tooltip>
+              <el-tooltip v-if="row.run_dir" content="Continue training" :show-after="300">
+                <el-button
+                  size="small"
+                  circle
+                  :icon="VideoPlay"
+                  @click.stop="continueRun(row as TrainingRunRow)"
+                />
+              </el-tooltip>
+              <el-tooltip v-if="row.job_id" content="New run from this config" :show-after="300">
+                <el-button
+                  size="small"
+                  circle
+                  :icon="CopyDocument"
+                  @click.stop="newRunFromConfig(row.job_id)"
+                />
+              </el-tooltip>
+              <el-tooltip content="Delete from list" :show-after="300">
+                <el-button
+                  size="small"
+                  circle
+                  :icon="Delete"
+                  @click.stop="removeRun(row as TrainingRunRow)"
+                />
+              </el-tooltip>
             </el-space>
           </template>
         </el-table-column>
@@ -309,6 +360,7 @@ import {
   Delete,
   Edit,
   FolderOpened,
+  MoreFilled,
   Plus,
   Rank,
   Refresh,
@@ -322,6 +374,7 @@ import AutoRefreshBar from "../components/AutoRefreshBar.vue";
 import TrainLivePanel from "../components/TrainLivePanel.vue";
 import PathFieldControl from "../components/PathFieldControl.vue";
 import { useAutoRefresh } from "../composables/useAutoRefresh";
+import { useBreakpoint } from "../composables/useBreakpoint";
 import { useTrainLiveStream } from "../composables/useTrainLiveStream";
 import { TRAIN_LIVE_REFRESH_STORAGE_KEY } from "../lib/autoRefresh";
 import { formatError } from "../lib/formatError";
@@ -331,6 +384,7 @@ import type { ImportCandidatesResult, ImportRunPreview, TrainingRunRow } from ".
 const router = useRouter();
 const vLoading = ElLoadingDirective;
 const editor = useConfigEditorStore();
+const { isMobile } = useBreakpoint();
 
 const runs = ref<TrainingRunRow[]>([]);
 const listQuery = ref("");
@@ -358,10 +412,13 @@ const runningRuns = computed(() =>
   runs.value.filter((r) => r.state === "running" || r.state === "stopping")
 );
 const pendingRuns = computed(() => runs.value.filter((r) => r.state === "pending"));
+const historyState = ref("");
 const historyRuns = computed(() =>
-  runs.value.filter((r) =>
-    ["finished", "stopped", "failed"].includes(String(r.state))
-  )
+  runs.value.filter((r) => {
+    if (!["finished", "stopped", "failed"].includes(String(r.state))) return false;
+    if (historyState.value && String(r.state) !== historyState.value) return false;
+    return true;
+  })
 );
 
 function stateTag(state: string | undefined): "primary" | "success" | "warning" | "info" | "danger" {
@@ -792,6 +849,15 @@ function continueRun(row: TrainingRunRow) {
 }
 .runs-table {
   width: 100%;
+}
+.history-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.history-filter {
+  max-width: 160px;
 }
 .mb-12 {
   margin-bottom: 12px;
