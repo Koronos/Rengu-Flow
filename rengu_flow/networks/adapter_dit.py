@@ -46,7 +46,16 @@ def configure(transformer, adapter_config):
     if adapter_type == "lokr":
         for p in transformer.parameters():
             p.requires_grad_(False)
-        _apply_lokr_vendored(transformer, target_linear_modules, adapter_config, "")
+        # _collect_target_linears returns module *names* (str), which is what PEFT's
+        # target_modules expects. The vendored LoKr helper instead expects resolved
+        # nn.Module containers (it calls .modules() on each), so resolve names here.
+        target_names = set(target_linear_modules)
+        target_modules = [
+            module
+            for name, module in transformer.named_modules()
+            if name in target_names
+        ]
+        _apply_lokr_vendored(transformer, target_modules, adapter_config, "")
         return None, adapter_type
     raise NotImplementedError(f"Adapter type {adapter_type} is not implemented")
 
