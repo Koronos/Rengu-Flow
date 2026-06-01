@@ -21,18 +21,29 @@ def probe_optimizer(name: str) -> dict[str, Any]:
     key = str(name).strip()
     try:
         cls = get_optimizer_class(key)
-        return {
-            "available": True,
-            "name": key,
-            "resolved_class": f"{cls.__module__}.{cls.__qualname__}",
-            "source": _optimizer_source(key.lower()),
-        }
     except Exception as e:
         return {
             "available": False,
             "name": key,
             "error": str(e),
         }
+    resolved = f"{cls.__module__}.{cls.__qualname__}"
+    # A qualified path resolves any importable class, so guard that it is actually an
+    # optimizer (e.g. catch a scheduler class pasted into the optimizer field).
+    import torch
+
+    if not (isinstance(cls, type) and issubclass(cls, torch.optim.Optimizer)):
+        return {
+            "available": False,
+            "name": key,
+            "error": f"{resolved} is not a torch.optim.Optimizer.",
+        }
+    return {
+        "available": True,
+        "name": key,
+        "resolved_class": resolved,
+        "source": _optimizer_source(key.lower()),
+    }
 
 
 def probe_scheduler(name: str) -> dict[str, Any]:

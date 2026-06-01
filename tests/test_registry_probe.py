@@ -22,6 +22,20 @@ def test_probe_optimizer_unknown() -> None:
     assert "error" in r
 
 
+def test_probe_optimizer_qualified_real() -> None:
+    r = probe_optimizer("torch.optim.AdamW")
+    assert r["available"] is True
+    assert "AdamW" in r["resolved_class"]
+
+
+def test_probe_optimizer_rejects_non_optimizer_class() -> None:
+    # A scheduler class imports fine but is NOT an optimizer — must be flagged,
+    # not reported as available (catches a scheduler pasted into the optimizer field).
+    r = probe_optimizer("torch.optim.lr_scheduler.CosineAnnealingLR")
+    assert r["available"] is False
+    assert "not a torch.optim.Optimizer" in r["error"]
+
+
 def test_probe_scheduler_cosine() -> None:
     r = probe_scheduler("cosine")
     assert r["available"] is True

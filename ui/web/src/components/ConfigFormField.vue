@@ -374,7 +374,10 @@ interface ResolveHint {
 }
 
 function isRegistryProbeField(field: SchemaField): boolean {
-  return !!field.allow_custom && field.path === "lr_scheduler";
+  return (
+    !!field.allow_custom &&
+    (field.path === "lr_scheduler" || field.path === "optimizer.type")
+  );
 }
 
 const pathValidationEnabled = computed(
@@ -473,7 +476,12 @@ async function runProbe(name: string): Promise<void> {
   resolveHint.value = { loading: true, text: "" };
   try {
     const trimmed = name.trim();
-    const body = props.field.path === "lr_scheduler" ? { scheduler: trimmed } : null;
+    const body =
+      props.field.path === "lr_scheduler"
+        ? { scheduler: trimmed }
+        : props.field.path === "optimizer.type"
+          ? { optimizer: trimmed }
+          : null;
     if (!body) {
       resolveHint.value = null;
       return;
