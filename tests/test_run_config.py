@@ -38,6 +38,33 @@ def test_read_run_config_and_resume_arg(ui_data_tmp: Path) -> None:
     assert desc["epochs"] == 2
 
 
+def test_list_checkpoints(ui_data_tmp: Path) -> None:
+    from rengu_flow_ui.run_config import list_checkpoints
+
+    run = _make_run(ui_data_tmp)  # creates global_step10
+    (run / "global_step20").mkdir()
+    (run / "global_step30").mkdir()
+    # `latest` marks step 20 as the last known-good save; step 30 was saved after it.
+    (run / "latest").write_text("global_step20", encoding="utf-8")
+
+    cps = list_checkpoints(run)
+    assert [c["name"] for c in cps] == ["global_step30", "global_step20", "global_step10"]
+    by_name = {c["name"]: c for c in cps}
+    assert by_name["global_step20"]["is_latest"] is True
+    assert by_name["global_step20"]["step"] == 20
+    assert by_name["global_step30"]["suspect"] is True  # saved after latest -> may be truncated
+    assert by_name["global_step10"]["suspect"] is False
+
+
+def test_list_checkpoints_no_pointer(ui_data_tmp: Path) -> None:
+    from rengu_flow_ui.run_config import list_checkpoints
+
+    run = _make_run(ui_data_tmp)  # only global_step10, no `latest` file
+    assert list_checkpoints(run) == [
+        {"name": "global_step10", "step": 10, "is_latest": True, "suspect": False}
+    ]
+
+
 def test_continue_run_api(ui_client, ui_data_tmp: Path) -> None:
     run = _make_run(ui_data_tmp)
     r = ui_client.get("/api/v1/runs/config", params={"run_path": str(run)})

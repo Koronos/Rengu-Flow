@@ -54,34 +54,38 @@ def list_checkpoints(run_path: str | Path) -> list[dict[str, Any]]:
     true for any checkpoint saved *after* the latest pointer — these can be truncated or
     corrupt (e.g. the disk filled up mid-save), so the UI flags them with a warning.
     """
-    from rengu_flow.utils.saver import (
-        list_checkpoint_dirs,
-        parse_checkpoint_step,
-        read_latest_pointer,
-    )
+    from rengu_flow.utils.save_io import global_step_sort_key
 
     run_dir = resolve_run_path(str(run_path))
-    dirs = list_checkpoint_dirs(run_dir)  # ascending by step
+    if not run_dir.is_dir():
+        return []
+    dirs = sorted(
+        (p for p in run_dir.iterdir() if p.is_dir() and p.name.startswith("global_step")),
+        key=lambda p: global_step_sort_key(p.name),
+    )  # ascending by step
     if not dirs:
         return []
-    latest_name = read_latest_pointer(run_dir)
-    if latest_name is None:
-        # No pointer recorded: treat the highest-step checkpoint as latest.
+    # DeepSpeed records the last known-good tag (e.g. "global_step5") in a `latest` file.
+    latest_file = run_dir / "latest"
+    latest_name: str | None = None
+    if latest_file.is_file():
+        latest_name = latest_file.read_text(encoding="utf-8").strip() or None
+    if latest_name is None or not any(p.name == latest_name for p in dirs):
+        # No pointer recorded (or it points nowhere): treat the highest-step checkpoint as latest.
         latest_name = dirs[-1].name
-    latest_step = parse_checkpoint_step(latest_name)
+    latest_step = global_step_sort_key(latest_name)
     out: list[dict[str, Any]] = []
     for path in dirs:
-        step = parse_checkpoint_step(path.name)
-        suspect = latest_step is not None and step is not None and step > latest_step
+        step = global_step_sort_key(path.name)
         out.append(
             {
                 "name": path.name,
                 "step": step,
                 "is_latest": path.name == latest_name,
-                "suspect": suspect,
+                "suspect": step > latest_step,
             }
         )
-    out.sort(key=lambda c: (c["step"] if c["step"] is not None else -1), reverse=True)
+    out.sort(key=lambda c: c["step"], reverse=True)
     return out
 
 
