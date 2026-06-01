@@ -137,7 +137,15 @@
     <el-card shadow="never" class="page-section">
       <template #header>
         <div class="history-header">
-          <span>History</span>
+          <span class="history-title">History</span>
+          <el-input
+            v-model="historyQuery"
+            size="small"
+            clearable
+            placeholder="Search history…"
+            class="history-search"
+            :prefix-icon="Search"
+          />
           <el-select
             v-model="historyState"
             size="small"
@@ -158,17 +166,38 @@
         stripe
         size="small"
         class="runs-table"
+        :default-sort="{ prop: 'updated', order: 'descending' }"
         @row-click="openRun"
       >
-        <el-table-column label="State" width="92">
+        <el-table-column
+          label="State"
+          width="92"
+          prop="state"
+          sortable
+          :sort-method="sortHistoryState"
+        >
           <template #default="{ row }">
             <el-tag :type="stateTag(row.state)" size="small">{{ stateLabel(row.state) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="Run" min-width="140" show-overflow-tooltip>
+        <el-table-column
+          label="Run"
+          min-width="140"
+          show-overflow-tooltip
+          prop="run"
+          sortable
+          :sort-method="sortHistoryRun"
+        >
           <template #default="{ row }">{{ row.label || row.run_name || "—" }}</template>
         </el-table-column>
-        <el-table-column label="Progress" min-width="140" show-overflow-tooltip>
+        <el-table-column
+          label="Progress"
+          min-width="140"
+          show-overflow-tooltip
+          prop="progress"
+          sortable
+          :sort-method="sortHistoryProgress"
+        >
           <template #default="{ row }">
             <template v-if="row.progress?.step != null">
               step {{ row.progress.step }}
@@ -180,7 +209,14 @@
             <span v-else>—</span>
           </template>
         </el-table-column>
-        <el-table-column label="Updated" min-width="150" show-overflow-tooltip>
+        <el-table-column
+          label="Updated"
+          min-width="150"
+          show-overflow-tooltip
+          prop="updated"
+          sortable
+          :sort-method="sortHistoryUpdated"
+        >
           <template #default="{ row }">
             {{ formatTime(row.progress?.updated_at || row.finished_at || row.started_at) }}
           </template>
@@ -364,6 +400,7 @@ import {
   Plus,
   Rank,
   Refresh,
+  Search,
   View,
   VideoPause,
   VideoPlay,
@@ -413,13 +450,37 @@ const runningRuns = computed(() =>
 );
 const pendingRuns = computed(() => runs.value.filter((r) => r.state === "pending"));
 const historyState = ref("");
-const historyRuns = computed(() =>
-  runs.value.filter((r) => {
+const historyQuery = ref("");
+const historyRuns = computed(() => {
+  const q = historyQuery.value.trim().toLowerCase();
+  return runs.value.filter((r) => {
     if (!["finished", "stopped", "failed"].includes(String(r.state))) return false;
     if (historyState.value && String(r.state) !== historyState.value) return false;
+    if (q) {
+      const haystack = `${r.run_name ?? ""} ${r.label ?? ""} ${r.run_dir ?? ""}`.toLowerCase();
+      if (!haystack.includes(q)) return false;
+    }
     return true;
-  })
-);
+  });
+});
+
+function historyUpdatedKey(r: TrainingRunRow): string {
+  return String(r.progress?.updated_at || r.finished_at || r.started_at || "");
+}
+function sortHistoryUpdated(a: TrainingRunRow, b: TrainingRunRow): number {
+  return historyUpdatedKey(a).localeCompare(historyUpdatedKey(b));
+}
+function sortHistoryRun(a: TrainingRunRow, b: TrainingRunRow): number {
+  const ka = (a.label || a.run_name || "").toLowerCase();
+  const kb = (b.label || b.run_name || "").toLowerCase();
+  return ka.localeCompare(kb);
+}
+function sortHistoryState(a: TrainingRunRow, b: TrainingRunRow): number {
+  return stateLabel(a.state).localeCompare(stateLabel(b.state));
+}
+function sortHistoryProgress(a: TrainingRunRow, b: TrainingRunRow): number {
+  return (a.progress?.step ?? -1) - (b.progress?.step ?? -1);
+}
 
 function stateTag(state: string | undefined): "primary" | "success" | "warning" | "info" | "danger" {
   if (state === "running" || state === "stopping") return "success";
@@ -853,8 +914,14 @@ function continueRun(row: TrainingRunRow) {
 .history-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  flex-wrap: wrap;
   gap: 12px;
+}
+.history-title {
+  margin-right: auto;
+}
+.history-search {
+  max-width: 220px;
 }
 .history-filter {
   max-width: 160px;
