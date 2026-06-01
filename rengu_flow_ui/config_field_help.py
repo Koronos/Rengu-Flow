@@ -422,10 +422,12 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "doc": "docs/user/training-loop-and-eval.md",
     },
     "reentrant_activation_checkpointing": {
-        "summary": "Reentrant PyTorch checkpoint (recommended for Cosmos with AC on).",
+        "summary": "Which PyTorch activation-checkpoint backend to use (reentrant vs non-reentrant).",
         "detail": (
-            "When activation_checkpointing is true, cosmos_predict2 defaults this to true. "
-            "Anima LoKR smokes: ~3% faster than false, stable over long runs."
+            "Only applies when activation_checkpointing is true. PyTorch has two checkpoint backends: "
+            "reentrant (legacy, re-enters autograd) and non-reentrant (newer, saved-tensor hooks, more "
+            "flexible). Reentrant can be slightly faster on some models (cosmos_predict2 defaults it "
+            "to true) but is more restrictive — leave it off unless your model benefits."
         ),
         "doc": "docs/user/training-cosmos-predict2-lora-lokr-finetune.md",
     },
@@ -528,12 +530,14 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "doc": "docs/user/training-loop-and-eval.md",
     },
     "activation_checkpointing": {
-        "summary": "Trade compute for VRAM (true, false, or unsloth).",
+        "summary": "Save VRAM by recomputing activations in the backward pass instead of storing them.",
         "detail": (
-            "Cosmos/Anima: keep true on ~16 GB GPUs — false caused OOM in LoKR tuning. "
-            "With true, reentrant_activation_checkpointing defaults to true for cosmos_predict2 (~3% faster in smokes)."
+            "During the forward pass the intermediate activations are dropped and re-computed during "
+            "backprop — large activation-memory savings for a small extra compute cost (an extra "
+            "forward per checkpointed block). Keep it true on small GPUs; false can OOM. Values: "
+            "true, false, or unsloth (a faster checkpointing kernel for supported models)."
         ),
-        "doc": "docs/user/training-cosmos-predict2-lora-lokr-finetune.md",
+        "doc": "docs/user/training-loop-and-eval.md",
     },
     "blocks_to_swap": {
         "summary": "Stream UNet/DiT blocks between CPU and GPU so only a few stay resident.",
