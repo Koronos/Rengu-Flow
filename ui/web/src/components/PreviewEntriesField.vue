@@ -38,17 +38,35 @@
           {{ row.subtitle }}
         </template>
       </el-table-column>
-      <el-table-column label="" width="200" align="right">
+      <el-table-column label="" width="160" align="right">
         <template #default="{ row }">
           <div class="row-actions" @click.stop>
             <el-tag v-if="row.overrideCount" size="small" type="info">
               {{ row.overrideCount }} override{{ row.overrideCount === 1 ? "" : "s" }}
             </el-tag>
-            <el-button size="small" @click="openEdit(row.index)">Edit</el-button>
-            <el-button size="small" @click="duplicateAt(row.index)">Duplicate</el-button>
-            <el-button size="small" type="danger" link @click="removeAt(row.index)">
-              Remove
-            </el-button>
+            <template v-if="!isMobile">
+              <el-tooltip content="Edit" :show-after="300">
+                <el-button size="small" circle :icon="Edit" @click="openEdit(row.index)" />
+              </el-tooltip>
+              <el-tooltip content="Duplicate" :show-after="300">
+                <el-button size="small" circle :icon="CopyDocument" @click="duplicateAt(row.index)" />
+              </el-tooltip>
+              <el-tooltip content="Remove" :show-after="300">
+                <el-button size="small" circle :icon="Delete" @click="removeAt(row.index)" />
+              </el-tooltip>
+            </template>
+            <el-dropdown v-else trigger="click">
+              <el-button size="small" circle :icon="MoreFilled" />
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item :icon="Edit" @click="openEdit(row.index)">Edit</el-dropdown-item>
+                  <el-dropdown-item :icon="CopyDocument" @click="duplicateAt(row.index)">
+                    Duplicate
+                  </el-dropdown-item>
+                  <el-dropdown-item :icon="Delete" @click="removeAt(row.index)">Remove</el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
           </div>
         </template>
       </el-table-column>
@@ -78,8 +96,9 @@
 <script setup lang="ts">
 import { computed, ref, type PropType } from "vue";
 import { ElMessageBox } from "element-plus";
-import { Plus, Search } from "@element-plus/icons-vue";
+import { CopyDocument, Delete, Edit, MoreFilled, Plus, Search } from "@element-plus/icons-vue";
 import PreviewEntryDialog from "./PreviewEntryDialog.vue";
+import { useBreakpoint } from "../composables/useBreakpoint";
 import {
   clonePreviewEntry,
   countPreviewEntryOverrides,
@@ -109,6 +128,7 @@ const emit = defineEmits<{
   "update:modelValue": [value: PreviewEntry[]];
 }>();
 
+const { isMobile } = useBreakpoint();
 const query = ref("");
 const dialogOpen = ref(false);
 const dialogIndex = ref(-1);
