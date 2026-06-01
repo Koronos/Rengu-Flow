@@ -14,6 +14,16 @@
 
     <ImportTomlOverlay ref="importOverlay" @import="handleImport">
       <div v-loading="loading || (syncing && !form)" class="run-form-view__body">
+        <div class="run-form-view__name-row">
+          <el-input
+            v-model="runNameModel"
+            class="run-name-input"
+            placeholder="Run name — optional; a timestamp folder is used if empty"
+            maxlength="120"
+            show-word-limit
+          />
+        </div>
+
         <el-alert
           v-if="validationErrors.length"
           type="error"
@@ -253,6 +263,10 @@ const tomlModel = computed({
 });
 
 const formValues = computed(() => form.value ?? ({} as FormValues));
+const runNameModel = computed({
+  get: () => (typeof formValues.value.run_name === "string" ? (formValues.value.run_name as string) : ""),
+  set: (v: string) => editor.patchFormField("run_name", v),
+});
 const selectedCapability = computed(() =>
   getModelCapability(modelCapabilities.value, formValues.value["model.type"])
 );
@@ -277,16 +291,23 @@ const RUN_CONFIG_PATHS = ["output_dir", "resume_from_checkpoint"];
 const setupSections = computed<ConfigSchemaSection[]>(() => {
   const setup = schemaTabs.value.find((t) => t.id === "setup");
   if (!setup) return [];
-  return setup.sections.map((sec) =>
-    sec.id === "general"
-      ? {
-          ...sec,
-          fields: (sec.fields ?? []).filter(
-            (f) => f.path !== "dataset" && !RUN_CONFIG_PATHS.includes(f.path)
-          ),
-        }
-      : sec
-  );
+  return setup.sections
+    .map((sec) =>
+      sec.id === "general"
+        ? {
+            ...sec,
+            // dataset -> Datasets tab; output_dir/resume_from_checkpoint -> Run tab;
+            // run_name -> the prominent name input above the tabs.
+            fields: (sec.fields ?? []).filter(
+              (f) =>
+                f.path !== "dataset" &&
+                f.path !== "run_name" &&
+                !RUN_CONFIG_PATHS.includes(f.path)
+            ),
+          }
+        : sec
+    )
+    .filter((sec) => (sec.fields ?? []).length > 0);
 });
 const otherSchemaTabs = computed(() => schemaTabs.value.filter((t) => t.id !== "setup"));
 
@@ -575,6 +596,16 @@ async function exportBundle(): Promise<void> {
 .run-form-view__body {
   min-height: 200px;
   margin-top: var(--rf-space-sm);
+}
+.run-form-view__name-row {
+  margin-bottom: var(--rf-space-sm);
+}
+.run-name-input {
+  max-width: 520px;
+}
+.run-name-input :deep(.el-input__inner) {
+  font-size: 18px;
+  font-weight: 600;
 }
 .mb-12 {
   margin-bottom: 12px;
