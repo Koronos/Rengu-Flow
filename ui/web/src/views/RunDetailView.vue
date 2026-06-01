@@ -214,7 +214,7 @@ function goBack() {
 
 function goContinueTraining() {
   if (!runDir.value) return;
-  router.push({ name: "jobs", query: { continue_run: runDir.value } });
+  router.push({ name: "run-new", query: { continue_run: runDir.value } });
 }
 
 async function cloneToNewRun() {

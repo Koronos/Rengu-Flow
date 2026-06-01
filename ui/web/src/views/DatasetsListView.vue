@@ -5,7 +5,7 @@
         <p class="page-subtitle">Compose folders into reusable dataset TOML</p>
       </div>
       <div class="page-head-actions">
-        <el-button type="primary" :icon="Plus" @click="router.push({ name: 'datasets-new' })">
+        <el-button type="primary" :icon="Plus" @click="openCreate">
           New dataset
         </el-button>
       </div>
@@ -21,7 +21,7 @@
       @item-click="onItemClick"
     >
       <template #empty-action>
-        <el-button type="primary" :icon="Plus" @click="router.push({ name: 'datasets-new' })">
+        <el-button type="primary" :icon="Plus" @click="openCreate">
           New dataset
         </el-button>
       </template>
@@ -79,7 +79,6 @@
 
 <script setup lang="ts">
 import { computed, onMounted, watch } from "vue";
-import { useRouter } from "vue-router";
 import { Picture, Plus, Search } from "@element-plus/icons-vue";
 import { api } from "../api";
 import DatasetPreviewActions from "../components/DatasetPreviewActions.vue";
@@ -88,6 +87,7 @@ import LibraryListPage from "../components/LibraryListPage.vue";
 import LibraryRowCrudButtons from "../components/LibraryRowCrudButtons.vue";
 import LibrarySortControls from "../components/LibrarySortControls.vue";
 import LibraryViewModeToggle from "../components/LibraryViewModeToggle.vue";
+import { useDatasetFormModal } from "../composables/useDatasetFormModal";
 import { useDatasetGallery } from "../composables/useDatasetGallery";
 import { useDebouncedLibrarySearch } from "../composables/useDebouncedLibrarySearch";
 import { useLibraryCrudActions } from "../composables/useLibraryCrudActions";
@@ -102,7 +102,7 @@ import { libraryThumbSource } from "../lib/previewThumbs";
 import type { DatasetSearchItem } from "../types/api";
 import type { DatasetPreviewItem } from "../components/DatasetPreviewCollection.vue";
 
-const router = useRouter();
+const datasetModal = useDatasetFormModal();
 const { viewMode } = useDatasetViewMode(DATASET_LIBRARY_VIEW_KEY);
 const {
   sortField,
@@ -144,12 +144,16 @@ const {
   duplicateSelected,
   deleteSelected,
 } = useLibraryCrudActions({
-  router,
   onDeleted: () => {
     clearSelection();
     load();
   },
+  onDuplicated: (id) => datasetModal.openEdit(id, { onSaved: () => load() }),
 });
+
+function openCreate() {
+  datasetModal.openCreate({ onSaved: () => load() });
+}
 
 function formatSubtitle(row: DatasetSearchItem): string {
   const parts = [`#${row.id}`];
@@ -168,7 +172,7 @@ function onItemClick(item: DatasetPreviewItem) {
 }
 
 function openItem(item: DatasetPreviewItem) {
-  if (item?.id) router.push({ name: "datasets-detail", params: { datasetId: String(item.id) } });
+  if (item?.id) datasetModal.openEdit(item.id, { onSaved: () => load() });
 }
 
 function openGallery(item: DatasetPreviewItem) {

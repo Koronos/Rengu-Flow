@@ -270,6 +270,9 @@ const isOptionalField = computed(() => {
   const f = props.field;
   if (f.required || f.importance === "required") return false;
   if (f.importance === "recommended" || f.recommended) return false;
+  // A field with a default shows `default: <value>` instead of "(optional)";
+  // the two indicators are mutually exclusive.
+  if (hasDefault.value) return false;
   return f.importance === "advanced";
 });
 

@@ -1,7 +1,6 @@
 import { defineStore } from "pinia";
 import { computed, ref, shallowRef } from "vue";
 import { ElMessage } from "element-plus";
-import type { RouteLocationNormalizedLoaded, Router } from "vue-router";
 import { api } from "../api";
 import { formatError } from "../lib/formatError";
 import { sanitizeDatasetForm } from "../lib/datasetFormPayload";
@@ -105,26 +104,36 @@ export const useDatasetEditorStore = defineStore("datasetEditor", () => {
     tomlSync.setForm({ ...form.value, _directories: nextDirs });
   }
 
-  async function openFromRoute(route: RouteLocationNormalizedLoaded) {
+  /** Load a blank new dataset (default TOML). */
+  async function openNew() {
     error.value = "";
     message.value = "";
-    isNew.value = route.name === "datasets-new";
-    datasetId.value = isNew.value ? null : String(route.params.datasetId || "");
-
+    isNew.value = true;
+    datasetId.value = null;
     loading.value = true;
     try {
       await fetchSchema();
-      if (isNew.value) {
-        name.value = "New dataset";
-        await tomlSync.applyToml(DEFAULT_DATASET_TOML);
-        return;
-      }
-      if (!datasetId.value) return;
-      const data = (await api.getDataset(datasetId.value)) as {
-        name?: string;
-        content: string;
-      };
-      name.value = data.name || `Dataset ${datasetId.value}`;
+      name.value = "New dataset";
+      await tomlSync.applyToml(DEFAULT_DATASET_TOML);
+    } catch (e) {
+      error.value = formatError(e);
+      throw e;
+    } finally {
+      loading.value = false;
+    }
+  }
+
+  /** Load an existing dataset by id. */
+  async function openExisting(id: string | number) {
+    error.value = "";
+    message.value = "";
+    isNew.value = false;
+    datasetId.value = String(id);
+    loading.value = true;
+    try {
+      await fetchSchema();
+      const data = (await api.getDataset(String(id))) as { name?: string; content: string };
+      name.value = data.name || `Dataset ${id}`;
       await tomlSync.applyToml(data.content);
     } catch (e) {
       error.value = formatError(e);
@@ -134,7 +143,8 @@ export const useDatasetEditorStore = defineStore("datasetEditor", () => {
     }
   }
 
-  async function save(router: Router) {
+  /** Create or update the dataset; returns its id and whether it was newly created. */
+  async function save(): Promise<{ id: string; created: boolean }> {
     saving.value = true;
     error.value = "";
     message.value = "";
@@ -149,17 +159,14 @@ export const useDatasetEditorStore = defineStore("datasetEditor", () => {
         if (r.name) name.value = r.name;
         await tomlSync.applyToml(toml);
         ElMessage.success("Created");
-        await router.replace({
-          name: "datasets-detail",
-          params: { datasetId: datasetId.value },
-        });
-      } else {
-        const r = (await api.saveDataset(datasetId.value!, payload)) as { name?: string };
-        if (r?.name) name.value = r.name;
-        await tomlSync.applyToml(toml);
-        ElMessage.success("Saved");
-        message.value = "Saved.";
+        return { id: datasetId.value, created: true };
       }
+      const r = (await api.saveDataset(datasetId.value!, payload)) as { name?: string };
+      if (r?.name) name.value = r.name;
+      await tomlSync.applyToml(toml);
+      ElMessage.success("Saved");
+      message.value = "Saved.";
+      return { id: datasetId.value!, created: false };
     } catch (e) {
       error.value = formatError(e);
       ElMessage.error(error.value);
@@ -253,7 +260,8 @@ export const useDatasetEditorStore = defineStore("datasetEditor", () => {
     patchDirectories,
     applyToml: tomlSync.applyToml,
     flushSync: tomlSync.flushSync,
-    openFromRoute,
+    openNew,
+    openExisting,
     save,
     validate,
     clearValidationFeedback,

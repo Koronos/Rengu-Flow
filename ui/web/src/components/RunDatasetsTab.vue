@@ -7,7 +7,7 @@
     <TrainingDatasetsField :model-value="datasetValue" @update:model-value="onUpdate" />
     <div class="run-datasets-tab__actions">
       <el-button text type="primary" @click="openNewDataset">Create a new dataset…</el-button>
-      <el-text type="info" size="small">Opens the dataset editor in a new tab.</el-text>
+      <el-text type="info" size="small">Opens the dataset editor; the new dataset is added here on save.</el-text>
     </div>
   </div>
 </template>
@@ -17,8 +17,15 @@ import { computed } from "vue";
 import { storeToRefs } from "pinia";
 import TrainingDatasetsField from "./TrainingDatasetsField.vue";
 import { useConfigEditorStore } from "../stores/configEditor";
+import { useDatasetFormModal } from "../composables/useDatasetFormModal";
+import {
+  appendUniqueDatasetPaths,
+  coerceTrainingDatasetEntries,
+  trainingDatasetFormValue,
+} from "../lib/datasetLibraryRef";
 
 const editor = useConfigEditorStore();
+const datasetModal = useDatasetFormModal();
 const { form } = storeToRefs(editor);
 
 const datasetValue = computed<string | string[]>(
@@ -30,7 +37,12 @@ function onUpdate(value: string | string[]): void {
 }
 
 function openNewDataset(): void {
-  window.open("/datasets/new", "_blank", "noopener");
+  datasetModal.openCreate({
+    onSaved: ({ ref }) => {
+      const entries = coerceTrainingDatasetEntries(form.value?.dataset);
+      onUpdate(trainingDatasetFormValue(appendUniqueDatasetPaths(entries, [ref])));
+    },
+  });
 }
 </script>
 

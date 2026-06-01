@@ -69,13 +69,13 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import { useRouter } from "vue-router";
 import { Edit } from "@element-plus/icons-vue";
 import { ElLoadingDirective } from "element-plus";
 import { api } from "../api";
 import DatasetPreviewActions from "./DatasetPreviewActions.vue";
 import DatasetPreviewCollection from "./DatasetPreviewCollection.vue";
 import DatasetViewModeToggle from "./DatasetViewModeToggle.vue";
+import { useDatasetFormModal } from "../composables/useDatasetFormModal";
 import { useDatasetGallery } from "../composables/useDatasetGallery";
 import { useDatasetViewMode } from "../composables/useDatasetViewMode";
 import { canonicalDatasetRef, formatDatasetLibraryRef } from "../lib/datasetLibraryRef";
@@ -107,7 +107,7 @@ const emit = defineEmits<{
   (e: "select-multiple", value: string[]): void;
 }>();
 const vLoading = ElLoadingDirective;
-const router = useRouter();
+const datasetModal = useDatasetFormModal();
 
 const loading = ref(false);
 const filterText = ref("");
@@ -199,11 +199,7 @@ function openGallery(item: DatasetPickerItem) {
 
 function openEdit(item: DatasetPickerItem) {
   if (!item.libraryId) return;
-  const href = router.resolve({
-    name: "datasets-detail",
-    params: { datasetId: item.libraryId },
-  }).href;
-  window.open(href, "_blank", "noopener,noreferrer");
+  datasetModal.openEdit(item.libraryId, { onSaved: () => loadItems() });
 }
 
 function toggle(path: string) {

@@ -208,13 +208,6 @@
       />
     </el-card>
 
-    <RunFormModal
-      v-model="modalOpen"
-      :mode="modalMode"
-      :job="modalJob"
-      @submitted="onModalSubmitted"
-    />
-
     <el-dialog
       v-model="importOpen"
       title="Import training run folder"
@@ -310,7 +303,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
-import { useRoute, useRouter } from "vue-router";
+import { useRouter } from "vue-router";
 import { ElLoadingDirective, ElMessage, ElMessageBox } from "element-plus";
 import {
   CopyDocument,
@@ -327,7 +320,6 @@ import {
 import Sortable from "sortablejs";
 import { api } from "../api";
 import AutoRefreshBar from "../components/AutoRefreshBar.vue";
-import RunFormModal from "../components/RunFormModal.vue";
 import TrainLivePanel from "../components/TrainLivePanel.vue";
 import PathFieldControl from "../components/PathFieldControl.vue";
 import { useAutoRefresh } from "../composables/useAutoRefresh";
@@ -335,10 +327,9 @@ import { useTrainLiveStream } from "../composables/useTrainLiveStream";
 import { TRAIN_LIVE_REFRESH_STORAGE_KEY } from "../lib/autoRefresh";
 import { formatError } from "../lib/formatError";
 import { useConfigEditorStore } from "../stores/configEditor";
-import type { ImportCandidatesResult, ImportRunPreview, JobRecord, TrainingRunRow } from "../types/api";
+import type { ImportCandidatesResult, ImportRunPreview, TrainingRunRow } from "../types/api";
 
 const router = useRouter();
-const route = useRoute();
 const vLoading = ElLoadingDirective;
 const editor = useConfigEditorStore();
 
@@ -350,10 +341,6 @@ const activeRun = ref<TrainingRunRow | null>(null);
 const stats = ref({ running: 0, pending: 0 });
 const error = ref("");
 const pollWarning = ref("");
-
-const modalOpen = ref(false);
-const modalMode = ref<"create" | "edit" | "continue">("create");
-const modalJob = ref<TrainingRunRow | null>(null);
 
 const importOpen = ref(false);
 const importRunPath = ref("");
@@ -614,20 +601,6 @@ watch(
 
 onMounted(() => {
   void refreshFull();
-  // "Continue training" from a run-detail page lands here with ?continue_run=<run_dir>.
-  const cr = route.query.continue_run;
-  if (typeof cr === "string" && cr) {
-    const parts = cr.replace(/\\/g, "/").split("/").filter(Boolean);
-    continueRun({
-      key: `continue:${cr}`,
-      kind: "disk",
-      state: "on_disk",
-      run_dir: cr,
-      run_name: parts[parts.length - 1] ?? cr,
-      num_gpus: 1,
-    } as TrainingRunRow);
-    void router.replace({ name: "jobs" });
-  }
 });
 
 onBeforeUnmount(() => {
@@ -703,14 +676,13 @@ async function removeRun(row: TrainingRunRow) {
   }
 }
 
-// --- Modal openers ---
+// --- Run form (a dedicated section/page, not a modal) ---
 
 async function newRun() {
+  // Prepare a blank run in the shared store, then open the form section.
   await editor.fetchSchema();
   await editor.newConfig();
-  modalMode.value = "create";
-  modalJob.value = null;
-  modalOpen.value = true;
+  router.push({ name: "run-new" });
 }
 
 async function newRunFromConfig(id: string | null | undefined) {
@@ -719,29 +691,20 @@ async function newRunFromConfig(id: string | null | undefined) {
     const { content } = await api.seedJobConfig(String(id));
     await editor.fetchSchema();
     await editor.loadContent(content);
-    modalMode.value = "create";
-    modalJob.value = null;
-    modalOpen.value = true;
+    router.push({ name: "run-new" });
   } catch (e) {
     ElMessage.error(formatError(e));
   }
 }
 
 function editRun(row: TrainingRunRow) {
-  modalMode.value = "edit";
-  modalJob.value = row;
-  modalOpen.value = true;
+  if (!row?.job_id) return;
+  router.push({ name: "run-edit", params: { id: String(row.job_id) } });
 }
 
 function continueRun(row: TrainingRunRow) {
   if (!row?.run_dir) return;
-  modalMode.value = "continue";
-  modalJob.value = row;
-  modalOpen.value = true;
-}
-
-function onModalSubmitted(_job: JobRecord) {
-  void refreshFull();
+  router.push({ name: "run-new", query: { continue_run: row.run_dir } });
 }
 </script>
 

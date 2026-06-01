@@ -1,12 +1,14 @@
 import { ref } from "vue";
-import type { Router } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { api } from "../api";
 import { formatError } from "../lib/formatError";
 import type { DuplicateConfigResult } from "../types/api";
 
 /** Duplicate/delete actions for the dataset library list view. */
-export function useLibraryCrudActions(options: { router: Router; onDeleted?: () => void }) {
+export function useLibraryCrudActions(options: {
+  onDeleted?: () => void;
+  onDuplicated?: (id: string | number) => void;
+}) {
   const busy = ref(false);
 
   async function duplicateSelected(id: string | number | null): Promise<void> {
@@ -15,10 +17,7 @@ export function useLibraryCrudActions(options: { router: Router; onDeleted?: () 
     try {
       const r = (await api.duplicateDataset(id)) as DuplicateConfigResult;
       ElMessage.success(`Duplicated as ${r.id}`);
-      await options.router.push({
-        name: "datasets-detail",
-        params: { datasetId: String(r.id) },
-      });
+      options.onDuplicated?.(r.id);
     } catch (e) {
       ElMessage.error(formatError(e));
     } finally {

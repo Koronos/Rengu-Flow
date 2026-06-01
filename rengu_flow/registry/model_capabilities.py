@@ -215,7 +215,7 @@ def _register_builtin_capabilities() -> None:
                 },
                 {
                     "path": "model.llm_adapter_path",
-                    "label": "Text adapter (.safetensors, optional)",
+                    "label": "Text adapter (.safetensors)",
                     "type": "path",
                     "show_if_set": True,
                     "description": "Extra weights on top of the text encoder, if you have them.",
@@ -240,14 +240,14 @@ def _register_builtin_capabilities() -> None:
                 },
                 {
                     "path": "model.transformer_dtype",
-                    "label": "Main model load dtype (optional)",
+                    "label": "Main model load dtype",
                     "type": "select",
                     "options_key": "dtypes",
                     "description": "DiT checkpoint load only; defaults to Model dtype. VAE/text unchanged.",
                 },
                 {
                     "path": "model.diffusion_model_dtype",
-                    "label": "DiT forward dtype (optional)",
+                    "label": "DiT forward dtype",
                     "type": "select",
                     "options_key": "dtypes",
                     "ui": False,

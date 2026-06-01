@@ -1,26 +1,19 @@
 <template>
-  <el-dialog
-    :model-value="modelValue"
-    fullscreen
-    :show-close="true"
-    :close-on-click-modal="false"
-    :close-on-press-escape="!submitting"
-    class="run-form-modal"
-    @update:model-value="onDialogToggle"
-    @closed="onClosed"
-  >
-    <template #header>
-      <div class="run-form-modal__header">
-        <span class="run-form-modal__title">{{ title }}</span>
-        <div class="run-form-modal__header-actions">
-          <el-button :icon="CircleCheck" @click="onValidate">Validate</el-button>
-          <el-button :icon="Upload" @click="triggerImport">Import TOML…</el-button>
-        </div>
+  <div class="page-shell run-form-view">
+    <div class="page-head run-form-view__head">
+      <el-button :icon="ArrowLeft" @click="goBack">Runs</el-button>
+      <span class="run-form-view__title">{{ title }}</span>
+      <div class="run-form-view__head-actions">
+        <el-button :icon="CircleCheck" @click="onValidate">Validate</el-button>
+        <el-button :icon="Upload" @click="triggerImport">Import TOML…</el-button>
+        <el-button v-if="showSaveForLater" @click="onSaveForLater">Save for later</el-button>
+        <el-button v-if="showSaveChanges" @click="onSaveChanges">Save changes</el-button>
+        <el-button type="primary" :loading="submitting" @click="onPrimary">{{ primaryLabel }}</el-button>
       </div>
-    </template>
+    </div>
 
     <ImportTomlOverlay ref="importOverlay" @import="handleImport">
-      <div v-loading="loading || (syncing && !form)" class="run-form-modal__body">
+      <div v-loading="loading || (syncing && !form)" class="run-form-view__body">
         <el-alert
           v-if="validationErrors.length"
           type="error"
@@ -167,29 +160,21 @@
         </el-tabs>
       </div>
     </ImportTomlOverlay>
-
-    <template #footer>
-      <div class="run-form-modal__footer">
-        <el-button @click="close">Cancel</el-button>
-        <el-button v-if="showSaveForLater" text @click="onSaveForLater">Save for later</el-button>
-        <el-button v-if="showSaveChanges" @click="onSaveChanges">Save changes</el-button>
-        <el-button type="primary" :loading="submitting" @click="onPrimary">{{ primaryLabel }}</el-button>
-      </div>
-    </template>
-  </el-dialog>
+  </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, onUnmounted, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import { storeToRefs } from "pinia";
 import { ElLoadingDirective, ElMessage, ElMessageBox } from "element-plus";
-import { CircleCheck, Upload } from "@element-plus/icons-vue";
+import { ArrowLeft, CircleCheck, Upload } from "@element-plus/icons-vue";
 import { api } from "../api";
 import { downloadBlob } from "../lib/downloadBlob";
 import { formatError } from "../lib/formatError";
-import ConfigFormSectionCard from "./ConfigFormSectionCard.vue";
-import ImportTomlOverlay from "./ImportTomlOverlay.vue";
-import RunDatasetsTab from "./RunDatasetsTab.vue";
+import ConfigFormSectionCard from "../components/ConfigFormSectionCard.vue";
+import ImportTomlOverlay from "../components/ImportTomlOverlay.vue";
+import RunDatasetsTab from "../components/RunDatasetsTab.vue";
 import {
   buildConfigFormTabs,
   type ConfigSchemaSection,
@@ -197,23 +182,11 @@ import {
 import { sectionHasVisibleFields } from "../lib/configFormSectionLogic";
 import { getModelCapability } from "../lib/formUtils";
 import { useConfigEditorStore } from "../stores/configEditor";
-import type { CheckpointInfo, JobRecord, TrainingRunRow } from "../types/api";
+import type { CheckpointInfo } from "../types/api";
 import type { FormValues, SchemaField } from "../types/forms";
 
-type ModalMode = "create" | "edit" | "continue";
-
-const props = defineProps<{
-  modelValue: boolean;
-  mode: ModalMode;
-  /** Source run for edit/continue modes. */
-  job?: TrainingRunRow | null;
-}>();
-
-const emit = defineEmits<{
-  (e: "update:modelValue", value: boolean): void;
-  (e: "submitted", job: JobRecord): void;
-}>();
-
+const route = useRoute();
+const router = useRouter();
 const vLoading = ElLoadingDirective;
 const editor = useConfigEditorStore();
 const {
@@ -227,6 +200,17 @@ const {
   modelCapabilities,
   continuation,
 } = storeToRefs(editor);
+
+// Mode is derived from the route: edit has a job id; continue carries ?continue_run=<dir>.
+const mode = computed<"create" | "edit" | "continue">(() => {
+  if (route.name === "run-edit") return "edit";
+  if (typeof route.query.continue_run === "string" && route.query.continue_run) return "continue";
+  return "create";
+});
+const routeJobId = computed(() => String(route.params.id || ""));
+const continueDir = computed(() =>
+  typeof route.query.continue_run === "string" ? route.query.continue_run : ""
+);
 
 const importOverlay = ref<InstanceType<typeof ImportTomlOverlay> | null>(null);
 const activeTab = ref("setup");
@@ -279,9 +263,9 @@ const setupSections = computed<ConfigSchemaSection[]>(() => {
 });
 const otherSchemaTabs = computed(() => schemaTabs.value.filter((t) => t.id !== "setup"));
 
-const isCreate = computed(() => props.mode === "create");
-const isContinue = computed(() => props.mode === "continue");
-const isEdit = computed(() => props.mode === "edit");
+const isCreate = computed(() => mode.value === "create");
+const isContinue = computed(() => mode.value === "continue");
+const isEdit = computed(() => mode.value === "edit");
 const isDraft = computed(() => isEdit.value && editState.value === "new");
 
 const showResume = computed(() => isContinue.value || checkpoints.value.length > 0);
@@ -348,13 +332,16 @@ async function loadCheckpoints(opts: { jobId?: string; runDir?: string }): Promi
   }
 }
 
-/** Prepare store content + params each time the modal opens. */
-async function onOpen(): Promise<void> {
+/**
+ * Load the run being edited/continued. For "create", the opener (Runs list) prepares the store
+ * (blank via newConfig, or seeded via loadContent) before navigating here, so we leave it alone.
+ */
+async function init(): Promise<void> {
   resetParams();
   await editor.fetchSchema();
-  if (isEdit.value && props.job?.job_id) {
+  if (isEdit.value && routeJobId.value) {
     try {
-      const j = await api.getJob(String(props.job.job_id));
+      const j = await api.getJob(routeJobId.value);
       editState.value = j.state;
       numGpus.value = j.num_gpus ?? 1;
       cacheOnly.value = !!j.cache_only;
@@ -363,30 +350,26 @@ async function onOpen(): Promise<void> {
       resumeFrom.value = j.resume_from ?? "";
       await editor.loadContent(j.config_content ?? "");
       if (j.source_run_dir || j.run_dir) {
-        await loadCheckpoints({ jobId: String(props.job.job_id) });
+        await loadCheckpoints({ jobId: routeJobId.value });
         if (j.resume_from) resumeFrom.value = j.resume_from;
       }
     } catch (e) {
       error.value = formatError(e);
     }
-  } else if (isContinue.value && props.job?.run_dir) {
-    numGpus.value = props.job.num_gpus ?? 1;
-    await editor.loadContinuation(props.job.run_dir);
-    await loadCheckpoints({ runDir: props.job.run_dir });
+  } else if (isContinue.value && continueDir.value) {
+    await editor.loadContinuation(continueDir.value);
+    await loadCheckpoints({ runDir: continueDir.value });
   }
-  // create mode: the opener pre-loads the store (newConfig or seed content).
 }
 
-function onDialogToggle(value: boolean): void {
-  emit("update:modelValue", value);
-}
+watch(() => route.fullPath, init, { immediate: true });
 
-function close(): void {
-  emit("update:modelValue", false);
-}
-
-function onClosed(): void {
+onUnmounted(() => {
   editor.dispose();
+});
+
+function goBack(): void {
+  router.push({ name: "jobs" });
 }
 
 function triggerImport(): void {
@@ -419,7 +402,6 @@ async function confirmIfInvalid(verb: string): Promise<boolean> {
     return true;
   } catch (e) {
     if (e === "cancel") return false;
-    // a thrown validation error (network) — let the user decide via the alert
     return false;
   }
 }
@@ -434,9 +416,8 @@ async function doSubmit(action: "queue" | "draft"): Promise<void> {
   submitting.value = true;
   try {
     await editor.flushSync();
-    let job: JobRecord;
     if (isContinue.value && continuation.value) {
-      job = await api.continueRun({
+      await api.continueRun({
         run_path: continuation.value.run_dir,
         content: editor.content,
         num_gpus: numGpus.value,
@@ -444,8 +425,8 @@ async function doSubmit(action: "queue" | "draft"): Promise<void> {
         from_scratch: fromScratch.value,
         enqueue: true,
       });
-    } else if (isEdit.value && props.job?.job_id) {
-      const id = String(props.job.job_id);
+    } else if (isEdit.value && routeJobId.value) {
+      const id = routeJobId.value;
       await api.updateJob(id, {
         content: editor.content,
         num_gpus: numGpus.value,
@@ -454,9 +435,9 @@ async function doSubmit(action: "queue" | "draft"): Promise<void> {
         trust_cache: trustCache.value,
         regenerate_cache: regenerateCache.value,
       });
-      job = action === "queue" && isDraft.value ? await api.enqueueJob(id) : await api.getJob(id);
+      if (action === "queue" && isDraft.value) await api.enqueueJob(id);
     } else {
-      job = await api.startJob({
+      await api.startJob({
         content: editor.content,
         num_gpus: numGpus.value,
         resume_from: resumeArg(),
@@ -468,8 +449,7 @@ async function doSubmit(action: "queue" | "draft"): Promise<void> {
       });
     }
     ElMessage.success(action === "draft" ? "Saved for later" : "Added to queue");
-    emit("submitted", job);
-    close();
+    goBack();
   } catch (e) {
     error.value = formatError(e);
     ElMessage.error(error.value);
@@ -486,12 +466,11 @@ function onSaveForLater(): void {
 }
 async function onSaveChanges(): Promise<void> {
   // Edit a draft without enqueuing: persist content + params, keep state "new".
-  if (!props.job?.job_id) return;
+  if (!routeJobId.value) return;
   submitting.value = true;
   try {
     await editor.flushSync();
-    const id = String(props.job.job_id);
-    await api.updateJob(id, {
+    await api.updateJob(routeJobId.value, {
       content: editor.content,
       num_gpus: numGpus.value,
       resume_from: resumeArg() ?? null,
@@ -499,10 +478,8 @@ async function onSaveChanges(): Promise<void> {
       trust_cache: trustCache.value,
       regenerate_cache: regenerateCache.value,
     });
-    const job = await api.getJob(id);
     ElMessage.success("Saved");
-    emit("submitted", job);
-    close();
+    goBack();
   } catch (e) {
     error.value = formatError(e);
     ElMessage.error(error.value);
@@ -531,42 +508,35 @@ async function exportBundle(): Promise<void> {
     exporting.value = false;
   }
 }
-
-// React to open transitions (the opener flips modelValue and sets mode/job + store content).
-watch(
-  () => props.modelValue,
-  (open) => {
-    if (open) void onOpen();
-  }
-);
 </script>
 
 <style scoped>
-.run-form-modal :deep(.el-dialog__body) {
-  padding-top: 8px;
-}
-.run-form-modal__header {
+.run-form-view__head {
+  position: sticky;
+  top: 0;
+  z-index: 5;
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
+  padding: var(--rf-space-sm) 0;
+  background: var(--el-bg-color);
+  border-bottom: 1px solid var(--el-border-color-lighter);
 }
-.run-form-modal__title {
+.run-form-view__title {
   font-size: 18px;
   font-weight: 600;
+  flex: 1;
+  min-width: 120px;
 }
-.run-form-modal__header-actions {
+.run-form-view__head-actions {
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
 }
-.run-form-modal__body {
+.run-form-view__body {
   min-height: 200px;
-}
-.run-form-modal__footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
+  margin-top: var(--rf-space-sm);
 }
 .mb-12 {
   margin-bottom: 12px;

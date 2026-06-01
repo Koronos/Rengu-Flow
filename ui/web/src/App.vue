@@ -90,6 +90,7 @@
   </el-container>
   <DatasetGalleryHost />
   <DatasetImageViewerHost />
+  <DatasetFormModalHost />
   </el-config-provider>
 </template>
 
@@ -101,6 +102,7 @@ import { api } from "./api";
 import { useBreakpoint } from "./composables/useBreakpoint";
 import DatasetGalleryHost from "./components/DatasetGalleryHost.vue";
 import DatasetImageViewerHost from "./components/DatasetImageViewerHost.vue";
+import DatasetFormModalHost from "./components/DatasetFormModalHost.vue";
 import HostStatsBar from "./components/HostStatsBar.vue";
 
 const route = useRoute();
@@ -135,9 +137,9 @@ const pageTitle = computed(() => {
     maintenance: "Maintenance",
     jobs: "Runs",
     "job-detail": "Run detail",
+    "run-new": "New run",
+    "run-edit": "Edit run",
     "datasets-list": "Datasets",
-    "datasets-new": "New dataset",
-    "datasets-detail": "Dataset",
     "run-detail": "Run detail",
   };
   return names[routeName.value] || "Rengu";
