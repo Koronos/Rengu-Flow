@@ -321,7 +321,6 @@
             filterable
             class="w-full"
             placeholder="Pick a run folder"
-            @change="onImportPathPicked"
           >
             <el-option
               v-for="r in importCandidates"
@@ -341,7 +340,7 @@
             input-class="w-full"
           />
         </el-form-item>
-        <el-button :loading="importPreviewLoading" @click="previewImportRun">Preview</el-button>
+        <el-text v-if="importPreviewLoading" type="info" size="small">Inspecting run folder…</el-text>
       </el-form>
 
       <el-alert
@@ -440,6 +439,7 @@ const importPreview = ref<ImportRunPreview | null>(null);
 const importPreviewLoading = ref(false);
 const importSaving = ref(false);
 const importForm = reactive({ import_dataset: true, dataset_id: "" });
+let importPreviewTimer: ReturnType<typeof setTimeout> | null = null;
 
 const pendingListEl = ref<HTMLElement | null>(null);
 let sortable: Sortable | null = null;
@@ -512,6 +512,10 @@ function openImportDialog() {
 }
 
 function resetImportDialog() {
+  if (importPreviewTimer) {
+    clearTimeout(importPreviewTimer);
+    importPreviewTimer = null;
+  }
   importRunPath.value = "";
   importPreview.value = null;
   importForm.import_dataset = true;
@@ -523,14 +527,23 @@ async function loadImportCandidates(): Promise<void> {
   importCandidates.value = data.runs || [];
 }
 
-function onImportPathPicked(path: string): void {
-  importRunPath.value = path;
-  previewImportRun();
-}
+// Auto-inspect the run folder shortly after the path changes (debounced so we don't
+// hit the backend on every keystroke). Picking from the dropdown updates the same v-model.
+watch(importRunPath, (path) => {
+  if (importPreviewTimer) clearTimeout(importPreviewTimer);
+  if (!(path || "").trim()) {
+    importPreview.value = null;
+    return;
+  }
+  importPreviewTimer = setTimeout(() => void previewImportRun({ silent: true }), 500);
+});
 
-async function previewImportRun() {
+async function previewImportRun(opts: { silent?: boolean } = {}): Promise<void> {
   const path = importRunPath.value.trim();
-  if (!path) return;
+  if (!path) {
+    importPreview.value = null;
+    return;
+  }
   importPreviewLoading.value = true;
   importPreview.value = null;
   try {
@@ -538,7 +551,9 @@ async function previewImportRun() {
     importPreview.value = data;
     if (!importForm.dataset_id) importForm.dataset_id = String(data.suggested_dataset_id || "");
   } catch (e) {
-    ElMessage.error(formatError(e));
+    importPreview.value = null;
+    // While typing, a partial/invalid path is expected — don't spam error toasts.
+    if (!opts.silent) ElMessage.error(formatError(e));
   } finally {
     importPreviewLoading.value = false;
   }
