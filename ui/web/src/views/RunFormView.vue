@@ -594,9 +594,21 @@ async function doSubmit(action: "queue" | "draft"): Promise<void> {
   submitting.value = true;
   try {
     await editor.flushSync();
-    if (action === "draft") {
-      // Save the (possibly continue-) run as a "new" draft, without queuing. For a continue,
-      // source_run_dir + resume_from let it resume the same folder when it is later enqueued.
+    if (isContinue.value && routeJobId.value) {
+      // Continue reuses the existing record (one folder = one record): edit it in place and add
+      // it to the queue — or keep it as a draft for "Save for later". No new row is created;
+      // spawning a fresh run from this config is what "New run from this config" is for.
+      await api.continueRun({
+        job_id: routeJobId.value,
+        run_path: continuation.value?.run_dir,
+        content: editor.content,
+        num_gpus: numGpus.value,
+        resume_from: fromScratch.value ? undefined : resumeFrom.value || undefined,
+        from_scratch: fromScratch.value,
+        enqueue: action === "queue",
+      });
+    } else if (action === "draft") {
+      // Save a new/create run as a "new" draft, without queuing.
       await api.startJob({
         content: editor.content,
         num_gpus: numGpus.value,
@@ -608,6 +620,7 @@ async function doSubmit(action: "queue" | "draft"): Promise<void> {
         source_run_dir: isContinue.value ? continuation.value?.run_dir : undefined,
       });
     } else if (isContinue.value && continuation.value) {
+      // Filesystem-only run with no record yet: create one that resumes the folder.
       await api.continueRun({
         run_path: continuation.value.run_dir,
         content: editor.content,

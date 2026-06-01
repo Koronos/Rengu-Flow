@@ -119,9 +119,14 @@ class JobImportBody(BaseModel):
 
 
 class ContinueRunBody(BaseModel):
-    """Resume a run folder with an edited TOML (e.g. more epochs)."""
+    """Resume a run folder with an edited TOML (e.g. more epochs).
 
-    run_path: str
+    When ``job_id`` is given, the existing run record is reused (edited in place and re-queued);
+    otherwise a record is created for a filesystem-only run that has none yet.
+    """
+
+    run_path: str = ""
+    job_id: str | None = None
     content: str
     num_gpus: int = Field(default=1, ge=1)
     extra_args: str = ""
@@ -658,18 +663,35 @@ def create_app() -> FastAPI:
         from rengu_flow_ui.run_config import RunConfigError
 
         try:
-            job = job_queue.enqueue_continue_run(
-                body.run_path,
-                body.content,
-                num_gpus=body.num_gpus,
-                extra_args=body.extra_args,
-                reset_dataloader=body.reset_dataloader,
-                reset_optimizer=body.reset_optimizer,
-                resume_from=body.resume_from,
-                from_scratch=body.from_scratch,
-                enqueue=body.enqueue,
-                start_immediately=body.start_immediately,
-            )
+            if body.job_id:
+                # Reuse the existing record: edit in place and re-queue (one folder, one record).
+                job = job_queue.continue_existing(
+                    body.job_id,
+                    content=body.content,
+                    num_gpus=body.num_gpus,
+                    extra_args=body.extra_args,
+                    reset_dataloader=body.reset_dataloader,
+                    reset_optimizer=body.reset_optimizer,
+                    resume_from=body.resume_from,
+                    from_scratch=body.from_scratch,
+                    enqueue=body.enqueue,
+                )
+            else:
+                # Filesystem-only run with no record yet: create one that resumes the folder.
+                job = job_queue.enqueue_continue_run(
+                    body.run_path,
+                    body.content,
+                    num_gpus=body.num_gpus,
+                    extra_args=body.extra_args,
+                    reset_dataloader=body.reset_dataloader,
+                    reset_optimizer=body.reset_optimizer,
+                    resume_from=body.resume_from,
+                    from_scratch=body.from_scratch,
+                    enqueue=body.enqueue,
+                    start_immediately=body.start_immediately,
+                )
+        except KeyError:
+            raise HTTPException(404, "Job not found")
         except RunConfigError as e:
             raise HTTPException(400, str(e))
         except ValueError as e:

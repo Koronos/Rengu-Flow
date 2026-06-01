@@ -242,7 +242,9 @@ export interface JobImportBody {
 }
 
 export interface ContinueRunBody {
-  run_path: string;
+  run_path?: string;
+  /** When set, reuse this existing run record (edit in place + re-queue) instead of creating one. */
+  job_id?: string | null;
   content: string;
   num_gpus?: number;
   extra_args?: string;

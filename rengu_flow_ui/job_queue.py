@@ -247,6 +247,72 @@ def enqueue_continue_run(
     return job
 
 
+def continue_existing(
+    job_id: str | int,
+    *,
+    content: str,
+    num_gpus: int = 1,
+    extra_args: str = "",
+    reset_dataloader: bool = False,
+    reset_optimizer: bool = False,
+    resume_from: str | None = None,
+    from_scratch: bool = False,
+    enqueue: bool = True,
+) -> db.JobRecord:
+    """Continue an existing run in its own folder by reusing the same record — no new row.
+
+    One run folder maps to exactly one job record, so continuing edits that record in place:
+    update its config + resume target and move it to ``pending`` (queued), or back to a ``new``
+    draft when ``enqueue`` is False. (Spawning a fresh record is what *New run from this config*
+    is for.) The folder's on-disk TOML is kept in sync.
+    """
+    from rengu_flow_ui.run_config import resume_checkpoint_arg
+
+    job = db.get_job(job_id)
+    if job.state in ("running", "stopping"):
+        raise ValueError("Stop the run before continuing it")
+    run_dir = job.run_dir or job.source_run_dir
+    if not run_dir:
+        raise ValueError("This run has no output folder to continue from")
+
+    cfg = toml.loads(content)
+    if from_scratch:
+        resume_arg: str | None = None
+    elif resume_from:
+        resume_arg = resume_from
+    else:
+        resume_arg = resume_checkpoint_arg(Path(run_dir), cfg)
+
+    staging = run_staging.materialize_staging(content, job_id)
+    _sync_config_to_run_folder(run_dir, staging)
+    extra_s = merge_job_cli_args(
+        extra_args,
+        cache_only=job.cache_only,
+        trust_cache=job.trust_cache,
+        regenerate_cache=job.regenerate_cache,
+        reset_dataloader=reset_dataloader,
+        reset_optimizer=reset_optimizer,
+    )
+    resolved_dir = str(Path(run_dir).resolve())
+    db.update_job(
+        job_id,
+        state="pending" if enqueue else "new",
+        config_path=str(staging),
+        config_content=content,
+        resume_from=resume_arg,
+        num_gpus=num_gpus,
+        extra_args=extra_s,
+        run_dir=resolved_dir,
+        source_run_dir=resolved_dir,
+        output_dir=str(cfg.get("output_dir", job.output_dir or "output")),
+        queue_position=next_queue_position() if enqueue else None,
+        finished_at=None,
+        exit_code=None,
+        pid=None,
+    )
+    return db.get_job(job_id)
+
+
 def enqueue_job(**kwargs: Any) -> db.JobRecord:
     # Add to the pending queue only — do NOT start. Processing begins when the user explicitly
     # starts the queue; once running, it drains automatically (try_start_next on each finish).

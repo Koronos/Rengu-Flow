@@ -104,6 +104,45 @@ def test_edit_pending_writes_config_to_run_folder(
     assert "stale" not in written  # the old folder config was replaced
 
 
+def test_continue_existing_reuses_record(
+    job_content: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Continuing a run edits the same record and re-queues it — no new row is created."""
+    monkeypatch.setattr("rengu_flow_ui.job_queue.try_start_next", lambda: None)
+    folder = tmp_path / "run1"
+    folder.mkdir()
+    (folder / "train.toml").write_text("run_name = 'stale'\n", encoding="utf-8")
+
+    job = job_queue.prepare_job(
+        content=job_content,
+        num_gpus=1,
+        resume_from=None,
+        output_dir=None,
+        extra_args="",
+        reset_dataloader=False,
+        reset_optimizer=False,
+        source_run_dir=str(folder),
+    )
+    db.update_job(job.id, state="finished")
+    before = len(db.list_jobs())
+
+    cont = job_queue.continue_existing(
+        job.id, content=job_content, from_scratch=True, num_gpus=2
+    )
+    assert cont.id == job.id  # same record
+    assert cont.state == "pending"  # re-queued
+    assert cont.num_gpus == 2
+    assert len(db.list_jobs()) == before  # no duplicate row
+    assert "stale" not in (folder / "train.toml").read_text(encoding="utf-8")
+
+    # "Save for later" on a continue keeps the same record as a draft.
+    draft = job_queue.continue_existing(
+        job.id, content=job_content, from_scratch=True, enqueue=False
+    )
+    assert draft.id == job.id
+    assert draft.state == "new"
+
+
 def test_enqueue_does_not_autostart(job_content: str, monkeypatch: pytest.MonkeyPatch) -> None:
     """Adding to the queue only enqueues (pending) — it must never launch a runner."""
     calls: list[int] = []
