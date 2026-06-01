@@ -45,6 +45,33 @@ def test_cache_v2_roundtrip_bf16_and_meta(tmp_path):
         assert torch.allclose(got["latents"].float(), expected["latents"].float())
 
 
+def test_cache_v2_read_from_other_thread(tmp_path):
+    """Reading from a DataLoader prefetch/worker thread must not trip SQLite's thread guard."""
+    import threading
+
+    cache = CacheV2(tmp_path / "latents", "fp-thread")
+    for _ in range(3):
+        cache.add(_latents_item())
+    cache.finalize_current_shard()
+
+    # Open the read path on this (main) thread first, so the meta connection is created here.
+    assert cache[0]["caption"] == "a photo"
+
+    errors: list[Exception] = []
+
+    def read_in_thread() -> None:
+        try:
+            for i in range(3):
+                assert cache[i]["caption"] == "a photo"
+        except Exception as e:  # noqa: BLE001 - record any cross-thread failure
+            errors.append(e)
+
+    t = threading.Thread(target=read_in_thread)
+    t.start()
+    t.join()
+    assert not errors, f"cross-thread cache read failed: {errors!r}"
+
+
 def test_cache_v2_get_many(tmp_path):
     cache = CacheV2(tmp_path / "latents", "fp-many")
     for _ in range(4):

@@ -102,10 +102,16 @@ class CacheV2:
             self._meta_con.close()
             self._meta_con = None
         db_path = self.path / META_DB_NAME
+        # check_same_thread=False: the connection is opened once but read from DataLoader
+        # prefetch/worker threads during training. SQLite's default serialized threading mode
+        # keeps a single connection safe across threads; reads here are read-only, writes only
+        # happen single-threaded while building the cache.
         if read_only:
-            self._meta_con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+            self._meta_con = sqlite3.connect(
+                f"file:{db_path}?mode=ro", uri=True, check_same_thread=False
+            )
         else:
-            self._meta_con = sqlite3.connect(db_path)
+            self._meta_con = sqlite3.connect(db_path, check_same_thread=False)
             self._meta_con.execute(
                 "CREATE TABLE IF NOT EXISTS item_meta(idx INTEGER PRIMARY KEY, payload TEXT)"
             )
