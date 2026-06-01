@@ -55,10 +55,46 @@
         >
           <template #title>Continuing run</template>
           <span class="continue-text">
-            Resumes the run folder <code>{{ continuation.run_dir }}</code>. Pick a checkpoint in the
-            Run tab (or start from scratch). Raise <code>epochs</code>/<code>max_steps</code> to train further.
+            Resumes the run folder <code>{{ continuation.run_dir }}</code>. Raise
+            <code>epochs</code>/<code>max_steps</code> to train further.
           </span>
         </el-alert>
+
+        <div v-if="isContinue" class="continue-resume mb-12">
+          <span class="continue-resume__label">
+            Resume from
+            <FieldHelpIcon :field="(HELP.resumeFrom as unknown as SchemaField)" />
+          </span>
+          <el-select
+            v-if="!fromScratch"
+            v-model="resumeFrom"
+            size="small"
+            placeholder="latest"
+            class="continue-resume__select"
+            :loading="checkpointsLoading"
+          >
+            <el-option
+              v-for="cp in checkpoints"
+              :key="cp.name"
+              :value="cp.name"
+              :label="checkpointLabel(cp)"
+            >
+              <span>{{ checkpointLabel(cp) }}</span>
+              <el-tag v-if="cp.suspect" size="small" type="warning" class="cp-tag">may be corrupt</el-tag>
+            </el-option>
+          </el-select>
+          <el-checkbox v-model="fromScratch" size="small">Start from scratch</el-checkbox>
+          <el-text
+            v-if="!fromScratch && !checkpoints.length && !checkpointsLoading"
+            type="info"
+            size="small"
+          >
+            No checkpoints — starts from step 0.
+          </el-text>
+          <el-text v-if="suspectSelected" type="warning" size="small">
+            ⚠ saved after the last known-good checkpoint — may be truncated.
+          </el-text>
+        </div>
 
         <el-tabs v-model="activeTab" class="run-form-tabs">
           <el-tab-pane label="Setup" name="setup">
@@ -127,7 +163,7 @@
                 </el-form>
               </el-card>
 
-              <el-card v-if="showResume" shadow="never" class="run-section-card">
+              <el-card v-if="showResume && !isContinue" shadow="never" class="run-section-card">
                 <template #header><span class="run-section-title">Resume</span></template>
                 <el-form label-position="top">
                   <el-text type="info" size="small" class="resume-hint">
@@ -767,6 +803,28 @@ async function exportBundle(): Promise<void> {
 .continue-text {
   font-size: 13px;
   line-height: 1.5;
+}
+.continue-resume {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: var(--el-border-radius-base);
+  background: var(--el-fill-color-light);
+}
+.continue-resume__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--el-text-color-regular);
+}
+.continue-resume__select {
+  width: 260px;
+  max-width: 100%;
 }
 .validation-alert :deep(.el-alert__content) {
   width: 100%;
