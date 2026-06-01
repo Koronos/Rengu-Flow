@@ -48,8 +48,9 @@ wandb/
 runs/
 tensorboard/
 
-# IDE / OS (Cursor: agents, rules, skills, debug logs — local only; not for collaborators)
+# IDE / OS (Cursor/Claude: agent worktrees, launch config, debug logs — local only; not for collaborators)
 .cursor/
+.claude/
 .idea/
 .vscode/
 *.swp
