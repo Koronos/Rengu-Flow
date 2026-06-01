@@ -51,7 +51,7 @@ def _normalize_argv(argv: list[str]) -> list[str]:
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="rengu", description="Rengu command-line interface")
+    parser = argparse.ArgumentParser(prog="rengu", description="Rengu Flow command-line interface")
     sub = parser.add_subparsers(dest="command", required=False)
 
     init_cmd.add_parser(sub)

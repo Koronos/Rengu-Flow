@@ -216,7 +216,7 @@ def build_training_export_zip(
     main_name = f"{stem}.toml"
     main_toml = toml.dumps(export_config)
     readme = (
-        "Rengu training export\n"
+        "Rengu Flow training export\n"
         "========================\n\n"
         f"1. Extract this ZIP to a folder.\n"
         f"2. Run: python -m rengu_flow.main --config {main_name}\n\n"

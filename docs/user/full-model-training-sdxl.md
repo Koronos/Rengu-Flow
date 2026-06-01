@@ -1,6 +1,6 @@
 # Full-model finetuning (SDXL)
 
-This guide explains how to finetune the **full SDXL model** (no LoRA/LoKr) using Rengu. For adapter training, see [Training SDXL LoRA and LoKr](training-sdxl-lora-lokr.md).
+This guide explains how to finetune the **full SDXL model** (no LoRA/LoKr) using Rengu Flow. For adapter training, see [Training SDXL LoRA and LoKr](training-sdxl-lora-lokr.md).
 
 ## When to use full-model vs adapters
 

@@ -7,7 +7,7 @@
 
 ## 1. Motivation
 
-Today Rengu separates two concepts with two user steps:
+Today Rengu Flow separates two concepts with two user steps:
 
 1. **Config** — a TOML stored in the `training_configs` library table; created/edited in
    the config editor.

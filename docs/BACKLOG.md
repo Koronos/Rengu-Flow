@@ -1,6 +1,6 @@
 # Implementation backlog
 
-Canonical list of **not-yet-implemented** or **deferred** work for Rengu. Developer specs may still use **`[TODO]`** inline; this file is the durable backlog.
+Canonical list of **not-yet-implemented** or **deferred** work for Rengu Flow. Developer specs may still use **`[TODO]`** inline; this file is the durable backlog.
 
 **Design context:** [developer/architecture.md](developer/architecture.md). **Specifications:** [spec/](spec/). **Last updated:** 2026-05-31 (P3-2 shipped: UI exposes `block_swap_prefetch` + full-model block swap).
 

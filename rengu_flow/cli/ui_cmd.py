@@ -236,7 +236,7 @@ def run(args: argparse.Namespace) -> None:
                     _browser_open(url)
 
             threading.Thread(target=_open_when_ready, daemon=True).start()
-        print(f"==> Rengu UI: {url}")
+        print(f"==> Rengu Flow UI: {url}")
         _serve(host, port, reload=False)
         return
 

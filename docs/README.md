@@ -1,4 +1,4 @@
-# Rengu documentation
+# Rengu Flow documentation
 
 - **[User guide](user/)** — For anyone using the framework (training, controlling runs, signal files).
   - [Training SDXL LoRA and LoKr](user/training-sdxl-lora-lokr.md) — Config, saving, and running adapter training.

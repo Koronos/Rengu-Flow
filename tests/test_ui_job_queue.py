@@ -75,6 +75,23 @@ def test_delete_pending_job(job_content: str, monkeypatch: pytest.MonkeyPatch) -
         db.get_job(job.id)
 
 
+def test_enqueue_does_not_autostart(job_content: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Adding to the queue only enqueues (pending) — it must never launch a runner."""
+    calls: list[int] = []
+    monkeypatch.setattr("rengu_flow_ui.job_queue.try_start_next", lambda: calls.append(1))
+    job = job_queue.enqueue_job(
+        content=job_content,
+        num_gpus=1,
+        resume_from=None,
+        output_dir=None,
+        extra_args="",
+        reset_dataloader=False,
+        reset_optimizer=False,
+    )
+    assert job.state == "pending"
+    assert calls == []
+
+
 def test_try_start_next_after_finish(job_content: str, monkeypatch: pytest.MonkeyPatch) -> None:
     started: list[str] = []
 
@@ -95,8 +112,14 @@ def test_try_start_next_after_finish(job_content: str, monkeypatch: pytest.Monke
         reset_dataloader=False,
         reset_optimizer=False,
     )
-    assert j1.state == "running"
-    assert len(started) == 1
+    # Enqueue no longer auto-starts; the run waits as pending until explicitly started.
+    assert j1.state == "pending"
+    assert started == []
+
+    # Explicitly begin processing the queue (the "Start" button), which starts the first pending.
+    first = job_queue.try_start_next()
+    assert first is not None and first.id == j1.id and first.state == "running"
+    assert started == [j1.id]
 
     j2 = job_queue.enqueue_job(
         content=job_content,
@@ -109,6 +132,7 @@ def test_try_start_next_after_finish(job_content: str, monkeypatch: pytest.Monke
     )
     assert j2.state == "pending"
 
+    # Once running, the queue drains: finishing j1 starts the next pending.
     db.update_job(j1.id, state="finished", pid=None)
     nxt = job_queue.try_start_next()
     assert nxt is not None

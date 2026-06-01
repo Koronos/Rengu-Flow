@@ -17,9 +17,19 @@
           </el-tag>
           <slot name="header-extra" />
           <el-button size="small" @click="$emit('open-detail', run)">Open detail</el-button>
-          <el-button size="small" type="danger" plain @click="$emit('stop', run.job_id)">
-            Stop
+          <el-button
+            size="small"
+            type="primary"
+            :disabled="diskExportWait"
+            @click="onSignal('save_quit')"
+          >
+            Stop &amp; checkpoint
           </el-button>
+          <el-tooltip content="Force-kill (no checkpoint)" :show-after="300">
+            <el-button size="small" type="danger" plain @click="$emit('stop', run.job_id)">
+              Force stop
+            </el-button>
+          </el-tooltip>
         </el-space>
       </div>
     </template>

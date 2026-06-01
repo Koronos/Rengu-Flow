@@ -1,4 +1,4 @@
-"""Config loading, defaults, and validation for Rengu."""
+"""Config loading, defaults, and validation for Rengu Flow."""
 
 from rengu_flow.config.loader import load_config, load_dataset_config, load_eval_dataset_config
 from rengu_flow.config.defaults import set_config_defaults

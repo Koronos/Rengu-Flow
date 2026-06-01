@@ -1,4 +1,4 @@
-"""Model contract and base for Rengu pipelines."""
+"""Model contract and base for Rengu Flow pipelines."""
 
 from rengu_flow.model.base import BasePipeline, ModelPipelineProtocol, make_contiguous
 

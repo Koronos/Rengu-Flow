@@ -224,8 +224,9 @@ def enqueue_continue_run(
 
 
 def enqueue_job(**kwargs: Any) -> db.JobRecord:
+    # Add to the pending queue only — do NOT start. Processing begins when the user explicitly
+    # starts the queue; once running, it drains automatically (try_start_next on each finish).
     job = prepare_job(**kwargs)
-    try_start_next()
     return db.get_job(job.id)
 
 
@@ -322,7 +323,11 @@ def save_draft(
 
 
 def enqueue_existing(job_id: str | int) -> db.JobRecord:
-    """Promote a saved ``new`` draft into the pending queue and start it if idle."""
+    """Promote a saved ``new`` draft into the pending queue (does not start it).
+
+    Like :func:`enqueue_job`, this only adds to the queue; the run starts when the user
+    explicitly starts the queue (then it drains via ``try_start_next`` on each finish).
+    """
     job = db.get_job(job_id)
     if job.state != "new":
         raise ValueError("Only saved (new) runs can be enqueued")
@@ -340,7 +345,6 @@ def enqueue_existing(job_id: str | int) -> db.JobRecord:
         output_dir=out_dir,
         queue_position=next_queue_position(),
     )
-    try_start_next()
     return db.get_job(job_id)
 
 

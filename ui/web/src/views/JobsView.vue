@@ -31,7 +31,7 @@
       :stream-status="liveStreamStatus"
       :stream-error="liveStreamError"
       @open-detail="openRun"
-      @stop="stop"
+      @stop="forceStop"
       @signal="sendRunSignal"
     >
       <template v-if="hasLiveRun" #header-extra>
@@ -61,32 +61,22 @@
       </el-tooltip>
     </div>
 
-    <!-- Saved drafts -->
-    <el-card v-if="savedRuns.length" shadow="never" class="page-section">
-      <template #header><span>Saved</span></template>
-      <div class="run-rows">
-        <div v-for="row in savedRuns" :key="row.key" class="run-row">
-          <div class="run-row__main">
-            <el-tag :type="stateTag(row.state)" size="small">new</el-tag>
-            <span class="run-row__name">{{ row.label || row.run_name || "—" }}</span>
-          </div>
-          <el-space class="run-row__actions">
-            <el-button size="small" type="primary" :icon="Plus" @click="addToQueue(row.job_id)">
-              Add to queue
-            </el-button>
-            <el-button size="small" :icon="Edit" @click="editRun(row)">Edit</el-button>
-            <el-button size="small" :icon="CopyDocument" @click="newRunFromConfig(row.job_id)">
-              New from config
-            </el-button>
-            <el-button size="small" :icon="Delete" @click="removeRun(row)">Delete</el-button>
-          </el-space>
-        </div>
-      </div>
-    </el-card>
-
     <!-- Queue: running (pinned) + pending (drag & drop) -->
     <el-card shadow="never" class="page-section">
-      <template #header><span>Queue</span></template>
+      <template #header>
+        <div class="queue-header">
+          <span>Queue</span>
+          <el-button
+            v-if="pendingRuns.length && !runningRuns.length"
+            size="small"
+            type="primary"
+            :icon="VideoPlay"
+            @click="startQueue"
+          >
+            Start queue
+          </el-button>
+        </div>
+      </template>
       <el-empty
         v-if="!runningRuns.length && !pendingRuns.length"
         description="Nothing running or queued."
@@ -103,7 +93,19 @@
           </div>
           <el-space class="run-row__actions">
             <el-button size="small" :icon="View" @click="openRun(row)">Open</el-button>
-            <el-button size="small" :icon="VideoPause" @click="stop(row.job_id)">Stop</el-button>
+            <el-button
+              size="small"
+              type="primary"
+              :icon="VideoPause"
+              @click="stopGraceful(row.job_id)"
+            >
+              Stop &amp; checkpoint
+            </el-button>
+            <el-tooltip content="Force-kill (no checkpoint)" :show-after="300">
+              <el-button size="small" :icon="CircleClose" @click="forceStop(row.job_id)">
+                Force stop
+              </el-button>
+            </el-tooltip>
           </el-space>
         </div>
 
@@ -154,6 +156,7 @@
             class="history-filter"
           >
             <el-option label="All" value="" />
+            <el-option label="Saved" value="new" />
             <el-option label="Finished" value="finished" />
             <el-option label="Stopped" value="stopped" />
             <el-option label="Error" value="failed" />
@@ -227,16 +230,26 @@
               <el-button size="small" circle :icon="MoreFilled" @click.stop />
               <template #dropdown>
                 <el-dropdown-menu>
-                  <el-dropdown-item :icon="View" @click="openRun(row as TrainingRunRow)">
-                    Open
-                  </el-dropdown-item>
-                  <el-dropdown-item
-                    v-if="row.run_dir"
-                    :icon="VideoPlay"
-                    @click="continueRun(row as TrainingRunRow)"
-                  >
-                    Continue training
-                  </el-dropdown-item>
+                  <template v-if="isDraft(row as TrainingRunRow)">
+                    <el-dropdown-item :icon="Edit" @click="editRun(row as TrainingRunRow)">
+                      Edit
+                    </el-dropdown-item>
+                    <el-dropdown-item :icon="Plus" @click="addToQueue(row.job_id)">
+                      Add to queue
+                    </el-dropdown-item>
+                  </template>
+                  <template v-else>
+                    <el-dropdown-item :icon="View" @click="openRun(row as TrainingRunRow)">
+                      Open
+                    </el-dropdown-item>
+                    <el-dropdown-item
+                      v-if="canContinue(row as TrainingRunRow)"
+                      :icon="VideoPlay"
+                      @click="continueRun(row as TrainingRunRow)"
+                    >
+                      {{ row.run_dir ? "Continue training" : "Retry run" }}
+                    </el-dropdown-item>
+                  </template>
                   <el-dropdown-item
                     v-if="row.job_id"
                     :icon="CopyDocument"
@@ -245,28 +258,53 @@
                     New run from this config
                   </el-dropdown-item>
                   <el-dropdown-item :icon="Delete" @click="removeRun(row as TrainingRunRow)">
-                    Delete from list
+                    {{ isDraft(row as TrainingRunRow) ? "Delete" : "Delete from list" }}
                   </el-dropdown-item>
                 </el-dropdown-menu>
               </template>
             </el-dropdown>
             <el-space v-else class="row-actions" @click.stop>
-              <el-tooltip content="Open" :show-after="300">
-                <el-button
-                  size="small"
-                  circle
-                  :icon="View"
-                  @click.stop="openRun(row as TrainingRunRow)"
-                />
-              </el-tooltip>
-              <el-tooltip v-if="row.run_dir" content="Continue training" :show-after="300">
-                <el-button
-                  size="small"
-                  circle
-                  :icon="VideoPlay"
-                  @click.stop="continueRun(row as TrainingRunRow)"
-                />
-              </el-tooltip>
+              <template v-if="isDraft(row as TrainingRunRow)">
+                <el-tooltip content="Edit" :show-after="300">
+                  <el-button
+                    size="small"
+                    circle
+                    :icon="Edit"
+                    @click.stop="editRun(row as TrainingRunRow)"
+                  />
+                </el-tooltip>
+                <el-tooltip content="Add to queue" :show-after="300">
+                  <el-button
+                    size="small"
+                    circle
+                    type="primary"
+                    :icon="Plus"
+                    @click.stop="addToQueue(row.job_id)"
+                  />
+                </el-tooltip>
+              </template>
+              <template v-else>
+                <el-tooltip content="Open" :show-after="300">
+                  <el-button
+                    size="small"
+                    circle
+                    :icon="View"
+                    @click.stop="openRun(row as TrainingRunRow)"
+                  />
+                </el-tooltip>
+                <el-tooltip
+                  v-if="canContinue(row as TrainingRunRow)"
+                  :content="row.run_dir ? 'Continue training' : 'Retry run'"
+                  :show-after="300"
+                >
+                  <el-button
+                    size="small"
+                    circle
+                    :icon="VideoPlay"
+                    @click.stop="continueRun(row as TrainingRunRow)"
+                  />
+                </el-tooltip>
+              </template>
               <el-tooltip v-if="row.job_id" content="New run from this config" :show-after="300">
                 <el-button
                   size="small"
@@ -275,7 +313,10 @@
                   @click.stop="newRunFromConfig(row.job_id)"
                 />
               </el-tooltip>
-              <el-tooltip content="Delete from list" :show-after="300">
+              <el-tooltip
+                :content="isDraft(row as TrainingRunRow) ? 'Delete' : 'Delete from list'"
+                :show-after="300"
+              >
                 <el-button
                   size="small"
                   circle
@@ -289,7 +330,7 @@
       </el-table>
       <el-empty
         v-if="!listLoading && !historyRuns.length"
-        description="No finished runs yet."
+        description="No saved or finished runs yet."
         :image-size="56"
       />
     </el-card>
@@ -391,6 +432,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { useRouter } from "vue-router";
 import { ElLoadingDirective, ElMessage, ElMessageBox } from "element-plus";
 import {
+  CircleClose,
   CopyDocument,
   Delete,
   Edit,
@@ -444,7 +486,10 @@ let importPreviewTimer: ReturnType<typeof setTimeout> | null = null;
 const pendingListEl = ref<HTMLElement | null>(null);
 let sortable: Sortable | null = null;
 
-const savedRuns = computed(() => runs.value.filter((r) => r.state === "new"));
+/** Saved-for-later drafts: never queued or run, listed in History alongside terminal runs. */
+function isDraft(row: TrainingRunRow | undefined): boolean {
+  return row?.state === "new";
+}
 const runningRuns = computed(() =>
   runs.value.filter((r) => r.state === "running" || r.state === "stopping")
 );
@@ -454,7 +499,7 @@ const historyQuery = ref("");
 const historyRuns = computed(() => {
   const q = historyQuery.value.trim().toLowerCase();
   return runs.value.filter((r) => {
-    if (!["finished", "stopped", "failed"].includes(String(r.state))) return false;
+    if (!["new", "finished", "stopped", "failed"].includes(String(r.state))) return false;
     if (historyState.value && String(r.state) !== historyState.value) return false;
     if (q) {
       const haystack = `${r.run_name ?? ""} ${r.label ?? ""} ${r.run_dir ?? ""}`.toLowerCase();
@@ -493,6 +538,7 @@ function stateTag(state: string | undefined): "primary" | "success" | "warning" 
 }
 
 function stateLabel(state: string | undefined): string {
+  if (state === "new") return "Saved";
   if (state === "finished") return "Finished";
   if (state === "stopped") return "Stopped";
   if (state === "failed") return "Error";
@@ -745,6 +791,11 @@ function goJob(id: string) {
 
 function openRun(row: TrainingRunRow) {
   if (!row) return;
+  if (isDraft(row)) {
+    // A saved draft has never run — open it in the editor instead of a run-detail page.
+    editRun(row);
+    return;
+  }
   if (row.kind === "job" && row.job_id != null) {
     goJob(String(row.job_id));
     return;
@@ -752,11 +803,50 @@ function openRun(row: TrainingRunRow) {
   if (row.run_name) router.push({ name: "run-detail", params: { name: row.run_name } });
 }
 
-async function stop(id: string | null | undefined) {
+/** Graceful stop: write the save_quit signal so the run checkpoints, then exits at the next step. */
+async function stopGraceful(id: string | null | undefined) {
   if (!id) return;
-  await api.stopJob(String(id));
-  ElMessage.info("Stop requested");
-  await refreshFull();
+  try {
+    await api.sendJobSignal(String(id), "save_quit");
+    ElMessage.success("Stop requested — the run will checkpoint, then exit");
+    await refreshFull();
+  } catch (e) {
+    ElMessage.error(formatError(e));
+  }
+}
+
+/** Hard stop: kill the process now. No checkpoint — only for a stuck run. */
+async function forceStop(id: string | null | undefined) {
+  if (!id) return;
+  try {
+    await ElMessageBox.confirm(
+      "Force-kill the training process now. No checkpoint is written and the current step is lost. Use this only if the run is stuck.",
+      "Force stop",
+      { type: "warning", confirmButtonText: "Force stop", cancelButtonText: "Cancel" }
+    );
+  } catch {
+    return;
+  }
+  try {
+    await api.stopJob(String(id));
+    ElMessage.info("Force stop requested");
+    await refreshFull();
+  } catch (e) {
+    ElMessage.error(formatError(e));
+  }
+}
+
+/** Explicitly begin processing the queue: start the first pending run (then it drains). */
+async function startQueue() {
+  const first = pendingRuns.value[0];
+  if (!first?.job_id) return;
+  try {
+    await api.startJobNow(String(first.job_id));
+    ElMessage.success("Queue started");
+    await refreshFull();
+  } catch (e) {
+    ElMessage.error(formatError(e));
+  }
 }
 
 async function sendRunSignal(row: { job_id?: string | null }, type: string) {
@@ -831,14 +921,24 @@ function editRun(row: TrainingRunRow) {
   router.push({ name: "run-edit", params: { id: String(row.job_id) } });
 }
 
+/** True when a run can be resumed (has a folder/checkpoint) or retried (failed, has a config). */
+function canContinue(row: TrainingRunRow | undefined): boolean {
+  return !!row?.run_dir || (!!row?.job_id && row?.state === "failed");
+}
+
 function continueRun(row: TrainingRunRow) {
-  if (row?.job_id) {
-    router.push({ name: "run-continue", params: { id: String(row.job_id) } });
+  // Resume an existing run folder when there is a checkpoint to continue from.
+  if (row?.run_dir) {
+    if (row.job_id) {
+      router.push({ name: "run-continue", params: { id: String(row.job_id) } });
+    } else {
+      // Filesystem-only run with no job id: fall back to the path query.
+      router.push({ name: "run-new", query: { continue_run: row.run_dir } });
+    }
     return;
   }
-  // Filesystem-only run with no job id: fall back to the path query.
-  if (!row?.run_dir) return;
-  router.push({ name: "run-new", query: { continue_run: row.run_dir } });
+  // No folder/checkpoint (e.g. a run that failed at setup) → retry from the same config.
+  if (row?.job_id) void newRunFromConfig(row.job_id);
 }
 </script>
 
@@ -930,6 +1030,12 @@ function continueRun(row: TrainingRunRow) {
 }
 .runs-table {
   width: 100%;
+}
+.queue-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 .history-header {
   display: flex;

@@ -86,7 +86,7 @@ def iter_dataset_path_strings(config: dict[str, Any]) -> list[tuple[str, str]]:
 
 
 def collect_script_dataset_library_ref_issues(config: dict[str, Any]) -> list[str]:
-    """Errors when training config uses UI library refs outside the Rengu UI."""
+    """Errors when training config uses UI library refs outside the Rengu Flow UI."""
     issues: list[str] = []
     seen: set[tuple[str, str]] = set()
 
@@ -100,7 +100,7 @@ def collect_script_dataset_library_ref_issues(config: dict[str, Any]) -> list[st
             issues.append(
                 f"{field_label} entry {entry!r} looks like a UI dataset library reference "
                 "but has an invalid id. Use a path to an exported dataset .toml file, "
-                "or run training from the Rengu UI."
+                "or run training from the Rengu Flow UI."
             )
             continue
 
@@ -110,7 +110,7 @@ def collect_script_dataset_library_ref_issues(config: dict[str, Any]) -> list[st
         seen.add(dedupe_key)
 
         export_hint = (
-            f"Export dataset #{did} from the Rengu UI (Datasets → open dataset → Export) "
+            f"Export dataset #{did} from the Rengu Flow UI (Datasets → open dataset → Export) "
             "and set that .toml path in your config."
         )
         issues.append(

@@ -1,6 +1,6 @@
 # Web UI (user guide)
 
-Rengu includes an **optional** local web interface to manage training configs, start and stop jobs, send [signal files](signal-files.md), and inspect progress. It runs on the same machine as training and does not change the training process unless you enable `monitoring.enable_status_file` in config (see below).
+Rengu Flow includes an **optional** local web interface to manage training configs, start and stop jobs, send [signal files](signal-files.md), and inspect progress. It runs on the same machine as training and does not change the training process unless you enable `monitoring.enable_status_file` in config (see below).
 
 ## Quick start
 
@@ -33,7 +33,7 @@ Run from Linux or WSL. See [CLI guide](cli.md) for all commands.
 
 Core training dependencies (PyTorch, **torchvision**, DeepSpeed) are always installed by the base sync, so **SDXL trains with only the `[ui]` extra** — no model-specific extra required.
 
-When you **start training** from the UI or run `rengu train` / `rengu validate` / `rengu cache`, Rengu reads your training TOML and runs `uv sync` for any *additional* model-specific extras it needs (for example the **Cosmos Predict2** text stack when `[model] type = "cosmos_predict2"`, **LyCORIS** for LoKr, or the **optim** extra for extended optimizers). You do not need maintenance mode or a separate install step.
+When you **start training** from the UI or run `rengu train` / `rengu validate` / `rengu cache`, Rengu Flow reads your training TOML and runs `uv sync` for any *additional* model-specific extras it needs (for example the **Cosmos Predict2** text stack when `[model] type = "cosmos_predict2"`, **LyCORIS** for LoKr, or the **optim** extra for extended optimizers). You do not need maintenance mode or a separate install step.
 
 ### Settings (`rengu.local.toml`)
 

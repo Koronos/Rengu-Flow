@@ -1,4 +1,4 @@
-# Rengu CLI (`rengu`)
+# Rengu Flow CLI (`rengu`)
 
 Linux-only command-line interface for setup, training, and the web UI. Run from the repository root as `./rengu` (requires [uv](https://docs.astral.sh/uv/) on `PATH`; uv creates `.venv` and installs Python — no separate system `python3` needed).
 
@@ -107,7 +107,7 @@ Passed via `rengu train --config X -- FLAG …` or `extra_args` in local TOML:
 
 Legacy one-shot: `rengu --config foo.toml --cache_only` (same as `rengu cache --config foo.toml`).
 
-Before training, validate, or cache, Rengu inspects the training TOML and runs `uv sync` for any missing optional extras (e.g. **cosmos** when `[model] type = "cosmos_predict2"`).
+Before training, validate, or cache, Rengu Flow inspects the training TOML and runs `uv sync` for any missing optional extras (e.g. **cosmos** when `[model] type = "cosmos_predict2"`).
 
 ## Training environment (`[training.env]`)
 
@@ -125,7 +125,7 @@ RENGU_TUNING_TF32_APPLY = "1"
 
 > **WSL2 note.** Do **not** set `PYTORCH_CUDA_ALLOC_CONF = "expandable_segments:True"` on WSL: its
 > `cuMemMap` path is unsupported under WSL2/WDDM and crashes cuDNN convolutions (SDXL's UNet) with
-> `CUDA driver error: device not ready`. Rengu detects WSL and forces `expandable_segments:False`
+> `CUDA driver error: device not ready`. Rengu Flow detects WSL and forces `expandable_segments:False`
 > automatically (plus low-fragmentation defaults), so you can leave this key unset there.
 
 ### `RENGU_TUNING_TF32_APPLY`

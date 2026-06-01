@@ -1,6 +1,6 @@
 # Dataset augmentation (developer)
 
-This document is the **specification** for dataset diversity augmentation in Rengu: **canonical `snake_case` string identifiers** for strategies (same style as preset names), typed parameters, presets, cache/seed modes, and integration hooks.
+This document is the **specification** for dataset diversity augmentation in Rengu Flow: **canonical `snake_case` string identifiers** for strategies (same style as preset names), typed parameters, presets, cache/seed modes, and integration hooks.
 
 **Implementation status (MVP):** Parsing, preset merge, `apply_augmentation`, cache fingerprinting, metadata branch expansion, and UI fields are implemented under `rengu_flow/data/augmentation/`. Tier A–B strategies plus `horizontal_flip` are available; other catalogue names validate but raise `AugmentationStrategyNotImplementedError`. Video + augmentation is rejected at validation.
 

@@ -80,6 +80,15 @@
         </el-text>
       </div>
 
+      <div v-else-if="mode === 'job' && job?.id" class="continue-row">
+        <el-button type="primary" @click="newRunFromThisConfig">
+          New run from this config
+        </el-button>
+        <el-text type="info" size="small">
+          This run has no checkpoint to resume — start a fresh run from the same config (edit, then add to the queue).
+        </el-text>
+      </div>
+
       <p v-if="signalsAvailable" class="signals-intro">
         <el-text type="info" size="small">{{ signalSectionHint }}</el-text>
         <el-button type="primary" link size="small" @click="signalDocOpen = true">
@@ -151,6 +160,7 @@ import DocMarkdownDrawer from "../components/DocMarkdownDrawer.vue";
 import RunSignalActions from "../components/RunSignalActions.vue";
 import { SIGNAL_DOC_PATH, SIGNAL_SECTION_HINT } from "../lib/signalHelp";
 import { fsRunSignalsAvailable, jobSignalsAvailable } from "../lib/trainingSignals";
+import { useConfigEditorStore } from "../stores/configEditor";
 import type { FsRunRecord, JobRecord } from "../types/api";
 
 const props = defineProps({
@@ -161,6 +171,7 @@ const props = defineProps({
 const route = useRoute();
 const router = useRouter();
 const { isMobile } = useBreakpoint();
+const editor = useConfigEditorStore();
 
 const signalSectionHint = SIGNAL_SECTION_HINT;
 const signalDocPath = SIGNAL_DOC_PATH;
@@ -228,6 +239,20 @@ async function cloneToNewRun() {
     const cloned = await api.cloneJob(String(job.value.id));
     ElMessage.success(`Cloned to a new run (job #${cloned.id})`);
     router.push({ name: "job-detail", params: { id: String(cloned.id) } });
+  } catch (e) {
+    ElMessage.error(formatError(e));
+  }
+}
+
+/** Retry path for a run with no checkpoint to resume (e.g. failed at setup): open a fresh,
+ *  editable run pre-filled with this run's config, ready to fix and add to the queue. */
+async function newRunFromThisConfig() {
+  if (!job.value?.id) return;
+  try {
+    const { content } = await api.seedJobConfig(String(job.value.id));
+    await editor.fetchSchema();
+    await editor.loadContent(content);
+    router.push({ name: "run-new" });
   } catch (e) {
     ElMessage.error(formatError(e));
   }

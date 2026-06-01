@@ -1,6 +1,6 @@
 # Training SDXL LoRA and LoKr (user guide)
 
-This guide explains how to train SDXL with **LoRA** or **LoKr** (LyCORIS) adapters using Rengu. No implementation details; task-oriented.
+This guide explains how to train SDXL with **LoRA** or **LoKr** (LyCORIS) adapters using Rengu Flow. No implementation details; task-oriented.
 
 ## What you need
 

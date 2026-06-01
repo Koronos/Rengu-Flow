@@ -1,6 +1,6 @@
 # Dataset augmentation (diversity)
 
-This page describes dataset augmentation in Rengu: small in-distribution variations on training images to reduce overfitting to a single pixel–caption pair.
+This page describes dataset augmentation in Rengu Flow: small in-distribution variations on training images to reduce overfitting to a single pixel–caption pair.
 
 **Status: implemented (MVP)** — Tier A–B strategies, core presets, `deterministic_per_image` seeding, and `horizontal_flip` enumeration. **Video is not supported** with augmentation enabled in this release (use `frame_buckets = [1]` only). Presets `photo_cinematic`, `retro_scan`, and `manga_print` are documented but not available until their extra strategies are implemented.
 
@@ -17,7 +17,7 @@ The [developer catalogue](../developer/dataset-augmentation.md#canonical-strateg
 
 ## Relationship to latent cache
 
-Rengu encodes images to latents once during the **cache** step and trains on cached tensors. **Stochastic** augmentation (a new random transform every training step) is **not** compatible with a fixed latent cache unless latents are recomputed each time or augmentation is moved **after** decoding (not typical).
+Rengu Flow encodes images to latents once during the **cache** step and trains on cached tensors. **Stochastic** augmentation (a new random transform every training step) is **not** compatible with a fixed latent cache unless latents are recomputed each time or augmentation is moved **after** decoding (not typical).
 
 Supported **modes** (see [developer doc](../developer/dataset-augmentation.md#cache-and-seed-modes)):
 

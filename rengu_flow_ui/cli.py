@@ -12,7 +12,7 @@ from rengu_flow_ui.settings import ui_host, ui_port
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description="Rengu web control plane")
+    parser = argparse.ArgumentParser(description="Rengu Flow web control plane")
     sub = parser.add_subparsers(dest="command", required=True)
     serve_p = sub.add_parser("serve", help="Run FastAPI server")
     serve_p.add_argument("--host", default=None)

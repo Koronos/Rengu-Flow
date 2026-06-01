@@ -1,6 +1,6 @@
 # Dataset and cache (contract and code locations)
 
-Technical contract for dataset config, data loading, and cache in Rengu. Phase 2 implements directory-based datasets, latent and text-embedding cache, and integration with the training loop.
+Technical contract for dataset config, data loading, and cache in Rengu Flow. Phase 2 implements directory-based datasets, latent and text-embedding cache, and integration with the training loop.
 
 **Implementation tracking:** Directory datasets, `DatasetManager.cache()`, latent and text-embedding cache, SDXL and Cosmos Predict2 model hooks, `--dump_dataset`, the CC0 smoke fixture, and **dataset augmentation (MVP)** are implemented. CPU/RAM tuning options and smoke A/B: [performance-cpu-ram](performance-cpu-ram.md).
 

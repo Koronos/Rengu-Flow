@@ -1,4 +1,4 @@
-"""Entry point for Rengu. Load config, validate; run training loop when not dry-run."""
+"""Entry point for Rengu Flow. Load config, validate; run training loop when not dry-run."""
 
 import argparse
 import functools
@@ -21,7 +21,7 @@ from rengu_flow.control.status_file import write_status_file
 
 
 def parse_args(argv: list[str] | None = None):
-    parser = argparse.ArgumentParser(description="Rengu: TOML-driven training (Phase 1).")
+    parser = argparse.ArgumentParser(description="Rengu Flow: TOML-driven training (Phase 1).")
     parser.add_argument(
         "--config",
         required=False,

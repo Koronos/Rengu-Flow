@@ -41,8 +41,15 @@ def test_enqueue_two_pending_sorted(ui_data_tmp, monkeypatch: pytest.MonkeyPatch
         reset_dataloader=False,
         reset_optimizer=False,
     )
-    assert j1.state == "running"
+    # Enqueue does not start anything; both wait as pending in queue order.
+    assert j1.state == "pending"
     assert j2.state == "pending"
+    pending = [j for j in job_queue.list_jobs_sorted() if j.state == "pending"]
+    assert [p.id for p in pending] == [j1.id, j2.id]
+
+    # Explicitly start the queue: the first pending runs, the second stays pending.
+    started = job_queue.try_start_next()
+    assert started is not None and started.id == j1.id and started.state == "running"
     pending = [j for j in job_queue.list_jobs_sorted() if j.state == "pending"]
     assert len(pending) == 1
     assert pending[0].id == j2.id

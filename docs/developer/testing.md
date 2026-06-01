@@ -1,6 +1,6 @@
 # Testing
 
-How to run and extend the test suite for Rengu.
+How to run and extend the test suite for Rengu Flow.
 
 ## Running tests
 

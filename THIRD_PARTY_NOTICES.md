@@ -1,6 +1,6 @@
 # Third-party notices
 
-Rengu combines original code with material adapted from other projects. **This file is not legal advice.** If you redistribute or modify the project, keep these notices and comply with each component’s license.
+Rengu Flow combines original code with material adapted from other projects. **This file is not legal advice.** If you redistribute or modify the project, keep these notices and comply with each component’s license.
 
 ## diffusion-pipe
 

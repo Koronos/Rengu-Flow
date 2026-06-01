@@ -1,6 +1,6 @@
 # Architecture and design goals
 
-Rengu is a **TOML-driven**, **registry-based** training framework. It reimplements and extends ideas from [diffusion-pipe](https://github.com/tdrussell/diffusion-pipe) in this repository (no runtime dependency on a diffusion-pipe install).
+Rengu Flow is a **TOML-driven**, **registry-based** training framework. It reimplements and extends ideas from [diffusion-pipe](https://github.com/tdrussell/diffusion-pipe) in this repository (no runtime dependency on a diffusion-pipe install).
 
 **Implementation status:** [BACKLOG.md](../BACKLOG.md). **Upstream mapping:** [dependencies-and-upstream.md](dependencies-and-upstream.md).
 

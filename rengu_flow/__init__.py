@@ -1,4 +1,4 @@
-"""Rengu: modular training framework with TOML config and registry-based components."""
+"""Rengu Flow: modular training framework with TOML config and registry-based components."""
 
 # Neutralize WSL-toxic CUDA allocator settings at the earliest possible point — before any
 # submodule (and therefore torch) is imported, since the caching allocator parses

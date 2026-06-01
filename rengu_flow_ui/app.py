@@ -1,4 +1,4 @@
-"""FastAPI application for Rengu UI control plane."""
+"""FastAPI application for Rengu Flow UI control plane."""
 
 from __future__ import annotations
 
@@ -200,7 +200,7 @@ def create_app() -> FastAPI:
         yield
         tensorboard_server.stop_tensorboard()
 
-    app = FastAPI(title="Rengu UI", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="Rengu Flow UI", version="0.1.0", lifespan=lifespan)
 
     app.add_middleware(
         CORSMiddleware,

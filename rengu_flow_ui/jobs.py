@@ -163,12 +163,19 @@ def _now() -> str:
 
 
 def refresh_all_jobs() -> None:
+    # Poll active runs; note whether any just exited so we can advance the queue. We must NOT
+    # start an idle queue from a bare refresh — the first run is started explicitly by the user
+    # (Start / Run now). The queue only auto-drains as a consequence of a run finishing.
+    finished_any = False
     for job in db.list_jobs():
         if job.state in ("running", "stopping"):
-            poll_job(job.id)
-    from rengu_flow_ui.job_queue import try_start_next
+            updated = poll_job(job.id)
+            if updated.state not in ("running", "stopping"):
+                finished_any = True
+    if finished_any:
+        from rengu_flow_ui.job_queue import try_start_next
 
-    try_start_next()
+        try_start_next()
 
 
 def tail_log(job_id: str, offset: int = 0) -> tuple[str, int]:
