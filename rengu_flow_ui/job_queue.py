@@ -22,6 +22,26 @@ def _resolve_run_content(content: str | None, source_run_dir: str | None) -> str
     raise ValueError("Provide content or source_run_dir")
 
 
+def _sync_config_to_run_folder(run_dir: str | None, staged_config: str | Path | None) -> None:
+    """Persist the materialized config into a run's output folder when one exists.
+
+    Keeps the on-disk run config in step with UI edits, so once a run has a folder that folder is
+    the single source of truth (and is ready for a future in-flight reload). This writes the same
+    resolved TOML the trainer copies on save, overwriting the folder's existing main config (or
+    ``train.toml`` if none is present). No-op when there is no folder yet (drafts / fresh runs).
+    """
+    if not run_dir or not staged_config:
+        return
+    folder = Path(run_dir)
+    staged = Path(staged_config)
+    if not folder.is_dir() or not staged.is_file():
+        return
+    from rengu_flow_ui import runs_scanner
+
+    target = runs_scanner.pick_main_config_path(folder) or (folder / "train.toml")
+    target.write_text(staged.read_text(encoding="utf-8"), encoding="utf-8")
+
+
 def _job_sort_key(job: db.JobRecord) -> tuple:
     state_order = {
         "running": 0,
@@ -219,8 +239,12 @@ def enqueue_continue_run(
         source_run_dir=str(run_dir),
     )
     if start_immediately or not enqueue:
-        return start_job_immediately(**kwargs)
-    return enqueue_job(**kwargs)
+        job = start_job_immediately(**kwargs)
+    else:
+        job = enqueue_job(**kwargs)
+    # The edited TOML becomes the run folder's config immediately (not only on the next save).
+    _sync_config_to_run_folder(str(run_dir), job.config_path)
+    return job
 
 
 def enqueue_job(**kwargs: Any) -> db.JobRecord:
@@ -394,6 +418,8 @@ def update_pending_job(
             cfg = toml.loads(staging.read_text(encoding="utf-8"))
             if output_dir is None and "output_dir" in cfg:
                 fields.setdefault("output_dir", cfg.get("output_dir", "output"))
+            # If this run already owns an output folder, keep its on-disk TOML in sync.
+            _sync_config_to_run_folder(job.run_dir or job.source_run_dir, staging)
 
     # Recompute extra_args when the caller changed it, the reset toggles, or cache flags.
     if extra_args is not None or reset_dataloader is not None or reset_optimizer is not None or cache_changed:

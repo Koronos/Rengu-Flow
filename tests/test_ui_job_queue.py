@@ -75,6 +75,35 @@ def test_delete_pending_job(job_content: str, monkeypatch: pytest.MonkeyPatch) -
         db.get_job(job.id)
 
 
+def test_edit_pending_writes_config_to_run_folder(
+    job_content: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Editing a run that owns an output folder updates that folder's on-disk TOML."""
+    monkeypatch.setattr("rengu_flow_ui.job_queue.try_start_next", lambda: None)
+    folder = tmp_path / "run1"
+    folder.mkdir()
+    (folder / "train.toml").write_text("run_name = 'stale'\n", encoding="utf-8")
+
+    job = job_queue.prepare_job(
+        content=job_content,
+        num_gpus=1,
+        resume_from=None,
+        output_dir=None,
+        extra_args="",
+        reset_dataloader=False,
+        reset_optimizer=False,
+        source_run_dir=str(folder),
+    )
+    assert job.run_dir  # the run owns the folder
+
+    job_queue.update_pending_job(job.id, content=job_content)
+
+    written = (folder / "train.toml").read_text(encoding="utf-8")
+    staged = Path(db.get_job(job.id).config_path).read_text(encoding="utf-8")
+    assert written == staged  # folder TOML now mirrors the materialized config
+    assert "stale" not in written  # the old folder config was replaced
+
+
 def test_enqueue_does_not_autostart(job_content: str, monkeypatch: pytest.MonkeyPatch) -> None:
     """Adding to the queue only enqueues (pending) — it must never launch a runner."""
     calls: list[int] = []
