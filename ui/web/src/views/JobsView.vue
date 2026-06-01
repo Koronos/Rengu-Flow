@@ -190,7 +190,6 @@
                 New from config
               </el-button>
               <el-button
-                v-if="row.kind !== 'disk'"
                 size="small"
                 :icon="Delete"
                 @click.stop="removeRun(row as TrainingRunRow)"
@@ -361,7 +360,7 @@ const runningRuns = computed(() =>
 const pendingRuns = computed(() => runs.value.filter((r) => r.state === "pending"));
 const historyRuns = computed(() =>
   runs.value.filter((r) =>
-    ["finished", "stopped", "failed", "on_disk"].includes(String(r.state))
+    ["finished", "stopped", "failed"].includes(String(r.state))
   )
 );
 
@@ -370,7 +369,6 @@ function stateTag(state: string | undefined): "primary" | "success" | "warning" 
   if (state === "pending") return "warning";
   if (state === "new") return "info";
   if (state === "finished") return "info";
-  if (state === "on_disk") return "primary";
   if (state === "stopped") return "warning";
   if (state === "failed") return "danger";
   return "info";
@@ -380,7 +378,6 @@ function stateLabel(state: string | undefined): string {
   if (state === "finished") return "Finished";
   if (state === "stopped") return "Stopped";
   if (state === "failed") return "Error";
-  if (state === "on_disk") return "On disk";
   return String(state ?? "—");
 }
 
@@ -459,7 +456,6 @@ async function loadRuns(): Promise<void> {
       page: 1,
       page_size: 100,
       q: listQuery.value.trim(),
-      include_disk: true,
     });
     runs.value = data.items || [];
     stats.value = data.stats || { running: 0, pending: 0 };

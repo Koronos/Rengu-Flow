@@ -145,34 +145,6 @@ def _job_to_training_run(job: db.JobRecord) -> dict[str, Any]:
     }
 
 
-def _disk_to_training_run(desc: dict[str, Any]) -> dict[str, Any]:
-    run_dir = Path(desc["path"])
-    progress = compute_run_progress(run_dir)
-    run_name = desc.get("name") or run_dir.name
-    label = (progress or {}).get("run_name_label") or run_name
-    return {
-        "key": f"disk:{run_name}",
-        "kind": "disk",
-        "job_id": None,
-        "state": "on_disk",
-        "run_dir": str(run_dir),
-        "run_name": run_name,
-        "label": label,
-        "output_dir": str(run_dir.parent),
-        "num_gpus": None,
-        "resume_from": None,
-        "queue_position": None,
-        "started_at": None,
-        "finished_at": None,
-        "exit_code": None,
-        "cache_only": False,
-        "trust_cache": False,
-        "regenerate_cache": False,
-        "progress": progress,
-        "has_tensorboard": bool(desc.get("has_tensorboard")),
-    }
-
-
 def _sort_runs(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     def sort_key(row: dict[str, Any]) -> tuple:
         state = row.get("state") or ""
@@ -182,8 +154,6 @@ def _sort_runs(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
             return (1, row.get("queue_position") if row.get("queue_position") is not None else 999, "")
         if state in NEW_STATES:
             return (2, 0, row.get("started_at") or "")
-        if state == "on_disk":
-            return (4, 0, row.get("run_name") or "")
         return (3, 0, row.get("finished_at") or row.get("started_at") or "")
 
     return sorted(items, key=sort_key)
@@ -210,31 +180,14 @@ def list_training_runs(
     q: str = "",
     page: int = 1,
     page_size: int = 20,
-    include_disk: bool = True,
-    output_dir: str = "output",
     state_filter: str | None = None,
 ) -> dict[str, Any]:
-    """Unified Train hub list: UI jobs plus optional filesystem-only runs."""
+    """Train hub list: UI database jobs only (no filesystem scanning)."""
     page = max(1, page)
     page_size = max(1, min(100, page_size))
     term = (q or "").strip().lower()
 
-    items: list[dict[str, Any]] = []
-    known_run_dirs: set[str] = set()
-
-    for job in list_jobs_sorted():
-        row = _job_to_training_run(job)
-        if row.get("run_dir"):
-            known_run_dirs.add(str(Path(row["run_dir"]).resolve()))
-        items.append(row)
-
-    if include_disk:
-        root = resolve_repo_path(output_dir)
-        for desc in runs_scanner.scan_output_runs(root):
-            resolved = str(Path(desc["path"]).resolve())
-            if resolved in known_run_dirs:
-                continue
-            items.append(_disk_to_training_run(desc))
+    items: list[dict[str, Any]] = [_job_to_training_run(job) for job in list_jobs_sorted()]
 
     if state_filter:
         sf = state_filter.strip().lower()
@@ -246,8 +199,6 @@ def list_training_runs(
             items = [r for r in items if r["state"] in NEW_STATES]
         elif sf == "finished":
             items = [r for r in items if r["state"] in TERMINAL_STATES]
-        elif sf in ("disk", "on_disk"):
-            items = [r for r in items if r["state"] == "on_disk"]
 
     if term:
         items = [r for r in items if _matches_query(r, term)]

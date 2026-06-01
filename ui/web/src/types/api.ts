@@ -281,7 +281,7 @@ export interface RunProgress {
   run_name_label?: string;
 }
 
-export type TrainingRunKind = "job" | "disk";
+export type TrainingRunKind = "job";
 
 export interface TrainingRunRow {
   key: string;

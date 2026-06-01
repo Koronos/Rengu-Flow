@@ -513,9 +513,7 @@ def create_app() -> FastAPI:
         q: str | None = None,
         page: int = Query(1, ge=1),
         page_size: int = Query(20, ge=1, le=100),
-        include_disk: bool = Query(True),
-        output_dir: str = Query("output"),
-        state: str | None = Query(None, description="active | queued | finished | disk"),
+        state: str | None = Query(None, description="active | queued | finished"),
     ) -> dict[str, Any]:
         from rengu_flow_ui import training_hub
 
@@ -523,8 +521,6 @@ def create_app() -> FastAPI:
             q=q or "",
             page=page,
             page_size=page_size,
-            include_disk=include_disk,
-            output_dir=output_dir,
             state_filter=state,
         )
 
