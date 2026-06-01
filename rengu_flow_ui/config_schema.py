@@ -217,11 +217,11 @@ def _preview_section() -> dict[str, Any]:
     when_preview = _when_model(*preview_models) if preview_models else {"field": "model.type", "in": []}
     return {
         "id": "preview",
-        "title": "Previews",
+        "title": "Sampling",
         "description": (
-            "Sample images during training. Add one or more preview configurations below; "
-            "each row is a separate prompt (and optional overrides). Global settings apply "
-            "to all previews unless overridden on a row."
+            "Sample images during training. Set the global defaults, then add one or more "
+            "sampling rows below; each row is a separate prompt (and optional overrides). "
+            "Global settings apply to all sampling rows unless overridden on a row."
         ),
         "when_any_model": preview_models,
         "fields": [

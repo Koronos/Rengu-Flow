@@ -2,14 +2,14 @@
   <el-dialog
     v-model="visible"
     class="preview-entry-dialog"
-    :title="isEdit ? 'Edit preview configuration' : 'Add preview configuration'"
+    :title="isEdit ? 'Edit sampling prompt' : 'Add sampling prompt'"
     width="min(640px, 96vw)"
     destroy-on-close
     @closed="onClosed"
   >
     <p class="dialog-intro">
-      One preview configuration = one TensorBoard image tag. Use overrides only when this prompt
-      needs different dimensions, schedule, or seeds than the global preview settings.
+      One sampling prompt = one TensorBoard image tag. Use overrides only when this prompt
+      needs different dimensions, schedule, or seeds than the global defaults.
     </p>
 
     <el-form label-position="top" class="preview-entry-form">
@@ -34,7 +34,7 @@
             <span class="group-title">Overrides (optional)</span>
           </template>
           <p class="section-desc">
-            Unset fields inherit from global preview settings on the Previews tab.
+            Unset fields inherit from the global defaults on the Sampling tab.
           </p>
           <el-row :gutter="16">
             <el-col

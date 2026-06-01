@@ -4,11 +4,11 @@
       <el-input
         v-model="query"
         clearable
-        placeholder="Search previews by tag or prompt…"
+        placeholder="Search sampling prompts by tag or prompt…"
         class="entries-search"
         :prefix-icon="Search"
       />
-      <el-button type="primary" :icon="Plus" @click="openAdd">Add preview</el-button>
+      <el-button type="primary" :icon="Plus" @click="openAdd">Add sampling</el-button>
     </div>
 
     <p v-if="entries.length" class="entries-count">
@@ -56,11 +56,11 @@
 
     <el-empty
       v-else-if="entries.length && query.trim()"
-      description="No previews match your search"
+      description="No sampling prompts match your search"
       :image-size="56"
     />
-    <el-empty v-else description="No preview configurations yet" :image-size="56">
-      <el-button type="primary" :icon="Plus" @click="openAdd">Add preview</el-button>
+    <el-empty v-else description="No sampling prompts yet" :image-size="56">
+      <el-button type="primary" :icon="Plus" @click="openAdd">Add sampling</el-button>
     </el-empty>
 
     <PreviewEntryDialog

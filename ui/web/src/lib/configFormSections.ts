@@ -37,8 +37,8 @@ export const CONFIG_FORM_TAB_GROUPS: ConfigFormTabGroup[] = [
   },
   {
     id: "previews",
-    label: "Previews",
-    description: "Sample images during training (prompt list + global preview settings).",
+    label: "Sampling",
+    description: "Sample images during training: global defaults + per-prompt sampling rows.",
     sectionIds: ["preview"],
   },
   {

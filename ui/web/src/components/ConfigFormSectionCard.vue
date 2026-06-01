@@ -18,19 +18,17 @@
 
     <p v-if="section.description" class="sec-desc">{{ section.description }}</p>
 
-    <template v-if="section.id === 'preview'">
-      <PreviewEntriesField
-        :model-value="previewPromptsValue"
-        :entry-fields="previewEntryFields"
-        :parent-form="formValues"
-        :capabilities="capabilities"
-        @update:model-value="onPreviewPromptsUpdate"
-      />
-      <div class="group-title">Global preview settings</div>
+    <template v-if="section.id === 'preview' && previewAvailable">
+      <div class="group-title">Global defaults</div>
       <p class="sec-desc preview-global-hint">
-        Defaults for all preview rows (schedule, size, seeds). Override per row in the dialog.
+        Defaults for all sampling rows (schedule, size, seeds). Override per row in the dialog.
       </p>
     </template>
+    <el-empty
+      v-if="section.id === 'preview' && !previewAvailable"
+      :image-size="56"
+      :description="previewNotice"
+    />
 
     <div v-if="adapterMode" class="adapter-mode-row">
       <ConfigFormField
@@ -125,6 +123,17 @@
         </el-row>
       </template>
     </el-form>
+
+    <template v-if="section.id === 'preview' && previewAvailable">
+      <div class="group-title">Sampling prompts</div>
+      <PreviewEntriesField
+        :model-value="previewPromptsValue"
+        :entry-fields="previewEntryFields"
+        :parent-form="formValues"
+        :capabilities="capabilities"
+        @update:model-value="onPreviewPromptsUpdate"
+      />
+    </template>
   </el-card>
 </template>
 
@@ -139,11 +148,12 @@ import { configFieldColSpan } from "../lib/configFormSections";
 import {
   PREVIEW_PROMPTS_PATH,
   adapterModeField,
+  isPreviewListField,
   partitionSectionFields,
   sectionAttentionCount,
   unfilledRequiredCount,
 } from "../lib/configFormSectionLogic";
-import { modelSupportsAdapters, trainingModesLabel } from "../lib/formUtils";
+import { fieldVisible, modelSupportsAdapters, trainingModesLabel } from "../lib/formUtils";
 import { useConfigEditorStore } from "../stores/configEditor";
 import type { FormValues, ModelCapability, SchemaField } from "../types/forms";
 
@@ -173,6 +183,20 @@ const adapterMode = computed(() =>
 );
 const trainingModesText = computed(() => trainingModesLabel(props.selectedCapability));
 const previewPromptsValue = computed(() => formValues.value[PREVIEW_PROMPTS_PATH]);
+
+// Sampling (preview) is gated to preview-capable models: when the selected model
+// doesn't support it, hide both the global controls AND the prompt list, and show
+// a short notice instead.
+const previewAvailable = computed(() => {
+  if (props.section.id !== "preview") return false;
+  const listField = (props.section.fields || []).find(isPreviewListField);
+  return !!listField && fieldVisible(listField, formValues.value, capabilities.value);
+});
+const previewNotice = computed(() =>
+  formValues.value["model.type"]
+    ? "This model has no sampling options."
+    : "Select a model to see sampling options."
+);
 
 function fieldColSpan(field: SchemaField): number {
   return configFieldColSpan(field);
