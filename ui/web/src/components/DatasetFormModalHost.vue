@@ -12,94 +12,98 @@
       <div class="dfm__header">
         <span class="dfm__title">{{ editor.title }}</span>
         <div class="dfm__head-actions">
-          <EditorModeToggle v-model="editorMode" />
           <el-button :icon="CircleCheck" @click="onValidate">Validate</el-button>
+          <el-button :icon="Upload" @click="triggerImport">Import TOML…</el-button>
+          <el-button type="primary" :loading="saving" @click="onSave">Save</el-button>
         </div>
       </div>
     </template>
 
-    <div class="dfm__body">
-      <div class="title-row">
-        <el-input
-          v-model="datasetName"
-          class="dataset-name-input"
-          placeholder="Dataset name"
-          maxlength="200"
-          show-word-limit
+    <ImportTomlOverlay ref="importOverlay" @import="handleImport">
+      <div class="dfm__body">
+        <div class="title-row">
+          <el-input
+            v-model="datasetName"
+            class="dataset-name-input"
+            placeholder="Dataset name"
+            maxlength="200"
+            show-word-limit
+          />
+          <el-text v-if="!isNew && datasetId" type="info" size="small" class="dataset-id-hint">
+            ID {{ datasetId }}
+          </el-text>
+        </div>
+
+        <el-alert
+          v-if="error"
+          type="error"
+          :title="error"
+          show-icon
+          class="mb-12"
+          @close="editor.clearValidationErrorBar()"
         />
-        <el-text v-if="!isNew && datasetId" type="info" size="small" class="dataset-id-hint">
-          ID {{ datasetId }}
-        </el-text>
-      </div>
-
-      <el-alert
-        v-if="error"
-        type="error"
-        :title="error"
-        show-icon
-        class="mb-12"
-        @close="editor.clearValidationErrorBar()"
-      />
-      <el-alert v-if="parseError" type="warning" :title="parseError" show-icon class="mb-12" />
-      <el-alert
-        v-if="message"
-        type="success"
-        :title="message"
-        show-icon
-        class="mb-12"
-        @close="editor.clearValidationFeedback()"
-      />
-
-      <div
-        v-show="editorMode === 'form'"
-        v-loading="loading || (syncing && !form)"
-        class="editor-body"
-      >
-        <el-tabs v-model="formTab" class="dataset-form-tabs">
-          <el-tab-pane label="Dataset defaults" name="global">
-            <div v-if="form" :key="formVersion" class="dataset-form-tab-body">
-              <DatasetFormGlobal />
-            </div>
-          </el-tab-pane>
-          <el-tab-pane label="Directory" name="directories">
-            <div v-if="form" :key="formVersion" class="dataset-form-tab-body">
-              <DatasetFormFolders />
-            </div>
-          </el-tab-pane>
-          <el-tab-pane label="Augmentation" name="augmentation">
-            <div v-if="form" :key="formVersion" class="dataset-form-tab-body">
-              <DatasetAugmentationPanel @go-directories="formTab = 'directories'" />
-            </div>
-          </el-tab-pane>
-        </el-tabs>
-      </div>
-
-      <div v-show="editorMode === 'toml'" class="editor-body">
-        <el-input
-          v-model="tomlModel"
-          type="textarea"
-          :rows="24"
-          class="toml-editor"
-          placeholder="Dataset TOML…"
+        <el-alert v-if="parseError" type="warning" :title="parseError" show-icon class="mb-12" />
+        <el-alert
+          v-if="message"
+          type="success"
+          :title="message"
+          show-icon
+          class="mb-12"
+          @close="editor.clearValidationFeedback()"
         />
-      </div>
-    </div>
 
-    <template #footer>
-      <div class="dfm__footer">
-        <el-button @click="modal.close()">Cancel</el-button>
-        <el-button type="primary" :loading="saving" @click="onSave">Save</el-button>
+        <div v-loading="loading || (syncing && !form)" class="editor-body">
+          <el-tabs v-model="formTab" class="dataset-form-tabs">
+            <el-tab-pane label="Dataset defaults" name="global">
+              <div v-if="form" :key="formVersion" class="dataset-form-tab-body">
+                <DatasetFormGlobal />
+              </div>
+            </el-tab-pane>
+            <el-tab-pane label="Directory" name="directories">
+              <div v-if="form" :key="formVersion" class="dataset-form-tab-body">
+                <DatasetFormFolders />
+              </div>
+            </el-tab-pane>
+            <el-tab-pane label="Augmentation" name="augmentation">
+              <div v-if="form" :key="formVersion" class="dataset-form-tab-body">
+                <DatasetAugmentationPanel @go-directories="formTab = 'directories'" />
+              </div>
+            </el-tab-pane>
+            <el-tab-pane label="TOML" name="toml">
+              <div class="toml-pane-toolbar">
+                <el-text type="info" size="small">Raw dataset TOML.</el-text>
+                <el-button
+                  :loading="exporting"
+                  :disabled="isNew || !datasetId"
+                  @click="exportDatasetToml"
+                >
+                  Export TOML
+                </el-button>
+              </div>
+              <el-input
+                v-model="tomlModel"
+                type="textarea"
+                :rows="24"
+                class="toml-editor"
+                placeholder="Dataset TOML…"
+              />
+            </el-tab-pane>
+          </el-tabs>
+        </div>
       </div>
-    </template>
+    </ImportTomlOverlay>
   </el-dialog>
 </template>
 
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
-import { ElLoadingDirective } from "element-plus";
-import { CircleCheck } from "@element-plus/icons-vue";
-import EditorModeToggle from "./EditorModeToggle.vue";
+import { ElLoadingDirective, ElMessage } from "element-plus";
+import { CircleCheck, Upload } from "@element-plus/icons-vue";
+import { api } from "../api";
+import { downloadBlob } from "../lib/downloadBlob";
+import { formatError } from "../lib/formatError";
+import ImportTomlOverlay from "./ImportTomlOverlay.vue";
 import DatasetFormGlobal from "./DatasetFormGlobal.vue";
 import DatasetFormFolders from "./DatasetFormFolders.vue";
 import DatasetAugmentationPanel from "./DatasetAugmentationPanel.vue";
@@ -114,8 +118,9 @@ const { visible, mode, editId } = modal;
 const { datasetId, isNew, content, name, form, formVersion, loading, saving, syncing, error, message, parseError } =
   storeToRefs(editor);
 
-const editorMode = ref("form");
+const importOverlay = ref<InstanceType<typeof ImportTomlOverlay> | null>(null);
 const formTab = ref("global");
+const exporting = ref(false);
 
 const datasetName = computed({
   get: () => name.value,
@@ -128,7 +133,6 @@ const tomlModel = computed({
 
 watch(visible, async (open) => {
   if (!open) return;
-  editorMode.value = "form";
   formTab.value = "global";
   try {
     if (mode.value === "create") await editor.openNew();
@@ -140,6 +144,37 @@ watch(visible, async (open) => {
 
 function onValidate(): void {
   editor.validate().catch(() => {});
+}
+
+function triggerImport(): void {
+  importOverlay.value?.openFilePicker?.();
+}
+
+async function handleImport(file: File): Promise<void> {
+  try {
+    const text = await file.text();
+    await editor.applyToml(text);
+    ElMessage.success("Imported TOML");
+  } catch (e) {
+    error.value = formatError(e);
+  }
+}
+
+async function exportDatasetToml(): Promise<void> {
+  if (isNew.value || !datasetId.value) return;
+  exporting.value = true;
+  try {
+    const res = await api.exportDataset(datasetId.value);
+    const text = res.content ?? "";
+    const base = (name.value || `dataset_${datasetId.value}`).replace(/[^\w.-]+/g, "_");
+    downloadBlob(new Blob([text], { type: "application/toml" }), `${base}.toml`);
+    ElMessage.success("Exported TOML");
+  } catch (e) {
+    error.value = formatError(e);
+    ElMessage.error(error.value);
+  } finally {
+    exporting.value = false;
+  }
 }
 
 async function onSave(): Promise<void> {
@@ -177,11 +212,7 @@ function onClosed(): void {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-.dfm__footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
+  flex-wrap: wrap;
 }
 .title-row {
   display: flex;
@@ -208,6 +239,14 @@ function onClosed(): void {
 }
 .mb-12 {
   margin-bottom: 12px;
+}
+.toml-pane-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
 }
 .toml-editor :deep(textarea) {
   font-family: ui-monospace, Menlo, Monaco, Consolas, monospace;

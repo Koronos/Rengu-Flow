@@ -10,7 +10,7 @@
     @update:model-value="$emit('update:modelValue', $event)"
     @open="loadItems"
   >
-    <div v-loading="loading" class="picker-body">
+    <ImportTomlOverlay ref="importOverlay" v-loading="loading" class="picker-body" @import="handleImport">
       <div class="picker-head">
         <el-input
           v-model="filterText"
@@ -19,6 +19,10 @@
           class="picker-filter"
         />
         <DatasetViewModeToggle v-model="viewMode" />
+        <div class="picker-head__actions">
+          <el-button :icon="Plus" @click="openCreate">New dataset</el-button>
+          <el-button :icon="Upload" @click="triggerImport">Import TOML</el-button>
+        </div>
       </div>
       <p v-if="multiple && selectedPaths.length" class="picker-selected">
         Selected: {{ selectedPaths.length }}
@@ -52,7 +56,7 @@
         <router-link to="/datasets">Compose datasets</router-link>
         in the Datasets library.
       </p>
-    </div>
+    </ImportTomlOverlay>
     <template #footer>
       <el-button @click="$emit('update:modelValue', false)">Cancel</el-button>
       <el-button
@@ -69,12 +73,14 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import { Edit } from "@element-plus/icons-vue";
-import { ElLoadingDirective } from "element-plus";
+import { Edit, Plus, Upload } from "@element-plus/icons-vue";
+import { ElLoadingDirective, ElMessage } from "element-plus";
 import { api } from "../api";
 import DatasetPreviewActions from "./DatasetPreviewActions.vue";
 import DatasetPreviewCollection from "./DatasetPreviewCollection.vue";
 import DatasetViewModeToggle from "./DatasetViewModeToggle.vue";
+import ImportTomlOverlay from "./ImportTomlOverlay.vue";
+import { formatError } from "../lib/formatError";
 import { useDatasetFormModal } from "../composables/useDatasetFormModal";
 import { useDatasetGallery } from "../composables/useDatasetGallery";
 import { useDatasetViewMode } from "../composables/useDatasetViewMode";
@@ -113,6 +119,7 @@ const loading = ref(false);
 const filterText = ref("");
 const items = ref<DatasetPickerItem[]>([]);
 const selectedPaths = ref<string[]>([]);
+const importOverlay = ref<InstanceType<typeof ImportTomlOverlay> | null>(null);
 const { viewMode } = useDatasetViewMode("rengu-flow-dataset-picker-view", "table");
 const { showFromLibrary } = useDatasetGallery();
 
@@ -202,6 +209,47 @@ function openEdit(item: DatasetPickerItem) {
   datasetModal.openEdit(item.libraryId, { onSaved: () => loadItems() });
 }
 
+/** Reload the library list, then auto-select the freshly created/imported dataset. */
+async function selectAfterReload(ref: string) {
+  await loadItems();
+  if (props.multiple) {
+    const key = canonicalDatasetRef(ref);
+    if (!selectedPaths.value.some((p) => canonicalDatasetRef(p) === key)) {
+      selectedPaths.value.push(ref);
+    }
+  } else {
+    emit("select", ref);
+    emit("update:modelValue", false);
+  }
+}
+
+function openCreate() {
+  datasetModal.openCreate({
+    onSaved: ({ ref }) => {
+      void selectAfterReload(ref);
+    },
+  });
+}
+
+function triggerImport() {
+  importOverlay.value?.openFilePicker?.();
+}
+
+async function handleImport(file: File) {
+  loading.value = true;
+  try {
+    const text = await file.text();
+    const { id } = await api.importDataset(text);
+    const ref = formatDatasetLibraryRef(id);
+    ElMessage.success("Dataset imported");
+    await selectAfterReload(ref);
+  } catch (e) {
+    ElMessage.error(formatError(e));
+  } finally {
+    loading.value = false;
+  }
+}
+
 function toggle(path: string) {
   if (props.multiple) {
     const key = canonicalDatasetRef(path);
@@ -248,6 +296,12 @@ watch(
 .picker-filter {
   flex: 1;
   min-width: 160px;
+}
+.picker-head__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 .picker-selected {
   margin: 0 0 8px;
