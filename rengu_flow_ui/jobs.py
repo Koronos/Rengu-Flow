@@ -92,13 +92,13 @@ def poll_job(job_id: str) -> db.JobRecord:
     job = db.get_job(job_id)
     if job.state not in ("running", "stopping"):
         return job
-    # Capture each job's real run_dir from its log so the UI doesn't fall back to the newest
-    # output folder (which made every job show the same progress).
-    if not job.run_dir:
-        rd = _parse_run_dir_from_log(job)
-        if rd:
-            db.update_job(job_id, run_dir=rd)
-            job = db.get_job(job_id)
+    # Trust the trainer's own `Run dir:` (from THIS run's log segment) as authoritative: it fixes a
+    # stale run_dir (e.g. a from-scratch continue whose record still pointed at the source folder),
+    # which otherwise sent signals to the wrong folder and showed the wrong progress/previews.
+    rd = _parse_run_dir_from_log(job)
+    if rd and rd != job.run_dir:
+        db.update_job(job_id, run_dir=rd)
+        job = db.get_job(job_id)
     if job.pid is not None and pid_alive(job.pid):
         return job
     # PID gone: reconcile. stopping -> stopped; else nonzero exit -> failed, 0/unknown -> finished.
@@ -126,12 +126,26 @@ def _read_log_text(job: db.JobRecord) -> str:
     return path.read_bytes().decode("utf-8", errors="replace")
 
 
+def _current_run_log(job: db.JobRecord) -> str:
+    """Log text for this job's MOST RECENT run only.
+
+    The log file is appended across runs (same job id -> same log_path), each run prefixed with a
+    ``--- rengu-flow-ui job <id> ---`` header. Scoping to the last segment keeps exit-code and
+    run-dir parsing from picking up a PREVIOUS run's error/Run-dir (which marked a clean run failed
+    and pinned a stale run folder).
+    """
+    text = _read_log_text(job)
+    marker = f"--- rengu-flow-ui job {job.id} ---"
+    idx = text.rfind(marker)
+    return text[idx:] if idx != -1 else text
+
+
 _RUN_DIR_RE = re.compile(r"^Run dir:\s*(.+?)\s*$", re.MULTILINE)
 
 
 def _parse_run_dir_from_log(job: db.JobRecord) -> str | None:
     """The trainer prints `Run dir: <path>` (relative to the repo root) on rank 0."""
-    m = _RUN_DIR_RE.search(_read_log_text(job))
+    m = _RUN_DIR_RE.search(_current_run_log(job))
     if not m:
         return None
     from rengu_flow_ui import settings
@@ -144,7 +158,7 @@ def _parse_run_dir_from_log(job: db.JobRecord) -> str | None:
 
 def _read_exit_code(job: db.JobRecord) -> int | None:
     """Best-effort exit code parsed from the job log (the process is detached, no wait())."""
-    text = _read_log_text(job)
+    text = _current_run_log(job)
     if not text:
         return None
     codes = re.findall(r"exits with return code\s*=\s*(-?\d+)", text)
