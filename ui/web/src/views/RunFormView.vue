@@ -46,7 +46,7 @@
           <template #title>Continuing run</template>
           <span class="continue-text">
             Resumes the run folder <code>{{ continuation.run_dir }}</code>. Pick a checkpoint in the
-            Queue tab (or start from scratch). Raise <code>epochs</code>/<code>max_steps</code> to train further.
+            Run tab (or start from scratch). Raise <code>epochs</code>/<code>max_steps</code> to train further.
           </span>
         </el-alert>
 
@@ -85,15 +85,32 @@
             </div>
           </el-tab-pane>
 
-          <el-tab-pane label="Queue" name="queue">
+          <el-tab-pane label="Run" name="queue">
             <el-card shadow="never" class="queue-card">
               <el-form label-position="top">
+                <template v-if="runConfigFields.length">
+                  <el-divider content-position="left">Run configuration</el-divider>
+                  <ConfigFormField
+                    v-for="f in runConfigFields"
+                    :key="f.path"
+                    :field="f"
+                    :form="formValues"
+                    :capabilities="modelCapabilities"
+                    @update:path="onFieldUpdate"
+                  />
+                </template>
+
+                <el-divider content-position="left">Compute</el-divider>
                 <el-form-item label="GPUs">
                   <el-input-number v-model="numGpus" :min="1" :max="64" />
                 </el-form-item>
 
                 <template v-if="showResume">
                   <el-divider content-position="left">Resume</el-divider>
+                  <el-text type="info" size="small" class="resume-hint">
+                    Picks the checkpoint this launch resumes from (overrides the
+                    <code>resume_from_checkpoint</code> config value above).
+                  </el-text>
                   <el-form-item>
                     <el-checkbox v-model="fromScratch">
                       Start from scratch (ignore checkpoints)
@@ -172,6 +189,7 @@ import { ArrowLeft, CircleCheck, Upload } from "@element-plus/icons-vue";
 import { api } from "../api";
 import { downloadBlob } from "../lib/downloadBlob";
 import { formatError } from "../lib/formatError";
+import ConfigFormField from "../components/ConfigFormField.vue";
 import ConfigFormSectionCard from "../components/ConfigFormSectionCard.vue";
 import ImportTomlOverlay from "../components/ImportTomlOverlay.vue";
 import RunDatasetsTab from "../components/RunDatasetsTab.vue";
@@ -251,17 +269,33 @@ const schemaTabs = computed(() => {
   );
 });
 
-// "Setup" sections, with the dataset field moved to the dedicated Datasets tab.
+// Config fields moved out of Setup into the Run tab (launch/run-execution settings).
+const RUN_CONFIG_PATHS = ["output_dir", "resume_from_checkpoint"];
+
+// "Setup" sections, with the dataset field moved to the Datasets tab and the
+// run-execution fields (output_dir, resume_from_checkpoint) moved to the Run tab.
 const setupSections = computed<ConfigSchemaSection[]>(() => {
   const setup = schemaTabs.value.find((t) => t.id === "setup");
   if (!setup) return [];
   return setup.sections.map((sec) =>
     sec.id === "general"
-      ? { ...sec, fields: (sec.fields ?? []).filter((f) => f.path !== "dataset") }
+      ? {
+          ...sec,
+          fields: (sec.fields ?? []).filter(
+            (f) => f.path !== "dataset" && !RUN_CONFIG_PATHS.includes(f.path)
+          ),
+        }
       : sec
   );
 });
 const otherSchemaTabs = computed(() => schemaTabs.value.filter((t) => t.id !== "setup"));
+
+// The run-execution config fields, rendered at the top of the Run tab (order preserved).
+const runConfigFields = computed<SchemaField[]>(() => {
+  const setup = schemaTabs.value.find((t) => t.id === "setup");
+  const general = setup?.sections.find((sec) => sec.id === "general");
+  return (general?.fields ?? []).filter((f) => RUN_CONFIG_PATHS.includes(f.path));
+});
 
 const isCreate = computed(() => mode.value === "create");
 const isContinue = computed(() => mode.value === "continue");
@@ -307,6 +341,10 @@ watch(trustCache, (v) => {
 watch(regenerateCache, (v) => {
   if (v) trustCache.value = false;
 });
+
+function onFieldUpdate({ path, value }: { path: string; value: unknown }): void {
+  editor.patchFormField(path, value);
+}
 
 function checkpointLabel(cp: CheckpointInfo): string {
   const parts = [cp.name, `step ${cp.step}`];
@@ -559,6 +597,11 @@ async function exportBundle(): Promise<void> {
 .checkpoint-select {
   width: 100%;
   max-width: 420px;
+}
+.resume-hint {
+  display: block;
+  margin: -4px 0 10px;
+  line-height: 1.4;
 }
 .cp-tag {
   margin-left: 8px;
