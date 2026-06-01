@@ -1158,9 +1158,23 @@ def _parse_validate_error(stderr: str, stdout: str) -> str:
     return "Config validation failed."
 
 
+def _job_run_name(job: db.JobRecord) -> str | None:
+    """The run's own `run_name` from its config snapshot, when set (else None)."""
+    if not job.config_content:
+        return None
+    try:
+        import toml
+
+        name = toml.loads(job.config_content).get("run_name")
+    except Exception:
+        return None
+    return name.strip() if isinstance(name, str) and name.strip() else None
+
+
 def _job_dict(job: db.JobRecord) -> dict[str, Any]:
     return {
         "id": job.id,
+        "run_name": _job_run_name(job),
         "config_path": job.config_path,
         "state": job.state,
         "pid": job.pid,

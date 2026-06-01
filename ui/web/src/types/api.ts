@@ -171,6 +171,7 @@ export type JobState =
 
 export interface JobRecord {
   id: string;
+  run_name?: string | null;
   config_path?: string;
   state: JobState | string;
   pid?: number | null;

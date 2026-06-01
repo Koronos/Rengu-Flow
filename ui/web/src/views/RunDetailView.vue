@@ -1,10 +1,32 @@
 <template>
   <div>
-    <el-page-header @back="goBack">
-      <template #content>
-        <span class="page-title-inline">{{ title }}</span>
-      </template>
-    </el-page-header>
+    <div class="page-head run-detail__head">
+      <el-button :icon="ArrowLeft" @click="goBack">Runs</el-button>
+      <span class="run-detail__title">{{ title }}</span>
+      <div class="run-detail__head-actions">
+        <template v-if="runDir">
+          <el-button type="primary" @click="goContinueTraining">Continue training…</el-button>
+          <el-button v-if="mode === 'job' && job?.id" @click="cloneToNewRun">Clone to new run</el-button>
+          <el-button :loading="tbLoading" @click="openTensorboardForRun">Open TensorBoard</el-button>
+          <el-button
+            v-if="tbStatus?.running"
+            :loading="tbLoading"
+            type="danger"
+            plain
+            @click="stopTensorboardForRun"
+          >
+            Stop TensorBoard
+          </el-button>
+        </template>
+        <el-button
+          v-else-if="mode === 'job' && job?.id"
+          type="primary"
+          @click="newRunFromThisConfig"
+        >
+          New run from this config
+        </el-button>
+      </div>
+    </div>
 
     <el-alert v-if="error" type="error" :title="error" show-icon class="mt-12" />
     <el-alert
@@ -48,25 +70,7 @@
         </el-descriptions-item>
       </el-descriptions>
 
-      <div v-if="runDir" class="continue-row">
-        <el-button type="primary" @click="goContinueTraining">
-          Continue training…
-        </el-button>
-        <el-button v-if="mode === 'job' && job?.id" @click="cloneToNewRun">
-          Clone to new run
-        </el-button>
-        <el-button :loading="tbLoading" @click="openTensorboardForRun">
-          Open TensorBoard
-        </el-button>
-        <el-button
-          v-if="tbStatus?.running"
-          :loading="tbLoading"
-          type="danger"
-          plain
-          @click="stopTensorboardForRun"
-        >
-          Stop TensorBoard
-        </el-button>
+      <div v-if="runDir || (mode === 'job' && job?.id)" class="run-detail__hint">
         <el-link
           v-if="tbStatus?.running && tbStatus.url"
           :href="tbStatus.url"
@@ -76,16 +80,11 @@
           {{ tbStatus.url }}
         </el-link>
         <el-text type="info" size="small">
-          Load run TOML, edit epochs/steps, resume in this folder
-        </el-text>
-      </div>
-
-      <div v-else-if="mode === 'job' && job?.id" class="continue-row">
-        <el-button type="primary" @click="newRunFromThisConfig">
-          New run from this config
-        </el-button>
-        <el-text type="info" size="small">
-          This run has no checkpoint to resume — start a fresh run from the same config (edit, then add to the queue).
+          {{
+            runDir
+              ? "Load run TOML, edit epochs/steps, resume in this folder"
+              : "This run has no checkpoint to resume — start a fresh run from the same config (edit, then add to the queue)."
+          }}
         </el-text>
       </div>
 
@@ -146,6 +145,7 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
+import { ArrowLeft } from "@element-plus/icons-vue";
 import { api } from "../api";
 import AutoRefreshBar from "../components/AutoRefreshBar.vue";
 import { useAutoRefresh } from "../composables/useAutoRefresh";
@@ -196,9 +196,21 @@ const jobId = computed(() => {
 });
 const { logText, streamError } = useJobLogStream(jobId);
 
-const title = computed(() =>
-  props.mode === "job" ? `Job ${key.value}` : `Run ${key.value}`
-);
+function runFolderName(dir: string | null | undefined): string {
+  if (!dir) return "";
+  const parts = String(dir).split(/[\\/]/).filter(Boolean);
+  return parts[parts.length - 1] || "";
+}
+const title = computed(() => {
+  if (props.mode === "job") {
+    return (
+      job.value?.run_name ||
+      runFolderName(job.value?.run_dir) ||
+      `Job ${key.value}`
+    );
+  }
+  return fsRun.value?.name || runFolderName(fsRun.value?.path) || `Run ${key.value}`;
+});
 
 const runDir = computed(() => job.value?.run_dir || fsRun.value?.path);
 const status = computed(() => job.value?.status || fsRun.value?.status || null);
@@ -397,15 +409,38 @@ watch(key, () => {
 .mt-12 {
   margin-top: 12px;
 }
-.page-title-inline {
-  font-weight: 600;
+.run-detail__head {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: var(--rf-space-sm) 0;
+  background: var(--el-bg-color);
+  border-bottom: 1px solid var(--el-border-color-lighter);
 }
-.continue-row {
+.run-detail__title {
+  font-size: 18px;
+  font-weight: 600;
+  flex: 1;
+  min-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.run-detail__head-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.run-detail__hint {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 12px;
-  margin-bottom: 12px;
+  margin-top: 12px;
 }
 .signals-intro {
   display: flex;
