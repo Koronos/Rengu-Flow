@@ -832,6 +832,11 @@ function editRun(row: TrainingRunRow) {
 }
 
 function continueRun(row: TrainingRunRow) {
+  if (row?.job_id) {
+    router.push({ name: "run-continue", params: { id: String(row.job_id) } });
+    return;
+  }
+  // Filesystem-only run with no job id: fall back to the path query.
   if (!row?.run_dir) return;
   router.push({ name: "run-new", query: { continue_run: row.run_dir } });
 }

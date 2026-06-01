@@ -14,6 +14,7 @@ const router = createRouter({
     { path: "/maintenance", name: "maintenance", component: MaintenanceView },
     { path: "/runs/new", name: "run-new", component: RunFormView },
     { path: "/runs/jobs/:id/edit", name: "run-edit", component: RunFormView },
+    { path: "/runs/jobs/:id/continue", name: "run-continue", component: RunFormView },
     { path: "/runs/jobs/:id", name: "job-detail", component: RunDetailView, props: { mode: "job" } },
     { path: "/runs", name: "jobs", component: JobsView },
     {

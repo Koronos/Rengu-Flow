@@ -139,6 +139,7 @@ const pageTitle = computed(() => {
     "job-detail": "Run detail",
     "run-new": "New run",
     "run-edit": "Edit run",
+    "run-continue": "Continue training",
     "datasets-list": "Datasets",
     "run-detail": "Run detail",
   };

@@ -213,6 +213,11 @@ function goBack() {
 }
 
 function goContinueTraining() {
+  if (props.mode === "job" && job.value?.id) {
+    router.push({ name: "run-continue", params: { id: String(job.value.id) } });
+    return;
+  }
+  // Filesystem-only run with no job id: fall back to the path query.
   if (!runDir.value) return;
   router.push({ name: "run-new", query: { continue_run: runDir.value } });
 }

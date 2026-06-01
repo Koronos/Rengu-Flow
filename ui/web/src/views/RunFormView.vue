@@ -266,9 +266,11 @@ const {
   continuation,
 } = storeToRefs(editor);
 
-// Mode is derived from the route: edit has a job id; continue carries ?continue_run=<dir>.
+// Mode is derived from the route: edit/continue carry a job id; continue can also
+// fall back to a ?continue_run=<dir> path query for filesystem-only runs.
 const mode = computed<"create" | "edit" | "continue">(() => {
   if (route.name === "run-edit") return "edit";
+  if (route.name === "run-continue") return "continue";
   if (typeof route.query.continue_run === "string" && route.query.continue_run) return "continue";
   return "create";
 });
@@ -480,7 +482,23 @@ async function init(): Promise<void> {
     } catch (e) {
       error.value = formatError(e);
     }
+  } else if (isContinue.value && route.name === "run-continue" && routeJobId.value) {
+    // Continue by job id: resolve the run folder server-side.
+    try {
+      const j = await api.getJob(routeJobId.value);
+      const runDir = j.run_dir || j.source_run_dir;
+      if (!runDir) {
+        error.value = "This job has no run folder to continue from.";
+        return;
+      }
+      numGpus.value = j.num_gpus ?? 1;
+      await editor.loadContinuation(runDir);
+      await loadCheckpoints({ jobId: routeJobId.value });
+    } catch (e) {
+      error.value = formatError(e);
+    }
   } else if (isContinue.value && continueDir.value) {
+    // Fallback: filesystem-only run referenced by its path in the query.
     await editor.loadContinuation(continueDir.value);
     await loadCheckpoints({ runDir: continueDir.value });
   }
