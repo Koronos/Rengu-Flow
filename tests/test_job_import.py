@@ -88,6 +88,74 @@ def test_import_via_api(ui_client, ui_data_tmp: Path) -> None:
     assert imported["already_imported"] is True
 
 
+def test_import_resolves_relative_paths_to_absolute(ui_data_tmp: Path) -> None:
+    """A run with a relative dataset path / relative directory path becomes absolute."""
+    run = ui_data_tmp / "output" / "rel_run"
+    run.mkdir(parents=True)
+    # Config references the dataset via a *relative* path.
+    (run / "train.toml").write_text(
+        'dataset = "rel_dataset.toml"\noutput_dir = "output"\n\n'
+        '[model]\ntype = "sdxl"\ndtype = "bfloat16"\n'
+        'checkpoint_path = "/tmp/x.safetensors"\n\n'
+        '[optimizer]\ntype = "adamw"\nlr = 1.0e-4\n',
+        encoding="utf-8",
+    )
+    # Dataset TOML uses a *relative* [[directory]].path.
+    (run / "rel_dataset.toml").write_text(
+        "resolutions = [1024]\nframe_buckets = [1]\n\n"
+        "[[directory]]\npath = 'tests/fixtures/smoke_cc0/images'\nnum_repeats = 1\n",
+        encoding="utf-8",
+    )
+    (run / "status.json").write_text(
+        json.dumps({"step": 1, "updated_at": "2025-01-01T12:30:00+00:00"}),
+        encoding="utf-8",
+    )
+    (run / "global_step1").mkdir()
+
+    import toml as _toml
+
+    from rengu_flow_ui.paths import resolve_repo_path
+
+    job = job_import.import_run(str(run))
+
+    # The imported config_content carries an ABSOLUTE dataset path.
+    cfg = _toml.loads(job.config_content)
+    ds_val = cfg["dataset"]
+    assert Path(ds_val).is_absolute(), ds_val
+    assert ds_val == str(resolve_repo_path("rel_dataset.toml"))
+    # output_dir is left untouched.
+    assert cfg["output_dir"] == "output"
+
+    # The inserted library dataset has an ABSOLUTE [[directory]].path.
+    summaries = datasets_store.list_datasets_summary()
+    ds = next(d for d in summaries if d["name"] == f"{run.name} dataset")
+    text = datasets_store.read_dataset_text(ds["id"])
+    dcfg = _toml.loads(text)
+    dir_path = dcfg["directory"][0]["path"]
+    assert Path(dir_path).is_absolute(), dir_path
+    assert dir_path == str(resolve_repo_path("tests/fixtures/smoke_cc0/images"))
+
+
+def test_resolve_config_dataset_paths_idempotent_and_refs() -> None:
+    """List shape preserved, library refs and absolute paths untouched."""
+    abs_ds = str(job_import.resolve_repo_path("a.toml"))
+    text = (
+        f'dataset = ["rel.toml", "{abs_ds}", "rengu-flow-dataset:3"]\n'
+        'output_dir = "output"\n'
+    )
+    out = job_import.resolve_config_dataset_paths(text)
+    import toml as _toml
+
+    cfg = _toml.loads(out)
+    vals = cfg["dataset"]
+    assert isinstance(vals, list)
+    assert vals[0] == str(job_import.resolve_repo_path("rel.toml"))
+    assert vals[1] == abs_ds  # already absolute, unchanged
+    assert vals[2] == "rengu-flow-dataset:3"  # library ref untouched
+    # Idempotent.
+    assert job_import.resolve_config_dataset_paths(out) == out
+
+
 def test_import_rejects_empty_dir(ui_data_tmp: Path) -> None:
     empty = ui_data_tmp / "empty"
     empty.mkdir()

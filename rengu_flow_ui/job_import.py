@@ -18,6 +18,72 @@ class JobImportError(ValueError):
     """User-facing import failure."""
 
 
+def _resolve_path_entry(entry: Any) -> Any:
+    """Resolve a single relative, non-library path entry to an absolute string.
+
+    Library ``rengu-flow-dataset:`` refs and non-string values pass through
+    unchanged. Already-absolute paths come back unchanged (idempotent).
+    """
+    if not isinstance(entry, str) or not entry.strip():
+        return entry
+    if library_db.is_library_dataset_ref(entry):
+        return entry
+    return str(resolve_repo_path(entry))
+
+
+def resolve_config_dataset_paths(config_toml_text: str) -> str:
+    """Rewrite a training config's ``dataset`` field to absolute repo-root paths.
+
+    The ``dataset`` value may be a single string or a list. Each relative,
+    non-library entry is resolved against the repo root; library refs and
+    absolute paths are left untouched. The original str-vs-list shape is
+    preserved. ``output_dir`` and other fields are not touched.
+    """
+    cfg = toml.loads(config_toml_text)
+    if not isinstance(cfg, dict):
+        return config_toml_text
+    dataset_val = cfg.get("dataset")
+    if isinstance(dataset_val, str):
+        cfg["dataset"] = _resolve_path_entry(dataset_val)
+    elif isinstance(dataset_val, list):
+        cfg["dataset"] = [_resolve_path_entry(x) for x in dataset_val]
+    return toml.dumps(cfg)
+
+
+def resolve_dataset_toml_paths(dataset_toml_text: str) -> str:
+    """Rewrite a dataset TOML's directory ``path``/``cache_dir`` to absolute paths.
+
+    Handles the common ``[[directory]]`` array-of-tables and a single
+    ``[directory]`` table. Resolves a relative top-level ``cache_dir`` and each
+    directory's relative ``cache_dir`` if present. Absolute paths and library
+    refs are left unchanged (idempotent).
+    """
+    cfg = toml.loads(dataset_toml_text)
+    if not isinstance(cfg, dict):
+        return dataset_toml_text
+
+    top_cache = cfg.get("cache_dir")
+    if isinstance(top_cache, str) and top_cache.strip():
+        cfg["cache_dir"] = _resolve_path_entry(top_cache)
+
+    def _fix_dir(entry: Any) -> Any:
+        if not isinstance(entry, dict):
+            return entry
+        row = dict(entry)
+        for key in ("path", "cache_dir"):
+            val = row.get(key)
+            if isinstance(val, str) and val.strip():
+                row[key] = _resolve_path_entry(val)
+        return row
+
+    directories = cfg.get("directory")
+    if isinstance(directories, list):
+        cfg["directory"] = [_fix_dir(d) for d in directories]
+    elif isinstance(directories, dict):
+        cfg["directory"] = _fix_dir(directories)
+    return toml.dumps(cfg)
+
+
 def resolve_run_path(run_path: str) -> Path:
     raw = (run_path or "").strip()
     if not raw:
@@ -97,12 +163,14 @@ def import_run(
 
     # The imported run is self-contained via its config_content snapshot; there is no
     # separate config library. Optionally add the run's dataset TOML to the dataset library.
-    config_content = config_path.read_text(encoding="utf-8")
+    config_content = resolve_config_dataset_paths(
+        config_path.read_text(encoding="utf-8")
+    )
     if import_dataset:
         ds_path = _dataset_file_in_run(run_dir, config_path)
         if ds_path is not None:
             datasets_store.insert_dataset(
-                ds_path.read_text(encoding="utf-8"),
+                resolve_dataset_toml_paths(ds_path.read_text(encoding="utf-8")),
                 name=f"{run_dir.name} dataset",
             )
 

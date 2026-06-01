@@ -51,6 +51,9 @@ def absolutize_dataset_config(
 ) -> dict[str, Any]:
     """Rewrite ``[[directory]]`` path fields to absolute paths."""
     out = copy.deepcopy(config)
+    top_cache = out.get("cache_dir")
+    if isinstance(top_cache, str) and top_cache.strip():
+        out["cache_dir"] = resolve_media_path(top_cache, dataset_toml_path=dataset_toml_path)
     directories = out.get("directory")
     if not isinstance(directories, list):
         return out
@@ -60,7 +63,7 @@ def absolutize_dataset_config(
             new_dirs.append(entry)
             continue
         row = dict(entry)
-        for key in _DIRECTORY_PATH_KEYS:
+        for key in (*_DIRECTORY_PATH_KEYS, "cache_dir"):
             val = row.get(key)
             if isinstance(val, str) and val.strip():
                 row[key] = resolve_media_path(val, dataset_toml_path=dataset_toml_path)
