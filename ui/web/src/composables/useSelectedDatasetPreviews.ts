@@ -27,9 +27,31 @@ export function useSelectedDatasetPreviews(entries: Ref<string[]>) {
   /** Cached folder counts by library id (avoids refetching on every render). */
   const folderCounts = ref<Record<string, number>>({});
 
+  async function fetchCounts(ids: string[]): Promise<void> {
+    await Promise.all(
+      ids.map(async (id) => {
+        try {
+          const row = (await api.getDataset(id)) as {
+            meta?: { folder_count?: number; directory_count?: number };
+            directory_count?: number;
+          };
+          const count =
+            row.meta?.folder_count ??
+            row.meta?.directory_count ??
+            row.directory_count;
+          if (typeof count === "number") {
+            folderCounts.value = { ...folderCounts.value, [id]: count };
+          }
+        } catch {
+          /* leave subtitle without a folder count */
+        }
+      })
+    );
+  }
+
   watch(
     entries,
-    async (list) => {
+    (list) => {
       const ids = [
         ...new Set(
           list
@@ -37,29 +59,26 @@ export function useSelectedDatasetPreviews(entries: Ref<string[]>) {
             .filter((id): id is string => !!id && !(id in folderCounts.value))
         ),
       ];
-      if (!ids.length) return;
-      await Promise.all(
-        ids.map(async (id) => {
-          try {
-            const row = (await api.getDataset(id)) as {
-              meta?: { folder_count?: number; directory_count?: number };
-              directory_count?: number;
-            };
-            const count =
-              row.meta?.folder_count ??
-              row.meta?.directory_count ??
-              row.directory_count;
-            if (typeof count === "number") {
-              folderCounts.value = { ...folderCounts.value, [id]: count };
-            }
-          } catch {
-            /* leave subtitle without a folder count */
-          }
-        })
-      );
+      if (ids.length) void fetchCounts(ids);
     },
     { immediate: true }
   );
+
+  /** Re-fetch folder counts for the current entries (e.g. after editing a dataset). */
+  async function refresh(): Promise<void> {
+    const ids = [
+      ...new Set(
+        entries.value
+          .map((entry) => libraryDatasetIdFromRef(entry))
+          .filter((id): id is string => !!id)
+      ),
+    ];
+    if (!ids.length) return;
+    const next = { ...folderCounts.value };
+    ids.forEach((id) => delete next[id]);
+    folderCounts.value = next;
+    await fetchCounts(ids);
+  }
 
   function subtitleFor(entry: string, libraryId: string | null): string {
     if (!libraryId) return entry;
@@ -86,5 +105,5 @@ export function useSelectedDatasetPreviews(entries: Ref<string[]>) {
     })
   );
 
-  return { previewItems };
+  return { previewItems, refresh };
 }

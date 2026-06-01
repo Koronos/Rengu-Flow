@@ -24,7 +24,11 @@
           delete-title="Remove from run"
           @gallery="openGallery(item)"
           @delete="removeEntry(item.path)"
-        />
+        >
+          <el-tooltip v-if="item.libraryId" content="Edit dataset" :show-after="300">
+            <el-button size="small" circle :icon="Edit" @click="editDataset(item)" />
+          </el-tooltip>
+        </DatasetPreviewActions>
       </template>
     </DatasetPreviewCollection>
     <el-empty v-else description="No datasets selected yet" :image-size="56">
@@ -57,13 +61,14 @@
 
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { Plus } from "@element-plus/icons-vue";
+import { Edit, Plus } from "@element-plus/icons-vue";
 import { storeToRefs } from "pinia";
 import DatasetPickerModal from "./DatasetPickerModal.vue";
 import DatasetPreviewActions from "./DatasetPreviewActions.vue";
 import DatasetPreviewCollection from "./DatasetPreviewCollection.vue";
 import PathFieldControl from "./PathFieldControl.vue";
 import { useConfigEditorStore } from "../stores/configEditor";
+import { useDatasetFormModal } from "../composables/useDatasetFormModal";
 import { useDatasetGallery } from "../composables/useDatasetGallery";
 import {
   useSelectedDatasetPreviews,
@@ -79,12 +84,13 @@ import {
 const editor = useConfigEditorStore();
 const { form } = storeToRefs(editor);
 const { showFromLibrary } = useDatasetGallery();
+const datasetModal = useDatasetFormModal();
 
 const pickerOpen = ref(false);
 const pathDraft = ref("");
 
 const entries = computed(() => coerceTrainingDatasetEntries(form.value?.dataset));
-const { previewItems } = useSelectedDatasetPreviews(entries);
+const { previewItems, refresh } = useSelectedDatasetPreviews(entries);
 
 function emitEntries(next: string[]): void {
   editor.patchFormField("dataset", trainingDatasetFormValue(next));
@@ -113,6 +119,11 @@ function openGallery(item: SelectedDatasetPreviewItem): void {
     title: `Gallery — ${item.title}`,
     directoryIndex: null,
   });
+}
+
+function editDataset(item: SelectedDatasetPreviewItem): void {
+  if (!item.libraryId) return;
+  datasetModal.openEdit(item.libraryId, { onSaved: () => void refresh() });
 }
 </script>
 
