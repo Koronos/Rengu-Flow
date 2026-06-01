@@ -37,6 +37,14 @@ export interface ValidateResult {
   warnings?: string[];
 }
 
+export interface ValidateOnlyResult {
+  ok: boolean;
+  returncode?: number;
+  stdout?: string;
+  stderr?: string;
+  error?: string;
+}
+
 export interface ParseTomlResult {
   form?: FormValues;
   error?: string;

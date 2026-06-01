@@ -56,6 +56,7 @@ export const useConfigEditorStore = defineStore("configEditor", () => {
 
   const loading = ref(false);
   const syncing = ref(false);
+  const validating = ref(false);
   const error = ref("");
   const message = ref("");
   const parseError = ref("");
@@ -278,6 +279,65 @@ export const useConfigEditorStore = defineStore("configEditor", () => {
     }
   }
 
+  /**
+   * Full pre-flight validation via the CLI config validator (`--validate-only`). This runs the
+   * real pre-training checks (model rules, optimizer/scheduler, fused-optimizer vs grad-accum,
+   * …) without loading datasets or model weights. On success it also calls the lightweight
+   * `/validate` purely to build the optimizer/scheduler resolution summary.
+   */
+  async function validateFull(): Promise<{ ok: boolean }> {
+    error.value = "";
+    validationErrors.value = [];
+    message.value = "";
+    validationAlertDismiss.clearAll();
+    validating.value = true;
+    try {
+      await tomlSync.flushSync();
+      const result = await api.validateOnly(content.value);
+      if (!result.ok) {
+        validationErrors.value = [result.error || "Config validation failed."];
+        validationAlertDismiss.scheduleErrorDismiss(() => {
+          validationErrors.value = [];
+        });
+        return { ok: false };
+      }
+      // Reuse the lightweight validator just to build the nice resolution string.
+      const parts: string[] = [];
+      try {
+        const r = (await api.validate(content.value)) as {
+          ok?: boolean;
+          resolution?: Record<string, Record<string, unknown>>;
+        };
+        const res = r.resolution || {};
+        if (res.optimizer?.available) {
+          parts.push(`optimizer → ${res.optimizer.resolved_class || res.optimizer.name}`);
+        }
+        if (res.scheduler?.available) {
+          parts.push(
+            `scheduler → ${res.scheduler.resolved || res.scheduler.resolved_class || res.scheduler.name}`
+          );
+        }
+      } catch {
+        // Resolution summary is best-effort; pre-flight already passed.
+      }
+      message.value = parts.length
+        ? `Valid (${parts.join("; ")}) — pre-flight checks passed.`
+        : "Valid — pre-flight checks passed.";
+      validationAlertDismiss.scheduleSuccessDismiss(() => {
+        message.value = "";
+      });
+      return { ok: true };
+    } catch (e) {
+      error.value = formatError(e);
+      validationAlertDismiss.scheduleErrorDismiss(() => {
+        error.value = "";
+      });
+      return { ok: false };
+    } finally {
+      validating.value = false;
+    }
+  }
+
   function clearValidationFeedback() {
     validationAlertDismiss.clearAll();
     validationErrors.value = [];
@@ -311,6 +371,7 @@ export const useConfigEditorStore = defineStore("configEditor", () => {
     modelCapabilities,
     loading,
     syncing,
+    validating,
     error,
     message,
     parseError,
@@ -329,6 +390,7 @@ export const useConfigEditorStore = defineStore("configEditor", () => {
     loadContinuation,
     clearContinuation,
     validateConfig,
+    validateFull,
     clearValidationFeedback,
     clearValidationErrorBar,
     dispose,

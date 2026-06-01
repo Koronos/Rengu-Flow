@@ -11,11 +11,14 @@ from typing import Any, Iterator
 from rengu_flow_ui.library_db import init_library_tables
 from rengu_flow_ui.settings import db_path, ensure_data_dirs
 
-# Bump when the DB schema changes incompatibly. Stored in the file via PRAGMA user_version
-# and stamped on init. Startup compares it (see schema_action / cli guard) and, on a real
-# mismatch, asks the user to wipe-and-recreate or stay on the previous app version. Until a
-# TOML export/import migration exists (see docs/developer/run-model-redesign.md), a bump
-# means existing local libraries are discarded.
+# Bump ONLY on an *incompatible* schema change (a column removed/renamed, or its semantics
+# changed). Stored in the file via PRAGMA user_version and stamped on init. Startup compares it
+# (see schema_guard.ensure_schema_compatible) and, on a real mismatch, asks the user to
+# wipe-and-recreate or stay on the previous app version. Until a TOML export/import migration
+# exists (see docs/developer/run-model-redesign.md), a bump discards existing local libraries.
+#
+# Do NOT bump for *additive* changes (a new column with a DEFAULT): those are backward-compatible
+# and healed in place by `_reconcile_jobs_columns` (no version change, no consent, no data loss).
 SCHEMA_VERSION = 3
 
 
@@ -75,6 +78,33 @@ def reset_ui_database() -> Path:
     return path
 
 
+# Additive `jobs` columns that may be absent on a DB created mid-development. Each carries a
+# backward-compatible DEFAULT, so they can be `ALTER TABLE ... ADD COLUMN`-ed onto an existing
+# table without a wipe (see `_reconcile_jobs_columns`).
+_JOBS_ADDITIVE_COLUMNS: dict[str, str] = {
+    "source_run_dir": "TEXT",
+    "config_content": "TEXT NOT NULL DEFAULT ''",
+    "cache_only": "INTEGER NOT NULL DEFAULT 0",
+    "trust_cache": "INTEGER NOT NULL DEFAULT 0",
+    "regenerate_cache": "INTEGER NOT NULL DEFAULT 0",
+}
+
+
+def _reconcile_jobs_columns(conn: sqlite3.Connection) -> None:
+    """Self-heal a `jobs` table that predates additive columns.
+
+    `CREATE TABLE IF NOT EXISTS` never alters an existing table, and adding a column with a
+    DEFAULT is backward-compatible, so such bumps don't move `user_version`. A DB created
+    partway through development can therefore sit at the current version yet still lack newer
+    columns — which makes every `INSERT` referencing them fail with `OperationalError`. Add any
+    that are missing; defaults make this lossless, so no wipe is required.
+    """
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(jobs)")}
+    for name, ddl in _JOBS_ADDITIVE_COLUMNS.items():
+        if name not in existing:
+            conn.execute(f"ALTER TABLE jobs ADD COLUMN {name} {ddl}")
+
+
 def init_db() -> None:
     with _connect() as conn:
         conn.execute(
@@ -102,6 +132,7 @@ def init_db() -> None:
             )
             """
         )
+        _reconcile_jobs_columns(conn)
         init_library_tables(conn)
         conn.execute(f"PRAGMA user_version = {int(SCHEMA_VERSION)}")
         conn.commit()

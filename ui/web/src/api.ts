@@ -47,6 +47,7 @@ import type {
   TrainingRunRow,
   TrainingSignalsResult,
   TrainRunsResult,
+  ValidateOnlyResult,
   ValidateResult,
   AugmentationCatalogResponse,
   MaintenanceCommandOutput,
@@ -80,6 +81,13 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 export const api = {
   validate: (content: string) =>
     request<ValidateResult>("/validate", {
+      method: "POST",
+      body: JSON.stringify({ content }),
+    }),
+
+  /** Full CLI pre-flight validation (rengu_flow.main --validate-only). Slower; runs a subprocess. */
+  validateOnly: (content: string) =>
+    request<ValidateOnlyResult>("/validate-only", {
       method: "POST",
       body: JSON.stringify({ content }),
     }),

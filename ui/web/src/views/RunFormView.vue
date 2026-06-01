@@ -4,7 +4,7 @@
       <el-button :icon="ArrowLeft" @click="goBack">Runs</el-button>
       <span class="run-form-view__title">{{ title }}</span>
       <div class="run-form-view__head-actions">
-        <el-button :icon="CircleCheck" @click="onValidate">Validate</el-button>
+        <el-button :icon="CircleCheck" :loading="validating" @click="onValidate">Validate</el-button>
         <el-button :icon="Upload" @click="triggerImport">Import TOML…</el-button>
         <el-button v-if="showSaveForLater" @click="onSaveForLater">Save for later</el-button>
         <el-button v-if="showSaveChanges" @click="onSaveChanges">Save changes</el-button>
@@ -295,6 +295,7 @@ const {
   schema,
   loading,
   syncing,
+  validating,
   error,
   message,
   validationErrors,
@@ -564,7 +565,7 @@ async function handleImport(file: File): Promise<void> {
 }
 
 function onValidate(): void {
-  void editor.validateConfig();
+  void editor.validateFull();
 }
 
 async function confirmIfInvalid(verb: string): Promise<boolean> {
@@ -640,8 +641,8 @@ async function doSubmit(action: "queue" | "draft"): Promise<void> {
     ElMessage.success(action === "draft" ? "Saved for later" : "Added to queue");
     goBack();
   } catch (e) {
+    // Show the failure only in the inline alert bar (copy/paste-able) — no duplicate toast.
     error.value = formatError(e);
-    ElMessage.error(error.value);
   } finally {
     submitting.value = false;
   }
@@ -670,8 +671,8 @@ async function onSaveChanges(): Promise<void> {
     ElMessage.success("Saved");
     goBack();
   } catch (e) {
+    // Show the failure only in the inline alert bar (copy/paste-able) — no duplicate toast.
     error.value = formatError(e);
-    ElMessage.error(error.value);
   } finally {
     submitting.value = false;
   }
@@ -691,8 +692,8 @@ async function exportBundle(): Promise<void> {
     downloadBlob(blob, filename);
     ElMessage.success("Exported ZIP for CLI");
   } catch (e) {
+    // Show the failure only in the inline alert bar (copy/paste-able) — no duplicate toast.
     error.value = formatError(e);
-    ElMessage.error(error.value);
   } finally {
     exporting.value = false;
   }

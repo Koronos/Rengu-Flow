@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import subprocess
 import sys
 from contextlib import asynccontextmanager
@@ -43,6 +44,8 @@ from rengu_flow_ui.settings import (
 )
 
 API_PREFIX = "/api/v1"
+
+_logger = logging.getLogger("rengu_flow_ui.app")
 
 
 class ConfigExportBody(BaseModel):
@@ -222,6 +225,17 @@ def create_app() -> FastAPI:
                 return JSONResponse(status_code=401, content={"detail": "Invalid token"})
         return await call_next(request)
 
+    @app.exception_handler(Exception)
+    async def _unhandled_exception(_request: Request, exc: Exception) -> JSONResponse:
+        # Surface the real reason instead of a bare "Internal Server Error" so the UI can show
+        # (and the user can copy/paste) an actionable message. This is a local single-user tool,
+        # so echoing the exception text is acceptable. HTTPException keeps its own handler and is
+        # not routed here. The full traceback still lands in the server log.
+        _logger.exception("Unhandled error on %s", getattr(_request, "url", "?"))
+        return JSONResponse(
+            status_code=500, content={"detail": f"{type(exc).__name__}: {exc}"}
+        )
+
     # --- Training config TOML: validation + export (no standalone library) ---
     def _training_export_response(content: str, bundle_stem: str) -> Response:
         from rengu_flow_ui.training_export import build_training_export_zip
@@ -253,24 +267,43 @@ def create_app() -> FastAPI:
     def validate_only_run(body: ValidateBody) -> dict[str, Any]:
         if not body.content:
             raise HTTPException(400, "Provide content")
-        import tempfile
+        import shutil
+        from uuid import uuid4
 
-        tmp = Path(tempfile.mkdtemp(dir=run_staging.staging_dir()))
-        path = tmp / "validate.toml"
-        path.write_text(body.content, encoding="utf-8")
-        cmd = [sys.executable, "-m", "rengu_flow.main", "--config", str(path), "--validate-only"]
-        proc = subprocess.run(
-            cmd,
-            cwd=str(repo_root()),
-            capture_output=True,
-            text=True,
-        )
-        return {
+        temp_id = f"validate-{uuid4().hex}"
+        # Materialize staging first so dataset library refs resolve like training does.
+        try:
+            path = run_staging.materialize_staging(body.content, temp_id)
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+        try:
+            cmd = [
+                sys.executable,
+                "-m",
+                "rengu_flow.main",
+                "--config",
+                str(path),
+                "--validate-only",
+            ]
+            proc = subprocess.run(
+                cmd,
+                cwd=str(repo_root()),
+                capture_output=True,
+                text=True,
+            )
+        finally:
+            shutil.rmtree(run_staging.staging_dir() / temp_id, ignore_errors=True)
+
+        result: dict[str, Any] = {
             "ok": proc.returncode == 0,
             "returncode": proc.returncode,
             "stdout": proc.stdout,
             "stderr": proc.stderr,
         }
+        if proc.returncode != 0:
+            result["error"] = _parse_validate_error(proc.stderr, proc.stdout)
+        return result
 
     # --- Datasets library ---
     @app.get(f"{API_PREFIX}/datasets")
@@ -1105,6 +1138,24 @@ def create_app() -> FastAPI:
             return FileResponse(dist / "index.html")
 
     return app
+
+
+def _parse_validate_error(stderr: str, stdout: str) -> str:
+    """Extract a concise message from a failed `--validate-only` subprocess.
+
+    Prefer the line containing ``Config validation failed:`` from stderr; fall back to the
+    last non-empty stderr line, else the last non-empty stdout line.
+    """
+    stderr_lines = [ln.strip() for ln in (stderr or "").splitlines() if ln.strip()]
+    for ln in stderr_lines:
+        if "Config validation failed:" in ln:
+            return ln
+    if stderr_lines:
+        return stderr_lines[-1]
+    stdout_lines = [ln.strip() for ln in (stdout or "").splitlines() if ln.strip()]
+    if stdout_lines:
+        return stdout_lines[-1]
+    return "Config validation failed."
 
 
 def _job_dict(job: db.JobRecord) -> dict[str, Any]:

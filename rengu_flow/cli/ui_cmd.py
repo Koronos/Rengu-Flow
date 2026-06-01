@@ -196,6 +196,15 @@ def run(args: argparse.Namespace) -> None:
     cfg = ensure_local_config_loaded()
     cmd = args.ui_command
 
+    # Check the DB schema here, in the terminal-attached process, before building the web
+    # dist, spawning the API subprocess, or constructing the app (which runs init_db). An
+    # incompatible schema must get the user's consent to wipe-and-recreate first — we don't
+    # want the prompt buried in a subprocess log, or skipped entirely on the start/serve paths.
+    if cmd in ("start", "dev", "serve"):
+        from rengu_flow_ui.schema_guard import ensure_schema_compatible
+
+        ensure_schema_compatible()
+
     if cmd == "reset-db":
         from rengu_flow_ui.db import reset_ui_database
 

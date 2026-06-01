@@ -94,6 +94,26 @@ def test_validate_endpoint(ui_client) -> None:
     assert r2.json()["ok"] is False
 
 
+def test_validate_only_endpoint(ui_client) -> None:
+    """Full CLI pre-flight validator: valid example -> ok; broken [model] -> ok False + error."""
+    example = (
+        Path(__file__).resolve().parents[1] / "examples" / "minimal_config_lora_sdxl.toml"
+    ).read_text(encoding="utf-8")
+
+    r = ui_client.post("/api/v1/validate-only", json={"content": example})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is True
+    assert body.get("error") is None
+
+    broken = example.replace('type = "sdxl"', 'type = "not_a_real_model"')
+    r2 = ui_client.post("/api/v1/validate-only", json={"content": broken})
+    assert r2.status_code == 200
+    body2 = r2.json()
+    assert body2["ok"] is False
+    assert body2.get("error")
+
+
 def test_validate_adamw8bit_ok_without_optimizer_dependency_errors(ui_client) -> None:
     """Validate must not fail on missing bitsandbytes; extras install at train start."""
     content = MINIMAL_TOML.replace('type = "adamw"', 'type = "adamw8bit"')
