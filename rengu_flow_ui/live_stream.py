@@ -1,4 +1,9 @@
-"""WebSocket live stream for running jobs: progress + log tail (+ periodic metrics)."""
+"""WebSocket live stream for running jobs: progress + log tail (+ periodic metrics).
+
+Live progress is derived from throttled ``@@RFPROG@@`` markers the trainer prints to
+stdout (parsed from the captured log), not from status.json (which is no longer
+written). Marker lines are stripped from the log text shown to the client.
+"""
 
 from __future__ import annotations
 
@@ -7,6 +12,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from rengu_flow.control.progress_stream import parse_last_progress_marker
 from rengu_flow_ui import jobs, metrics_tb, training_hub
 
 ACTIVE_STATES = training_hub.ACTIVE_STATES
@@ -17,21 +23,23 @@ _TICK_SEC = 0.5
 _METRICS_EVERY_TICKS = 10
 
 
-def _status_mtime(run_dir: Path | None) -> float:
-    if run_dir is None:
-        return 0.0
-    path = run_dir / "status.json"
+def _latest_marker(job_id: str) -> dict[str, Any] | None:
+    """Parse the last complete @@RFPROG@@ marker from the job's raw log, if any."""
     try:
-        return path.stat().st_mtime if path.is_file() else 0.0
-    except OSError:
-        return 0.0
+        raw = jobs.read_raw_log(job_id)
+    except KeyError:
+        return None
+    if not raw:
+        return None
+    return parse_last_progress_marker(raw)
 
 
 def snapshot_job_live(job_id: str, *, log_offset: int = 0) -> dict[str, Any]:
     """One poll cycle: progress, optional log chunk, job state (sync, for tests)."""
     job = jobs.poll_job(job_id)
     run_dir = training_hub.resolve_job_run_dir(job)
-    progress = training_hub.compute_run_progress(run_dir)
+    marker = _latest_marker(job_id)
+    progress = training_hub.compute_run_progress(run_dir, marker=marker)
     chunk, new_offset = jobs.tail_log(job_id, log_offset)
     out: dict[str, Any] = {
         "job_id": job_id,
@@ -39,7 +47,6 @@ def snapshot_job_live(job_id: str, *, log_offset: int = 0) -> dict[str, Any]:
         "run_dir": str(run_dir) if run_dir else job.run_dir,
         "progress": progress,
         "log_offset": new_offset,
-        "status_mtime": _status_mtime(run_dir),
     }
     if chunk:
         out["log_chunk"] = chunk
@@ -65,10 +72,8 @@ async def run_job_live_ws(send_json, job_id: str) -> None:
       - ``{"type": "error", "message"}``
     """
     log_offset = 0
-    last_status_mtime = -1.0
     last_progress_json: str | None = None
     tick = 0
-    no_status_ticks = 0
 
     while True:
         try:
@@ -86,23 +91,12 @@ async def run_job_live_ws(send_json, job_id: str) -> None:
         if chunk:
             await send_json({"type": "log_line", "chunk": chunk})
 
-        status_mtime = float(snap.get("status_mtime") or 0.0)
+        # Progress is driven by the marker stream; emit whenever it changes. The last
+        # parsed marker persists across ticks (parse_last_progress_marker re-reads the
+        # full log), so the bar holds its last-known value between marker emits.
         progress = snap.get("progress")
         progress_json = json.dumps(progress, sort_keys=True, default=str) if progress else None
-
-        status_changed = status_mtime != last_status_mtime
-        progress_changed = progress_json != last_progress_json
-        if status_changed:
-            last_status_mtime = status_mtime
-        if status_mtime <= 0:
-            no_status_ticks += 1
-        else:
-            no_status_ticks = 0
-
-        # Without status.json, refresh progress periodically (TB fallback is slower).
-        periodic_progress = status_mtime <= 0 and no_status_ticks % 4 == 0
-
-        if progress_changed or status_changed or periodic_progress:
+        if progress_json != last_progress_json:
             last_progress_json = progress_json
             await send_json(
                 {

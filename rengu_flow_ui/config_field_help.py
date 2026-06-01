@@ -326,10 +326,6 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "summary": "Log metrics to Weights & Biases.",
         "doc": "docs/user/training-loop-and-eval.md",
     },
-    "monitoring.enable_status_file": {
-        "summary": "Write status.json for the web UI (low overhead).",
-        "doc": "docs/user/web-ui.md",
-    },
     "monitoring.wandb_tracker_name": {
         "summary": "WandB project (entity/project) name.",
         "doc": "docs/user/training-loop-and-eval.md",

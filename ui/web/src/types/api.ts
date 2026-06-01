@@ -279,17 +279,23 @@ export interface RunProgress {
   loss?: number | null;
   percent?: number | null;
   steps_remaining?: number | null;
+  /** Seconds for the last completed step (s/it). */
+  step_time_sec?: number | null;
   steps_per_second?: number | null;
   steps_per_second_ema?: number | null;
   eta_sec?: number | null;
   /** Human-readable ETA from trainer, e.g. `1h 23m` */
   eta?: string | null;
-  /** e.g. `training`, `waiting_disk_export` (paused for disk during model export) */
+  /** e.g. `training`, `caching`, `waiting_disk_export` (paused for disk during model export) */
   phase?: string | null;
   updated_at?: string | null;
   status_available?: boolean;
   model_type?: string;
   run_name_label?: string;
+  /** Caching-phase: items processed so far. */
+  current?: number | null;
+  /** Caching-phase: total items to process. */
+  total?: number | null;
 }
 
 export type TrainingRunKind = "job";

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -131,10 +132,41 @@ def _map_and_cache(
     completed_batches = cache_size // caching_batch_size
     total_batches = dataset_size // caching_batch_size
 
+    # Throttled "caching" progress marker for the web UI (rank 0 only). The per-update
+    # tqdm bar is disabled when stdout is not a TTY so the UI-captured log isn't spammed.
+    from rengu_flow.control.progress_stream import ProgressEmitter
+    from rengu_flow.utils import is_main_process
+
+    cache_emitter = ProgressEmitter() if is_main_process() else None
+
     map_iter = pool.imap(wrapper, dataset.iter(batch_size=caching_batch_size))
-    for batch in tqdm(map_iter, initial=completed_batches, total=total_batches):
+    pbar = tqdm(
+        map_iter,
+        initial=completed_batches,
+        total=total_batches,
+        disable=not sys.stderr.isatty(),
+    )
+    done = completed_batches
+    for batch in pbar:
         for example in unbatch_iter(batch):
             cache.add(example)
+        done += 1
+        if cache_emitter is not None:
+            is_last = total_batches and done >= total_batches
+            percent = (
+                round(min(100.0, 100.0 * done / total_batches), 1)
+                if total_batches
+                else None
+            )
+            cache_emitter.emit(
+                {
+                    "phase": "caching",
+                    "current": done,
+                    "total": total_batches,
+                    "percent": percent,
+                },
+                force=bool(is_last),
+            )
 
     pool.close()
     cache.finalize_current_shard()

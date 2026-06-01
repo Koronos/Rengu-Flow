@@ -36,16 +36,15 @@ def describe_run_dir(run_dir: Path) -> dict[str, Any]:
     name = run_dir.name
     main = pick_main_config_path(run_dir)
     main_config = str(main) if main else None
-    from rengu_flow.control.status_file import read_status_file
-
-    status = read_status_file(run_dir)
+    # status.json is no longer written (progress now flows via stdout markers); kept as
+    # None for API shape stability.
     artifacts = _list_artifacts(run_dir)
     return {
         "id": name,
         "path": str(run_dir.resolve()),
         "name": name,
         "config_path": main_config,
-        "status": status,
+        "status": None,
         "artifacts": artifacts,
         "has_tensorboard": any(run_dir.glob("events.out.tfevents.*")),
     }

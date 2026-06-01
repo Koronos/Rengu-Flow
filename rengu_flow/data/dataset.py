@@ -7,6 +7,7 @@ import logging
 import math
 import os
 import random
+import sys
 import tarfile
 from collections import defaultdict
 from pathlib import Path
@@ -1039,7 +1040,7 @@ class DirectoryDataset:
             caption_files = []
             mask_files = []
             control_files = []
-            for file in tqdm(files):
+            for file in tqdm(files, disable=not sys.stderr.isatty()):
                 if (
                     not file.is_file()
                     or file.suffix in (".txt", ".npz", ".json", ".parquet", ".bak")

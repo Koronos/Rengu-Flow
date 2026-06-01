@@ -69,7 +69,9 @@ def _evaluate(
         )
     if is_main_process() and tqdm is not None:
         print("Running eval")
-        pbar = tqdm(total=pbar_total)
+        import sys
+
+        pbar = tqdm(total=pbar_total, disable=not sys.stderr.isatty())
     else:
         pbar = None
 

@@ -8,7 +8,6 @@ from typing import Any
 
 import toml
 
-from rengu_flow.control.status_file import read_status_file
 from rengu_flow_ui import db, metrics_tb, runs_scanner
 from rengu_flow_ui.job_queue import list_jobs_sorted
 from rengu_flow_ui.paths import resolve_repo_path
@@ -76,15 +75,26 @@ def _read_run_limits(run_dir: Path | None) -> dict[str, Any]:
     return out
 
 
-def compute_run_progress(run_dir: Path | None) -> dict[str, Any] | None:
+def compute_run_progress(
+    run_dir: Path | None,
+    *,
+    marker: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    """Build the UI ``progress`` payload for a run.
+
+    For live runs, ``marker`` is the latest ``@@RFPROG@@`` payload parsed from the log
+    (see ``live_stream``); it provides step/loss/epoch/speed/ETA. status.json is no
+    longer written, so for finished/imported runs (no marker) we fall back to the last
+    TensorBoard ``train/loss`` scalar so History rows still show final step/loss.
+    """
     if run_dir is None or not run_dir.is_dir():
         return None
 
-    status = read_status_file(run_dir)
     limits = _read_run_limits(run_dir)
-    step = status.get("step") if status else None
-    loss = status.get("loss") if status else None
-    epoch = status.get("epoch") if status else None
+    m = marker or {}
+    step = m.get("step")
+    loss = m.get("loss")
+    epoch = m.get("epoch")
 
     if step is None or loss is None:
         scalars = metrics_tb.read_scalars(run_dir)
@@ -94,9 +104,11 @@ def compute_run_progress(run_dir: Path | None) -> dict[str, Any] | None:
             step = step if step is not None else last.get("step")
             loss = loss if loss is not None else last.get("value")
 
-    max_steps = limits.get("max_steps")
-    percent: float | None = None
-    if step is not None and max_steps and max_steps > 0:
+    # Prefer the marker's own max_steps/percent (it knows epoch-derived totals too),
+    # falling back to the config-derived budget.
+    max_steps = m.get("max_steps") or limits.get("max_steps")
+    percent = m.get("percent")
+    if percent is None and step is not None and max_steps and max_steps > 0:
         percent = round(min(100.0, 100.0 * float(step) / float(max_steps)), 1)
 
     return {
@@ -106,14 +118,20 @@ def compute_run_progress(run_dir: Path | None) -> dict[str, Any] | None:
         "epochs": limits.get("epochs"),
         "loss": loss,
         "percent": percent,
-        "phase": status.get("phase") if status else None,
-        "updated_at": status.get("updated_at") if status else None,
-        "status_available": status is not None,
+        "phase": m.get("phase"),
+        "updated_at": None,
+        "status_available": bool(marker),
         "model_type": limits.get("model_type"),
         "run_name_label": limits.get("run_name_label"),
-        "steps_per_second_ema": status.get("steps_per_second_ema") if status else None,
-        "eta": status.get("eta") if status else None,
-        "steps_remaining": status.get("steps_remaining") if status else None,
+        "step_time_sec": m.get("step_time_sec"),
+        "steps_per_second": m.get("steps_per_second"),
+        "steps_per_second_ema": m.get("steps_per_second_ema"),
+        "eta_sec": m.get("eta_sec"),
+        "eta": m.get("eta"),
+        "steps_remaining": m.get("steps_remaining"),
+        # Caching-phase fields (present only while caching).
+        "current": m.get("current"),
+        "total": m.get("total"),
     }
 
 

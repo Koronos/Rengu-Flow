@@ -62,9 +62,6 @@
         <el-descriptions-item v-if="job" label="PID">
           {{ job.pid ?? "—" }}
         </el-descriptions-item>
-        <el-descriptions-item v-if="status" label="Status file">
-          step {{ status.step }}, loss {{ formatLoss(status.loss) }}
-        </el-descriptions-item>
       </el-descriptions>
 
       <div v-if="runDir || (mode === 'job' && job?.id)" class="run-detail__hint">
@@ -223,10 +220,6 @@ const runIsActive = computed(() => {
   }
   return false;
 });
-
-function formatLoss(v: number | null | undefined): string | number | null | undefined {
-  return typeof v === "number" ? v.toFixed(6) : v;
-}
 
 function goBack() {
   router.push("/runs");

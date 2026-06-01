@@ -661,7 +661,6 @@ def get_sections() -> list[dict[str, Any]]:
             "title": "Monitoring",
             "fields": [
                 _field("monitoring.enable_wandb", "Enable WandB", "boolean", default=False),
-                _field("monitoring.enable_status_file", "Enable status.json for UI", "boolean", default=False),
                 _field("monitoring.wandb_tracker_name", "WandB project", "string", default="rengu-flow"),
                 _field("monitoring.wandb_run_name", "WandB run name", "string"),
                 _field("monitoring.wandb_api_key", "WandB API key", "string"),

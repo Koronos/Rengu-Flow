@@ -96,7 +96,7 @@ class TrainingProgressTracker:
         self._ema_step_sec = a * duration_sec + (1.0 - a) * self._ema_step_sec
 
     def metrics(self, *, step: int) -> dict[str, Any]:
-        """Progress fields to merge into status.json and log lines."""
+        """Progress fields to merge into the stdout progress marker payload."""
         out: dict[str, Any] = {}
         target = self.target_steps
         if target is not None:
@@ -122,6 +122,29 @@ class TrainingProgressTracker:
                     out["eta"] = eta_hr
 
         return out
+
+
+def build_progress_payload(
+    *,
+    step: int,
+    loss: float,
+    epoch: int,
+    metrics: dict[str, Any],
+    phase: str = "training",
+) -> dict[str, Any]:
+    """Compact progress payload for the throttled stdout marker.
+
+    Reuses the numeric fields from ``TrainingProgressTracker.metrics()`` and adds the
+    per-step loss, current epoch, and phase. Mirrors the fields the UI bar consumes.
+    """
+    payload: dict[str, Any] = {
+        "phase": phase,
+        "step": int(step),
+        "loss": round(float(loss), 6),
+        "epoch": int(epoch),
+    }
+    payload.update(metrics)
+    return payload
 
 
 def format_training_log_line(

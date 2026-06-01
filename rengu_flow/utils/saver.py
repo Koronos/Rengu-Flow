@@ -198,26 +198,31 @@ class Saver:
         dist.barrier()
 
     def set_status_context(self, step: int, examples: int, epoch: int, loss: float) -> None:
-        """Remember latest training metrics for status.json while waiting on disk."""
+        """Remember latest training metrics for the phase-change marker on disk waits."""
         self._last_status_step = step
         self._last_status_examples = examples
         self._last_status_epoch = epoch
         self._last_status_loss = loss
 
     def _write_training_status(self, phase: str) -> None:
-        if not self.config.get("monitoring", {}).get("enable_status_file", False):
-            return
-        if self._last_status_step is None:
-            return
-        from rengu_flow.control.status_file import write_status_file
+        """Emit a phase-change progress marker to stdout (rank 0 only).
 
-        write_status_file(
-            self.save_root,
-            step=self._last_status_step,
-            examples=self._last_status_examples or 0,
-            epoch=self._last_status_epoch or 1,
-            loss=self._last_status_loss or 0.0,
-            phase=phase,
+        Used for the disk-export-wait pause so the web UI can surface the
+        "Continue export" action. This is a boundary event (not per-iteration), so
+        it always emits. status.json is no longer written.
+        """
+        if not is_main_process() or self._last_status_step is None:
+            return
+        from rengu_flow.control.progress_stream import ProgressEmitter
+
+        ProgressEmitter().emit(
+            {
+                "phase": phase,
+                "step": self._last_status_step,
+                "epoch": self._last_status_epoch or 1,
+                "loss": round(float(self._last_status_loss or 0.0), 6),
+            },
+            force=True,
         )
 
     def _partial_export_state_dict(self, *, adapter_only: bool) -> dict:

@@ -9,6 +9,7 @@ from pathlib import Path
 
 from rengu_flow.cli.train_launcher import _pick_master_port, base_train_command
 from rengu_flow.cli.training_extras import ensure_training_extras
+from rengu_flow.control.progress_stream import strip_progress_markers
 from rengu_flow.platform_compat import pid_alive, terminate_process_tree
 from rengu_flow_ui import db
 from rengu_flow_ui.subprocess_util import popen_repo_subprocess
@@ -178,6 +179,15 @@ def refresh_all_jobs() -> None:
         try_start_next()
 
 
+def read_raw_log(job_id: str) -> str:
+    """Full job log text WITHOUT marker stripping (for progress-marker parsing)."""
+    job = db.get_job(job_id)
+    path = Path(job.log_path)
+    if not path.is_file():
+        return ""
+    return path.read_bytes().decode("utf-8", errors="replace")
+
+
 def tail_log(job_id: str, offset: int = 0) -> tuple[str, int]:
     job = db.get_job(job_id)
     path = Path(job.log_path)
@@ -186,4 +196,7 @@ def tail_log(job_id: str, offset: int = 0) -> tuple[str, int]:
     data = path.read_bytes()
     if offset > len(data):
         offset = len(data)
-    return data[offset:].decode("utf-8", errors="replace"), len(data)
+    text = data[offset:].decode("utf-8", errors="replace")
+    # Filter throttled progress markers out of the displayed log; the UI parses them
+    # separately for its live bar (see live_stream / progress_stream).
+    return strip_progress_markers(text), len(data)

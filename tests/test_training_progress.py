@@ -81,31 +81,29 @@ def test_write_status_file_includes_progress_fields(tmp_path: Path) -> None:
     assert data["steps_per_second"] == 1.0
 
 
-def test_compute_run_progress_merges_status_speed(tmp_path: Path) -> None:
+def test_compute_run_progress_merges_marker_speed(tmp_path: Path) -> None:
     run_dir = tmp_path / "run"
     run_dir.mkdir()
     (run_dir / "train.toml").write_text(
         "max_steps = 100\n[model]\ntype = \"sdxl\"\n",
         encoding="utf-8",
     )
-    (run_dir / "status.json").write_text(
-        json.dumps(
-            {
-                "step": 40,
-                "loss": 0.2,
-                "epoch": 1,
-                "phase": "training",
-                "max_steps": 100,
-                "percent": 40.0,
-                "steps_remaining": 60,
-                "steps_per_second_ema": 0.5,
-                "eta": "2m",
-            }
-        ),
-        encoding="utf-8",
-    )
-    prog = training_hub.compute_run_progress(run_dir)
+    # Speed/ETA fields now ride on the latest @@RFPROG@@ marker payload.
+    marker = {
+        "step": 40,
+        "loss": 0.2,
+        "epoch": 1,
+        "phase": "training",
+        "max_steps": 100,
+        "percent": 40.0,
+        "steps_remaining": 60,
+        "step_time_sec": 2.0,
+        "steps_per_second_ema": 0.5,
+        "eta": "2m",
+    }
+    prog = training_hub.compute_run_progress(run_dir, marker=marker)
     assert prog is not None
+    assert prog["step_time_sec"] == 2.0
     assert prog["steps_per_second_ema"] == 0.5
     assert prog["eta"] == "2m"
     assert prog["steps_remaining"] == 60

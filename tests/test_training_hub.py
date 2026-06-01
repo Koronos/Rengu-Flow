@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from rengu_flow_ui import training_hub
@@ -18,22 +17,21 @@ def test_sort_runs_orders_states() -> None:
     assert [r["state"] for r in ordered] == ["running", "pending", "finished"]
 
 
-def test_compute_run_progress_from_status(tmp_path: Path) -> None:
+def test_compute_run_progress_from_marker(tmp_path: Path) -> None:
     run_dir = tmp_path / "run_a"
     run_dir.mkdir()
     (run_dir / "train.toml").write_text(
         "max_steps = 100\n[model]\ntype = \"sdxl\"\n[optimizer]\ntype = \"adamw\"\n",
         encoding="utf-8",
     )
-    (run_dir / "status.json").write_text(
-        json.dumps({"step": 25, "loss": 0.5, "epoch": 1, "phase": "training"}),
-        encoding="utf-8",
-    )
-    prog = training_hub.compute_run_progress(run_dir)
+    # Live progress is supplied by the latest parsed @@RFPROG@@ marker payload.
+    marker = {"phase": "training", "step": 25, "loss": 0.5, "epoch": 1}
+    prog = training_hub.compute_run_progress(run_dir, marker=marker)
     assert prog is not None
     assert prog["step"] == 25
     assert prog["max_steps"] == 100
     assert prog["percent"] == 25.0
+    assert prog["phase"] == "training"
 
 
 def test_train_runs_api(ui_client) -> None:

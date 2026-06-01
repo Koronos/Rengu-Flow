@@ -17,7 +17,7 @@ from rengu_flow.config import (
     validate_config,
 )
 from rengu_flow.config.validation import ConfigValidationError
-from rengu_flow.control.status_file import write_status_file
+from rengu_flow.control.progress_stream import ProgressEmitter
 
 
 def parse_args(argv: list[str] | None = None):
@@ -579,12 +579,18 @@ def _run_training(args, config):
     epoch = train_dataloader.epoch
     max_steps = config.get("max_steps")
     logging_steps = config.get("logging_steps", 1)
-    from rengu_flow.training_progress import TrainingProgressTracker, format_training_log_line
+    from rengu_flow.training_progress import (
+        TrainingProgressTracker,
+        build_progress_payload,
+    )
 
     progress_tracker = TrainingProgressTracker(
         max_steps=max_steps,
         total_steps=total_steps,
     )
+    # Throttled stdout progress markers (rank 0). Replaces per-step log spam and
+    # per-iteration status.json writes; the web UI parses these for its live bar.
+    progress_emitter = ProgressEmitter() if is_main_process() else None
     final_model_name = None
     checkpointed = False
     saved = False
@@ -750,14 +756,19 @@ def _run_training(args, config):
         x_axis = examples if x_axis_examples else step
         progress_tracker.record_step_duration(iter_sec)
         step_progress = progress_tracker.metrics(step=step)
-        if is_main_process() and step % logging_steps == 0:
-            print(
-                format_training_log_line(
+        # Throttled progress marker to stdout (rank 0). Always emit on the final step
+        # and on save/epoch boundaries so the UI never misses a transition; otherwise
+        # the emitter caps the rate (~1/sec). No per-step log line, no status.json.
+        if progress_emitter is not None:
+            is_final = max_steps is not None and step >= max_steps
+            progress_emitter.emit(
+                build_progress_payload(
                     step=step,
                     loss=loss,
                     epoch=epoch,
                     metrics=step_progress,
-                )
+                ),
+                force=is_final or finished_epoch or saved,
             )
         log_training_step(
             tb_writer=tb_writer,
@@ -769,19 +780,6 @@ def _run_training(args, config):
             logging_steps=logging_steps,
             is_main=is_main_process(),
         )
-        if (
-            is_main_process()
-            and step % logging_steps == 0
-            and config.get("monitoring", {}).get("enable_status_file", False)
-        ):
-            write_status_file(
-                run_dir,
-                step=step,
-                examples=examples,
-                epoch=epoch,
-                loss=loss,
-                progress=step_progress,
-            )
 
         if (eval_every_n_steps and step % eval_every_n_steps == 0) or (
             finished_epoch and eval_every_n_epochs and epoch % eval_every_n_epochs == 0

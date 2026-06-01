@@ -50,28 +50,42 @@
       class="live-disk-alert"
     />
 
-    <div v-if="progress" class="live-progress">
+    <div v-if="caching" class="live-progress">
       <div class="progress-labels">
-        <span v-if="progress.step != null">
-          Step {{ progress.step }}
-          <template v-if="progress.max_steps"> / {{ progress.max_steps }}</template>
-          <template v-if="progress.percent != null"> ({{ progress.percent }}%)</template>
+        <span>
+          Caching {{ progress?.current ?? 0 }}
+          <template v-if="progress?.total"> / {{ progress?.total }}</template>
         </span>
-        <span v-else>Waiting for first step…</span>
-        <span v-if="progress.loss != null" class="live-loss">
-          loss {{ formatLoss(progress.loss) }}
-        </span>
-        <span v-if="progressHint" class="live-speed">{{ progressHint }}</span>
       </div>
+      <el-progress
+        v-if="progress?.percent != null"
+        :percentage="progress.percent"
+        :stroke-width="12"
+        :show-text="true"
+      />
+      <el-progress v-else :percentage="0" :indeterminate="true" :stroke-width="12" />
+    </div>
+
+    <div v-else-if="progress" class="live-progress">
       <el-progress
         v-if="progress.percent != null"
         :percentage="progress.percent"
-        :stroke-width="10"
+        :stroke-width="14"
         :show-text="true"
+        class="live-progress-bar"
       />
-      <el-text v-else-if="!progress.status_available" type="warning" size="small">
-        Enable <code>monitoring.enable_status_file</code> in config for faster progress updates.
-      </el-text>
+      <div class="progress-readout">
+        <span v-if="progress.step != null" class="live-step">
+          step {{ progress.step }}<template v-if="progress.max_steps"> / {{ progress.max_steps }}</template>
+        </span>
+        <span v-else class="live-step">Waiting for first step…</span>
+        <span v-if="progress.loss != null" class="live-sep">·</span>
+        <span v-if="progress.loss != null" class="live-loss">
+          loss {{ formatLoss(progress.loss) }}
+        </span>
+        <span v-if="progressHint" class="live-sep">·</span>
+        <span v-if="progressHint" class="live-speed">{{ progressHint }}</span>
+      </div>
     </div>
 
     <RunSignalActions
@@ -184,6 +198,7 @@ watch(
 const diskExportWait = computed(
   () => progress.value?.phase === "waiting_disk_export"
 );
+const caching = computed(() => progress.value?.phase === "caching");
 const signalsAvailable = computed(() =>
   jobSignalsAvailable(props.run ? { state: props.run.state } : null)
 );
@@ -252,6 +267,23 @@ function formatLoss(v: number | null | undefined): string | number | null | unde
   gap: 16px;
   margin-bottom: 6px;
   font-size: 13px;
+}
+.live-progress-bar {
+  margin-bottom: 6px;
+}
+.progress-readout {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+  font-family: ui-monospace, monospace;
+}
+.live-step {
+  font-weight: 600;
+}
+.live-sep {
+  color: var(--el-text-color-secondary);
 }
 .live-loss,
 .live-speed {
