@@ -86,25 +86,27 @@
         <div v-for="row in runningRuns" :key="row.key" class="run-row run-row--active">
           <div class="run-row__main">
             <el-tag :type="stateTag(row.state)" size="small" effect="dark">{{ row.state }}</el-tag>
-            <span class="run-row__name">{{ row.label || row.run_name || "—" }}</span>
+            <span class="run-row__name">{{ runLabel(row) }}</span>
             <span v-if="row.progress?.step != null" class="run-row__progress">
               step {{ row.progress.step }}<template v-if="row.progress.max_steps">/{{ row.progress.max_steps }}</template>
+              <template v-if="row.progress.loss != null"> · loss {{ Number(row.progress.loss).toFixed(4) }}</template>
             </span>
           </div>
           <el-space class="run-row__actions">
-            <el-button size="small" :icon="View" @click="openRun(row)">Open</el-button>
-            <el-button
-              size="small"
-              type="primary"
-              :icon="VideoPause"
-              @click="stopGraceful(row.job_id)"
-            >
-              Stop &amp; checkpoint
-            </el-button>
-            <el-tooltip content="Force-kill (no checkpoint)" :show-after="300">
-              <el-button size="small" :icon="CircleClose" @click="forceStop(row.job_id)">
-                Force stop
-              </el-button>
+            <el-tooltip content="Open" :show-after="300">
+              <el-button size="small" circle :icon="View" @click="openRun(row)" />
+            </el-tooltip>
+            <el-tooltip content="Stop &amp; checkpoint" :show-after="300">
+              <el-button
+                size="small"
+                circle
+                type="primary"
+                :icon="VideoPause"
+                @click="stopGraceful(row.job_id)"
+              />
+            </el-tooltip>
+            <el-tooltip content="Force stop (no checkpoint)" :show-after="300">
+              <el-button size="small" circle :icon="CircleClose" @click="forceStop(row.job_id)" />
             </el-tooltip>
           </el-space>
         </div>
@@ -113,22 +115,30 @@
 
         <div ref="pendingListEl" class="run-rows run-rows--pending">
           <div
-            v-for="row in pendingRuns"
+            v-for="(row, idx) in pendingRuns"
             :key="row.key"
             class="run-row run-row--pending"
           >
             <div class="run-row__main">
               <el-icon class="drag-handle"><Rank /></el-icon>
+              <el-tag size="small" round type="info">#{{ idx + 1 }}</el-tag>
               <el-tag :type="stateTag(row.state)" size="small">queued</el-tag>
-              <span class="run-row__name">{{ row.label || row.run_name || "—" }}</span>
+              <span class="run-row__name">{{ runLabel(row) }}</span>
+              <span v-if="row.progress?.model_type" class="run-row__meta">{{ row.progress.model_type }}</span>
             </div>
             <el-space class="run-row__actions">
-              <el-button size="small" :icon="VideoPlay" @click="startQueuedNow(row.job_id)">Run now</el-button>
-              <el-button size="small" :icon="Edit" @click="editRun(row)">Edit</el-button>
-              <el-button size="small" :icon="CopyDocument" @click="newRunFromConfig(row.job_id)">
-                New from config
-              </el-button>
-              <el-button size="small" :icon="Delete" @click="removeRun(row)">Delete</el-button>
+              <el-tooltip content="Run now" :show-after="300">
+                <el-button size="small" circle :icon="VideoPlay" @click="startQueuedNow(row.job_id)" />
+              </el-tooltip>
+              <el-tooltip content="Edit" :show-after="300">
+                <el-button size="small" circle :icon="Edit" @click="editRun(row)" />
+              </el-tooltip>
+              <el-tooltip content="New run from this config" :show-after="300">
+                <el-button size="small" circle :icon="CopyDocument" @click="newRunFromConfig(row.job_id)" />
+              </el-tooltip>
+              <el-tooltip content="Delete" :show-after="300">
+                <el-button size="small" circle :icon="Delete" @click="removeRun(row)" />
+              </el-tooltip>
             </el-space>
           </div>
         </div>
@@ -191,7 +201,7 @@
           sortable
           :sort-method="sortHistoryRun"
         >
-          <template #default="{ row }">{{ row.label || row.run_name || "—" }}</template>
+          <template #default="{ row }">{{ runLabel(row as TrainingRunRow) }}</template>
         </el-table-column>
         <el-table-column
           label="Progress"
@@ -489,6 +499,11 @@ let sortable: Sortable | null = null;
 /** Saved-for-later drafts: never queued or run, listed in History alongside terminal runs. */
 function isDraft(row: TrainingRunRow | undefined): boolean {
   return row?.state === "new";
+}
+
+/** Display name for a run row: run_name / folder, else a stable "Run #id" so it is never "—". */
+function runLabel(row: TrainingRunRow | undefined): string {
+  return row?.label || row?.run_name || (row?.job_id ? `Run #${row.job_id}` : "—");
 }
 const runningRuns = computed(() =>
   runs.value.filter((r) => r.state === "running" || r.state === "stopping")
@@ -1013,6 +1028,10 @@ function continueRun(row: TrainingRunRow) {
   white-space: nowrap;
 }
 .run-row__progress {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+.run-row__meta {
   color: var(--el-text-color-secondary);
   font-size: 12px;
 }

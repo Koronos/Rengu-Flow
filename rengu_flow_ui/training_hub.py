@@ -117,10 +117,23 @@ def compute_run_progress(run_dir: Path | None) -> dict[str, Any] | None:
     }
 
 
+def _config_run_name(config_content: str | None) -> str | None:
+    """The run_name from a job's config snapshot — the display name before a folder exists."""
+    if not config_content:
+        return None
+    try:
+        name = toml.loads(config_content).get("run_name")
+    except Exception:
+        return None
+    return name.strip() if isinstance(name, str) and name.strip() else None
+
+
 def _job_to_training_run(job: db.JobRecord) -> dict[str, Any]:
     run_dir = resolve_job_run_dir(job)
     progress = compute_run_progress(run_dir)
-    run_name = _run_folder_name(run_dir)
+    # Prefer the run folder name; fall back to the config's run_name so queued/draft runs
+    # (which have no folder yet) still show a meaningful name instead of "—".
+    run_name = _run_folder_name(run_dir) or _config_run_name(job.config_content)
     label = (progress or {}).get("run_name_label") or run_name
     return {
         "key": f"job:{job.id}",
