@@ -15,8 +15,19 @@ describe("optimizerForm", () => {
   it("detects custom optimizer types", () => {
     expect(isCustomOptimizerType("adamw")).toBe(false);
     expect(isCustomOptimizerType("prodigy")).toBe(false);
+    // koptim aliases are builtin (auto-installed), not custom — so their params populate.
+    expect(isCustomOptimizerType("adafusion")).toBe(false);
+    expect(isCustomOptimizerType("muon")).toBe(false);
     expect(isCustomOptimizerType("torch.optim.SGD")).toBe(true);
     expect(isCustomOptimizerType("pytorch_optimizer.Prodigy")).toBe(true);
+  });
+
+  it("prefills adafusion/muon KV defaults (koptim optimizers show their params)", () => {
+    const adafusion = applyOptimizerTypeChange({ "optimizer.type": "adamw" }, "adafusion");
+    expect(adafusion["optimizer.type"]).toBe("adafusion");
+    expect(adafusion["optimizer.extra_params"]).toEqual(OPTIMIZER_REGISTRY_KV_DEFAULTS.adafusion);
+    const muon = applyOptimizerTypeChange({ "optimizer.type": "adamw" }, "muon");
+    expect(muon["optimizer.extra_params"]).toEqual(OPTIMIZER_REGISTRY_KV_DEFAULTS.muon);
   });
 
   it("replaces KV when switching builtin types", () => {

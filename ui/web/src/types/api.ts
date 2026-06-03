@@ -490,6 +490,8 @@ export interface RegistryProbeTarget {
   resolved?: string;
   source?: string;
   error?: string;
+  /** True when the type resolves via an optional-dependency alias the autoinstaller installs on demand. */
+  deferred_install?: boolean;
 }
 
 export interface RegistryProbeResult {

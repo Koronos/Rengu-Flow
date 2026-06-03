@@ -20,6 +20,9 @@ export const KNOWN_BUILTIN_OPTIMIZER_TYPES = new Set([
   "automagic",
   "adamw8bitkahan",
   "prodigy",
+  // github.com/Koronos/K-Optimizers (installed on demand via the "koptim" profile).
+  "adafusion",
+  "muon",
 ]);
 
 export function normalizeOptimizerType(value: unknown): string {

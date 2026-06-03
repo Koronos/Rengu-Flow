@@ -71,6 +71,38 @@ def test_resolution_errors_ignores_missing_prodigy_extra() -> None:
     assert resolution_errors(res) == []
 
 
+def test_probe_optimizer_deferred_install_alias(monkeypatch: pytest.MonkeyPatch) -> None:
+    # An optional-dependency alias that isn't importable yet (e.g. koptim not installed) must be
+    # reported as resolvable — the autoinstaller installs it when the user starts training, just
+    # like prodigy. The UI must NOT nag with a "not available / please install" message at select.
+    import rengu_flow_ui.registry_probe as rp
+
+    def _boom(_name: str):
+        raise ImportError("optional dependency missing")
+
+    monkeypatch.setattr(rp, "get_optimizer_class", _boom)
+    r = rp.probe_optimizer("adafusion")
+    assert r["available"] is True
+    assert r["deferred_install"] is True
+    assert r["resolved_class"] == "koptim.Adafusion"
+    assert r["source"] == "optional_dependency"
+    assert resolution_errors({"optimizer": r}) == []
+
+
+def test_probe_optimizer_unknown_not_treated_as_deferred(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A genuinely unknown type must still be flagged unavailable, never deferred-installed.
+    import rengu_flow_ui.registry_probe as rp
+
+    def _boom(_name: str):
+        raise ImportError("nope")
+
+    monkeypatch.setattr(rp, "get_optimizer_class", _boom)
+    r = rp.probe_optimizer("definitely_not_an_alias_xyz_123")
+    assert r["available"] is False
+    assert r.get("deferred_install") is None
+    assert "error" in r
+
+
 def test_probe_resolution_minimal_config() -> None:
     config = {
         "optimizer": {"type": "adamw"},

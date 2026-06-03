@@ -487,16 +487,23 @@ async function runProbe(name: string): Promise<void> {
       return;
     }
     const r = (await api.probeRegistry(body)) as {
-      optimizer?: { available?: boolean; resolved_class?: string; resolved?: string; source?: string; error?: string };
-      scheduler?: { available?: boolean; resolved_class?: string; resolved?: string; source?: string; error?: string };
+      optimizer?: { available?: boolean; resolved_class?: string; resolved?: string; source?: string; error?: string; deferred_install?: boolean };
+      scheduler?: { available?: boolean; resolved_class?: string; resolved?: string; source?: string; error?: string; deferred_install?: boolean };
     };
     const check = r.optimizer || r.scheduler;
     if (check?.available) {
       const detail = check.resolved_class || check.resolved || check.source;
+      const text = check.deferred_install
+        ? detail
+          ? `Installs automatically when training starts → ${detail}`
+          : "Installs automatically when training starts"
+        : detail
+          ? `Available → ${detail}`
+          : "Available in this environment";
       resolveHint.value = {
         loading: false,
         available: true,
-        text: detail ? `Available → ${detail}` : "Available in this environment",
+        text,
       };
     } else {
       resolveHint.value = {

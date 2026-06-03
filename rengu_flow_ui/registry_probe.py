@@ -22,6 +22,21 @@ def probe_optimizer(name: str) -> dict[str, Any]:
     try:
         cls = get_optimizer_class(key)
     except Exception as e:
+        # Known optional-dependency aliases (e.g. adafusion/muon from koptim, adamw8bit, prodigy)
+        # are installed automatically by the autoinstaller when training starts (see
+        # rengu_flow.install / rengu_flow.cli.training_extras). Don't surface a "not available" /
+        # "please install" error for them — report them as resolvable so the UI doesn't nag.
+        lower = key.lower()
+        alias = OPTIMIZER_ALIASES.get(lower) or VENDOR_OPTIMIZER_ALIASES.get(lower)
+        if alias is not None:
+            module_path, class_name = alias
+            return {
+                "available": True,
+                "name": key,
+                "resolved_class": f"{module_path}.{class_name}",
+                "source": _optimizer_source(lower),
+                "deferred_install": True,
+            }
         return {
             "available": False,
             "name": key,
