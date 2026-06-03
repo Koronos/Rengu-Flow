@@ -45,10 +45,13 @@ def test_profiles_for_prodigy_adds_optim():
     assert training_extras.profiles_for_config_dict(data) == ["optim"]
 
 
-def test_registry_optional_optimizers_map_to_optim_profile() -> None:
-    """Every dropdown alias that needs [optim] must be in profiles_for_config_dict."""
+def test_registry_optional_optimizers_map_to_an_install_profile() -> None:
+    """Every dropdown alias needing a non-base dependency must map to an install profile
+    (the [optim] extra, or a git-backed profile like 'adafusion')."""
     names = set(OPTIMIZER_ALIASES) | set(VENDOR_OPTIMIZER_ALIASES)
-    assert names <= training_extras._OPTIMIZER_EXTRA_TYPES
+    for name in names:
+        profiles = training_extras.profiles_for_config_dict({"optimizer": {"type": name}})
+        assert profiles, f"optimizer alias {name!r} maps to no install profile"
 
 
 def test_profiles_for_genericoptim_adds_optim():

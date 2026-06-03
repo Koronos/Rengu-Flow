@@ -11,6 +11,7 @@ PROFILE_EXTRAS: dict[str, str | None] = {
     "optim": "optim",
     "lycoris": "lycoris",
     "dev": "dev",
+    "koptim": None,  # git-backed (see PROFILE_GIT_REQUIREMENTS), no pyproject extra
 }
 
 PROFILE_LABELS: dict[str, str] = {
@@ -21,6 +22,7 @@ PROFILE_LABELS: dict[str, str] = {
     "optim": "Optimizers (bitsandbytes, torchao, …)",
     "lycoris": "LyCORIS adapters",
     "dev": "Development (pytest, httpx)",
+    "koptim": "K-Optimizers (Adafusion, Muon)",
 }
 
 PROFILE_DESCRIPTIONS: dict[str, str] = {
@@ -31,9 +33,10 @@ PROFILE_DESCRIPTIONS: dict[str, str] = {
     "optim": "Optional optimizer backends (bitsandbytes, pytorch-optimizer, …).",
     "lycoris": "LyCORIS-style adapter backend.",
     "dev": "pytest and httpx for development.",
+    "koptim": "Memory-efficient Adafusion / Muon optimizers from github.com/Koronos/K-Optimizers.",
 }
 
-ALL_PROFILE_NAMES = ("base", "ui", "cosmos", "optim", "lycoris", "dev")
+ALL_PROFILE_NAMES = ("base", "ui", "cosmos", "optim", "lycoris", "dev", "koptim")
 
 # Profile -> modules that must import for the profile to count as installed. Used by the manager
 # to decide whether anything needs installing (on-demand) and to verify success afterwards.
@@ -44,6 +47,7 @@ PROFILE_IMPORT_CHECKS: dict[str, tuple[str, ...]] = {
     "lycoris": ("lycoris",),
     "optim": ("bitsandbytes",),
     "dev": ("pytest",),
+    "koptim": ("koptim",),
 }
 
 # Profile -> pip/git requirement specs that uv cannot install via pyproject extras (e.g. git URLs
@@ -51,7 +55,9 @@ PROFILE_IMPORT_CHECKS: dict[str, tuple[str, ...]] = {
 # missing after the regular sync. Register custom/git-backed backends here, for example:
 #     "myoptim": ["git+https://github.com/acme/cool-optimizer@v1.2.0"],
 # and add the importable module name to PROFILE_IMPORT_CHECKS above so detection works.
-PROFILE_GIT_REQUIREMENTS: dict[str, list[str]] = {}
+PROFILE_GIT_REQUIREMENTS: dict[str, list[str]] = {
+    "koptim": ["git+https://github.com/Koronos/K-Optimizers"],
+}
 
 
 def normalize_profiles(names: list[str]) -> list[str]:

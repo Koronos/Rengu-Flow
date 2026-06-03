@@ -76,6 +76,20 @@ export const OPTIMIZER_REGISTRY_KV_DEFAULTS: Record<string, Record<string, unkno
     max_lr: 1e-3,
     lr_bump: 1e-6,
   },
+  // github.com/Koronos/K-Optimizers (installed on demand via the "koptim" profile).
+  adafusion: {
+    lr: 1e-4,
+    betas: [0.0, 0.999],
+    bf16_method: "stochastic_rounding",
+    momentum_dtype: "bfloat16",
+    compile: false,
+  },
+  muon: {
+    lr: 2e-2,
+    momentum: 0.95,
+    adamw_lr: 3e-4,
+    bf16_method: "stochastic_rounding",
+  },
 };
 
 export const SCHEDULER_BUILTIN_KV_DEFAULTS: Record<string, Record<string, unknown>> = {

@@ -19,6 +19,9 @@ OPTIMIZER_ALIASES: dict[str, tuple[str, str]] = {
     "stableadamw": ("optimi", "StableAdamW"),
     "offload": ("torchao.prototype.low_bit_optim", "CPUOffloadOptimizer"),
     "prodigy": ("pytorch_optimizer", "Prodigy"),
+    # git-backed (installed via the "koptim" install profile, see rengu_flow.install.profiles)
+    "adafusion": ("koptim", "Adafusion"),
+    "muon": ("koptim", "Muon"),
 }
 
 
