@@ -814,14 +814,18 @@ class DirectoryDataset:
             )
             self.ars = self._process_user_provided_ars(ars)
         else:
+            # Fall back to the same defaults the UI schema advertises (see
+            # rengu_flow_ui/dataset_schema.py) so enable_ar_bucket works even when a config
+            # turns it on without spelling out min_ar/max_ar/num_ar_buckets and provides no
+            # explicit ar_buckets. Direct key access here used to raise KeyError instead.
             min_ar = directory_config.get(
-                "min_ar", dataset_config["min_ar"]
+                "min_ar", dataset_config.get("min_ar", 0.5)
             )
             max_ar = directory_config.get(
-                "max_ar", dataset_config["max_ar"]
+                "max_ar", dataset_config.get("max_ar", 2.0)
             )
             num_ar = directory_config.get(
-                "num_ar_buckets", dataset_config["num_ar_buckets"]
+                "num_ar_buckets", dataset_config.get("num_ar_buckets", 12)
             )
             self.ars = np.geomspace(min_ar, max_ar, num=num_ar)
         self.ars = dedup_and_sort(self.ars)
