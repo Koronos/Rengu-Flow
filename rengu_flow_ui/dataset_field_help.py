@@ -156,6 +156,35 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         ),
         "doc": "docs/user/dataset-config.md",
     },
+    "tag_dropout_enabled": {
+        "summary": "Randomly drop tags at training time (regularizes prompt generalization).",
+        "detail": (
+            "When on, some caption tags are omitted each step so the model does not over-rely "
+            "on any single tag. Dropout runs at training time only — captions stored in cache "
+            "metadata stay raw. Changing dropout rules that affect the text encoder requires "
+            "rebuilding the text cache (--regenerate_text_cache)."
+        ),
+        "doc": "docs/user/dataset-config.md",
+    },
+    "tag_dropout_probability": {
+        "summary": "Default per-tag drop probability (0–1) for tags without a rule.",
+        "detail": (
+            "Probability that any given tag is dropped, applied to tags not matched by a rule "
+            "in tag_dropout_rules. 0 = never drop; per-tag rules override this value. Only used "
+            "when tag dropout is enabled."
+        ),
+        "doc": "docs/user/dataset-config.md",
+    },
+    "tag_dropout_rules": {
+        "summary": "Per-tag overrides: a list of {tags, drop_probability} (or a tags_file).",
+        "detail": (
+            "Each rule sets a custom drop probability for specific tags, overriding "
+            "tag_dropout_probability. In the UI this is JSON, e.g. "
+            '[{"tags": ["hero"], "drop_probability": 0.1}]. A rule may use "tags_file" instead '
+            "of an inline list, pointing to a .txt file with one tag per line."
+        ),
+        "doc": "docs/user/dataset-config.md",
+    },
 }
 
 

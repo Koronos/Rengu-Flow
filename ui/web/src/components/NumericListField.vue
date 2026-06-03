@@ -10,7 +10,12 @@
       @blur="onBlurTrim"
     />
     <div v-if="quickAddOptions.length" class="preset-row">
-      <el-text type="info" size="small" class="preset-label">Quick add</el-text>
+      <el-tooltip
+        content="Insert a common preset value into the list above"
+        placement="top"
+      >
+        <el-text type="info" size="small" class="preset-label">Quick add</el-text>
+      </el-tooltip>
       <el-button
         v-for="opt in quickAddOptions"
         :key="opt"

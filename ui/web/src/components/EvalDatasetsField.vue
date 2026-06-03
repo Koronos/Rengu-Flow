@@ -24,6 +24,7 @@
       type="textarea"
       :rows="4"
       class="field-full mt-8"
+      :placeholder="jsonPlaceholder"
       @update:model-value="onJsonInput"
     />
     <DatasetPickerModal
@@ -56,6 +57,11 @@ const emit = defineEmits(["update:modelValue"]);
 
 const pickerOpen = ref(false);
 const showAdvanced = ref(false);
+
+// Shown in the raw-JSON editor so users know the expected shape: an array whose
+// entries are either a dataset path string or a { config, name } object.
+const jsonPlaceholder =
+  '[\n  "datasets/eval.toml",\n  { "config": "datasets/eval-hard.toml", "name": "Hard set" }\n]';
 
 const entries = computed(() => {
   const v = props.modelValue;

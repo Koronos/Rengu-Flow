@@ -356,7 +356,7 @@
         <el-form-item label="Output directory (browse runs)">
           <PathFieldControl
             v-model="importOutputDir"
-            placeholder="output"
+            placeholder="output/  (relative to repo root)  or  /absolute/path/to/runs"
             expect="dir"
             input-class="w-full"
             @change="loadImportCandidates"

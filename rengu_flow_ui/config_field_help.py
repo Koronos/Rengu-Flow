@@ -37,6 +37,7 @@ FIELD_HELP: dict[str, dict[str, str]] = {
     "run_name": {
         "summary": "Optional suffix for the run folder name.",
         "detail": "Appended to the timestamp so you can recognize experiments in output_dir.",
+        "doc": "docs/user/web-ui.md",
     },
     "resume_from_checkpoint": {
         "summary": "Resume weights/optimizer from a prior run (trainer flag).",
@@ -55,6 +56,7 @@ FIELD_HELP: dict[str, dict[str, str]] = {
             "and sensitive DiT parts (embedders, norms, 1D params). "
             "Bulk DiT weights use this too unless transformer_dtype is set. SDXL: UNet and encoders."
         ),
+        "doc": "docs/user/training-sdxl-lora-lokr.md",
     },
     "model.checkpoint_path": {
         "summary": "SDXL base model — one .safetensors file or a Diffusers folder.",
@@ -74,6 +76,7 @@ FIELD_HELP: dict[str, dict[str, str]] = {
     "model.freeze_text_encoders": {
         "summary": "Train UNet only; freeze both CLIP text encoders.",
         "detail": "Reduces VRAM and speeds adapter training when you only need visual changes.",
+        "doc": "docs/user/full-model-training-sdxl.md",
     },
     "model.transformer_path": {
         "summary": "Main image model — one .safetensors file (the big checkpoint you train).",
@@ -115,6 +118,7 @@ FIELD_HELP: dict[str, dict[str, str]] = {
     },
     "model.llm_adapter_lr": {
         "summary": "Learning rate for LLM adapter; 0 freezes it.",
+        "doc": "docs/user/training-cosmos-predict2-lora-lokr-finetune.md",
     },
     "model.cache_text_embeddings": {
         "summary": "Cache captions as embeddings once (faster training, more disk).",
@@ -141,6 +145,11 @@ FIELD_HELP: dict[str, dict[str, str]] = {
     },
     "adapter.dim": {
         "summary": "Alias for rank (Kohya-style configs).",
+        "detail": (
+            "Same as rank, named dim for Kohya-style configs. You must set either rank or dim. "
+            "Typical values: 8, 16, 32 — higher rank means more capacity (and larger adapter)."
+        ),
+        "doc": "docs/user/training-sdxl-lora-lokr.md",
     },
     "adapter.init_from_existing": {
         "summary": "Start from an existing LoRA/LoKr (.safetensors or folder).",
@@ -152,19 +161,42 @@ FIELD_HELP: dict[str, dict[str, str]] = {
     },
     "adapter.dtype": {
         "summary": "Dtype for adapter weights (defaults to model dtype).",
+        "detail": (
+            "Override the precision of the adapter (LoRA/LoKr) weights. Leave unset to inherit "
+            "model.dtype; set e.g. bfloat16/float16/float32 if you want the adapter to train at "
+            "a different precision than the base model."
+        ),
+        "doc": "docs/user/training-sdxl-lora-lokr.md",
     },
     "adapter.dropout": {
-        "summary": "LoRA dropout probability.",
+        "summary": "LoRA dropout probability (default 0.0).",
+        "detail": (
+            "Probability of dropping adapter activations during training, in [0, 1]. Default "
+            "0.0 (off). Small values (e.g. 0.05–0.1) can regularize and reduce overfitting on "
+            "small datasets."
+        ),
+        "doc": "docs/user/training-sdxl-lora-lokr.md",
     },
     "adapter.factor": {
         "summary": "LoKr factorization hint (-1 = automatic).",
         "doc": "docs/user/training-sdxl-lora-lokr.md",
     },
     "adapter.decompose_both": {
-        "summary": "LoKr: decompose both Kronecker factors.",
+        "summary": "LoKr: decompose both Kronecker factors (default false).",
+        "detail": (
+            "LoKr only. When true, both Kronecker factors are low-rank decomposed instead of "
+            "just one — more expressive but larger. Default false. Leave off unless you "
+            "specifically need the extra capacity."
+        ),
+        "doc": "docs/user/training-sdxl-lora-lokr.md",
     },
     "adapter.full_matrix": {
-        "summary": "LoKr: use full matrix for the second factor.",
+        "summary": "LoKr: use full matrices for the second factor (default false).",
+        "detail": (
+            "LoKr only. When true, the second Kronecker factor uses full matrices instead of a "
+            "low-rank approximation — higher capacity at the cost of size. Default false."
+        ),
+        "doc": "docs/user/training-sdxl-lora-lokr.md",
     },
     "optimizer.type": {
         "summary": "Any name the trainer can resolve: built-in registry, pytorch_optimizer, or module.Class.",
@@ -481,6 +513,7 @@ FIELD_HELP: dict[str, dict[str, str]] = {
     "max_steps": {
         "summary": "Stop training after this many optimizer steps.",
         "detail": "Overrides epoch count when set.",
+        "doc": "docs/user/optimizer-and-scheduler.md",
     },
     "warmup_steps": {
         "summary": "Trainer-level linear LR warmup before the main scheduler.",
