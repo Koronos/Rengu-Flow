@@ -18,7 +18,7 @@
 | Commit **messages** | No local paths found; `Co-authored-by: Cursor` retained |
 | Local `.env` | Contains real paths — **never commit**; verify with `git check-ignore -v .env` |
 
-Before `git push`, run: `git log -p --all -S '/media/<user>' -S '/home/<user>' -S '<user>@example.com'` (should be empty).
+Before `git push`, grep tracked files (and history) for your real machine paths and personal email — e.g. `git log -p --all -S '/media/<user>' -S '/home/<user>'` with your actual username — results should be empty.
 
 ---
 
