@@ -18,8 +18,10 @@ from rengu_flow.install import ensure_ui_dependencies, self_heal
 
 
 def add_parser(sub: argparse._SubParsersAction) -> None:
-    ui = sub.add_parser("ui", help="Web UI control plane")
-    ui_sub = ui.add_subparsers(dest="ui_command", required=True)
+    ui = sub.add_parser("ui", help="Web UI control plane (defaults to `start`)")
+    # Bare `rengu ui` starts the UI: the subcommand is optional and defaults to `start`.
+    ui.set_defaults(ui_command=None)
+    ui_sub = ui.add_subparsers(dest="ui_command")
 
     start = ui_sub.add_parser("start", help="Install UI extra, build web dist, run server")
     start.add_argument("--no-open", action="store_true")
@@ -194,7 +196,8 @@ def run(args: argparse.Namespace) -> None:
     root = repo_root()
     reexec_cli()
     cfg = ensure_local_config_loaded()
-    cmd = args.ui_command
+    # Default to `start` so `rengu ui` (no subcommand) launches the control panel.
+    cmd = args.ui_command or "start"
 
     # Check the DB schema here, in the terminal-attached process, before building the web
     # dist, spawning the API subprocess, or constructing the app (which runs init_db). An
@@ -218,18 +221,22 @@ def run(args: argparse.Namespace) -> None:
         return
 
     if cmd == "start":
-        if not args.skip_sync:
+        # Flags only exist when the `start` subparser ran; bare `rengu ui` uses defaults.
+        skip_sync = getattr(args, "skip_sync", False)
+        rebuild_web = getattr(args, "rebuild_web", False)
+        no_open = getattr(args, "no_open", False)
+        if not skip_sync:
             self_heal()
             ensure_ui_dependencies()
             reexec_cli()
-        _build_web(root, force=args.rebuild_web)
+        _build_web(root, force=rebuild_web)
         host = cfg.ui.host
         port = cfg.ui.port
         _free_port(port, patterns=("rengu", "uvicorn", "rengu-flow-ui"))
         browser_host = "127.0.0.1" if host in ("0.0.0.0", "::", "*") else host
         url = f"http://{browser_host}:{port}/"
         health = f"{url.rstrip('/')}/api/v1/health"
-        if not args.no_open:
+        if not no_open:
 
             def _open_when_ready() -> None:
                 if _wait_health(health, cfg.ui.token):

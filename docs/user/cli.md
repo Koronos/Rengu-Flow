@@ -7,7 +7,7 @@ Linux-only command-line interface for setup, training, and the web UI. Run from 
 ```bash
 ./rengu init          # rengu.local.toml + uv sync (base)
 ./rengu init ui       # also install the [ui] extra
-./rengu ui start      # build frontend if needed and open the control panel
+./rengu ui            # build frontend if needed and open the control panel (alias of `ui start`)
 ```
 
 `rengu install` is deprecated; use `rengu init` instead.
@@ -27,12 +27,12 @@ Checkpoint paths belong in the **training TOML**, not in `rengu.local.toml`.
 |---------|-------------|
 | `rengu init [profiles…]` | Create `rengu.local.toml`, UI data dir, `uv sync` (profiles: `base`, `ui`, `cosmos`, `optim`, `lycoris`, `dev`, `all`) |
 | `rengu init --only-config` | Local TOML + dirs only; skip `uv sync` |
-| `rengu update [profiles…]` | Re-sync from `uv.lock` (`--all-extras` for every documented extra) |
+| `rengu update [profiles…]` | Fast-forward pull from the project repo, re-sync from `uv.lock`, and recompile the UI if it was built here (`--all-extras` for every documented extra; `--no-pull` to skip the git pull) |
 | `rengu train --config PATH` | Launch DeepSpeed (see flags below) |
 | `rengu validate --config PATH` | Validate training config and exit |
 | `rengu cache --config PATH` | Run dataset cache only (`--cache_only` on trainer) |
 | `rengu dump-dataset PATH` | Inspect dataset TOML |
-| `rengu ui start` | `uv sync --extra ui`, build `ui/web/dist`, serve API, open browser |
+| `rengu ui` / `rengu ui start` | `uv sync --extra ui`, build `ui/web/dist`, serve API, open browser (bare `rengu ui` defaults to `start`) |
 | `rengu ui serve` | API only (`--host`, `--port`, `--reload`) |
 | `rengu ui dev` | API with reload + Vite dev server |
 | `rengu ui build` | `npm run build` in `ui/web` |
