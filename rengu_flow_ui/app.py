@@ -951,6 +951,8 @@ def create_app() -> FastAPI:
 
     @app.get(f"{API_PREFIX}/jobs/{{job_id}}/metrics")
     def job_metrics(job_id: str) -> dict[str, Any]:
+        from rengu_flow_ui import training_hub
+
         job = db.get_job(job_id)
         run_dir = job.run_dir
         if not run_dir and job.output_dir:
@@ -958,8 +960,11 @@ def create_app() -> FastAPI:
             if scanned:
                 run_dir = scanned[-1]["path"]
         if not run_dir:
-            return {"scalars": {}}
-        return {"scalars": metrics_tb.read_scalars(run_dir)}
+            return {"scalars": {}, "preview_images": []}
+        return {
+            "scalars": metrics_tb.read_scalars(run_dir),
+            "preview_images": training_hub.list_run_preview_images(run_dir),
+        }
 
     @app.get(f"{API_PREFIX}/jobs/{{job_id}}/artifacts")
     def job_artifacts(job_id: str) -> dict[str, Any]:
@@ -1004,10 +1009,15 @@ def create_app() -> FastAPI:
 
     @app.get(f"{API_PREFIX}/runs/{{run_name}}/metrics")
     def fs_run_metrics(run_name: str, output_dir: str = "output") -> dict[str, Any]:
+        from rengu_flow_ui import training_hub
+
         run_dir = resolve_repo_path(output_dir) / run_name
         if not run_dir.is_dir():
             raise HTTPException(404, "Run not found")
-        return {"scalars": metrics_tb.read_scalars(run_dir)}
+        return {
+            "scalars": metrics_tb.read_scalars(run_dir),
+            "preview_images": training_hub.list_run_preview_images(run_dir),
+        }
 
     @app.get(f"{API_PREFIX}/tensorboard/status")
     def tensorboard_status() -> dict[str, Any]:
