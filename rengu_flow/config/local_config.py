@@ -171,6 +171,57 @@ def init_local_config_file(*, root: Path | None = None, force: bool = False) -> 
     return dest
 
 
+def render_default_local_config() -> str:
+    """TOML text built from the dataclass defaults — fallback when the example is missing."""
+    ui = UiConfig()
+    maint = MaintenanceConfig()
+    tr = TrainingConfig()
+    return (
+        "# rengu.local.toml — auto-generated defaults. Edit to customize; "
+        "see docs/user/cli.md\n\n"
+        "[ui]\n"
+        f'host = "{ui.host}"\n'
+        f"port = {ui.port}\n"
+        f'data_dir = "{ui.data_dir}"\n'
+        '# token = "change-me"\n\n'
+        "[maintenance]\n"
+        f"enabled = {str(maint.enabled).lower()}\n"
+        f"allow_pip = {str(maint.allow_pip).lower()}\n\n"
+        "# Defaults for `rengu train` (CLI flags override these).\n"
+        "[training]\n"
+        f"num_gpus = {tr.num_gpus}\n"
+        f"master_port = {tr.master_port}\n"
+        f'extra_args = "{tr.extra_args}"\n\n'
+        "# Training subprocess environment (literal os.environ keys; values are strings).\n"
+        "[training.env]\n"
+    )
+
+
+def ensure_local_config_file(*, root: Path | None = None, quiet: bool = False) -> Path | None:
+    """Create ``rengu.local.toml`` from the example (or built-in defaults) when it is missing.
+
+    For users who skipped ``rengu init``: the UI/CLI calls this on startup so the config that
+    holds the UI port and training defaults always exists. Idempotent — an existing file is left
+    untouched — and it never raises: a config that cannot be written must not block startup,
+    since the loader falls back to defaults anyway.
+    """
+    r = root or repo_root()
+    dest = local_config_path(r)
+    if dest.is_file():
+        return dest
+    example = local_config_example_path(r)
+    try:
+        text = example.read_text(encoding="utf-8") if example.is_file() else render_default_local_config()
+        dest.write_text(text, encoding="utf-8")
+    except OSError as e:
+        if not quiet:
+            print(f"==> Could not write {dest.name} ({e}); continuing with built-in defaults.")
+        return None
+    if not quiet:
+        print(f"==> Generated {dest.name} (UI port + training defaults). Edit it to customize.")
+    return dest
+
+
 def ensure_ui_data_dir(cfg: LocalConfig | None = None) -> Path:
     c = cfg if cfg is not None else ensure_local_config_loaded()
     d = c.ui_data_dir()

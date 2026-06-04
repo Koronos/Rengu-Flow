@@ -21,13 +21,17 @@ Linux-only command-line interface for setup, training, and the web UI. Run from 
 
 Checkpoint paths belong in the **training TOML**, not in `rengu.local.toml`.
 
+If you skipped `rengu init`, any `rengu` command (CLI or UI) auto-generates `rengu.local.toml` on
+first run — from `rengu.local.toml.example`, or from built-in defaults if the example is missing —
+so the UI port and training defaults always exist. An existing file is never overwritten.
+
 ## Commands
 
 | Command | Description |
 |---------|-------------|
 | `rengu init [profiles…]` | Create `rengu.local.toml`, UI data dir, `uv sync` (profiles: `base`, `ui`, `cosmos`, `optim`, `lycoris`, `dev`, `all`) |
 | `rengu init --only-config` | Local TOML + dirs only; skip `uv sync` |
-| `rengu update [profiles…]` | Fast-forward pull from the project repo, re-sync from `uv.lock`, and recompile the UI if it was built here (`--all-extras` for every documented extra; `--no-pull` to skip the git pull) |
+| `rengu update [profiles…]` | Fast-forward pull from the project repo, re-sync from `uv.lock`, and recompile the UI if it was built here (`--all-extras` for every documented extra; `--no-pull` to skip the git pull; `--force` to discard local *tracked* code changes and hard-reset to upstream when a fast-forward is blocked — never deletes untracked/ignored files, so the UI data dir and `jobs.db` are safe) |
 | `rengu train --config PATH` | Launch DeepSpeed (see flags below) |
 | `rengu validate --config PATH` | Validate training config and exit |
 | `rengu cache --config PATH` | Run dataset cache only (`--cache_only` on trainer) |

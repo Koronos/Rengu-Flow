@@ -6,7 +6,11 @@ import argparse
 import sys
 from pathlib import Path
 
-from rengu_flow.config.local_config import apply_local_config_to_environ, load_local_config
+from rengu_flow.config.local_config import (
+    apply_local_config_to_environ,
+    ensure_local_config_file,
+    load_local_config,
+)
 from rengu_flow.cli import init_cmd, platform, train_cmd, ui_cmd, update_cmd
 
 
@@ -67,6 +71,10 @@ def main(argv: list[str] | None = None) -> None:
     _warn_deprecated_invocation(raw_argv)
 
     platform.require_supported_platform()
+    # Auto-generate rengu.local.toml for users who skipped `rengu init`. `init` does this
+    # itself with its own messaging, so don't double up there.
+    if not (argv and argv[0] == "init"):
+        ensure_local_config_file()
     load_local_config()
     apply_local_config_to_environ()
 

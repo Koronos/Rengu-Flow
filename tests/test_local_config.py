@@ -40,6 +40,39 @@ def test_init_local_config_file(tmp_path):
     assert init_local_config_file(root=tmp_path) == dest
 
 
+def test_ensure_local_config_file_creates_from_example(tmp_path):
+    from rengu_flow.config.local_config import (
+        LOCAL_CONFIG_EXAMPLE,
+        ensure_local_config_file,
+        local_config_path,
+    )
+
+    (tmp_path / LOCAL_CONFIG_EXAMPLE).write_text(
+        '[ui]\nport = 8765\n', encoding="utf-8"
+    )
+    dest = ensure_local_config_file(root=tmp_path)
+    assert dest == local_config_path(tmp_path)
+    assert dest.is_file()
+    # Idempotent: an existing file is left untouched.
+    dest.write_text("# edited\n", encoding="utf-8")
+    ensure_local_config_file(root=tmp_path)
+    assert dest.read_text(encoding="utf-8") == "# edited\n"
+
+
+def test_ensure_local_config_file_falls_back_to_defaults(tmp_path):
+    # No example present (user went hardcore): still produces a valid config with the UI port
+    # and a training section.
+    import toml
+
+    from rengu_flow.config.local_config import ensure_local_config_file
+
+    dest = ensure_local_config_file(root=tmp_path)
+    assert dest is not None and dest.is_file()
+    data = toml.load(dest)
+    assert data["ui"]["port"] == 8765
+    assert "training" in data
+
+
 def test_load_local_config_missing_returns_none(tmp_path):
     assert load_local_config(root=tmp_path) is None
 

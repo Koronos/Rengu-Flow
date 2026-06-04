@@ -3,9 +3,24 @@
 from __future__ import annotations
 
 import argparse
+import subprocess
 
 import rengu_flow.cli.update_cmd as update_cmd
 from rengu_flow.cli.main import _build_parser
+
+
+def _git(root, *args):
+    subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True, text=True)
+
+
+def _make_upstream(path):
+    path.mkdir()
+    _git(path, "init", "-b", "main")
+    _git(path, "config", "user.email", "t@t")
+    _git(path, "config", "user.name", "t")
+    (path / "code.py").write_text("v1\n", encoding="utf-8")
+    _git(path, "add", "-A")
+    _git(path, "commit", "-m", "v1")
 
 
 def _stub_sync(monkeypatch, calls):
@@ -83,6 +98,63 @@ def test_rebuild_web_warns_instead_of_crashing_without_node(tmp_path, monkeypatc
 
 def test_update_repo_url_is_canonical():
     assert update_cmd.REPO_URL == "https://github.com/Koronos/Rengu-Flow"
+
+
+def test_force_flag_parses():
+    args = _build_parser().parse_args(["update", "--force"])
+    assert args.force is True
+    assert _build_parser().parse_args(["update"]).force is False
+
+
+def test_force_pull_resets_to_upstream_keeping_untracked_db(tmp_path, monkeypatch):
+    # A clone with local tracked "noise" + an untracked jobs.db. --force must update the code
+    # and preserve the untracked DB (never `git clean`).
+    upstream = tmp_path / "upstream"
+    _make_upstream(upstream)
+    clone = tmp_path / "clone"
+    _git(tmp_path, "clone", str(upstream), str(clone))
+    _git(clone, "config", "user.email", "t@t")
+    _git(clone, "config", "user.name", "t")
+
+    # Upstream advances...
+    (upstream / "code.py").write_text("v2\n", encoding="utf-8")
+    _git(upstream, "add", "-A")
+    _git(upstream, "commit", "-m", "v2")
+
+    # ...while the clone has an uncommitted tracked edit that blocks a fast-forward,
+    data_dir = clone / "data"
+    data_dir.mkdir()
+    db = data_dir / "jobs.db"
+    db.write_text("PRECIOUS", encoding="utf-8")
+    (clone / "code.py").write_text("local noise\n", encoding="utf-8")
+
+    monkeypatch.setattr(update_cmd, "REPO_URL", str(upstream))
+    assert update_cmd.git_pull(clone, force=True) is True
+
+    assert (clone / "code.py").read_text(encoding="utf-8") == "v2\n"
+    assert db.read_text(encoding="utf-8") == "PRECIOUS"  # untracked DB untouched
+
+
+def test_plain_pull_does_not_touch_untracked_db_on_failure(tmp_path, monkeypatch, capsys):
+    # Non-force pull is blocked by local changes: it must abort cleanly and keep the DB.
+    upstream = tmp_path / "upstream"
+    _make_upstream(upstream)
+    clone = tmp_path / "clone"
+    _git(tmp_path, "clone", str(upstream), str(clone))
+
+    (upstream / "code.py").write_text("v2\n", encoding="utf-8")
+    _git(upstream, "add", "-A")
+    _git(upstream, "commit", "-m", "v2")
+
+    db = clone / "data" / "jobs.db"
+    db.parent.mkdir()
+    db.write_text("PRECIOUS", encoding="utf-8")
+    (clone / "code.py").write_text("local noise\n", encoding="utf-8")
+
+    monkeypatch.setattr(update_cmd, "REPO_URL", str(upstream))
+    assert update_cmd.git_pull(clone, force=False) is False
+    assert "rengu update --force" in capsys.readouterr().out
+    assert db.read_text(encoding="utf-8") == "PRECIOUS"
 
 
 def test_ui_bare_invocation_defaults_to_start():

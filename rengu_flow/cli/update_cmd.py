@@ -37,6 +37,15 @@ def add_parser(sub: argparse._SubParsersAction) -> None:
         action="store_true",
         help=f"Skip the git fast-forward pull from {REPO_URL}; only re-sync dependencies",
     )
+    p.add_argument(
+        "--force",
+        action="store_true",
+        help=(
+            "Discard local *tracked* code changes and hard-reset to the latest upstream when a "
+            "plain fast-forward is blocked (e.g. line-ending noise). Never deletes untracked or "
+            "ignored files, so the UI data dir and jobs.db are left untouched."
+        ),
+    )
 
 
 def _current_branch(root: Path) -> str | None:
@@ -51,12 +60,19 @@ def _current_branch(root: Path) -> str | None:
     return branch
 
 
-def git_pull(root: Path | None = None) -> bool:
-    """Fast-forward the current branch from ``REPO_URL`` (non-destructive).
+def git_pull(root: Path | None = None, *, force: bool = False) -> bool:
+    """Update the current branch from ``REPO_URL``.
 
-    Returns True when the working tree is up to date afterwards, False when the pull was
-    skipped or could not fast-forward. Never rewrites local history: a divergent branch or a
-    dirty tree leaves the checkout untouched and prints how to resolve it.
+    Returns True when the working tree is up to date afterwards, False when the update was
+    skipped or could not complete.
+
+    Default (``force=False``) is non-destructive: it fast-forwards only, so a divergent branch
+    or a dirty tree leaves the checkout untouched and prints how to resolve it.
+
+    With ``force=True`` it stashes local *tracked* changes and hard-resets the branch to the
+    fetched upstream tip, recovering from line-ending noise or stray edits that block a plain
+    fast-forward. It runs ``git reset --hard`` only and never ``git clean``, so untracked and
+    ignored files — the UI data dir and ``jobs.db`` — are never deleted.
     """
     root = root or repo_root()
     if not which("git"):
@@ -70,6 +86,9 @@ def git_pull(root: Path | None = None) -> bool:
         print("==> Detached HEAD or unknown branch; skipping code update (dependencies only).")
         return False
 
+    if force:
+        return _git_force_pull(root, branch)
+
     cmd = ["git", "-C", str(root), "pull", "--ff-only", REPO_URL, branch]
     print(f"==> {' '.join(cmd)}")
     proc = subprocess.run(cmd)
@@ -77,11 +96,61 @@ def git_pull(root: Path | None = None) -> bool:
         print(
             "==> Could not fast-forward "
             f"'{branch}' from {REPO_URL}. Your branch has local commits or uncommitted "
-            "changes that would be overwritten. Resolve them (commit/stash, then "
-            "`git pull --ff-only`) and re-run `rengu update`. Continuing with dependency sync."
+            "changes that would be overwritten. If you did not edit the code yourself (this is "
+            "usually line-ending noise), re-run `rengu update --force` to discard the local "
+            "tracked changes and reset to upstream. --force never touches untracked or ignored "
+            "files, so your data dir and jobs.db are safe. Continuing with dependency sync."
         )
         return False
     return True
+
+
+def _git_force_pull(root: Path, branch: str) -> bool:
+    """Hard-reset ``branch`` to the fetched upstream tip, preserving untracked files.
+
+    Local tracked changes are first stashed (recoverable via ``git stash list``) so nothing is
+    silently lost, then the branch is reset to ``FETCH_HEAD``. ``git clean`` is deliberately
+    never run: untracked/ignored paths such as the UI ``data/`` dir and ``jobs.db`` survive.
+    """
+    fetch = ["git", "-C", str(root), "fetch", REPO_URL, branch]
+    print(f"==> {' '.join(fetch)}")
+    if subprocess.run(fetch).returncode != 0:
+        print(f"==> git fetch from {REPO_URL} failed. Continuing with dependency sync.")
+        return False
+
+    # Stash only tracked changes (no -u/-a) so untracked data/ and jobs.db are never touched.
+    if _has_tracked_changes(root):
+        stash = [
+            "git", "-C", str(root), "stash", "push",
+            "--message", "rengu update --force (auto-stash of local tracked changes)",
+        ]
+        print(f"==> {' '.join(stash)}")
+        if subprocess.run(stash).returncode == 0:
+            print(
+                "==> Local tracked changes stashed; recover them later with `git stash pop` "
+                "if they were intentional."
+            )
+        else:
+            print("==> Could not stash local changes; aborting force update to avoid data loss.")
+            return False
+
+    reset = ["git", "-C", str(root), "reset", "--hard", "FETCH_HEAD"]
+    print(f"==> {' '.join(reset)}")
+    if subprocess.run(reset).returncode != 0:
+        print("==> git reset --hard failed. Continuing with dependency sync.")
+        return False
+    print(f"==> Reset '{branch}' to the latest upstream. Untracked files (data/, jobs.db) kept.")
+    return True
+
+
+def _has_tracked_changes(root: Path) -> bool:
+    """True when the working tree or index has uncommitted changes to *tracked* files."""
+    proc = subprocess.run(
+        ["git", "-C", str(root), "status", "--porcelain", "--untracked-files=no"],
+        capture_output=True,
+        text=True,
+    )
+    return bool(proc.stdout.strip())
 
 
 def rebuild_web(profiles: list[str], *, root: Path | None = None) -> None:
@@ -110,7 +179,7 @@ def rebuild_web(profiles: list[str], *, root: Path | None = None) -> None:
 
 def run(args: argparse.Namespace) -> None:
     if not getattr(args, "no_pull", False):
-        git_pull()
+        git_pull(force=getattr(args, "force", False))
 
     if args.all_extras:
         profiles = ["all"]

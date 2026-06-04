@@ -47,6 +47,7 @@ def test_legacy_train_dispatch(monkeypatch):
     monkeypatch.setattr(cli_main_mod.platform, "require_supported_platform", lambda: None)
     monkeypatch.setattr(cli_main_mod, "load_local_config", lambda: None)
     monkeypatch.setattr(cli_main_mod, "apply_local_config_to_environ", lambda: None)
+    monkeypatch.setattr(cli_main_mod, "ensure_local_config_file", lambda *_a, **_k: None)
     monkeypatch.setattr(
         "rengu_flow.cli.training_extras.ensure_training_extras",
         lambda *_a, **_k: [],
