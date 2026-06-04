@@ -38,30 +38,6 @@
         </div>
       </el-col>
       <el-col :xs="24" :sm="12" class="monitor-col">
-        <div class="monitor-panel monitor-panel--images">
-          <el-tooltip :content="LOSS_PANEL_HINTS.preview" placement="top" :show-after="300">
-            <el-text type="info" size="small" class="panel-title panel-title--hint">
-              Preview images
-            </el-text>
-          </el-tooltip>
-          <div v-if="previewImages.length" class="preview-grid">
-            <a
-              v-for="img in previewImages.slice(0, 6)"
-              :key="img.name"
-              :href="previewUrl(img)"
-              target="_blank"
-              rel="noopener"
-              class="preview-thumb"
-            >
-              <PreviewImage :src="previewUrl(img)" />
-            </a>
-          </div>
-          <el-text v-else type="info" size="small" class="panel-empty">
-            No preview images yet — enable [preview] in config or use the preview signal.
-          </el-text>
-        </div>
-      </el-col>
-      <el-col :xs="24" :sm="12" class="monitor-col">
         <div class="monitor-panel">
           <el-tooltip :content="LOSS_PANEL_HINTS.step_jump" placement="top" :show-after="300">
             <el-text type="info" size="small" class="panel-title panel-title--hint">
@@ -77,13 +53,16 @@
         </div>
       </el-col>
     </el-row>
+    <div class="monitor-panel monitor-panel--images">
+      <PreviewStepBrowser :preview-images="previewImages" />
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed } from "vue";
 import type { PropType } from "vue";
-import PreviewImage from "./PreviewImage.vue";
+import PreviewStepBrowser from "./PreviewStepBrowser.vue";
 import ScalarLineChart from "./ScalarLineChart.vue";
 import {
   LOSS_PANEL_HINTS,
@@ -112,14 +91,6 @@ const stepJumpValueLabel = computed(() => {
   if (stepJumpTag.value === "train/prodigy_d") return "D";
   return "grad norm";
 });
-
-function previewUrl(img: RunPreviewImage): string {
-  const params = new URLSearchParams({
-    run_dir: img.run_dir,
-    name: img.name,
-  });
-  return `/api/v1/train/preview-image?${params.toString()}`;
-}
 </script>
 
 <style scoped>
@@ -168,21 +139,5 @@ function previewUrl(img: RunPreviewImage): string {
   display: block;
   padding: 24px 0;
   line-height: 1.45;
-}
-.preview-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 6px;
-}
-.preview-thumb {
-  display: block;
-  aspect-ratio: 1;
-  border-radius: 4px;
-  overflow: hidden;
-  border: 1px solid var(--el-border-color-lighter);
-}
-.preview-thumb :deep(.preview-image) {
-  width: 100%;
-  height: 100%;
 }
 </style>

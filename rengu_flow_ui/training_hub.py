@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 from typing import Any
 
@@ -269,7 +268,7 @@ def get_active_training_run() -> dict[str, Any] | None:
     return None
 
 
-def list_run_preview_images(run_dir: str | Path, *, limit: int = 12) -> list[dict[str, str]]:
+def list_run_preview_images(run_dir: str | Path, *, limit: int = 2000) -> list[dict[str, str]]:
     root = Path(run_dir).resolve()
     preview = root / "preview"
     if not preview.is_dir():
@@ -293,10 +292,13 @@ def resolve_preview_image(run_dir: str, name: str) -> Path:
     root = Path(run_dir).resolve()
     if not root.is_dir():
         raise FileNotFoundError(run_dir)
-    if not re.fullmatch(r"[\w.\-]+", name or ""):
+    # Allow any filename (prompts may contain spaces, parentheses, etc.) but
+    # reject anything that could escape the preview directory.
+    if not name or name in (".", "..") or "/" in name or "\\" in name or "\x00" in name:
         raise ValueError("Invalid preview file name")
-    path = (root / "preview" / name).resolve()
-    if not str(path).startswith(str(root)):
+    preview_dir = (root / "preview").resolve()
+    path = (preview_dir / name).resolve()
+    if path.parent != preview_dir:
         raise ValueError("Invalid preview path")
     if not path.is_file():
         raise FileNotFoundError(name)
