@@ -295,6 +295,9 @@ def _run_cosmos_previews(
             wandb_images=wandb_images if wandb_enable else None,
             wandb_enable=wandb_enable,
         )
+        # Release the per-prompt VAE-decode peak before the next prompt so multi-prompt
+        # previews don't accumulate toward an OOM.
+        empty_cuda_cache()
 
     if wandb_enable:
         _flush_wandb_preview_images(wandb_images, step)

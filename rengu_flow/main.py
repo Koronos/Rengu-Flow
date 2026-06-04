@@ -665,9 +665,14 @@ def _run_training(args, config):
 
     oom_skip_cfg = config.get("train", {}).get("oom_skip", {})
     oom_skip_enabled = bool(oom_skip_cfg.get("enabled", False))
+    # Emergency checkpoint on an otherwise-fatal CUDA OOM (e.g. during a preview/eval) so the run is
+    # resumable instead of lost. Best-effort: a failed save never masks the original error.
+    save_on_oom = bool(config.get("train", {}).get("save_checkpoint_on_oom", True))
+    from rengu_flow.utils.oom_skip import is_cuda_oom
+
     oom_skip_state = None
     if oom_skip_enabled:
-        from rengu_flow.utils.oom_skip import OomSkipState, handle_oom_skip, is_cuda_oom
+        from rengu_flow.utils.oom_skip import OomSkipState, handle_oom_skip
 
         oom_skip_state = OomSkipState(max_consecutive=int(oom_skip_cfg.get("max_consecutive", 3)))
 
@@ -684,33 +689,157 @@ def _run_training(args, config):
     if train_data is not None and hasattr(train_data, "set_training_context"):
         train_data.set_training_context(train_seed, step)
 
-    while True:
-        model_engine.reset_activation_shape()
-        if train_data is not None and hasattr(train_data, "set_training_context"):
-            train_data.set_training_context(train_seed, step)
-        iterator = get_data_iterator_for_step(train_dataloader, model_engine)
-        t0 = time.perf_counter()
-        skipped_oom = False
-        if oom_skip_enabled:
-            try:
+    try:
+        while True:
+            model_engine.reset_activation_shape()
+            if train_data is not None and hasattr(train_data, "set_training_context"):
+                train_data.set_training_context(train_seed, step)
+            iterator = get_data_iterator_for_step(train_dataloader, model_engine)
+            t0 = time.perf_counter()
+            skipped_oom = False
+            if oom_skip_enabled:
+                try:
+                    loss = model_engine.train_batch(iterator).item()
+                except Exception as e:
+                    if not is_cuda_oom(e):
+                        raise
+                    handle_oom_skip(
+                        oom_skip_state,
+                        model_engine,
+                        clear_cache=bool(oom_skip_cfg.get("clear_cache_on_skip", True)),
+                        step=step,
+                        tb_writer=tb_writer,
+                    )
+                    oom_skip_state.record_skip()
+                    train_dataloader.sync_epoch()
+                    skipped_oom = True
+            else:
                 loss = model_engine.train_batch(iterator).item()
-            except Exception as e:
-                if not is_cuda_oom(e):
-                    raise
-                handle_oom_skip(
-                    oom_skip_state,
-                    model_engine,
-                    clear_cache=bool(oom_skip_cfg.get("clear_cache_on_skip", True)),
+            iter_sec = time.perf_counter() - t0
+            if skipped_oom:
+                if max_steps is not None and step >= max_steps:
+                    final_model_name = f"step{step}"
+                    if is_main_process():
+                        print(f"Reached max_steps={max_steps}")
+                    break
+                if epoch > epochs:
+                    final_model_name = f"epoch{epoch}"
+                    if is_main_process():
+                        print(f"Reached epochs={epochs}")
+                    break
+                step += 1
+                examples += global_batch_size
+                continue
+            if oom_skip_state is not None:
+                oom_skip_state.record_success()
+            if training_ema is not None:
+                training_ema.update(parameters_to_train)
+            if bench_enabled(config) and is_main_process():
+                bench_record(
+                    bench_csv,
                     step=step,
-                    tb_writer=tb_writer,
+                    loss=loss,
+                    iter_sec=iter_sec,
+                    batch_size=per_step_batch,
                 )
-                oom_skip_state.record_skip()
-                train_dataloader.sync_epoch()
-                skipped_oom = True
-        else:
-            loss = model_engine.train_batch(iterator).item()
-        iter_sec = time.perf_counter() - t0
-        if skipped_oom:
+            train_dataloader.sync_epoch()
+            epoch_loss += loss
+            num_steps += 1
+
+            saver.set_status_context(step, examples, epoch, loss)
+            new_epoch, checkpointed_ep, saved_ep = saver.process_epoch(epoch, step, examples)
+            if checkpointed_ep:
+                checkpointed = True
+            if saved_ep:
+                saved = True
+            finished_epoch = new_epoch is not None and new_epoch != epoch
+            if new_epoch is None:
+                final_model_name = f"epoch{epoch}"
+                break
+            if new_epoch != epoch:
+                epoch = new_epoch
+
+            x_axis = examples if x_axis_examples else step
+            progress_tracker.record_step_duration(iter_sec)
+            step_progress = progress_tracker.metrics(step=step)
+            # Throttled progress marker to stdout (rank 0). Always emit on the final step
+            # and on save/epoch boundaries so the UI never misses a transition; otherwise
+            # the emitter caps the rate (~1/sec). No per-step log line, no status.json.
+            if progress_emitter is not None:
+                is_final = max_steps is not None and step >= max_steps
+                progress_emitter.emit(
+                    build_progress_payload(
+                        step=step,
+                        loss=loss,
+                        epoch=epoch,
+                        metrics=step_progress,
+                    ),
+                    force=is_final or finished_epoch or saved,
+                )
+            log_training_step(
+                tb_writer=tb_writer,
+                wandb_enable=wandb_enable,
+                optimizer=optimizer,
+                loss=loss,
+                x_axis=x_axis,
+                step=step,
+                logging_steps=logging_steps,
+                is_main=is_main_process(),
+            )
+
+            if (eval_every_n_steps and step % eval_every_n_steps == 0) or (
+                finished_epoch and eval_every_n_epochs and epoch % eval_every_n_epochs == 0
+            ):
+                evaluate(
+                    model,
+                    model_engine,
+                    eval_dataloaders,
+                    tb_writer,
+                    x_axis,
+                    eval_gradient_accumulation_steps,
+                    disable_block_swap_for_eval,
+                    optimizer=optimizer,
+                    wandb_enable=wandb_enable,
+                )
+
+            if finished_epoch:
+                if is_main_process() and num_steps > 0:
+                    avg_epoch_loss = epoch_loss / num_steps
+                    if tb_writer is not None:
+                        tb_writer.add_scalar("train/epoch_loss", avg_epoch_loss, epoch)
+                    if wandb_enable:
+                        try:
+                            import wandb
+                            wandb.log({"train/epoch_loss": avg_epoch_loss, "epoch": epoch})
+                        except ImportError:
+                            pass
+                epoch_loss = 0.0
+                num_steps = 0
+
+            step_checkpointed, step_saved, step_signals = saver.process_step(step, examples)
+            if step_checkpointed:
+                checkpointed = True
+            if step_saved:
+                saved = True
+
+            preview_x_axis = examples if x_axis_examples else step
+            if should_run_previews(
+                config,
+                step,
+                epoch,
+                finished_epoch=finished_epoch,
+                forced=step_signals.should_preview,
+            ):
+                run_previews(
+                    model,
+                    config,
+                    tb_writer,
+                    preview_x_axis,
+                    disable_block_swap=disable_block_swap_for_preview,
+                    optimizer=optimizer,
+                    wandb_enable=wandb_enable,
+                )
+
             if max_steps is not None and step >= max_steps:
                 final_model_name = f"step{step}"
                 if is_main_process():
@@ -723,129 +852,35 @@ def _run_training(args, config):
                 break
             step += 1
             examples += global_batch_size
-            continue
-        if oom_skip_state is not None:
-            oom_skip_state.record_success()
-        if training_ema is not None:
-            training_ema.update(parameters_to_train)
-        if bench_enabled(config) and is_main_process():
-            bench_record(
-                bench_csv,
-                step=step,
-                loss=loss,
-                iter_sec=iter_sec,
-                batch_size=per_step_batch,
-            )
-        train_dataloader.sync_epoch()
-        epoch_loss += loss
-        num_steps += 1
-
-        saver.set_status_context(step, examples, epoch, loss)
-        new_epoch, checkpointed_ep, saved_ep = saver.process_epoch(epoch, step, examples)
-        if checkpointed_ep:
-            checkpointed = True
-        if saved_ep:
-            saved = True
-        finished_epoch = new_epoch is not None and new_epoch != epoch
-        if new_epoch is None:
-            final_model_name = f"epoch{epoch}"
-            break
-        if new_epoch != epoch:
-            epoch = new_epoch
-
-        x_axis = examples if x_axis_examples else step
-        progress_tracker.record_step_duration(iter_sec)
-        step_progress = progress_tracker.metrics(step=step)
-        # Throttled progress marker to stdout (rank 0). Always emit on the final step
-        # and on save/epoch boundaries so the UI never misses a transition; otherwise
-        # the emitter caps the rate (~1/sec). No per-step log line, no status.json.
-        if progress_emitter is not None:
-            is_final = max_steps is not None and step >= max_steps
-            progress_emitter.emit(
-                build_progress_payload(
-                    step=step,
-                    loss=loss,
-                    epoch=epoch,
-                    metrics=step_progress,
-                ),
-                force=is_final or finished_epoch or saved,
-            )
-        log_training_step(
-            tb_writer=tb_writer,
-            wandb_enable=wandb_enable,
-            optimizer=optimizer,
-            loss=loss,
-            x_axis=x_axis,
-            step=step,
-            logging_steps=logging_steps,
-            is_main=is_main_process(),
-        )
-
-        if (eval_every_n_steps and step % eval_every_n_steps == 0) or (
-            finished_epoch and eval_every_n_epochs and epoch % eval_every_n_epochs == 0
-        ):
-            evaluate(
-                model,
-                model_engine,
-                eval_dataloaders,
-                tb_writer,
-                x_axis,
-                eval_gradient_accumulation_steps,
-                disable_block_swap_for_eval,
-                optimizer=optimizer,
-                wandb_enable=wandb_enable,
-            )
-
-        if finished_epoch:
-            if is_main_process() and num_steps > 0:
-                avg_epoch_loss = epoch_loss / num_steps
-                if tb_writer is not None:
-                    tb_writer.add_scalar("train/epoch_loss", avg_epoch_loss, epoch)
-                if wandb_enable:
-                    try:
-                        import wandb
-                        wandb.log({"train/epoch_loss": avg_epoch_loss, "epoch": epoch})
-                    except ImportError:
-                        pass
-            epoch_loss = 0.0
-            num_steps = 0
-
-        step_checkpointed, step_saved, step_signals = saver.process_step(step, examples)
-        if step_checkpointed:
-            checkpointed = True
-        if step_saved:
-            saved = True
-
-        preview_x_axis = examples if x_axis_examples else step
-        if should_run_previews(
-            config,
-            step,
-            epoch,
-            finished_epoch=finished_epoch,
-            forced=step_signals.should_preview,
-        ):
-            run_previews(
-                model,
-                config,
-                tb_writer,
-                preview_x_axis,
-                disable_block_swap=disable_block_swap_for_preview,
-                optimizer=optimizer,
-                wandb_enable=wandb_enable,
-            )
-
-        if max_steps is not None and step >= max_steps:
-            final_model_name = f"step{step}"
+    except Exception as exc:
+        # Last-ditch checkpoint on a fatal CUDA OOM (commonly during a preview/eval) so the run can
+        # resume instead of being lost. Best-effort and rank-0 gated logging; the original error is
+        # always re-raised. Note: in multi-GPU runs the save's collective may not complete if only
+        # some ranks OOM — the re-raise still tears the job down.
+        if save_on_oom and is_cuda_oom(exc) and not checkpointed:
             if is_main_process():
-                print(f"Reached max_steps={max_steps}")
-            break
-        if epoch > epochs:
-            final_model_name = f"epoch{epoch}"
-            if is_main_process():
-                print(f"Reached epochs={epochs}")
-            break
-        step += 1
-        examples += global_batch_size
+                print(
+                    f"rengu_flow: CUDA OOM at step {step} — attempting emergency checkpoint "
+                    "before exit...",
+                    flush=True,
+                )
+            try:
+                empty_cuda_cache()
+                if saver.save_checkpoint(step, examples):
+                    checkpointed = True
+                    if is_main_process():
+                        print(
+                            f"rengu_flow: emergency checkpoint saved at step {step}; resume with "
+                            "--resume_from_checkpoint.",
+                            flush=True,
+                        )
+            except Exception as save_exc:  # noqa: BLE001 - never mask the original OOM
+                if is_main_process():
+                    print(
+                        f"rengu_flow: emergency checkpoint FAILED after OOM: {save_exc}",
+                        flush=True,
+                    )
+        raise
 
     if not checkpointed:
         if saver.save_checkpoint(step, examples):

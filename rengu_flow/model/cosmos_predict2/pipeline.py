@@ -465,12 +465,38 @@ class CosmosPredict2Pipeline(BasePipeline):
         state["transformer_was_training"] = self.transformer.training
         self._preview_restore_state = state
 
+    def offload_transformer_for_decode(self) -> None:
+        """Move the DiT to CPU before the VAE decode so the decoder's conv3d has contiguous VRAM.
+
+        The decode does not use the DiT, and on a tight GPU the DiT (fully resident for sampling)
+        plus the VAE plus the decode activation peak can OOM. Skipped when a block-swap offloader
+        already manages residency (it would fight the streamed layout). The next prompt's
+        ``euler_sample_latents`` re-ensures the DiT on GPU; ``restore_after_preview`` returns it to
+        the training device for the resumed step.
+        """
+        if self.transformer is None:
+            return
+        if getattr(self, "_preview_offloader", None) is not None:
+            return
+        if getattr(self, "_block_swap_offloader", None) is not None:
+            return
+        from rengu_flow.utils.common import empty_cuda_cache
+
+        self.transformer.to("cpu")
+        state = getattr(self, "_preview_restore_state", None)
+        if state is not None:
+            state["transformer_offloaded_for_decode"] = True
+        empty_cuda_cache()
+
     def restore_after_preview(self) -> None:
         state = getattr(self, "_preview_restore_state", None) or {}
         offloader = getattr(self, "_preview_offloader", None)
         if offloader is not None:
             offloader.teardown()
         self._preview_offloader = None
+        # If a decode offloaded the DiT to CPU (no block swap path), put it back on GPU for training.
+        if state.get("transformer_offloaded_for_decode") and self.transformer is not None:
+            self.transformer.to("cuda")
         if state.get("vae_was_meta"):
             self.vae.model.to("meta")
         # Park the text encoder on its resting device (CPU when caching freed it, else its

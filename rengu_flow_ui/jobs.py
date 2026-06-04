@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
-import os
 import re
 import shlex
 from pathlib import Path
 
-from rengu_flow.cli.train_launcher import _pick_master_port, base_train_command
+from rengu_flow.cli.train_launcher import (
+    _pick_master_port,
+    base_train_command,
+    training_subprocess_env,
+)
 from rengu_flow.cli.training_extras import ensure_training_extras
 from rengu_flow.control.progress_stream import strip_progress_markers
 from rengu_flow.platform_compat import pid_alive, terminate_process_tree
@@ -48,7 +51,10 @@ def start_job(
         resume_from=job.resume_from,
         extra_args=extra,
     )
-    run_env = os.environ.copy()
+    # Apply [training.env] from rengu.local.toml (PYTORCH_CUDA_ALLOC_CONF, NCCL_*, TF32, ...) the
+    # same way the `rengu train` CLI does — otherwise UI-launched jobs silently ignore it and only
+    # inherit the UI process environment. respect_existing keeps any var already exported to the UI.
+    run_env = training_subprocess_env()
     if env:
         run_env.update(env)
     run_env.setdefault("PYTHONUNBUFFERED", "1")
