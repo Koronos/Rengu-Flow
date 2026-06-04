@@ -97,4 +97,9 @@ def build_train_command(
 
 def training_subprocess_env(training: TrainingConfig | None = None) -> dict[str, str]:
     cfg = ensure_local_config_loaded()
-    return merge_training_env(None, training or cfg.training)
+    env = merge_training_env(None, training or cfg.training)
+    # Unbuffered child stdout so @@RFPROG@@ progress markers (and logs) flush per line
+    # instead of in block-buffered bursts — the CLI bar and UI log tail both depend on
+    # markers arriving promptly. respect_existing semantics: don't override an explicit set.
+    env.setdefault("PYTHONUNBUFFERED", "1")
+    return env

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import time
+from collections import deque
 from typing import Any, Callable
 
 
@@ -62,12 +63,18 @@ def format_steps_per_second(rate: float | None, *, digits: int = 2) -> str | Non
 
 
 class TrainingProgressTracker:
-    """Track per-step duration, EMA step time, speed, and ETA.
+    """Track per-step duration, EMA step time, speed, smoothed loss, and ETA.
 
-    Kohya sd-scripts uses ``tqdm(..., smoothing=0)`` for the step bar: rate and ETA
-    come from the most recent interval between updates (no EMA). We expose both an
-    instant rate (``steps_per_second``) and an EMA-smoothed rate (``steps_per_second_ema``)
-    for steadier UI display.
+    Kohya sd-scripts uses ``tqdm(..., smoothing=0)`` for the step bar but displays a
+    smoothed ``avr_loss`` (a moving average over one epoch's worth of steps via its
+    ``LossRecorder``). Raw per-step speed and loss both jump around a lot, which makes
+    the ETA hard to read, so we expose smoothed values for display:
+
+    - ``steps_per_second`` / ``step_time_sec``: instant (last interval).
+    - ``steps_per_second_ema`` / ``step_time_sec_ema``: EMA-smoothed; ETA is derived
+      from the EMA so it drifts instead of jumping.
+    - ``loss`` (added by the payload builder) is the instant loss; ``loss_avg`` is a
+      Kohya-style moving average over the last ``loss_window`` steps.
     """
 
     def __init__(
@@ -76,6 +83,7 @@ class TrainingProgressTracker:
         max_steps: int | None = None,
         total_steps: int | None = None,
         ema_alpha: float = 0.1,
+        loss_window: int | None = None,
         clock: Callable[[], float] | None = None,
     ) -> None:
         self.target_steps = resolve_target_steps(max_steps, total_steps)
@@ -83,6 +91,12 @@ class TrainingProgressTracker:
         self._clock = clock or time.perf_counter
         self._ema_step_sec: float | None = None
         self._last_step_sec: float | None = None
+        # Kohya averages loss over one epoch of steps; clamp to a sane range so the
+        # window stays responsive (small epochs) without unbounded memory (huge epochs).
+        window = 50 if loss_window is None else int(loss_window)
+        self._loss_window = max(1, min(window, 1000))
+        self._loss_buf: deque[float] = deque(maxlen=self._loss_window)
+        self._loss_sum: float = 0.0
 
     def record_step_duration(self, duration_sec: float) -> None:
         """Update timing EMA from one completed training step (seconds)."""
@@ -94,6 +108,25 @@ class TrainingProgressTracker:
             return
         a = self.ema_alpha
         self._ema_step_sec = a * duration_sec + (1.0 - a) * self._ema_step_sec
+
+    def record_loss(self, loss: float) -> None:
+        """Push one step's loss into the moving-average window (Kohya ``avr_loss``)."""
+        try:
+            value = float(loss)
+        except (TypeError, ValueError):
+            return
+        if not math.isfinite(value):
+            return
+        if len(self._loss_buf) == self._loss_buf.maxlen:
+            self._loss_sum -= self._loss_buf[0]
+        self._loss_buf.append(value)
+        self._loss_sum += value
+
+    @property
+    def loss_avg(self) -> float | None:
+        if not self._loss_buf:
+            return None
+        return self._loss_sum / len(self._loss_buf)
 
     def metrics(self, *, step: int) -> dict[str, Any]:
         """Progress fields to merge into the stdout progress marker payload."""
@@ -113,6 +146,7 @@ class TrainingProgressTracker:
             out["steps_per_second"] = round(1.0 / self._last_step_sec, 4)
 
         if self._ema_step_sec and self._ema_step_sec > 0:
+            out["step_time_sec_ema"] = round(self._ema_step_sec, 4)
             out["steps_per_second_ema"] = round(1.0 / self._ema_step_sec, 4)
             if remaining is not None and remaining > 0:
                 eta_sec = remaining * self._ema_step_sec
@@ -120,6 +154,10 @@ class TrainingProgressTracker:
                 eta_hr = format_eta(out["eta_sec"])
                 if eta_hr:
                     out["eta"] = eta_hr
+
+        avg = self.loss_avg
+        if avg is not None and math.isfinite(avg):
+            out["loss_avg"] = round(avg, 6)
 
         return out
 
@@ -164,15 +202,19 @@ def format_training_log_line(
     else:
         parts.append(f"step={step}")
 
-    parts.append(f"loss={loss:.6f}")
+    loss_avg = metrics.get("loss_avg")
+    if loss_avg is not None:
+        parts.append(f"avr_loss={loss_avg:.6f}")
+    else:
+        parts.append(f"loss={loss:.6f}")
 
+    # Kohya-style display: prefer the EMA-smoothed s/it so the speed reads steadily.
+    sit_ema = metrics.get("step_time_sec_ema")
     sps = metrics.get("steps_per_second")
-    sps_ema = metrics.get("steps_per_second_ema")
-    if sps is not None:
-        speed = f"speed={sps} step/s"
-        if sps_ema is not None and sps_ema != sps:
-            speed += f" (ema {sps_ema})"
-        parts.append(speed)
+    if sit_ema is not None and sit_ema > 0:
+        parts.append(f"speed={sit_ema:.2f} s/it")
+    elif sps is not None:
+        parts.append(f"speed={sps} step/s")
 
     remaining = metrics.get("steps_remaining")
     if remaining is not None:

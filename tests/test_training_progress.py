@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from rengu_flow.control.status_file import read_status_file, write_status_file
@@ -59,10 +58,42 @@ def test_format_training_log_line() -> None:
     )
     assert "step=10/100 (10.0%)" in line
     assert "loss=0.420000" in line
-    assert "speed=0.85 step/s (ema 0.82)" in line
+    # Without an EMA step time we fall back to the instant step/s rate.
+    assert "speed=0.85 step/s" in line
     assert "remaining=90" in line
     assert "eta=1m 46s" in line
     assert "epoch=1" in line
+
+
+def test_format_training_log_line_prefers_smoothed() -> None:
+    line = format_training_log_line(
+        step=10,
+        loss=0.42,
+        epoch=1,
+        metrics={
+            "max_steps": 100,
+            "loss_avg": 0.40,
+            "step_time_sec_ema": 2.5,
+            "steps_per_second": 0.85,
+        },
+    )
+    # Kohya-style display: smoothed avr_loss and EMA s/it, not the jumpy instant values.
+    assert "avr_loss=0.400000" in line
+    assert "speed=2.50 s/it" in line
+    assert "loss=0.420000" not in line
+
+
+def test_tracker_loss_moving_average_windowed() -> None:
+    tracker = TrainingProgressTracker(max_steps=10, loss_window=2)
+    tracker.record_loss(1.0)
+    assert tracker.loss_avg == 1.0
+    tracker.record_loss(3.0)
+    assert tracker.loss_avg == 2.0  # mean(1, 3)
+    tracker.record_loss(5.0)
+    assert tracker.loss_avg == 4.0  # window slid to mean(3, 5)
+    m = tracker.metrics(step=3)
+    assert m["loss_avg"] == 4.0
+    assert "step_time_sec_ema" not in m  # no durations recorded yet
 
 
 def test_write_status_file_includes_progress_fields(tmp_path: Path) -> None:

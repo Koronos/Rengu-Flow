@@ -587,6 +587,7 @@ def _run_training(args, config):
     progress_tracker = TrainingProgressTracker(
         max_steps=max_steps,
         total_steps=total_steps,
+        loss_window=steps_per_epoch,
     )
     # Throttled stdout progress markers (rank 0). Replaces per-step log spam and
     # per-iteration status.json writes; the web UI parses these for its live bar.
@@ -761,6 +762,7 @@ def _run_training(args, config):
 
             x_axis = examples if x_axis_examples else step
             progress_tracker.record_step_duration(iter_sec)
+            progress_tracker.record_loss(loss)
             step_progress = progress_tracker.metrics(step=step)
             # Throttled progress marker to stdout (rank 0). Always emit on the final step
             # and on save/epoch boundaries so the UI never misses a transition; otherwise

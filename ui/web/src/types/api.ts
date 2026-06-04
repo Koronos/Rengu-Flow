@@ -276,11 +276,16 @@ export interface RunProgress {
   max_steps?: number | null;
   epoch?: number | null;
   epochs?: number | null;
+  /** Instant per-step loss (jumps around). */
   loss?: number | null;
+  /** Kohya-style moving-average loss over the last epoch of steps (steady). */
+  loss_avg?: number | null;
   percent?: number | null;
   steps_remaining?: number | null;
-  /** Seconds for the last completed step (s/it). */
+  /** Seconds for the last completed step (s/it, instant). */
   step_time_sec?: number | null;
+  /** EMA-smoothed seconds per step (s/it, steady) — preferred for display. */
+  step_time_sec_ema?: number | null;
   steps_per_second?: number | null;
   steps_per_second_ema?: number | null;
   eta_sec?: number | null;

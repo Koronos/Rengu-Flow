@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import argparse
 import shlex
-import subprocess
 from pathlib import Path
 
+from rengu_flow.cli.progress_display import run_training_with_progress
 from rengu_flow.cli.train_launcher import build_train_command, training_subprocess_env
 from rengu_flow.cli.training_extras import ensure_training_extras
 from rengu_flow.config.local_config import ensure_local_config_loaded
@@ -56,7 +56,7 @@ def run_train(args: argparse.Namespace) -> None:
     )
     env = training_subprocess_env(cfg.training)
     print(f"==> {' '.join(shlex.quote(c) for c in cmd)}")
-    raise SystemExit(subprocess.run(cmd, env=env, cwd=str(cfg.root)).returncode)
+    raise SystemExit(run_training_with_progress(cmd, env=env, cwd=str(cfg.root)))
 
 
 def run_validate(args: argparse.Namespace) -> None:
@@ -75,7 +75,7 @@ def run_cache(args: argparse.Namespace) -> None:
     ensure_training_extras(config_path, root=cfg.root)
     cmd = build_train_command(config_path, extra_args=extra, training=cfg.training)
     env = training_subprocess_env(cfg.training)
-    raise SystemExit(subprocess.run(cmd, env=env, cwd=str(cfg.root)).returncode)
+    raise SystemExit(run_training_with_progress(cmd, env=env, cwd=str(cfg.root)))
 
 
 def run_dump_dataset(args: argparse.Namespace) -> None:

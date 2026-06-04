@@ -89,7 +89,7 @@
             <span class="run-row__name">{{ runLabel(row) }}</span>
             <span v-if="row.progress?.step != null" class="run-row__progress">
               step {{ row.progress.step }}<template v-if="row.progress.max_steps">/{{ row.progress.max_steps }}</template>
-              <template v-if="row.progress.loss != null"> · loss {{ Number(row.progress.loss).toFixed(4) }}</template>
+              <template v-if="(row.progress.loss_avg ?? row.progress.loss) != null"> · loss {{ Number(row.progress.loss_avg ?? row.progress.loss).toFixed(4) }}</template>
             </span>
           </div>
           <el-space class="run-row__actions">

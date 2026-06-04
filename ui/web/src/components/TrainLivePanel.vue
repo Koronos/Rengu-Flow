@@ -79,9 +79,9 @@
           step {{ progress.step }}<template v-if="progress.max_steps"> / {{ progress.max_steps }}</template>
         </span>
         <span v-else class="live-step">Waiting for first step…</span>
-        <span v-if="progress.loss != null" class="live-sep">·</span>
-        <span v-if="progress.loss != null" class="live-loss">
-          loss {{ formatLoss(progress.loss) }}
+        <span v-if="displayLoss != null" class="live-sep">·</span>
+        <span v-if="displayLoss != null" class="live-loss" :title="lossTitle">
+          loss {{ formatLoss(displayLoss) }}
         </span>
         <span v-if="progressHint" class="live-sep">·</span>
         <span v-if="progressHint" class="live-speed">{{ progressHint }}</span>
@@ -155,6 +155,19 @@ let userScrolledUp = false;
 
 const progress = computed(() => props.run?.progress || null);
 const progressHint = computed(() => formatRunProgressHint(progress.value));
+
+// Show the Kohya-style moving-average loss (steady) when available; fall back to the
+// instant per-step loss. The tooltip surfaces the raw value when smoothing is shown.
+const displayLoss = computed(() => {
+  const p = progress.value;
+  if (!p) return null;
+  return p.loss_avg ?? p.loss ?? null;
+});
+const lossTitle = computed(() => {
+  const p = progress.value;
+  if (!p || p.loss_avg == null || p.loss == null) return "";
+  return `avg loss (last steps); instant ${p.loss.toFixed(6)}`;
+});
 
 const streamStatusLabel = computed(() => {
   switch (props.streamStatus) {

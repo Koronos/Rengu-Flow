@@ -4,9 +4,13 @@ import type { RunProgress } from "../types/api";
 export function formatRunProgressHint(progress: RunProgress | null | undefined): string {
   if (!progress) return "";
   const parts: string[] = [];
-  // Prefer s/it (kohya-style) when we have a step time; otherwise show step/s.
-  const sit = progress.step_time_sec;
+  // Prefer the EMA-smoothed s/it (kohya-style) so the speed reads steadily; fall back
+  // to the instant step time, then to step/s.
   const sps = progress.steps_per_second_ema ?? progress.steps_per_second;
+  const sit =
+    progress.step_time_sec_ema ??
+    progress.step_time_sec ??
+    (sps != null && sps > 0 ? 1 / sps : null);
   if (sit != null && sit > 0) {
     parts.push(`${sit.toFixed(2)} s/it`);
   } else if (sps != null && sps > 0) {
