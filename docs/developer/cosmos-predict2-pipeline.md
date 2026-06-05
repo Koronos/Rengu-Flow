@@ -56,7 +56,7 @@ User-facing summary: **`docs/user/training-cosmos-predict2-lora-lokr-finetune.md
 
 Highlights for operators (see also user doc **Performance and VRAM**):
 
-- **`pipeline_model.compile()`** is wired in `main.py` when `compile = true` (diffusion-pipe parity). Short smokes penalize compile in the mean; on long runs steady iter was ~0.51 s vs ~0.68–0.70 s without compile — see user doc **Performance and VRAM**.
+- **`pipeline_model.compile()`** is wired in `main.py` when `compile = true` (diffusion-pipe parity); optional `compile_mode` / `compile_dynamic` shape the `torch.compile` call (see [training-techniques.md — torch.compile](training-techniques.md#torchcompile)). Short smokes penalize compile in the mean; on long runs steady iter was ~0.51 s vs ~0.68–0.70 s without compile — see user doc **Performance and VRAM**.
 - **`reentrant_activation_checkpointing`** defaults to `true` for `cosmos_predict2` when AC is on and `blocks_to_swap` is unset (`defaults.py`).
 - **`enable_block_swap`** uses shared [`rengu_flow/training/block_swap.py`](../training/block_swap.py) on `transformer.blocks` (see [training-techniques.md](training-techniques.md)).
 - Text embeddings: prefer **`cache_text_embeddings`** + `--cache_only` so training does not repeat Qwen3 forward passes.

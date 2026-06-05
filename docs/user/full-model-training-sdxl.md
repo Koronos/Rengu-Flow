@@ -85,3 +85,15 @@ gradient_release = true   # REQUIRED with full-model block swap
 - `block_swap_prefetch = true` (opt-in, off by default) overlaps transfer with compute, but is counterproductive on tight 8 GB WSL2 (needs ≥2 resident blocks); expected to help on bigger GPUs / native Linux.
 
 See [VRAM optimization](../developer/vram-optimization.md) for the measured curve and how the levers interact, plus [Training loop — block swap](training-loop-and-eval.md) and [Shared training techniques](../developer/training-techniques.md).
+
+## Performance: torch.compile
+
+Top-level `compile = true` applies `torch.compile` to the whole pipeline model (UNet) — same keys as adapter training:
+
+| Key | Purpose | Values | Default |
+|-----|---------|--------|---------|
+| **compile** | Enable `pipeline_model.compile()` | `true` / `false` | `false` |
+| **compile_mode** | Inductor mode → `torch.compile(mode=...)` | `"reduce-overhead"` (CUDA-graph based, lowest per-step overhead — best for fixed-shape steps, costs a little extra VRAM for graph pools), `"max-autotune"`, `"max-autotune-no-cudagraphs"` | `"default"` if unset |
+| **compile_dynamic** | `torch.compile(dynamic=True)` for varying input shapes | `true` / `false` | `false` |
+
+The first steps pay a one-time Inductor/CUDA-graph **warmup** (slower while graphs build), then steady-state steps are faster — worthwhile when the run is long enough to amortize the slow early steps. Short smokes mix warmup into the average and are not representative. `reduce-overhead` can further reduce step time over the default mode on fixed-shape steps; benchmark per setup. See [Shared training techniques — torch.compile](../developer/training-techniques.md#torchcompile).

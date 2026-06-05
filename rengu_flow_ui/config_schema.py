@@ -580,6 +580,34 @@ def get_sections() -> list[dict[str, Any]]:
                     },
                 ),
                 _field("compile", "torch.compile", "boolean", default=False, importance="advanced"),
+                _field(
+                    "compile_mode",
+                    "torch.compile mode",
+                    "select",
+                    options=[
+                        "default",
+                        "reduce-overhead",
+                        "max-autotune",
+                        "max-autotune-no-cudagraphs",
+                    ],
+                    allow_custom=True,
+                    importance="advanced",
+                    when={"field": "compile", "equals": True},
+                    description=(
+                        "Inductor mode passed to torch.compile. 'reduce-overhead' uses CUDA graphs "
+                        "to cut per-step launch overhead (best for fixed-shape steps). Leave unset "
+                        "for 'default'."
+                    ),
+                ),
+                _field(
+                    "compile_dynamic",
+                    "torch.compile dynamic shapes",
+                    "boolean",
+                    default=False,
+                    importance="advanced",
+                    when={"field": "compile", "equals": True},
+                    description="Pass dynamic=True to torch.compile when input shapes vary between steps.",
+                ),
                 _field("x_axis_examples", "TensorBoard x-axis = examples", "boolean"),
                 _field("caching_batch_size", "Dataset cache batch size", "integer", default=1),
                 _field("cache_num_proc", "Cache CPU workers", "integer", default=8, min_value=1),

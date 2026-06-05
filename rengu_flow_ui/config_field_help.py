@@ -595,10 +595,30 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "doc": "docs/developer/vram-optimization.md",
     },
     "compile": {
-        "summary": "torch.compile on the DeepSpeed pipeline (recommended for long runs).",
+        "summary": "torch.compile on the DeepSpeed pipeline model (recommended for long runs).",
         "detail": (
+            "Applies torch.compile to the whole pipeline model (UNet/DiT). "
             "Cosmos/Anima (≥1000 steps): after warmup, steady steps were ~0.51s vs ~0.68–0.70s without compile. "
-            "Early steps are slower while graphs build; short test runs are not representative."
+            "Early steps are slower while Inductor/CUDA graphs build; short test runs are not representative. "
+            "Tune behavior with compile_mode and compile_dynamic below."
+        ),
+        "doc": "docs/user/training-cosmos-predict2-lora-lokr-finetune.md",
+    },
+    "compile_mode": {
+        "summary": "Inductor mode for torch.compile (default when unset).",
+        "detail": (
+            "Maps to torch.compile(mode=...). Options: 'default'; 'reduce-overhead' (CUDA-graph based, "
+            "lowest per-step launch overhead — best for fixed-shape steps, costs a little extra VRAM for "
+            "graph pools and can further reduce step time over default; benchmark per setup); "
+            "'max-autotune' and 'max-autotune-no-cudagraphs' (longer autotuning warmup). Only applies when compile is on."
+        ),
+        "doc": "docs/user/training-cosmos-predict2-lora-lokr-finetune.md",
+    },
+    "compile_dynamic": {
+        "summary": "Pass dynamic=True to torch.compile for varying input shapes.",
+        "detail": (
+            "Maps to torch.compile(dynamic=True). Leave off for fixed-shape training; turn on if input "
+            "shapes change between steps so Inductor avoids recompiling per shape. Only applies when compile is on."
         ),
         "doc": "docs/user/training-cosmos-predict2-lora-lokr-finetune.md",
     },
