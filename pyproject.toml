@@ -55,6 +55,10 @@ ui = [
     "tensorboard>=2.14.0",
     "psutil>=5.9.0",
 ]
+# Git-backed; resolved from [tool.uv.sources] below. uv locks the commit in uv.lock, and
+# `rengu update` re-resolves it to the latest commit (uv sync --upgrade-package koptim) only
+# when the koptim profile is already installed.
+koptim = ["koptim"]
 
 [project.scripts]
 rengu = "rengu_flow.cli:main"
@@ -91,3 +95,9 @@ explicit = true
 [tool.uv.sources]
 torch = { index = "pytorch-cu130" }
 torchvision = { index = "pytorch-cu130" }
+# Memory-efficient Adafusion / Muon optimizers. K-Optimizers ships no release tags, so we pin an
+# exact commit — that SHA *is* koptim's version here: reproducible, and it only changes when this
+# `rev` is bumped (then committed to renga). Bump it to ship a newer koptim; users pick it up on
+# their next `rengu update` (only if the koptim extra is already installed). Only installed when
+# the `koptim` extra is selected (see rengu_flow/install/profiles.py).
+koptim = { git = "https://github.com/Koronos/K-Optimizers", rev = "8b03b945321a9a70f04106639cb17fb15fd6a2b4" }

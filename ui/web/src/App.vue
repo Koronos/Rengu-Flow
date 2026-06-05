@@ -3,6 +3,7 @@
   <el-container class="app-shell">
     <el-aside v-if="!isMobile" width="220px" class="app-aside hide-mobile">
       <div class="app-brand">Rengu Flow UI</div>
+      <div v-if="versionLabel" class="app-brand-version" :title="versionTitle">{{ versionLabel }}</div>
       <nav class="app-nav">
         <el-menu :default-active="activeMenu" class="app-menu app-menu--main" router>
           <el-menu-item index="/runs">
@@ -109,6 +110,8 @@ const route = useRoute();
 const { isMobile } = useBreakpoint();
 const drawerOpen = ref(false);
 const maintenanceNav = ref(false);
+const versionLabel = ref("");
+const versionTitle = ref("");
 
 onMounted(async () => {
   try {
@@ -116,6 +119,15 @@ onMounted(async () => {
     maintenanceNav.value = r.enabled;
   } catch {
     maintenanceNav.value = false;
+  }
+  try {
+    const v = await api.version();
+    versionLabel.value = v.commit ? `v${v.version} · ${v.commit}` : `v${v.version}`;
+    versionTitle.value = v.koptim
+      ? `rengu-flow ${v.version}${v.commit ? ` (${v.commit})` : ""} · koptim ${v.koptim}`
+      : `rengu-flow ${v.version}${v.commit ? ` (${v.commit})` : ""}`;
+  } catch {
+    versionLabel.value = "";
   }
 });
 
@@ -148,6 +160,18 @@ const pageTitle = computed(() => {
 </script>
 
 <style scoped>
+.app-brand-version {
+  padding: 0 16px 8px;
+  margin-top: -4px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--el-text-color-secondary);
+  opacity: 0.75;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 @media (max-width: 900px) {
   .hide-on-narrow {
     display: none;

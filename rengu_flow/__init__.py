@@ -9,4 +9,8 @@ from rengu_flow.platform_compat import configure_cuda_allocator as _configure_cu
 _configure_cuda_allocator()
 del _configure_cuda_allocator
 
-__version__ = "0.1.0"
+# Single source of truth: read the version back from package metadata (pyproject [project].version)
+# instead of hardcoding it here. See rengu_flow/version.py.
+from rengu_flow.version import package_version as _package_version
+
+__version__ = _package_version()

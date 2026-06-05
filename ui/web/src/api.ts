@@ -54,6 +54,7 @@ import type {
   MaintenanceDbResetResult,
   MaintenanceEnabledResult,
   MaintenanceStatus,
+  VersionInfo,
 } from "./types/api";
 import { withDefaultPagination } from "./types/api";
 
@@ -79,6 +80,9 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 }
 
 export const api = {
+  /** renga version + git commit + installed koptim, for the sidebar version label. */
+  version: () => request<VersionInfo>("/version"),
+
   validate: (content: string) =>
     request<ValidateResult>("/validate", {
       method: "POST",

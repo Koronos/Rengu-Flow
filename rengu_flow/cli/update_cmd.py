@@ -9,8 +9,8 @@ from shutil import which
 
 from rengu_flow.config.local_config import repo_root
 from rengu_flow.cli.project_venv import reexec_cli, sync_dependencies
-from rengu_flow.install.profiles import normalize_profiles
-from rengu_flow.install.state import record_installed_profiles
+from rengu_flow.install.profiles import PROFILE_EXTRAS, normalize_profiles
+from rengu_flow.install.state import read_installed_profiles, record_installed_profiles
 
 # Canonical upstream the CLI updates from (fast-forward only — never rewrites local history).
 REPO_URL = "https://github.com/Koronos/Rengu-Flow"
@@ -25,7 +25,7 @@ def add_parser(sub: argparse._SubParsersAction) -> None:
         "profiles",
         nargs="*",
         default=["base"],
-        help="Profiles: base, ui, cosmos, optim, lycoris, dev, all",
+        help="Profiles: base, ui, cosmos, optim, lycoris, dev, koptim, all",
     )
     p.add_argument(
         "--all-extras",
@@ -178,15 +178,25 @@ def rebuild_web(profiles: list[str], *, root: Path | None = None) -> None:
 
 
 def run(args: argparse.Namespace) -> None:
+    root = repo_root()
     if not getattr(args, "no_pull", False):
-        git_pull(force=getattr(args, "force", False))
+        git_pull(root, force=getattr(args, "force", False))
 
     if args.all_extras:
-        profiles = ["all"]
+        requested = normalize_profiles(["all"])
     else:
-        profiles = normalize_profiles(list(args.profiles))
-    normalized = normalize_profiles(profiles)
-    sync_dependencies(profiles)
-    record_installed_profiles([p for p in normalized if p != "base"])
-    rebuild_web(normalized)
+        requested = normalize_profiles(list(args.profiles))
+
+    # Also refresh the optional profiles the user already set up, so a plain `rengu update` keeps
+    # them current without re-listing them — and, for git-pinned extras like koptim, applies a
+    # bumped commit pin from the freshly pulled pyproject. Profiles that were never installed are
+    # left out entirely (uv --inexact never touches them), so an update never pulls in, say,
+    # K-Optimizers for someone who never enabled it. ``read_installed_profiles`` is filtered to
+    # known names so a stale record can't break normalize_profiles.
+    previously_installed = [p for p in read_installed_profiles(root) if p in PROFILE_EXTRAS]
+    sync_set = normalize_profiles([*requested, *previously_installed])
+
+    sync_dependencies(sync_set, root=root)
+    record_installed_profiles([p for p in sync_set if p != "base"], root=root)
+    rebuild_web(sync_set, root=root)
     reexec_cli()

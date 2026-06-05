@@ -18,6 +18,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from rengu_flow.version import package_version, version_info
 from rengu_flow_ui import datasets_store, db, jobs, live_stream, metrics_tb, run_staging, runs_scanner, signals
 from rengu_flow_ui.dataset_form import form_to_toml as dataset_form_to_toml
 from rengu_flow_ui.dataset_form import parse_toml_to_form
@@ -205,7 +206,7 @@ def create_app() -> FastAPI:
         yield
         tensorboard_server.stop_tensorboard()
 
-    app = FastAPI(title="Rengu Flow UI", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="Rengu Flow UI", version=package_version(), lifespan=lifespan)
 
     app.add_middleware(
         CORSMiddleware,
@@ -1045,6 +1046,11 @@ def create_app() -> FastAPI:
     @app.get(f"{API_PREFIX}/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get(f"{API_PREFIX}/version")
+    def version() -> dict[str, str | None]:
+        """renga version + git commit + installed koptim, for display in the UI."""
+        return version_info()
 
     def _require_maintenance() -> None:
         from rengu_flow_ui import maintenance

@@ -11,7 +11,9 @@ PROFILE_EXTRAS: dict[str, str | None] = {
     "optim": "optim",
     "lycoris": "lycoris",
     "dev": "dev",
-    "koptim": None,  # git-backed (see PROFILE_GIT_REQUIREMENTS), no pyproject extra
+    # Git-backed extra: the `koptim` package is declared in pyproject with a [tool.uv.sources]
+    # git source, so uv installs and version-manages it like any other extra (lockfile-pinned).
+    "koptim": "koptim",
 }
 
 PROFILE_LABELS: dict[str, str] = {
@@ -50,14 +52,14 @@ PROFILE_IMPORT_CHECKS: dict[str, tuple[str, ...]] = {
     "koptim": ("koptim",),
 }
 
-# Profile -> pip/git requirement specs that uv cannot install via pyproject extras (e.g. git URLs
-# or VCS pins). Installed additively with ``uv pip install`` when the profile's modules are still
-# missing after the regular sync. Register custom/git-backed backends here, for example:
+# Profile -> pip/git requirement specs that uv cannot install via pyproject extras. Installed
+# additively with ``uv pip install`` when the profile's modules are still missing after the
+# regular sync. Prefer a pyproject extra + [tool.uv.sources] git source (like ``koptim``) so the
+# package is lockfile-pinned and upgradable via PROFILE_GIT_PACKAGES below. Only use this escape
+# hatch for specs uv's project workflow genuinely can't express; register them as:
 #     "myoptim": ["git+https://github.com/acme/cool-optimizer@v1.2.0"],
 # and add the importable module name to PROFILE_IMPORT_CHECKS above so detection works.
-PROFILE_GIT_REQUIREMENTS: dict[str, list[str]] = {
-    "koptim": ["git+https://github.com/Koronos/K-Optimizers"],
-}
+PROFILE_GIT_REQUIREMENTS: dict[str, list[str]] = {}
 
 
 def normalize_profiles(names: list[str]) -> list[str]:
@@ -87,6 +89,10 @@ def uv_sync_argv(profiles: list[str]) -> list[str]:
     Uses ``--inexact`` so the sync is **additive**: packages already in the environment that are
     not part of the selected resolution (other extras, user-installed custom optimizers/schedulers,
     git packages) are preserved instead of being removed.
+
+    Git-sourced extras (e.g. ``koptim``) are pinned to an exact commit in [tool.uv.sources], so
+    selecting the extra installs exactly that revision; the package only changes when the pin is
+    bumped in pyproject — uv re-locks and applies it on the next sync.
     """
     normalized = normalize_profiles(profiles)
     cmd = ["uv", "sync", "--inexact"]

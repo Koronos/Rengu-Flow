@@ -79,10 +79,13 @@ export const OPTIMIZER_REGISTRY_KV_DEFAULTS: Record<string, Record<string, unkno
   // github.com/Koronos/K-Optimizers (installed on demand via the "koptim" profile).
   adafusion: {
     lr: 1e-4,
-    betas: [0.0, 0.999],
-    bf16_method: "stochastic_rounding",
+    betas: [0.9, 0.999],
+    eps: [1e-30, 1e-3],
+    weight_decay: 0.0,
+    clip_threshold: 1.0,
     momentum_dtype: "bfloat16",
-    compile: false,
+    cautious: true,
+    bf16_method: "stochastic_rounding",
   },
   muon: {
     lr: 2e-2,

@@ -56,19 +56,43 @@ def _normalize_argv(argv: list[str]) -> list[str]:
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="rengu", description="Rengu Flow command-line interface")
+    # Handled by the early short-circuit in main() (before platform/config setup); declared here
+    # only so it shows up in `rengu --help`.
+    parser.add_argument(
+        "--version",
+        action="store_true",
+        help="Show the rengu version, git commit, and installed koptim, then exit",
+    )
     sub = parser.add_subparsers(dest="command", required=False)
 
     init_cmd.add_parser(sub)
     update_cmd.add_parser(sub)
     train_cmd.add_parser(sub)
     ui_cmd.add_parser(sub)
+    sub.add_parser("version", help="Show the rengu version, git commit, and installed koptim")
     return parser
+
+
+def _print_version() -> None:
+    from rengu_flow.version import version_info
+
+    info = version_info()
+    print(f"rengu-flow {info['version']}")
+    if info["commit"]:
+        print(f"commit:    {info['commit']}")
+    print(f"koptim:    {info['koptim'] or 'not installed'}")
 
 
 def main(argv: list[str] | None = None) -> None:
     raw_argv = list(sys.argv[1:] if argv is None else argv)
     argv = _normalize_argv(raw_argv)
     _warn_deprecated_invocation(raw_argv)
+
+    # Report version early — before platform/config setup — so it works everywhere (and is
+    # available precisely when debugging an unsupported-platform or bad-config situation).
+    if "--version" in raw_argv or (argv and argv[0] == "version"):
+        _print_version()
+        return
 
     platform.require_supported_platform()
     # Auto-generate rengu.local.toml for users who skipped `rengu init`. `init` does this

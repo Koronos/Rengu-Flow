@@ -29,9 +29,10 @@ so the UI port and training defaults always exist. An existing file is never ove
 
 | Command | Description |
 |---------|-------------|
-| `rengu init [profiles…]` | Create `rengu.local.toml`, UI data dir, `uv sync` (profiles: `base`, `ui`, `cosmos`, `optim`, `lycoris`, `dev`, `all`) |
+| `rengu init [profiles…]` | Create `rengu.local.toml`, UI data dir, `uv sync` (profiles: `base`, `ui`, `cosmos`, `optim`, `lycoris`, `dev`, `koptim`, `all`) |
 | `rengu init --only-config` | Local TOML + dirs only; skip `uv sync` |
-| `rengu update [profiles…]` | Fast-forward pull from the project repo, re-sync from `uv.lock`, and recompile the UI if it was built here (`--all-extras` for every documented extra; `--no-pull` to skip the git pull; `--force` to discard local *tracked* code changes and hard-reset to upstream when a fast-forward is blocked — never deletes untracked/ignored files, so the UI data dir and `jobs.db` are safe) |
+| `rengu update [profiles…]` | Fast-forward pull from the project repo, re-sync from `uv.lock`, and recompile the UI if it was built here. Besides any profiles you list, it also refreshes the optional profiles you already installed (so git-pinned extras like `koptim` move to a bumped commit pin) — profiles you never installed are left untouched. (`--all-extras` for every documented extra; `--no-pull` to skip the git pull; `--force` to discard local *tracked* code changes and hard-reset to upstream when a fast-forward is blocked — never deletes untracked/ignored files, so the UI data dir and `jobs.db` are safe) |
+| `rengu version` / `rengu --version` | Print the renga version, git commit, and installed koptim version |
 | `rengu train --config PATH` | Launch DeepSpeed (see flags below) |
 | `rengu validate --config PATH` | Validate training config and exit |
 | `rengu cache --config PATH` | Run dataset cache only (`--cache_only` on trainer) |
