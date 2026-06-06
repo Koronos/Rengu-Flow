@@ -136,6 +136,9 @@
               <el-tooltip content="New run from this config" :show-after="300">
                 <el-button size="small" circle :icon="CopyDocument" @click="newRunFromConfig(row.job_id)" />
               </el-tooltip>
+              <el-tooltip content="Remove from queue (keep as draft)" :show-after="300">
+                <el-button size="small" circle :icon="Remove" @click="removeFromQueue(row)" />
+              </el-tooltip>
               <el-tooltip content="Delete" :show-after="300">
                 <el-button size="small" circle :icon="Delete" @click="removeRun(row)" />
               </el-tooltip>
@@ -451,6 +454,7 @@ import {
   Plus,
   Rank,
   Refresh,
+  Remove,
   Search,
   View,
   VideoPause,
@@ -888,6 +892,17 @@ async function addToQueue(id: string | null | undefined) {
   try {
     await api.enqueueJob(String(id));
     ElMessage.success("Added to queue");
+    await refreshFull();
+  } catch (e) {
+    ElMessage.error(formatError(e));
+  }
+}
+
+async function removeFromQueue(row: TrainingRunRow) {
+  if (!row?.job_id) return;
+  try {
+    await api.dequeueJob(String(row.job_id));
+    ElMessage.success("Removed from queue (saved as draft)");
     await refreshFull();
   } catch (e) {
     ElMessage.error(formatError(e));

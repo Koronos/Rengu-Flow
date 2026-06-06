@@ -774,6 +774,19 @@ def create_app() -> FastAPI:
             raise HTTPException(400, str(e))
         return _job_dict(job)
 
+    @app.post(f"{API_PREFIX}/jobs/{{job_id}}/dequeue")
+    def dequeue_job_endpoint(job_id: str) -> dict[str, Any]:
+        """Remove a queued (pending) run from the queue, keeping it as a saved draft."""
+        from rengu_flow_ui import job_queue
+
+        try:
+            job = job_queue.dequeue_job(job_id)
+        except KeyError:
+            raise HTTPException(404, "Job not found")
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        return _job_dict(job)
+
     @app.post(f"{API_PREFIX}/jobs/queue/reorder")
     def reorder_queue(body: QueueReorderBody) -> dict[str, Any]:
         from rengu_flow_ui import job_queue

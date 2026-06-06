@@ -533,6 +533,21 @@ def delete_job_record(job_id: str) -> None:
     _normalize_queue_positions()
 
 
+def dequeue_job(job_id: str | int) -> db.JobRecord:
+    """Take a queued run out of the queue, keeping it as a saved (``new``) draft.
+
+    Non-destructive opposite of :func:`enqueue_existing`: the config snapshot stays in
+    the DB (shown under History as *Saved*) so it can be re-queued later. Only pending
+    runs can be dequeued.
+    """
+    job = db.get_job(job_id)
+    if job.state != "pending":
+        raise ValueError("Only queued (pending) runs can be removed from the queue")
+    db.update_job(job_id, state="new", queue_position=None)
+    _normalize_queue_positions()
+    return db.get_job(job_id)
+
+
 def reorder_queue(ordered_ids: list[int]) -> list[db.JobRecord]:
     """Set ``queue_position`` for pending jobs to match ``ordered_ids`` order.
 

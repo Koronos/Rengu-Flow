@@ -188,6 +188,10 @@ export const api = {
   enqueueJob: (id: string) =>
     request<JobRecord>(`/jobs/${id}/enqueue`, { method: "POST" }),
 
+  /** Remove a queued (pending) run from the queue, keeping it as a saved draft. */
+  dequeueJob: (id: string) =>
+    request<JobRecord>(`/jobs/${id}/dequeue`, { method: "POST" }),
+
   /** Set the pending-queue order from an explicit list of job ids. */
   reorderQueue: (ids: (string | number)[]) =>
     request<{ queue: JobRecord[] }>("/jobs/queue/reorder", {

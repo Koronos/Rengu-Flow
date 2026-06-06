@@ -75,6 +75,59 @@ def test_delete_pending_job(job_content: str, monkeypatch: pytest.MonkeyPatch) -
         db.get_job(job.id)
 
 
+def test_dequeue_job_keeps_as_draft(job_content: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("rengu_flow_ui.job_queue.try_start_next", lambda: None)
+    job = job_queue.enqueue_job(
+        content=job_content,
+        num_gpus=1,
+        resume_from=None,
+        output_dir=None,
+        extra_args="",
+        reset_dataloader=False,
+        reset_optimizer=False,
+    )
+    assert job.state == "pending"
+    out = job_queue.dequeue_job(job.id)
+    # Removed from the queue but kept: now a saved (new) draft with no queue slot.
+    assert out.state == "new"
+    assert out.queue_position is None
+    assert db.get_job(job.id).config_content == job.config_content
+    # Re-queueing it works (round-trip).
+    assert job_queue.enqueue_existing(job.id).state == "pending"
+
+
+def test_dequeue_rejects_non_pending(job_content: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("rengu_flow_ui.job_queue.try_start_next", lambda: None)
+    draft = job_queue.save_draft(
+        content=job_content,
+        num_gpus=1,
+        resume_from=None,
+        output_dir=None,
+        extra_args="",
+        reset_dataloader=False,
+        reset_optimizer=False,
+    )
+    assert draft.state == "new"
+    with pytest.raises(ValueError, match="pending"):
+        job_queue.dequeue_job(draft.id)
+
+
+def test_dequeue_endpoint(ui_client, job_content: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("rengu_flow_ui.job_queue.try_start_next", lambda: None)
+    job = job_queue.enqueue_job(
+        content=job_content,
+        num_gpus=1,
+        resume_from=None,
+        output_dir=None,
+        extra_args="",
+        reset_dataloader=False,
+        reset_optimizer=False,
+    )
+    r = ui_client.post(f"/api/v1/jobs/{job.id}/dequeue")
+    assert r.status_code == 200, r.text
+    assert r.json()["state"] == "new"
+
+
 def test_edit_pending_writes_config_to_run_folder(
     job_content: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
