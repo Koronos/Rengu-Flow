@@ -1,0 +1,34 @@
+# Staged multi-resolution dataset config.
+# Trains each third of the run at a different resolution (no mixing). See
+# docs/user/dataset-config.md -> "Staged multi-resolution: resolution_schedule".
+#
+# The schedule's "100%" is your max_steps if set in the main config, otherwise
+# epochs * steps_per_epoch (measured over the full resolution set). Latents are
+# cached for every resolution listed below; the schedule only decides which ones
+# are sampled at each point in training.
+
+resolutions = [512, 768, 1024]
+frame_buckets = [1]
+
+[resolution_schedule]
+enabled = true
+
+# First third: 512 only.
+[[resolution_schedule.stage]]
+resolutions = [512]
+fraction = 0.33
+
+# Second third: 768 only.
+[[resolution_schedule.stage]]
+resolutions = [768]
+fraction = 0.33
+
+# Last third: 1024 only.
+# (To mix the final stage instead, use e.g. resolutions = [768, 1024].)
+[[resolution_schedule.stage]]
+resolutions = [1024]
+fraction = 0.34
+
+[[directory]]
+path = "/path/to/your/images"
+num_repeats = 1

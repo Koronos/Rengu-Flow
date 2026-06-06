@@ -444,7 +444,13 @@ class Saver:
             if "save_every_n_epochs" in self.config and epoch % self.config["save_every_n_epochs"] == 0:
                 saved = self.save_model(f"epoch{epoch}")
             new_epoch = self.train_dataloader.epoch
-            if new_epoch > self.config["epochs"]:
+            # With a resolution schedule the run length is governed by the schedule's
+            # step budget, not the epoch count (staged epochs are shorter), so the
+            # training loop stops on steps instead of here.
+            schedule_active = getattr(
+                getattr(self.train_dataloader, "dataset", None), "schedule_active", False
+            )
+            if not schedule_active and new_epoch > self.config["epochs"]:
                 return None, checkpointed, saved
             if is_main_process():
                 print(f"Started new epoch: {new_epoch}")

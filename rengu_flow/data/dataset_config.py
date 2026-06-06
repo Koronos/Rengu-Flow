@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import logging
+
 from rengu_flow.data.augmentation import (
     AugmentationConfigError,
     AugmentationStrategyNotImplementedError,
     validate_augmentation_for_directory,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class DatasetConfigError(ValueError):
@@ -61,6 +65,94 @@ def validate_dataset_config_for_real_data(dataset_config: dict) -> None:
     _validate_sampler_exclusivity(dataset_config, "dataset_config")
     _validate_unit_fraction(dataset_config, "tag_dropout_probability")
     _validate_unit_fraction(dataset_config, "uncond_fraction")
+    _validate_resolution_schedule(dataset_config)
+
+
+def _collect_declared_resolutions(dataset_config: dict) -> set[int]:
+    """Union of long-side resolutions declared globally and per directory."""
+    res: set[int] = set()
+    global_res = dataset_config.get("resolutions")
+    if isinstance(global_res, (list, tuple)):
+        res.update(int(r) for r in global_res)
+    for d in dataset_config.get("directory", []) or []:
+        if isinstance(d, dict) and isinstance(d.get("resolutions"), (list, tuple)):
+            res.update(int(r) for r in d["resolutions"])
+    return res
+
+
+def _validate_resolution_schedule(dataset_config: dict) -> None:
+    """Validate the optional ``[resolution_schedule]`` section.
+
+    Checks structure (enabled flag, stages with non-empty ``resolutions`` and a
+    positive ``fraction``) and that every stage resolution is one of the dataset's
+    declared resolutions. Warns (does not fail) when a declared resolution is never
+    used by any stage, since its cached latents would go unused.
+    """
+    sched = dataset_config.get("resolution_schedule")
+    if sched is None:
+        return
+    if not isinstance(sched, dict):
+        raise DatasetConfigError("resolution_schedule must be a table.")
+    if not sched.get("enabled", False):
+        return
+    stages = sched.get("stage", sched.get("stages"))
+    if not stages or not isinstance(stages, (list, tuple)):
+        raise DatasetConfigError(
+            "resolution_schedule.enabled is true but no [[resolution_schedule.stage]] "
+            "entries were defined."
+        )
+    declared = _collect_declared_resolutions(dataset_config)
+    used: set[int] = set()
+    for i, st in enumerate(stages):
+        if not isinstance(st, dict):
+            raise DatasetConfigError(f"resolution_schedule.stage[{i}] must be a table.")
+        res = st.get("resolutions", st.get("resolution"))
+        if res is None:
+            raise DatasetConfigError(
+                f"resolution_schedule.stage[{i}] must set 'resolutions'."
+            )
+        if not isinstance(res, (list, tuple)):
+            res = [res]
+        if not res:
+            raise DatasetConfigError(
+                f"resolution_schedule.stage[{i}].resolutions must be non-empty."
+            )
+        try:
+            res_ints = [int(r) for r in res]
+        except (TypeError, ValueError):
+            raise DatasetConfigError(
+                f"resolution_schedule.stage[{i}].resolutions must be integers."
+            ) from None
+        frac = st.get("fraction")
+        if frac is None:
+            raise DatasetConfigError(
+                f"resolution_schedule.stage[{i}] must set 'fraction'."
+            )
+        try:
+            frac = float(frac)
+        except (TypeError, ValueError):
+            raise DatasetConfigError(
+                f"resolution_schedule.stage[{i}].fraction must be a number."
+            ) from None
+        if frac <= 0:
+            raise DatasetConfigError(
+                f"resolution_schedule.stage[{i}].fraction must be > 0 (got {frac})."
+            )
+        for r in res_ints:
+            if declared and r not in declared:
+                raise DatasetConfigError(
+                    f"resolution_schedule.stage[{i}] references resolution {r}, which is "
+                    f"not in the dataset's resolutions {sorted(declared)}."
+                )
+            used.add(r)
+    if declared:
+        unused = declared - used
+        if unused:
+            logger.warning(
+                "resolution_schedule: resolutions %s are cached but never used by any "
+                "stage; their latents will go unused.",
+                sorted(unused),
+            )
 
 
 def _validate_sampler_exclusivity(config: dict, label: str) -> None:

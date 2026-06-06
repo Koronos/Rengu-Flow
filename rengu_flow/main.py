@@ -467,14 +467,31 @@ def _run_training(args, config):
         )
         for name, eval_data in eval_data_map.items()
     }
-    steps_per_epoch = max(1, len(train_dataloader) // gradient_accumulation_steps)
+    # A resolution schedule samples only a subset of resolutions per epoch, so the
+    # live dataloader length shrinks; measure steps_per_epoch over the full set of
+    # resolutions (full_epoch_len) to keep total_steps/progress stable.
+    schedule_active = getattr(train_data, "schedule_active", False)
+    if schedule_active:
+        steps_per_epoch = max(
+            1, train_data.full_epoch_len // gradient_accumulation_steps
+        )
+    else:
+        steps_per_epoch = max(1, len(train_dataloader) // gradient_accumulation_steps)
     epochs = config.get("epochs", 1)
     total_steps = epochs * steps_per_epoch
+    # The schedule is measured against a step budget: the user's max_steps if set
+    # (that option wins), otherwise the system-derived total_steps. Stage boundaries
+    # and the LR horizon follow this same target so they line up with the real run.
+    max_steps = config.get("max_steps")
+    schedule_target_steps = max_steps if max_steps is not None else total_steps
+    if schedule_active:
+        train_data.set_schedule_target(schedule_target_steps)
+    lr_horizon_steps = schedule_target_steps if schedule_active else total_steps
     lr_scheduler = resolve_scheduler(
         config.get("lr_scheduler", "constant"),
         optimizer,
         config,
-        total_steps,
+        lr_horizon_steps,
         steps_per_epoch,
     )
     lr_scheduler = apply_warmup(optimizer, lr_scheduler, config.get("warmup_steps", 0))
@@ -577,7 +594,10 @@ def _run_training(args, config):
     step = 1
     examples = global_batch_size
     epoch = train_dataloader.epoch
-    max_steps = config.get("max_steps")
+    # When a resolution schedule is active, the run is governed by the schedule's
+    # step budget (max_steps if set, else the epochs-derived total) rather than by
+    # the epoch count, since staged epochs are shorter than a full-resolution epoch.
+    effective_max_steps = schedule_target_steps if schedule_active else max_steps
     logging_steps = config.get("logging_steps", 1)
     from rengu_flow.training_progress import (
         TrainingProgressTracker,
@@ -689,12 +709,21 @@ def _run_training(args, config):
         torch.cuda.manual_seed_all(train_seed)
     if train_data is not None and hasattr(train_data, "set_training_context"):
         train_data.set_training_context(train_seed, step)
+    # Seed the schedule's notion of the current step (handles resume too) so the
+    # first epoch rollover selects the correct stage.
+    if schedule_active:
+        train_data.current_step = step
 
     try:
         while True:
             model_engine.reset_activation_shape()
             if train_data is not None and hasattr(train_data, "set_training_context"):
                 train_data.set_training_context(train_seed, step)
+            # Step-accurate resolution schedule: switch the active resolution(s) the
+            # moment this step crosses a stage boundary, restarting iteration mid-epoch
+            # if needed. Must run before pulling this step's micro-batches.
+            if schedule_active:
+                train_dataloader.refresh_for_step(step)
             iterator = get_data_iterator_for_step(train_dataloader, model_engine)
             t0 = time.perf_counter()
             skipped_oom = False
@@ -718,12 +747,12 @@ def _run_training(args, config):
                 loss = model_engine.train_batch(iterator).item()
             iter_sec = time.perf_counter() - t0
             if skipped_oom:
-                if max_steps is not None and step >= max_steps:
+                if effective_max_steps is not None and step >= effective_max_steps:
                     final_model_name = f"step{step}"
                     if is_main_process():
-                        print(f"Reached max_steps={max_steps}")
+                        print(f"Reached max_steps={effective_max_steps}")
                     break
-                if epoch > epochs:
+                if not schedule_active and epoch > epochs:
                     final_model_name = f"epoch{epoch}"
                     if is_main_process():
                         print(f"Reached epochs={epochs}")
@@ -768,7 +797,7 @@ def _run_training(args, config):
             # and on save/epoch boundaries so the UI never misses a transition; otherwise
             # the emitter caps the rate (~1/sec). No per-step log line, no status.json.
             if progress_emitter is not None:
-                is_final = max_steps is not None and step >= max_steps
+                is_final = effective_max_steps is not None and step >= effective_max_steps
                 progress_emitter.emit(
                     build_progress_payload(
                         step=step,
@@ -842,12 +871,12 @@ def _run_training(args, config):
                     wandb_enable=wandb_enable,
                 )
 
-            if max_steps is not None and step >= max_steps:
+            if effective_max_steps is not None and step >= effective_max_steps:
                 final_model_name = f"step{step}"
                 if is_main_process():
-                    print(f"Reached max_steps={max_steps}")
+                    print(f"Reached max_steps={effective_max_steps}")
                 break
-            if epoch > epochs:
+            if not schedule_active and epoch > epochs:
                 final_model_name = f"epoch{epoch}"
                 if is_main_process():
                     print(f"Reached epochs={epochs}")

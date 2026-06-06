@@ -296,6 +296,28 @@ def get_dataset_schema() -> dict[str, Any]:
             ],
         },
         {
+            "id": "resolution_schedule",
+            "title": "Resolution schedule (staged multi-res)",
+            "description": "Optional. Split training progress across resolutions instead of "
+            "mixing them uniformly. One resolution per stage = staged (no mixing); several "
+            "resolutions in a stage = mixed. Stages run in order; 'fraction' is each stage's "
+            "share of the run (normalized). The budget is your max_steps if set, else the "
+            "epochs-derived total. Every resolution must also appear in 'Resolutions' above.",
+            "fields": [
+                _field(
+                    "resolution_schedule",
+                    "Schedule (JSON)",
+                    "json",
+                    show_if_set=True,
+                    description='{"enabled": true, "stage": ['
+                    '{"resolutions": [512], "fraction": 0.33}, '
+                    '{"resolutions": [768], "fraction": 0.33}, '
+                    '{"resolutions": [1024], "fraction": 0.34}]} '
+                    "— a stage with multiple resolutions mixes them.",
+                ),
+            ],
+        },
+        {
             "id": "augmentation_global",
             "title": "Augmentation (global defaults)",
             "description": "Default augmentation for all folders unless a directory overrides it.",

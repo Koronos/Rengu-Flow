@@ -238,12 +238,22 @@ class SizeBucketDataset:
         size_bucket: tuple,
         cache_base: Path,
         directory_dataset=None,
+        resolution: int | None = None,
     ) -> None:
         # Per-bucket shuffle mixes multi-resolution training better (diffusion-pipe).
         metadata_dataset = metadata_dataset.shuffle(seed=seed_from_hash(size_bucket))
         self.metadata_dataset = metadata_dataset
         self.directory_config = directory_config
         self.size_bucket = size_bucket
+        # Long-side resolution this bucket was generated for; used by the resolution
+        # schedule to filter which buckets are sampled at a given training stage. For
+        # AR buckets the exact source resolution is passed in; otherwise derive it from
+        # the spatial dims (last element is the frame count).
+        self.resolution = (
+            int(resolution)
+            if resolution is not None
+            else int(round(math.sqrt(size_bucket[-3] * size_bucket[-2])))
+        )
         self.path = Path(directory_config["path"])
         self.cache_dir = cache_base / f"cache_{bucket_suffix(size_bucket)}"
         self.captions_dict = (
@@ -509,6 +519,8 @@ class ConcatenatedBatchedDataset:
         self.data_parallel_rank = data_parallel_rank
         self.data_parallel_world_size = data_parallel_world_size
         size_bucket = self.datasets[0].size_bucket
+        # All datasets in this concat share the same size bucket -> same resolution.
+        self.resolution = self.datasets[0].resolution
         iteration_order = []
         for i, ds in enumerate(self.datasets):
             assert ds.size_bucket == size_bucket
@@ -643,6 +655,7 @@ class ARBucketDataset:
                     naming_size_bucket,
                     self.cache_base,
                     self.directory_dataset,
+                    resolution=int(res),
                 )
             )
         for ds in self.size_buckets:
@@ -1397,6 +1410,44 @@ class DirectoryDataset:
             sb.uncond_text_embeddings.append(uncond_ds)
 
 
+def parse_resolution_schedule(dataset_config: dict):
+    """Parse the optional ``[resolution_schedule]`` section.
+
+    Returns ``(active, stages, cum_frac)`` where ``stages`` is a list of
+    ``(frozenset_of_resolutions, normalized_fraction)`` in temporal order and
+    ``cum_frac`` is the running sum of the normalized fractions (last ~= 1.0).
+    When the schedule is absent or disabled, returns ``(False, [], [])``.
+    """
+    sched = dataset_config.get("resolution_schedule")
+    if not isinstance(sched, dict) or not sched.get("enabled", False):
+        return False, [], []
+    raw_stages = sched.get("stage", sched.get("stages", [])) or []
+    stages = []
+    for st in raw_stages:
+        res = st.get("resolutions", st.get("resolution"))
+        if res is None:
+            continue
+        if not isinstance(res, (list, tuple)):
+            res = [res]
+        res_set = frozenset(int(r) for r in res)
+        if not res_set:
+            continue
+        frac = float(st.get("fraction", 0.0))
+        if frac <= 0.0:
+            continue
+        stages.append((res_set, frac))
+    if not stages:
+        return False, [], []
+    total = sum(f for _, f in stages)
+    stages = [(rs, f / total) for rs, f in stages]
+    cum_frac = []
+    running = 0.0
+    for _, f in stages:
+        running += f
+        cum_frac.append(running)
+    return True, stages, cum_frac
+
+
 class Dataset:
     """Top-level dataset: multiple DirectoryDatasets, post_init for DP rank and batch sizes."""
 
@@ -1445,10 +1496,81 @@ class Dataset:
             for d in self.directory_datasets
         )
 
+        # Staged multi-resolution schedule (optional). When active, the set of
+        # resolutions sampled changes with training progress; the loader treats
+        # schedule_active like rotation_active and re-creates the dataloader each
+        # epoch so a new stage takes effect (see loader.py and set_epoch below).
+        (
+            self.schedule_active,
+            self._schedule_stages,
+            self._schedule_cum_frac,
+        ) = parse_resolution_schedule(dataset_config)
+        self.current_step = 1
+        self._schedule_target = None
+        self._active_stage = None
+        self.full_epoch_len = 0
+
     def set_epoch(self, epoch: int) -> None:
-        """Propagate the current epoch to every size bucket so rotation advances."""
+        """Propagate the current epoch to every size bucket so rotation advances.
+
+        When a resolution schedule is active, also re-evaluate which stage the
+        current step falls in and rebuild the iteration order if it changed. This
+        runs during the loader's epoch rollover, right before the dataloader is
+        re-created, so the new stage's resolutions take effect immediately.
+        """
         for bucket in getattr(self, "buckets", []):
             bucket.set_epoch(epoch)
+        if self.schedule_active and self.post_init_called:
+            stage = self._stage_for_step(self.current_step)
+            if stage != self._active_stage:
+                self._active_stage = stage
+                self.iteration_order = self._build_iteration_order(
+                    self._active_resolutions_for_stage(stage)
+                )
+
+    def set_schedule_target(self, target_steps: int) -> None:
+        """Set the total step budget the resolution schedule is measured against."""
+        self._schedule_target = int(target_steps) if target_steps else None
+
+    def update_active_stage(self, step: int) -> bool:
+        """Update progress and switch the active stage if ``step`` crossed a boundary.
+
+        Returns True when the active resolution set changed (so the caller can restart
+        iteration mid-epoch). This is the step-accurate driver of the schedule; it
+        works even when a single-resolution epoch is longer than a stage's step span
+        (large datasets / few epochs), which epoch-boundary switching cannot handle.
+        """
+        if not (self.schedule_active and self.post_init_called):
+            return False
+        self.current_step = int(step)
+        stage = self._stage_for_step(self.current_step)
+        if stage == self._active_stage:
+            return False
+        self._active_stage = stage
+        self.iteration_order = self._build_iteration_order(
+            self._active_resolutions_for_stage(stage)
+        )
+        return True
+
+    def _stage_for_step(self, step: int) -> int:
+        """Return the stage index whose step range contains ``step`` (1-based)."""
+        if not self.schedule_active:
+            return 0
+        target = self._schedule_target
+        if not target or target <= 0:
+            return 0
+        progress = (max(1, int(step)) - 1) / target
+        for i, cum in enumerate(self._schedule_cum_frac):
+            if progress < cum:
+                return i
+        return len(self._schedule_cum_frac) - 1
+
+    def _active_resolutions_for_stage(self, stage: int) -> frozenset:
+        """Resolutions sampled during ``stage`` (empty stage list => all resolutions)."""
+        if not self._schedule_stages:
+            return frozenset()
+        stage = max(0, min(stage, len(self._schedule_stages) - 1))
+        return self._schedule_stages[stage][0]
 
     def get_augmentation_resolver(self):
         """Return callable(image_spec) -> (resolved_config, fingerprint) or None."""
@@ -1502,19 +1624,48 @@ class Dataset:
                 data_parallel_rank,
                 data_parallel_world_size,
             )
+        # full_epoch_len reflects all resolutions (used for total_steps / progress),
+        # independent of which schedule stage is currently active.
+        full_order = self._build_iteration_order(active_resolutions=None)
+        self.full_epoch_len = len(full_order)
+        if self.schedule_active:
+            self._active_stage = self._stage_for_step(self.current_step)
+            self.iteration_order = self._build_iteration_order(
+                self._active_resolutions_for_stage(self._active_stage)
+            )
+        else:
+            self.iteration_order = full_order
+        self.post_init_called = True
+
+    def _build_iteration_order(self, active_resolutions: frozenset | None = None):
+        """Build the (bucket_idx, item_idx) order, optionally limited to a resolution set.
+
+        ``active_resolutions=None`` includes every bucket (default behavior). When a
+        stage filters down to no rows (e.g. a configured resolution produced no
+        images), fall back to all buckets so a run never stalls on an empty epoch.
+        """
         iteration_order = []
         for i, bucket in enumerate(self.buckets):
+            if active_resolutions is not None and bucket.resolution not in active_resolutions:
+                continue
             iteration_order.extend([i] * len(bucket))
+        if active_resolutions is not None and not iteration_order:
+            logger.warning(
+                "resolution_schedule stage %s matched no cached buckets; "
+                "falling back to all resolutions for this epoch.",
+                sorted(active_resolutions),
+            )
+            for i, bucket in enumerate(self.buckets):
+                iteration_order.extend([i] * len(bucket))
         shuffle_with_seed(iteration_order, 0)
         cumulative = [0] * len(self.buckets)
         for k, idx in enumerate(iteration_order):
             iteration_order[k] = (idx, cumulative[idx])
             cumulative[idx] += 1
-        self.iteration_order = iteration_order
         if subsample_ratio := self.dataset_config.get("subsample_ratio"):
-            new_len = max(1, int(len(self.iteration_order) * subsample_ratio))
-            self.iteration_order = self.iteration_order[:new_len]
-        self.post_init_called = True
+            new_len = max(1, int(len(iteration_order) * subsample_ratio))
+            iteration_order = iteration_order[:new_len]
+        return iteration_order
 
     def __len__(self) -> int:
         assert self.post_init_called

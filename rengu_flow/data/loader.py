@@ -126,6 +126,26 @@ class PipelineDataLoader:
             self.dataset, "rotation_active", False
         )
 
+    def refresh_for_step(self, step: int) -> None:
+        """Step-accurate resolution-schedule hook. Call once per optimizer step,
+        before pulling that step's micro-batches. If the step crossed a stage
+        boundary, the dataset rebuilds its iteration order and we restart iteration
+        (mid-epoch) so the new resolution(s) take effect immediately — even when a
+        single-resolution epoch spans more steps than a stage."""
+        update = getattr(self.dataset, "update_active_stage", None)
+        if callable(update) and update(step):
+            self._restart_iteration()
+
+    def _restart_iteration(self) -> None:
+        """Discard the current (old-stage) iterator and start fresh on the rebuilt
+        dataset without advancing the epoch counter. Re-creating the DataLoader also
+        re-forks any workers so they pick up the new iteration order."""
+        self._stop_prefetch_thread()
+        self._create_dataloader()
+        self.data = self._pull_batches_from_dataloader()
+        self.num_batches_pulled = 0
+        self.next_micro_batch = None
+
     def _use_thread_prefetch(self) -> bool:
         return self.dataloader_prefetch and self.num_dataloader_workers == 0
 

@@ -189,6 +189,61 @@ These apply to all directories unless overridden per-directory.
 | **`uncond_fraction`** | Fraction of samples with empty caption (CFG). | Float in [0, 1]. | `0` |
 | **`tag_match_case_sensitive`** | Case-sensitive tag matching in rules. | `true` / `false` | `false` |
 
+### Staged multi-resolution: `resolution_schedule`
+
+By default, when you list several `resolutions` they are **mixed uniformly**
+throughout training (every epoch samples all of them, weighted by image count).
+The optional `[resolution_schedule]` section lets you instead **split training
+progress across resolutions** — for example, train the first third at 512, the
+second third at 768, and the last third at 1024 — or mix a chosen subset.
+
+```toml
+resolutions = [512, 768, 1024]
+
+[resolution_schedule]
+enabled = true
+
+# Staged (no mixing): each resolution gets ~1/3 of the run.
+[[resolution_schedule.stage]]
+resolutions = [512]
+fraction = 0.33
+
+[[resolution_schedule.stage]]
+resolutions = [768]
+fraction = 0.33
+
+[[resolution_schedule.stage]]
+resolutions = [1024]
+fraction = 0.34
+```
+
+How it works:
+
+- **Stages run in order.** Each stage lists which `resolutions` are active and a
+  `fraction` (its share of the run). Fractions are **normalized** to sum to 1, so
+  `[1, 1, 2]` means 25% / 25% / 50%.
+- **One resolution per stage = staged with no mixing.** Several resolutions in a
+  stage = they are **mixed** during that stage (sampled in proportion to image
+  count, like the default). A single stage with every resolution reproduces the
+  default mixed behavior.
+- **Budget.** "100% of training" is your **`max_steps`** if you set it (that
+  option takes precedence); otherwise the system derives it from
+  `epochs × steps_per_epoch` (measured over the full resolution set). You do not
+  have to set `max_steps`.
+- **Granularity.** Stage changes happen at the **exact step** that crosses a
+  boundary (iteration restarts mid-epoch), so the schedule is precise even with
+  very few epochs / large datasets where a single-resolution epoch can span more
+  steps than a whole stage. Drive saves/evals by steps (`save_every_n_steps` /
+  `eval_every_n_steps`) in this regime, since natural epoch boundaries may be rare.
+- Every resolution used in a stage must also be in the dataset's `resolutions`
+  (latents are still cached for all of them). The schedule also applies to AR
+  buckets and frame buckets of the active resolution(s).
+
+| Key | Description | Values | Default |
+|-----|-------------|--------|---------|
+| **`resolution_schedule.enabled`** | Turn the staged schedule on. | `true` / `false` | `false` (uniform mixing). |
+| **`resolution_schedule.stage`** | Ordered list of stages, each `{ resolutions, fraction }`. | `[[resolution_schedule.stage]]` tables. | — |
+
 ### Captions
 
 - **Per-image `.txt` files:** One caption **per line**. Empty lines are skipped. If the file is empty or missing, the image uses **`directory_caption`** (if set on that `[[directory]]`) as the full caption, or an empty caption if not set.
