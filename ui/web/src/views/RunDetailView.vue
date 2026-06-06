@@ -154,7 +154,7 @@
 
     <el-card v-if="mode === 'job'" shadow="never" class="mt-12">
       <template #header>Log</template>
-      <pre class="log-pre">{{ logText || "(waiting for output…)" }}</pre>
+      <pre ref="logPreRef" class="log-pre" @scroll="onLogScroll">{{ logText || "(waiting for output…)" }}</pre>
     </el-card>
 
     <el-card v-if="artifacts.length" shadow="never" class="mt-12">
@@ -168,7 +168,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { ArrowLeft } from "@element-plus/icons-vue";
@@ -223,6 +223,26 @@ const jobId = computed(() => {
   return props.mode === "job" && runKey != null ? String(Array.isArray(runKey) ? runKey[0] : runKey) : "";
 });
 const { logText, streamError } = useJobLogStream(jobId);
+
+// Sticky auto-scroll for the log: follow new output while pinned to the bottom, but
+// stop following once the user scrolls up (recovered from the old runs-page panel).
+const logPreRef = ref<HTMLElement | null>(null);
+let userScrolledUp = false;
+function onLogScroll(): void {
+  const el = logPreRef.value;
+  if (!el) return;
+  const threshold = 48;
+  userScrolledUp = el.scrollTop + el.clientHeight < el.scrollHeight - threshold;
+}
+async function scrollLogToEnd(): Promise<void> {
+  await nextTick();
+  const el = logPreRef.value;
+  if (!el || userScrolledUp) return;
+  el.scrollTop = el.scrollHeight;
+}
+watch(logText, () => {
+  void scrollLogToEnd();
+});
 
 function runFolderName(dir: string | null | undefined): string {
   if (!dir) return "";
