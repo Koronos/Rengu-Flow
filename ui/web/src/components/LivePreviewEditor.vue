@@ -58,6 +58,7 @@
       </el-form-item>
 
       <div class="lpe-actions">
+        <el-button :loading="previewing" @click="previewNow">Preview now</el-button>
         <el-button :loading="saving" @click="apply(false)">Apply</el-button>
         <el-button type="primary" :loading="saving" @click="apply(true)">
           Apply &amp; preview now
@@ -78,6 +79,7 @@ const props = defineProps<{ jobId: string | number }>();
 
 const loading = ref(false);
 const saving = ref(false);
+const previewing = ref(false);
 /** The full [preview] table as last loaded — unknown keys are preserved on save. */
 const original = ref<Record<string, unknown>>({});
 
@@ -166,13 +168,28 @@ function buildPreview(): Record<string, unknown> {
   return next;
 }
 
-async function apply(previewNow: boolean): Promise<void> {
+async function previewNow(): Promise<void> {
+  if (!props.jobId) return;
+  previewing.value = true;
+  try {
+    // Just trigger a preview with the current (last-applied) settings — runs even if
+    // previews are disabled, as long as there are prompts.
+    await api.sendJobSignal(String(props.jobId), "preview");
+    ElMessage.success("Rendering a preview…");
+  } catch (e) {
+    ElMessage.error(formatError(e));
+  } finally {
+    previewing.value = false;
+  }
+}
+
+async function apply(withPreview: boolean): Promise<void> {
   if (!props.jobId) return;
   saving.value = true;
   try {
-    await api.updateJobPreviewConfig(String(props.jobId), buildPreview(), previewNow);
+    await api.updateJobPreviewConfig(String(props.jobId), buildPreview(), withPreview);
     ElMessage.success(
-      previewNow ? "Preview settings applied; rendering a preview…" : "Preview settings applied"
+      withPreview ? "Preview settings applied; rendering a preview…" : "Preview settings applied"
     );
   } catch (e) {
     ElMessage.error(formatError(e));

@@ -92,6 +92,7 @@
         :available="signalsAvailable"
         :disk-export-wait="diskExportWait"
         :show-unavailable-hint="true"
+        :exclude-groups="['Preview']"
         @send="sendSignal"
       />
       <DocMarkdownDrawer v-model="signalDocOpen" :doc-path="signalDocPath" />
@@ -107,10 +108,10 @@
       </template>
       <template v-else>
         <div class="run-detail__progress-line">
-          <span v-if="progress.step != null">step {{ progress.step }}<template v-if="progress.max_steps">/{{ progress.max_steps }}</template></span>
-          <span v-if="progress.epoch != null"> · epoch {{ progress.epoch }}<template v-if="progress.epochs">/{{ progress.epochs }} ({{ Math.max(0, progress.epochs - progress.epoch) }} left)</template></span>
-          <span v-if="(progress.loss_avg ?? progress.loss) != null"> · loss {{ Number(progress.loss_avg ?? progress.loss).toFixed(4) }}</span>
-          <span v-if="progress.eta"> · ETA {{ progress.eta }}</span>
+          <span v-if="progress.step != null">step {{ progress.step }}<template v-if="progress.max_steps"> / {{ progress.max_steps }}</template></span>
+          <span v-if="progress.epoch != null"> · epoch {{ progress.epoch }}<template v-if="progress.epochs"> / {{ progress.epochs }} ({{ Math.max(0, progress.epochs - progress.epoch) }} left)</template></span>
+          <span v-if="(progress.loss_avg ?? progress.loss) != null"> · loss {{ Number(progress.loss_avg ?? progress.loss).toFixed(6) }}</span>
+          <span v-if="progressHint"> · {{ progressHint }}</span>
         </div>
         <el-progress
           v-if="progress.percent != null"
@@ -130,20 +131,7 @@
     </el-card>
 
     <el-card shadow="never" class="mt-12">
-      <template #header>
-        <div class="loss-card-head">
-          <span>Loss</span>
-          <AutoRefreshBar
-            :interval-sec="intervalSec"
-            :refreshing="metricsRefreshing"
-            :polling="metricsPolling"
-            :last-updated="metricsLastUpdated"
-            :paused="metricsPaused"
-            @update:interval-sec="setMetricsInterval"
-            @refresh="refreshMetricsNow"
-          />
-        </div>
-      </template>
+      <template #header>Loss</template>
       <RunLossMonitor
         :scalars="metrics"
         :preview-images="previewImages"
@@ -173,7 +161,6 @@ import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { ArrowLeft } from "@element-plus/icons-vue";
 import { api } from "../api";
-import AutoRefreshBar from "../components/AutoRefreshBar.vue";
 import { useAutoRefresh } from "../composables/useAutoRefresh";
 import { useBreakpoint } from "../composables/useBreakpoint";
 import { useJobLogStream } from "../composables/useJobLogStream";
@@ -185,6 +172,7 @@ import type { RunPreviewImageRef, RunProgress } from "../types/api";
 import DocMarkdownDrawer from "../components/DocMarkdownDrawer.vue";
 import RunSignalActions from "../components/RunSignalActions.vue";
 import LivePreviewEditor from "../components/LivePreviewEditor.vue";
+import { formatRunProgressHint } from "../lib/formatRunProgress";
 import { SIGNAL_DOC_PATH, SIGNAL_SECTION_HINT } from "../lib/signalHelp";
 import { fsRunSignalsAvailable, jobSignalsAvailable } from "../lib/trainingSignals";
 import { useConfigEditorStore } from "../stores/configEditor";
@@ -279,6 +267,8 @@ const cachePercent = computed(() => {
   if (!p || !p.total) return 0;
   return Math.min(100, Math.round(((p.current ?? 0) / p.total) * 100));
 });
+// Same "s/it · ETA …" readout the runs-page live panel shows.
+const progressHint = computed(() => formatRunProgressHint(progress.value));
 
 function goBack() {
   router.push("/runs");
@@ -404,14 +394,11 @@ async function poll(signal: AbortSignal) {
   }
 }
 
+// The detail page polls live while the run is active, so the metrics card needs no
+// manual refresh button or interval picker — it's always current.
 const {
-  intervalSec,
   isLoading: metricsLoading,
   refreshing: metricsRefreshing,
-  polling: metricsPolling,
-  lastUpdated: metricsLastUpdated,
-  paused: metricsPaused,
-  setIntervalSec: setMetricsInterval,
   refreshNow: refreshMetricsNow,
 } = useAutoRefresh({
   refresh: poll,

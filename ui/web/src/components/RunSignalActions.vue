@@ -43,6 +43,8 @@ const props = defineProps({
   showDivider: { type: Boolean, default: true },
   compact: { type: Boolean, default: false },
   disabled: { type: Boolean, default: false },
+  /** Signal groups to hide (e.g. "Preview" when a dedicated panel handles it). */
+  excludeGroups: { type: Array as () => string[], default: () => [] },
 });
 
 const emit = defineEmits<{
@@ -52,7 +54,9 @@ const emit = defineEmits<{
 const { definitions } = useTrainingSignalDefinitions();
 
 const groups = computed(() =>
-  groupSignalDefinitions(definitions.value, props.diskExportWait)
+  groupSignalDefinitions(definitions.value, props.diskExportWait).filter(
+    (g) => !props.excludeGroups.includes(g.label)
+  )
 );
 </script>
 

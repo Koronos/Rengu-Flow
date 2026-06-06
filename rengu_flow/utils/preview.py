@@ -84,9 +84,12 @@ def should_run_previews(
     finished_epoch: bool = False,
     forced: bool = False,
 ) -> bool:
-    if forced:
-        return previews_configured(config)
     preview_cfg = get_preview_config(config)
+    if forced:
+        # An explicit preview (signal / "Preview now" button) runs whenever there are
+        # prompts to render, even if previews are otherwise disabled (enabled=false) or
+        # have no step/epoch schedule — the user asked for one on purpose.
+        return bool(preview_cfg.get("prompts"))
     if not previews_configured(config):
         return False
     every_n_steps = preview_cfg.get("preview_every_n_steps")

@@ -116,3 +116,13 @@ def test_should_run_previews_schedules():
     assert should_run_previews(config, 5, 2, finished_epoch=True, forced=False) is False
     config["preview"]["preview_every_n_epochs"] = 1
     assert should_run_previews(config, 5, 1, finished_epoch=True)
+
+
+def test_forced_preview_ignores_enabled_flag():
+    # An explicit (forced) preview runs even when previews are disabled, as long as there
+    # are prompts to render — the signal must not be silently consumed.
+    disabled = {"preview": {"prompts": ["a"], "enabled": False, "preview_every_n_steps": 100}}
+    assert should_run_previews(disabled, 7, 1, forced=True) is True
+    assert should_run_previews(disabled, 7, 1, forced=False) is False  # disabled => no schedule
+    # Nothing to render without prompts.
+    assert should_run_previews({"preview": {"enabled": True}}, 7, 1, forced=True) is False
