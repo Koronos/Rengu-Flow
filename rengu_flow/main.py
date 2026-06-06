@@ -584,7 +584,7 @@ def _run_training(args, config):
     eval_every_n_steps = config.get("eval_every_n_steps")
     eval_every_n_epochs = config.get("eval_every_n_epochs")
     eval_before_first_step = config.get("eval_before_first_step", True)
-    from rengu_flow.utils.preview import get_preview_config, previews_configured, run_previews, should_run_previews
+    from rengu_flow.utils.preview import get_preview_config, previews_configured, reload_preview_config, run_previews, should_run_previews
 
     preview_before_first_step = get_preview_config(config).get("preview_before_first_step", False)
     disable_block_swap_for_preview = config.get(
@@ -862,6 +862,12 @@ def _run_training(args, config):
                 checkpointed = True
             if step_saved:
                 saved = True
+
+            # Hot-reload the [preview] section from the config file on a `reload_config`
+            # signal (edit the TOML, then signal). Applies live to the checks below; only
+            # [preview] is reloaded — model/optimizer/dataset can't change mid-run.
+            if step_signals.should_reload_config:
+                reload_preview_config(config, args.config)
 
             preview_x_axis = examples if x_axis_examples else step
             if should_run_previews(

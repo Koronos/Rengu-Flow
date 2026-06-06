@@ -97,6 +97,11 @@
       <DocMarkdownDrawer v-model="signalDocOpen" :doc-path="signalDocPath" />
     </el-card>
 
+    <el-card v-if="mode === 'job' && job?.id && signalsAvailable" shadow="never" class="mt-12">
+      <template #header>Live preview settings</template>
+      <LivePreviewEditor :job-id="job.id" />
+    </el-card>
+
     <el-card shadow="never" class="mt-12">
       <template #header>
         <div class="loss-card-head">
@@ -152,6 +157,7 @@ import type { ScalarPoint } from "../lib/scalarChart";
 import type { RunPreviewImageRef } from "../types/api";
 import DocMarkdownDrawer from "../components/DocMarkdownDrawer.vue";
 import RunSignalActions from "../components/RunSignalActions.vue";
+import LivePreviewEditor from "../components/LivePreviewEditor.vue";
 import { SIGNAL_DOC_PATH, SIGNAL_SECTION_HINT } from "../lib/signalHelp";
 import { fsRunSignalsAvailable, jobSignalsAvailable } from "../lib/trainingSignals";
 import { useConfigEditorStore } from "../stores/configEditor";

@@ -1,10 +1,39 @@
 """Tests for preview config helpers (no GPU / no pipeline call)."""
 
+import toml
+
 from rengu_flow.utils.preview import (
     normalize_preview_prompts,
     previews_configured,
+    reload_preview_config,
     should_run_previews,
 )
+
+
+def test_reload_preview_config_replaces_section_in_place(tmp_path):
+    cfg = {"preview": {"prompts": ["old"], "preview_every_n_steps": 50}, "epochs": 5}
+    path = tmp_path / "train.toml"
+    path.write_text(
+        toml.dumps(
+            {"preview": {"prompts": ["new", "second"], "preview_every_n_steps": 10, "enabled": True}}
+        ),
+        encoding="utf-8",
+    )
+    assert reload_preview_config(cfg, path) is True
+    assert cfg["preview"]["prompts"] == ["new", "second"]
+    assert cfg["preview"]["preview_every_n_steps"] == 10
+    # Disabling live: enabled=false in the file -> previews stop being configured.
+    path.write_text(toml.dumps({"preview": {"prompts": ["x"], "enabled": False}}), encoding="utf-8")
+    assert reload_preview_config(cfg, path) is True
+    assert previews_configured(cfg) is False
+
+
+def test_reload_preview_config_missing_section_becomes_empty(tmp_path):
+    cfg = {"preview": {"prompts": ["old"]}}
+    path = tmp_path / "train.toml"
+    path.write_text(toml.dumps({"epochs": 3}), encoding="utf-8")  # no [preview]
+    assert reload_preview_config(cfg, path) is True
+    assert cfg["preview"] == {}
 
 
 def test_previews_configured_requires_prompts():

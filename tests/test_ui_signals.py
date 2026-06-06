@@ -86,6 +86,60 @@ def test_list_signals_api(ui_client) -> None:
     assert data["active_job_states"] == ["running", "stopping"]
 
 
+def test_update_preview_config_api(ui_client, ui_data_tmp: Path) -> None:
+    import toml
+
+    from rengu_flow.utils.signal_files import SIGNAL_PREVIEW, SIGNAL_RELOAD_CONFIG
+    from rengu_flow_ui import db
+
+    run_dir = ui_data_tmp / "runs" / "live_run"
+    run_dir.mkdir(parents=True)
+    # Live process reads --config = config_path (staged); run folder config persists.
+    staged = ui_data_tmp / "staging" / "live.toml"
+    staged.parent.mkdir(parents=True, exist_ok=True)
+    staged.write_text(toml.dumps({"preview": {"prompts": ["old"]}, "epochs": 5}), encoding="utf-8")
+    (run_dir / "train.toml").write_text(
+        toml.dumps({"preview": {"prompts": ["old"]}, "epochs": 5}), encoding="utf-8"
+    )
+    job = db.create_job(
+        config_path=str(staged),
+        log_path=str(ui_data_tmp / "logs" / "job.log"),
+        output_dir=str(ui_data_tmp / "output"),
+    )
+    db.update_job(job.id, state="running", run_dir=str(run_dir))
+
+    new_preview = {"prompts": ["a cat", "a dog"], "preview_every_n_steps": 25, "enabled": True}
+    r = ui_client.post(
+        f"/api/v1/jobs/{job.id}/preview-config",
+        json={"preview": new_preview, "preview_now": True},
+    )
+    assert r.status_code == 200, r.text
+    # Both the live (staged) config and the run-folder config got the new [preview].
+    assert toml.load(str(staged))["preview"] == new_preview
+    assert toml.load(str(run_dir / "train.toml"))["preview"] == new_preview
+    # Reload + (preview_now) signals were dropped for the trainer.
+    assert (run_dir / SIGNAL_RELOAD_CONFIG).is_file()
+    assert (run_dir / SIGNAL_PREVIEW).is_file()
+
+
+def test_update_preview_config_rejects_inactive_job(ui_client, ui_data_tmp: Path) -> None:
+    from rengu_flow_ui import db
+
+    run_dir = ui_data_tmp / "runs" / "done_run"
+    run_dir.mkdir(parents=True)
+    job = db.create_job(
+        config_path="configs/x.toml",
+        log_path=str(ui_data_tmp / "logs" / "job.log"),
+        output_dir=str(ui_data_tmp / "output"),
+    )
+    db.update_job(job.id, state="finished", run_dir=str(run_dir))
+    r = ui_client.post(
+        f"/api/v1/jobs/{job.id}/preview-config",
+        json={"preview": {"prompts": ["x"]}},
+    )
+    assert r.status_code == 409
+
+
 def test_run_dir_accepts_signals_with_active_job(ui_data_tmp: Path) -> None:
     from rengu_flow_ui import db
 

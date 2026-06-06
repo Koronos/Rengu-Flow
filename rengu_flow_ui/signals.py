@@ -14,6 +14,7 @@ SIGNAL_MAP = {
     "export_model": sf.SIGNAL_EXPORT_MODEL,
     "export_model_quit": sf.SIGNAL_EXPORT_MODEL_QUIT,
     "preview": sf.SIGNAL_PREVIEW,
+    "reload_config": sf.SIGNAL_RELOAD_CONFIG,
     "continue": sf.SIGNAL_CONTINUE,
     "quit": sf.SIGNAL_QUIT,
 }
@@ -49,6 +50,13 @@ SIGNAL_DEFINITIONS: list[dict[str, Any]] = [
         "label": "Preview",
         "group": "Preview",
         "hint": "Run configured preview sampling and log images to TensorBoard.",
+    },
+    {
+        "id": "reload_config",
+        "label": "Apply preview changes",
+        "group": "Preview",
+        "hint": "Reload the [preview] section from the run's config and apply it live "
+        "(prompts, cadence, enabled, sampling). Other sections are not hot-reloaded.",
     },
     {
         "id": "continue",

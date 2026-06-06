@@ -147,6 +147,13 @@ class SignalBody(BaseModel):
     type: str
 
 
+class PreviewConfigBody(BaseModel):
+    # Full replacement for the run's [preview] table (prompts, cadence, enabled, sampling).
+    preview: dict[str, Any]
+    # When true, also drop a `preview` signal so a sample renders immediately.
+    preview_now: bool = False
+
+
 class TensorboardStartBody(BaseModel):
     output_dir: str = "output"
     port: int | None = Field(default=None, ge=1, le=65535)
@@ -961,6 +968,92 @@ def create_app() -> FastAPI:
         except FileNotFoundError as e:
             raise HTTPException(404, str(e))
         return {"path": path}
+
+    @app.get(f"{API_PREFIX}/jobs/{{job_id}}/preview-config")
+    def get_preview_config_for_job(job_id: str) -> dict[str, Any]:
+        """Current [preview] table for a job's live config (for the live editor)."""
+        import toml as _toml
+
+        job = db.get_job(job_id)
+        candidates: list[Path] = []
+        if job.config_path:
+            candidates.append(Path(job.config_path))
+        run_dir = job.run_dir
+        if not run_dir and job.output_dir:
+            scanned = runs_scanner.scan_output_runs(job.output_dir)
+            if scanned:
+                run_dir = scanned[-1]["path"]
+        if run_dir:
+            rc = runs_scanner.pick_main_config_path(Path(run_dir))
+            if rc:
+                candidates.append(rc)
+        preview: dict[str, Any] = {}
+        for path in candidates:
+            try:
+                if path.is_file():
+                    cfg = _toml.load(str(path))
+                    if isinstance(cfg, dict) and isinstance(cfg.get("preview"), dict):
+                        preview = cfg["preview"]
+                        break
+            except Exception:
+                continue
+        return {"preview": preview, "active": job.state in signals.ACTIVE_JOB_STATES}
+
+    @app.post(f"{API_PREFIX}/jobs/{{job_id}}/preview-config")
+    def update_preview_config(job_id: str, body: PreviewConfigBody) -> dict[str, Any]:
+        """Edit a running job's [preview] live: write the new table into the run's config
+        files, then signal the trainer to hot-reload it. Persists for resume/continue."""
+        import toml as _toml
+
+        job = db.get_job(job_id)
+        if job.state not in signals.ACTIVE_JOB_STATES:
+            raise HTTPException(
+                409,
+                f"Job is not active (state={job.state!r}); live preview edits need a running run",
+            )
+        run_dir = job.run_dir
+        if not run_dir and job.output_dir:
+            scanned = runs_scanner.scan_output_runs(job.output_dir)
+            if scanned:
+                run_dir = scanned[-1]["path"]
+                db.update_job(job_id, run_dir=run_dir)
+        if not run_dir:
+            raise HTTPException(400, "Run directory unknown; wait for training to create output folder")
+
+        def _write_preview(path: Path) -> None:
+            try:
+                cfg = _toml.load(str(path)) if path.is_file() else {}
+            except Exception:
+                cfg = {}
+            if not isinstance(cfg, dict):
+                cfg = {}
+            cfg["preview"] = body.preview
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(_toml.dumps(cfg), encoding="utf-8")
+
+        # The live process reads --config = job.config_path (its staged TOML); the run
+        # folder's config is what resume/continue reads. Update both so the change applies
+        # now and survives a resume.
+        targets: list[Path] = []
+        if job.config_path:
+            targets.append(Path(job.config_path))
+        run_cfg = runs_scanner.pick_main_config_path(Path(run_dir)) or (Path(run_dir) / "train.toml")
+        targets.append(run_cfg)
+        seen: set[str] = set()
+        for t in targets:
+            key = str(t.resolve()) if t else ""
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            _write_preview(t)
+
+        try:
+            signals.send_signal(run_dir, "reload_config")
+            if body.preview_now:
+                signals.send_signal(run_dir, "preview")
+        except FileNotFoundError as e:
+            raise HTTPException(404, str(e))
+        return {"ok": True, "run_dir": str(run_dir), "preview_now": body.preview_now}
 
     @app.get(f"{API_PREFIX}/jobs/{{job_id}}/metrics")
     def job_metrics(job_id: str) -> dict[str, Any]:

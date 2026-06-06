@@ -28,6 +28,7 @@ To find the current run directory:
 | Export model | `export_model` | On the next step: export adapter or full model to `signal_step<N>/` (usable weights), then remove the file. |
 | Export & quit | `export_model_quit` | Same as `export_model`, then exit. |
 | Preview | `preview` | On the next step: run configured [previews](previews.md) and log images to TensorBoard, then remove the file. |
+| Apply preview changes | `reload_config` | On the next step: re-read the `[preview]` section from the run's config file and apply it live (prompts, cadence, `enabled`, sampling). Other sections are **not** hot-reloaded. |
 | Continue export | `continue` | While paused after disk-full export: retry that export, then resume training. |
 | Quit without save | `quit` | While paused after disk-full export: exit without checkpoint or export. |
 
@@ -56,6 +57,10 @@ touch /path/to/output/20250217_14-30-00/export_model_quit
 
 # Generate preview images (TensorBoard)
 touch /path/to/output/20250217_14-30-00/preview
+
+# Apply edited preview settings live: edit the run's config .toml (the [preview]
+# section — prompts, preview_every_n_steps, enabled, width/height, etc.), then:
+touch /path/to/output/20250217_14-30-00/reload_config
 
 # After disk-full export pause: retry export and resume training
 touch /path/to/output/20250217_14-30-00/continue

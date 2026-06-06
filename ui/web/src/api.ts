@@ -217,6 +217,23 @@ export const api = {
       body: JSON.stringify({ type }),
     }),
 
+  /** Current [preview] table for a running job's live config. */
+  getJobPreviewConfig: (id: string) =>
+    request<{ preview: Record<string, unknown>; active: boolean }>(
+      `/jobs/${id}/preview-config`
+    ),
+
+  /** Replace a running job's [preview] live; optionally render one preview now. */
+  updateJobPreviewConfig: (
+    id: string,
+    preview: Record<string, unknown>,
+    previewNow = false
+  ) =>
+    request<{ ok: boolean; run_dir: string; preview_now: boolean }>(
+      `/jobs/${id}/preview-config`,
+      { method: "POST", body: JSON.stringify({ preview, preview_now: previewNow }) }
+    ),
+
   listSignals: () => request<TrainingSignalsResult>("/signals"),
 
   jobMetrics: (id: string) => request<JobMetricsResult>(`/jobs/${id}/metrics`),

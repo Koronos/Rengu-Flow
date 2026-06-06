@@ -6,6 +6,7 @@ from rengu_flow.utils.signal_files import (
     SIGNAL_EXPORT_MODEL,
     SIGNAL_EXPORT_MODEL_QUIT,
     SIGNAL_PREVIEW,
+    SIGNAL_RELOAD_CONFIG,
     SIGNAL_SAVE,
     SIGNAL_SAVE_QUIT,
     ExportRecoveryAction,
@@ -51,7 +52,7 @@ def test_process_signals_export_model_quit(tmp_path):
 
 def test_process_signals_empty(tmp_path):
     result = process_signals(tmp_path)
-    assert result == SignalResult(False, False, False, False, False)
+    assert result == SignalResult(False, False, False, False, False, False)
 
 
 def test_process_signals_preview(tmp_path):
@@ -59,6 +60,13 @@ def test_process_signals_preview(tmp_path):
     result = process_signals(tmp_path)
     assert result.should_preview is True
     assert not (tmp_path / SIGNAL_PREVIEW).exists()
+
+
+def test_process_signals_reload_config(tmp_path):
+    (tmp_path / SIGNAL_RELOAD_CONFIG).touch()
+    result = process_signals(tmp_path)
+    assert result.should_reload_config is True
+    assert not (tmp_path / SIGNAL_RELOAD_CONFIG).exists()
 
 
 def test_wait_for_export_recovery_continue(tmp_path):

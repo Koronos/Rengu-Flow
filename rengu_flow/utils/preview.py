@@ -25,6 +25,41 @@ def previews_configured(config: dict[str, Any]) -> bool:
     return preview_cfg.get("enabled", True)
 
 
+def reload_preview_config(config: dict[str, Any], config_path: str | Path) -> bool:
+    """Hot-reload the ``[preview]`` section from ``config_path`` into ``config`` in place.
+
+    Used by the ``reload_config`` signal so a running job can change previews live (edit
+    the TOML, then signal). Only ``[preview]`` is reloaded — model/optimizer/dataset
+    cannot change mid-run. ``run_previews``/``should_run_previews`` read ``config["preview"]``
+    every step, so replacing it here takes effect immediately (including ``enabled`` to
+    turn previews off/on). Rank 0 reads the file and broadcasts so all ranks stay in sync.
+    Returns True when the section was applied.
+    """
+    import toml
+
+    from rengu_flow.utils.signal_files import _broadcast_object_list
+
+    new_preview: dict[str, Any] | None = None
+    if is_main_process():
+        try:
+            disk = toml.load(str(config_path))
+            section = disk.get("preview")
+            new_preview = section if isinstance(section, dict) else {}
+            print(
+                f"rengu_flow: reloaded [preview] from {config_path} "
+                f"({len(new_preview)} keys)",
+                flush=True,
+            )
+        except Exception as e:  # noqa: BLE001 - best-effort; a bad edit must not kill training
+            print(f"rengu_flow: failed to reload [preview] from {config_path}: {e}", flush=True)
+            new_preview = None
+    (new_preview,) = _broadcast_object_list([new_preview])
+    if new_preview is None:
+        return False
+    config["preview"] = new_preview
+    return True
+
+
 def normalize_preview_prompts(preview_cfg: dict[str, Any]) -> list[tuple[str, str]]:
     """Return (tag_name, prompt) pairs for TensorBoard image tags."""
     raw = preview_cfg.get("prompts") or []

@@ -100,6 +100,30 @@ touch /path/to/output/20250217_14-30-00/preview
 
 On the **next training step**, the run generates all configured prompts and logs them to TensorBoard, then removes the file. See [Signal files](signal-files.md).
 
+## Edit previews live (no restart)
+
+You can change previews **while a run is training** — prompts, cadence
+(`preview_every_n_steps` / `preview_every_n_epochs`), sampling params, or turn them
+off entirely with `enabled = false`. Only the `[preview]` section is hot-reloaded;
+model/optimizer/dataset changes still require a new run.
+
+**Web UI:** open the run, use the **Live preview settings** panel (shown while the
+run is active), edit, and click **Apply** (or **Apply & preview now**). Changes are
+written to the run's config and persist if you later resume/continue it.
+
+**CLI:** edit the `[preview]` section in the run's config `.toml` (under the run
+folder / the file you passed to `--config`), then drop the reload signal:
+
+```bash
+# 1) edit [preview] in your config (e.g. add prompts, change preview_every_n_steps,
+#    or set enabled = false to stop previews)
+# 2) apply it live:
+touch /path/to/output/20250217_14-30-00/reload_config
+```
+
+On the next step the trainer re-reads `[preview]` and applies it. See
+[Signal files](signal-files.md).
+
 ## Notes
 
 - Previews use the **in-memory** model (current LoRA / UNet weights). They do not read from disk exports.

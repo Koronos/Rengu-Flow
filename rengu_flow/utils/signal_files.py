@@ -17,6 +17,7 @@ SIGNAL_SAVE_QUIT = "save_quit"
 SIGNAL_EXPORT_MODEL = "export_model"
 SIGNAL_EXPORT_MODEL_QUIT = "export_model_quit"
 SIGNAL_PREVIEW = "preview"
+SIGNAL_RELOAD_CONFIG = "reload_config"
 SIGNAL_CONTINUE = "continue"
 SIGNAL_QUIT = "quit"
 
@@ -31,6 +32,7 @@ class SignalResult(NamedTuple):
     should_export_model: bool
     should_export_quit: bool
     should_preview: bool
+    should_reload_config: bool
 
 
 class ExportRecoveryAction(Enum):
@@ -78,12 +80,14 @@ def process_signals(run_dir: str | Path) -> SignalResult:
     export_path = root / SIGNAL_EXPORT_MODEL
     export_quit_path = root / SIGNAL_EXPORT_MODEL_QUIT
     preview_path = root / SIGNAL_PREVIEW
+    reload_config_path = root / SIGNAL_RELOAD_CONFIG
 
     should_checkpoint = False
     should_quit = False
     should_export_model = False
     should_export_quit = False
     should_preview = False
+    should_reload_config = False
 
     if is_main_process():
         if save_quit_path.exists() and save_quit_path.is_file():
@@ -98,14 +102,37 @@ def process_signals(run_dir: str | Path) -> SignalResult:
             should_export_model = True
         if preview_path.exists() and preview_path.is_file():
             should_preview = True
+        if reload_config_path.exists() and reload_config_path.is_file():
+            should_reload_config = True
 
     result = _broadcast_object_list(
-        [should_checkpoint, should_quit, should_export_model, should_export_quit, should_preview]
+        [
+            should_checkpoint,
+            should_quit,
+            should_export_model,
+            should_export_quit,
+            should_preview,
+            should_reload_config,
+        ]
     )
-    should_checkpoint, should_quit, should_export_model, should_export_quit, should_preview = result
+    (
+        should_checkpoint,
+        should_quit,
+        should_export_model,
+        should_export_quit,
+        should_preview,
+        should_reload_config,
+    ) = result
 
     if is_main_process():
-        for path in (save_quit_path, save_path, export_quit_path, export_path, preview_path):
+        for path in (
+            save_quit_path,
+            save_path,
+            export_quit_path,
+            export_path,
+            preview_path,
+            reload_config_path,
+        ):
             if path.exists() and path.is_file():
                 path.unlink()
 
@@ -117,6 +144,7 @@ def process_signals(run_dir: str | Path) -> SignalResult:
         should_export_model=should_export_model,
         should_export_quit=should_export_quit,
         should_preview=should_preview,
+        should_reload_config=should_reload_config,
     )
 
 
