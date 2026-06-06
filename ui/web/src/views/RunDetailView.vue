@@ -5,7 +5,13 @@
       <span class="run-detail__title">{{ title }}</span>
       <div class="run-detail__head-actions">
         <template v-if="runDir">
-          <el-button type="primary" @click="goContinueTraining">Continue training…</el-button>
+          <el-button
+            v-if="!runIsActive"
+            type="primary"
+            @click="goContinueTraining"
+          >
+            Continue training…
+          </el-button>
           <el-button v-if="mode === 'job' && job?.id" @click="cloneToNewRun">Clone to new run</el-button>
           <el-button :loading="tbLoading" @click="openTensorboardForRun">Open TensorBoard</el-button>
           <el-button
