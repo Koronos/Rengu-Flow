@@ -114,3 +114,32 @@ def test_process_step_save_and_preview(_mock_ckpt, saver_bundle, mock_save_check
     assert checkpointed is True
     assert signals.should_preview is True
     mock_save_checkpoint.assert_called_once_with(9, 90)
+
+
+@patch("rengu_flow.utils.saver._need_to_checkpoint", return_value=False)
+def test_process_epoch_uses_effective_epoch(_mock_ckpt, saver_bundle):
+    """With a resolution schedule the loop passes the budget epoch; saves are named/counted
+    by it, not by the short single-resolution dataloader epoch."""
+    saver, _ = saver_bundle
+    saver.config["save_every_n_epochs"] = 1
+    saver.train_dataloader.epoch = 5  # short dataloader epoch (must be ignored)
+    with patch.object(saver, "save_model", return_value=True) as save_model:
+        new_epoch, _ckpt, saved = saver.process_epoch(
+            2, 100, 1000, effective_epoch=3, advanced=True
+        )
+    assert new_epoch == 3
+    assert saved is True
+    save_model.assert_called_once_with("epoch3")
+
+
+@patch("rengu_flow.utils.saver._need_to_checkpoint", return_value=False)
+def test_process_epoch_no_advance_no_save(_mock_ckpt, saver_bundle):
+    saver, _ = saver_bundle
+    saver.config["save_every_n_epochs"] = 1
+    with patch.object(saver, "save_model", return_value=True) as save_model:
+        new_epoch, _ckpt, saved = saver.process_epoch(
+            2, 100, 1000, effective_epoch=2, advanced=False
+        )
+    assert new_epoch == 2
+    assert saved is False
+    save_model.assert_not_called()

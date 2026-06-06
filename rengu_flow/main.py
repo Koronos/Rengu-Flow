@@ -649,6 +649,7 @@ def _run_training(args, config):
     final_model_name = None
     checkpointed = False
     saved = False
+    last_save_step = -1  # last step at which an inference model was saved (for the final save)
     epoch_loss = 0.0
     num_steps = 0
     bench_csv = (
@@ -745,9 +746,12 @@ def _run_training(args, config):
     if train_data is not None and hasattr(train_data, "set_training_context"):
         train_data.set_training_context(train_seed, step)
     # Seed the schedule's notion of the current step (handles resume too) so the
-    # first epoch rollover selects the correct stage.
+    # first epoch rollover selects the correct stage. Count epochs by the budget-relative
+    # epoch (1..epochs) too — dataloader epochs are short (one resolution per stage), so
+    # using them would overshoot `epochs` for saves/eval/naming.
     if schedule_active:
         train_data.current_step = step
+        epoch = budget_display_epoch(step, steps_per_epoch, epochs)
 
     try:
         while True:
@@ -812,11 +816,24 @@ def _run_training(args, config):
             num_steps += 1
 
             saver.set_status_context(step, examples, epoch, loss)
-            new_epoch, checkpointed_ep, saved_ep = saver.process_epoch(epoch, step, examples)
+            if schedule_active:
+                # Count/name epochs by the budget-relative epoch (full epochs), not the
+                # short single-resolution dataloader epochs.
+                budget_epoch = budget_display_epoch(step, steps_per_epoch, epochs)
+                new_epoch, checkpointed_ep, saved_ep = saver.process_epoch(
+                    epoch,
+                    step,
+                    examples,
+                    effective_epoch=budget_epoch,
+                    advanced=budget_epoch != epoch,
+                )
+            else:
+                new_epoch, checkpointed_ep, saved_ep = saver.process_epoch(epoch, step, examples)
             if checkpointed_ep:
                 checkpointed = True
             if saved_ep:
                 saved = True
+                last_save_step = step
             finished_epoch = new_epoch is not None and new_epoch != epoch
             if new_epoch is None:
                 final_model_name = f"epoch{epoch}"
@@ -896,6 +913,7 @@ def _run_training(args, config):
                 checkpointed = True
             if step_saved:
                 saved = True
+                last_save_step = step
 
             # Hot-reload the [preview] section from the config file on a `reload_config`
             # signal (edit the TOML, then signal). Applies live to the checks below; only
@@ -966,7 +984,10 @@ def _run_training(args, config):
     if not checkpointed:
         if saver.save_checkpoint(step, examples):
             checkpointed = True
-    if not saved and final_model_name:
+    # Always produce the final model unless the most recent save was already at this exact
+    # step. A periodic save (e.g. save_every_n_epochs) that fired earlier must not suppress
+    # the final weights — that left a run ending on max_steps mid-epoch without a final model.
+    if final_model_name and last_save_step != step:
         saver.save_model(final_model_name)
     saver.shutdown_async_exports()
 

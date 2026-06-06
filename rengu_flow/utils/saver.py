@@ -436,14 +436,28 @@ class Saver:
         dist.barrier()
         return True
 
-    def process_epoch(self, epoch, step, examples):
+    def process_epoch(self, epoch, step, examples, *, effective_epoch=None, advanced=None):
+        """Run per-epoch checkpoint/export when an epoch boundary is crossed.
+
+        Normally the boundary is the dataloader's own epoch rollover. A step-driven
+        resolution schedule has short (single-resolution) dataloader epochs, so the loop
+        passes ``effective_epoch`` (the budget-relative epoch, 1..epochs) and ``advanced``
+        (whether that budget epoch just changed) to count and name by full epochs instead.
+        """
         checkpointed, saved = False, False
-        if self.train_dataloader.epoch != epoch:
-            if _need_to_checkpoint(self.config, epoch):
+        if advanced is None:
+            advanced = self.train_dataloader.epoch != epoch
+        new_epoch = (
+            effective_epoch if effective_epoch is not None else self.train_dataloader.epoch
+        )
+        if advanced:
+            if _need_to_checkpoint(self.config, new_epoch):
                 checkpointed = self.save_checkpoint(step, examples)
-            if "save_every_n_epochs" in self.config and epoch % self.config["save_every_n_epochs"] == 0:
-                saved = self.save_model(f"epoch{epoch}")
-            new_epoch = self.train_dataloader.epoch
+            if (
+                "save_every_n_epochs" in self.config
+                and new_epoch % self.config["save_every_n_epochs"] == 0
+            ):
+                saved = self.save_model(f"epoch{new_epoch}")
             # With a resolution schedule the run length is governed by the schedule's
             # step budget, not the epoch count (staged epochs are shorter), so the
             # training loop stops on steps instead of here.
