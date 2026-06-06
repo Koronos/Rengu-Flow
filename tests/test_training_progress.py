@@ -7,11 +7,27 @@ from pathlib import Path
 from rengu_flow.control.status_file import read_status_file, write_status_file
 from rengu_flow.training_progress import (
     TrainingProgressTracker,
+    budget_display_epoch,
     format_eta,
     format_training_log_line,
     resolve_target_steps,
 )
 from rengu_flow_ui import training_hub
+
+
+def test_budget_display_epoch_caps_at_configured_epochs():
+    # 15-epoch budget, 100 steps/epoch (full multi-res epoch) -> total 1500 steps.
+    spe, epochs = 100, 15
+    assert budget_display_epoch(1, spe, epochs) == 1
+    assert budget_display_epoch(100, spe, epochs) == 1
+    assert budget_display_epoch(101, spe, epochs) == 2
+    assert budget_display_epoch(1500, spe, epochs) == 15
+    # Past the budget (short staged epochs would overshoot) stays capped at 15.
+    assert budget_display_epoch(4500, spe, epochs) == 15
+
+
+def test_budget_display_epoch_handles_zero_steps_per_epoch():
+    assert budget_display_epoch(42, 0, 15) == 42
 
 
 def test_resolve_target_steps_prefers_max_steps() -> None:

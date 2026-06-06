@@ -601,6 +601,7 @@ def _run_training(args, config):
     logging_steps = config.get("logging_steps", 1)
     from rengu_flow.training_progress import (
         TrainingProgressTracker,
+        budget_display_epoch,
         build_progress_payload,
     )
 
@@ -796,13 +797,22 @@ def _run_training(args, config):
             # Throttled progress marker to stdout (rank 0). Always emit on the final step
             # and on save/epoch boundaries so the UI never misses a transition; otherwise
             # the emitter caps the rate (~1/sec). No per-step log line, no status.json.
+            # With a resolution schedule, dataloader epochs are short (one stage = a
+            # subset of resolutions), so the raw epoch counter overshoots the configured
+            # `epochs`. Report a budget-relative epoch (1..epochs) instead — total steps
+            # are unchanged, only the displayed epoch is made meaningful again.
+            display_epoch = (
+                budget_display_epoch(step, steps_per_epoch, epochs)
+                if schedule_active
+                else epoch
+            )
             if progress_emitter is not None:
                 is_final = effective_max_steps is not None and step >= effective_max_steps
                 progress_emitter.emit(
                     build_progress_payload(
                         step=step,
                         loss=loss,
-                        epoch=epoch,
+                        epoch=display_epoch,
                         metrics=step_progress,
                     ),
                     force=is_final or finished_epoch or saved,

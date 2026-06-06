@@ -162,6 +162,19 @@ class TrainingProgressTracker:
         return out
 
 
+def budget_display_epoch(step: int, steps_per_epoch: int, epochs: int) -> int:
+    """Budget-relative epoch (1..epochs) for the progress display.
+
+    With a resolution schedule, dataloader epochs are short (each stage trains a subset
+    of resolutions), so the raw epoch counter overshoots the configured ``epochs``. The
+    total step budget is still ``epochs * steps_per_epoch``, so the meaningful epoch
+    number is derived from the current step within that budget and capped at ``epochs``.
+    """
+    if steps_per_epoch <= 0:
+        return int(step)
+    return max(1, min(int(epochs), (int(step) - 1) // int(steps_per_epoch) + 1))
+
+
 def build_progress_payload(
     *,
     step: int,
