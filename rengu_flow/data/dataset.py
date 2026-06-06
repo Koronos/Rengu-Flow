@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import math
@@ -30,6 +31,7 @@ from rengu_flow.data.augmentation.names import AUG_MVP_VERSION
 from rengu_flow.data.cache_utils import (
     _map_and_cache,
     bucket_suffix,
+    content_fingerprint,
     dedup_and_sort,
     resolve_cache_num_proc,
     seed_from_hash,
@@ -73,15 +75,21 @@ def shuffle_captions(
     if count == 0:
         return [caption_prefix + c for c in captions]
 
-    def shuffle_caption(caption: str, delim: str = ", ") -> str:
+    def shuffle_caption(caption: str, variant: int, delim: str = ", ") -> str:
         parts = caption.split(delim)
-        random.shuffle(parts)
+        # Seed per (caption, variant) so the cached metadata is reproducible across
+        # runs. With the global RNG the tag order changed every time the metadata was
+        # recomputed, churning the cache fingerprint and forcing a full re-cache.
+        seed = int(
+            hashlib.md5(f"{variant}\x00{caption}".encode("utf-8")).hexdigest(), 16
+        )
+        random.Random(seed).shuffle(parts)
         return delim.join(parts)
 
     return [
-        caption_prefix + shuffle_caption(caption, delimiter)
+        caption_prefix + shuffle_caption(caption, i, delimiter)
         for caption in captions
-        for _ in range(count)
+        for i in range(count)
     ]
 
 
@@ -120,7 +128,7 @@ def _cache_text_embeddings(
     cache_format: str = "v2",
 ):
     """Flatten captions to one row per (image, caption), then map_and_cache."""
-    from rengu_flow.data.cache_utils import _map_and_cache
+    from rengu_flow.data.cache_utils import _map_and_cache, content_fingerprint
 
     def flatten_captions(example):
         result = {key: [] for key in example}
@@ -139,12 +147,20 @@ def _cache_text_embeddings(
         keep_in_memory=cache_keep_in_memory,
         remove_columns=metadata_dataset.column_names,
     )
+    # Text embeddings depend only on the caption text (and which encoder, via i); image_spec
+    # keys the per-image lookup. Decoupling from the chained fingerprint means a latent-only
+    # change never invalidates the text-embedding cache and vice versa.
+    te_fp_override = content_fingerprint(
+        flattened,
+        [c for c in ("caption", "image_spec") if c in flattened.column_names],
+    )
     te_dataset = _map_and_cache(
         flattened,
         map_fn,
         cache_dir,
         cache_file_prefix=f"text_embeddings_{i}_",
         new_fingerprint_args=[i],
+        fingerprint_override=te_fp_override,
         regenerate_cache=regenerate_cache,
         caching_batch_size=caching_batch_size,
         num_proc=cache_num_proc,
@@ -291,6 +307,19 @@ class SizeBucketDataset:
     ) -> None:
         iteration_order_cache_dir = self.cache_dir / "iteration_order"
         latent_fp_args = [AUG_MVP_VERSION, self._aug_fingerprint]
+        # Key the latent cache only on what actually determines a latent: the image, its
+        # mask/control inputs and the size bucket. Captions live in a separate column and
+        # never affect latents, so excluding them keeps caption edits/shuffles from
+        # invalidating the (expensive) VAE cache. Augmentation is folded in via
+        # latent_fp_args (aug_fingerprint) and via image_spec variant keys.
+        latent_fp_override = content_fingerprint(
+            self.metadata_dataset,
+            [
+                c
+                for c in ("image_spec", "mask_file", "size_bucket", "is_video", "control_file")
+                if c in self.metadata_dataset.column_names
+            ],
+        )
         if map_fn is None:
             self.latent_dataset = _map_and_cache(
                 self.metadata_dataset,
@@ -298,6 +327,7 @@ class SizeBucketDataset:
                 self.cache_dir,
                 cache_file_prefix="latents_",
                 new_fingerprint_args=latent_fp_args,
+                fingerprint_override=latent_fp_override,
                 regenerate_cache=False,
                 caching_batch_size=caching_batch_size,
                 num_proc=cache_num_proc,
@@ -316,6 +346,7 @@ class SizeBucketDataset:
             self.cache_dir,
             cache_file_prefix="latents_",
             new_fingerprint_args=latent_fp_args,
+            fingerprint_override=latent_fp_override,
             regenerate_cache=regenerate_cache,
             caching_batch_size=caching_batch_size,
             num_proc=cache_num_proc,
