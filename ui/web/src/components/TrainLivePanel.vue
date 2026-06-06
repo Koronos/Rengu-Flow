@@ -16,114 +16,90 @@
             {{ streamStatusLabel }}
           </el-tag>
           <slot name="header-extra" />
-          <el-button size="small" @click="$emit('open-detail', run)">Open detail</el-button>
-          <el-button
-            size="small"
-            type="primary"
-            :disabled="diskExportWait"
-            @click="onSignal('save_quit')"
-          >
-            Stop &amp; checkpoint
+          <el-button size="small" type="primary" @click="$emit('open-detail', run)">
+            Open detail
           </el-button>
-          <el-tooltip content="Force-kill (no checkpoint)" :show-after="300">
-            <el-button size="small" type="danger" plain @click="$emit('stop', run.job_id)">
-              Force stop
-            </el-button>
-          </el-tooltip>
         </el-space>
       </div>
     </template>
 
-    <div class="live-meta">
-      <code v-if="run.label || run.run_name">{{ run.label || run.run_name }}</code>
-      <el-text type="info" size="small">
-        {{ run.num_gpus }} GPU
+    <!-- The body is a compact, clickable summary; full controls (signals, previews,
+         charts, log) live on the run detail page. -->
+    <div
+      class="live-clickable"
+      role="button"
+      tabindex="0"
+      @click="$emit('open-detail', run)"
+      @keydown.enter="$emit('open-detail', run)"
+    >
+      <div class="live-meta">
+        <code v-if="run.label || run.run_name">{{ run.label || run.run_name }}</code>
+        <el-text type="info" size="small">{{ run.num_gpus }} GPU</el-text>
+      </div>
+
+      <el-alert
+        v-if="diskExportWait"
+        type="warning"
+        show-icon
+        :closable="false"
+        title="Paused — free disk space, then continue export (open detail)"
+        class="live-disk-alert"
+      />
+
+      <div v-if="caching" class="live-progress">
+        <div class="progress-labels">
+          <span>
+            Caching {{ progress?.current ?? 0 }}
+            <template v-if="progress?.total"> / {{ progress?.total }}</template>
+          </span>
+        </div>
+        <el-progress
+          v-if="progress?.percent != null"
+          :percentage="progress.percent"
+          :stroke-width="12"
+          :show-text="true"
+        />
+        <el-progress v-else :percentage="0" :indeterminate="true" :stroke-width="12" />
+      </div>
+
+      <div v-else-if="progress" class="live-progress">
+        <el-progress
+          v-if="progress.percent != null"
+          :percentage="Math.min(100, Math.round(progress.percent))"
+          :stroke-width="14"
+          :show-text="true"
+          class="live-progress-bar"
+        />
+        <div class="progress-readout">
+          <span v-if="progress.step != null" class="live-step">
+            step {{ progress.step }}<template v-if="progress.max_steps"> / {{ progress.max_steps }}</template>
+          </span>
+          <span v-else class="live-step">Waiting for first step…</span>
+          <template v-if="epochInfo">
+            <span class="live-sep">·</span>
+            <span class="live-epoch">
+              epoch {{ epochInfo.cur }}<template v-if="epochInfo.total != null"> / {{ epochInfo.total }}</template><template v-if="epochInfo.left != null"> ({{ epochInfo.left }} left)</template>
+            </span>
+          </template>
+          <span v-if="displayLoss != null" class="live-sep">·</span>
+          <span v-if="displayLoss != null" class="live-loss" :title="lossTitle">
+            loss {{ formatLoss(displayLoss) }}
+          </span>
+          <span v-if="progressHint" class="live-sep">·</span>
+          <span v-if="progressHint" class="live-speed">{{ progressHint }}</span>
+        </div>
+      </div>
+
+      <el-text type="info" size="small" class="live-open-hint">
+        Open detail for signals, previews & charts →
       </el-text>
     </div>
-
-    <el-alert
-      v-if="diskExportWait"
-      type="warning"
-      show-icon
-      :closable="false"
-      title="Paused — free disk space, then continue export"
-      class="live-disk-alert"
-    />
-
-    <div v-if="caching" class="live-progress">
-      <div class="progress-labels">
-        <span>
-          Caching {{ progress?.current ?? 0 }}
-          <template v-if="progress?.total"> / {{ progress?.total }}</template>
-        </span>
-      </div>
-      <el-progress
-        v-if="progress?.percent != null"
-        :percentage="progress.percent"
-        :stroke-width="12"
-        :show-text="true"
-      />
-      <el-progress v-else :percentage="0" :indeterminate="true" :stroke-width="12" />
-    </div>
-
-    <div v-else-if="progress" class="live-progress">
-      <el-progress
-        v-if="progress.percent != null"
-        :percentage="progress.percent"
-        :stroke-width="14"
-        :show-text="true"
-        class="live-progress-bar"
-      />
-      <div class="progress-readout">
-        <span v-if="progress.step != null" class="live-step">
-          step {{ progress.step }}<template v-if="progress.max_steps"> / {{ progress.max_steps }}</template>
-        </span>
-        <span v-else class="live-step">Waiting for first step…</span>
-        <span v-if="displayLoss != null" class="live-sep">·</span>
-        <span v-if="displayLoss != null" class="live-loss" :title="lossTitle">
-          loss {{ formatLoss(displayLoss) }}
-        </span>
-        <span v-if="progressHint" class="live-sep">·</span>
-        <span v-if="progressHint" class="live-speed">{{ progressHint }}</span>
-      </div>
-    </div>
-
-    <RunSignalActions
-      :available="signalsAvailable"
-      :disk-export-wait="diskExportWait"
-      :show-unavailable-hint="false"
-      compact
-      @send="onSignal"
-    />
-
-    <RunLossMonitor
-      class="live-charts"
-      :scalars="run.scalars || {}"
-      :preview-images="run.preview_images || []"
-      :loading="metricsLoading"
-      :loading-strong="false"
-    />
-
-    <el-collapse v-if="showTrainingLog" v-model="logCollapse" class="live-log-collapse">
-      <el-collapse-item name="log">
-        <template #title>
-          <span class="live-log-title">Training log</span>
-          <el-text v-if="streamError" type="warning" size="small" class="live-log-warn">
-            {{ streamError }}
-          </el-text>
-        </template>
-        <pre ref="logPreRef" class="live-log-pre" @scroll="onLogScroll">{{ logText || "(waiting for output…)" }}</pre>
-      </el-collapse-item>
-    </el-collapse>
   </el-card>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from "vue";
+import { computed } from "vue";
 import type { LiveStreamStatus } from "../composables/useTrainLiveStream";
-import RunLossMonitor from "./RunLossMonitor.vue";
-import RunSignalActions from "./RunSignalActions.vue";
-import { jobSignalsAvailable } from "../lib/trainingSignals";
 import type { PropType } from "vue";
 import { formatRunProgressHint } from "../lib/formatRunProgress";
 import type { TrainingRunRow } from "../types/api";
@@ -140,21 +116,27 @@ type TrainLiveRun = TrainingRunRow & {
 
 const props = defineProps({
   run: { type: Object as PropType<TrainLiveRun | null>, default: null },
+  streamStatus: { type: String as PropType<LiveStreamStatus | "">, default: "" },
+  // Accepted for compatibility with the runs page bindings; the heavy views (charts,
+  // log, signals) now live on the run detail page, so these are intentionally unused here.
   metricsLoading: { type: Boolean, default: false },
   logText: { type: String, default: "" },
-  streamStatus: { type: String as PropType<LiveStreamStatus | "">, default: "" },
   streamError: { type: String, default: "" },
   showTrainingLog: { type: Boolean, default: true },
 });
 
-const emit = defineEmits(["open-detail", "stop", "signal"]);
-
-const logCollapse = ref<string[]>(["log"]);
-const logPreRef = ref<HTMLElement | null>(null);
-let userScrolledUp = false;
+defineEmits(["open-detail", "stop", "signal"]);
 
 const progress = computed(() => props.run?.progress || null);
 const progressHint = computed(() => formatRunProgressHint(progress.value));
+
+const epochInfo = computed(() => {
+  const p = progress.value;
+  if (!p || p.epoch == null) return null;
+  const total = p.epochs ?? null;
+  const left = total != null ? Math.max(0, total - p.epoch) : null;
+  return { cur: p.epoch, total, left };
+});
 
 // Show the Kohya-style moving-average loss (steady) when available; fall back to the
 // instant per-step loss. The tooltip surfaces the raw value when smoothing is shown.
@@ -188,43 +170,12 @@ const streamTagType = computed((): "success" | "warning" | "info" => {
   return "info";
 });
 
-function onLogScroll(): void {
-  const el = logPreRef.value;
-  if (!el) return;
-  const threshold = 48;
-  userScrolledUp = el.scrollTop + el.clientHeight < el.scrollHeight - threshold;
-}
-
-async function scrollLogToEnd(): Promise<void> {
-  await nextTick();
-  const el = logPreRef.value;
-  if (!el || userScrolledUp) return;
-  el.scrollTop = el.scrollHeight;
-}
-
-watch(
-  () => props.logText,
-  () => {
-    void scrollLogToEnd();
-  }
-);
-const diskExportWait = computed(
-  () => progress.value?.phase === "waiting_disk_export"
-);
+const diskExportWait = computed(() => progress.value?.phase === "waiting_disk_export");
 const caching = computed(() => progress.value?.phase === "caching");
-const signalsAvailable = computed(() =>
-  jobSignalsAvailable(props.run ? { state: props.run.state } : null)
-);
-
-function onSignal(type: string) {
-  if (!props.run) return;
-  emit("signal", props.run, type);
-}
 
 function formatLoss(v: number | null | undefined): string | number | null | undefined {
   return typeof v === "number" ? v.toFixed(6) : v;
 }
-
 </script>
 
 <style scoped>
@@ -264,6 +215,14 @@ function formatLoss(v: number | null | undefined): string | number | null | unde
     opacity: 0.35;
   }
 }
+.live-clickable {
+  cursor: pointer;
+  border-radius: var(--el-border-radius-base);
+  transition: background 0.15s ease;
+}
+.live-clickable:hover {
+  background: var(--el-fill-color-light);
+}
 .live-meta {
   display: flex;
   flex-wrap: wrap;
@@ -272,7 +231,7 @@ function formatLoss(v: number | null | undefined): string | number | null | unde
   margin-bottom: 12px;
 }
 .live-progress {
-  margin-bottom: 16px;
+  margin-bottom: 8px;
 }
 .progress-labels {
   display: flex;
@@ -298,6 +257,7 @@ function formatLoss(v: number | null | undefined): string | number | null | unde
 .live-sep {
   color: var(--el-text-color-secondary);
 }
+.live-epoch,
 .live-loss,
 .live-speed {
   font-family: ui-monospace, monospace;
@@ -305,36 +265,11 @@ function formatLoss(v: number | null | undefined): string | number | null | unde
 .live-speed {
   color: var(--el-text-color-secondary);
 }
-.live-charts {
-  margin-top: 4px;
+.live-open-hint {
+  display: block;
+  margin-top: 6px;
 }
 .stream-status-tag {
   font-variant-numeric: tabular-nums;
-}
-.live-log-collapse {
-  margin-top: 12px;
-  border-top: 1px solid var(--el-border-color-lighter);
-  padding-top: 4px;
-}
-.live-log-title {
-  font-weight: 500;
-  margin-right: 8px;
-}
-.live-log-warn {
-  margin-left: 8px;
-}
-.live-log-pre {
-  margin: 0;
-  max-height: 280px;
-  overflow: auto;
-  padding: 10px 12px;
-  font-family: var(--rf-font-mono, ui-monospace, monospace);
-  font-size: 12px;
-  line-height: 1.45;
-  white-space: pre-wrap;
-  word-break: break-word;
-  background: var(--el-fill-color-darker);
-  color: var(--el-text-color-primary);
-  border-radius: var(--el-border-radius-base);
 }
 </style>

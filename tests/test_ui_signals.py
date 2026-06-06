@@ -148,6 +148,20 @@ def test_job_signal_does_not_borrow_older_folder(ui_client, ui_data_tmp: Path) -
     assert db.get_job(job.id).run_dir is None  # not poisoned with the old folder
 
 
+def test_get_job_includes_progress_field(ui_client, ui_data_tmp: Path) -> None:
+    """The detail view reads live training/caching progress from GET /jobs/{id}."""
+    from rengu_flow_ui import db
+
+    job = db.create_job(
+        config_path="configs/x.toml",
+        log_path=str(ui_data_tmp / "logs" / "j.log"),
+        output_dir=str(ui_data_tmp / "output"),
+    )
+    r = ui_client.get(f"/api/v1/jobs/{job.id}")
+    assert r.status_code == 200
+    assert "progress" in r.json()  # present (None until a marker exists)
+
+
 def test_update_preview_config_rejects_inactive_job(ui_client, ui_data_tmp: Path) -> None:
     from rengu_flow_ui import db
 

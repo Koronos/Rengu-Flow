@@ -617,7 +617,16 @@ def create_app() -> FastAPI:
             j = jobs.poll_job(job_id)
         except KeyError:
             raise HTTPException(404, "Job not found")
-        return _job_dict(j)
+        from rengu_flow_ui import training_hub
+
+        d = _job_dict(j)
+        # Live progress (step/percent/loss/ETA, and the caching phase) for the detail
+        # view, derived from the latest @@RFPROG@@ marker in the log — surfaces even
+        # before the run folder exists (caching).
+        run_dir = training_hub.resolve_job_run_dir(j)
+        marker = live_stream._latest_marker(job_id)
+        d["progress"] = training_hub.compute_run_progress(run_dir, marker=marker)
+        return d
 
     @app.get(f"{API_PREFIX}/jobs/import/candidates")
     def list_import_candidates(output_dir: str = "output") -> dict[str, Any]:
