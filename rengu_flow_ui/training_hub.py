@@ -141,16 +141,20 @@ def compute_run_progress(
     longer written, so for finished/imported runs (no marker) we fall back to the last
     TensorBoard ``train/loss`` scalar so History rows still show final step/loss.
     """
-    if run_dir is None or not run_dir.is_dir():
+    m = marker or {}
+    has_dir = run_dir is not None and run_dir.is_dir()
+    # The live marker (e.g. the caching phase) arrives from the log before the run
+    # folder exists, so surface it even without a run_dir. A run folder is only needed
+    # to read config limits and the TensorBoard-scalar fallback for finished runs.
+    if not has_dir and not m:
         return None
 
-    limits = _read_run_limits(run_dir)
-    m = marker or {}
+    limits = _read_run_limits(run_dir) if has_dir else {}
     step = m.get("step")
     loss = m.get("loss")
     epoch = m.get("epoch")
 
-    if step is None or loss is None:
+    if (step is None or loss is None) and has_dir:
         scalars = metrics_tb.read_scalars(run_dir)
         series = scalars.get("train/loss") or []
         if series:

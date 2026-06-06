@@ -34,6 +34,21 @@ def test_compute_run_progress_from_marker(tmp_path: Path) -> None:
     assert prog["phase"] == "training"
 
 
+def test_compute_run_progress_caching_marker_without_run_dir() -> None:
+    # During caching the run folder does not exist yet; the caching marker (from the log)
+    # must still surface so the progress bar shows caching progress.
+    marker = {"phase": "caching", "current": 30, "total": 120}
+    prog = training_hub.compute_run_progress(None, marker=marker)
+    assert prog is not None
+    assert prog["phase"] == "caching"
+    assert prog["current"] == 30
+    assert prog["total"] == 120
+
+
+def test_compute_run_progress_none_without_dir_or_marker() -> None:
+    assert training_hub.compute_run_progress(None, marker=None) is None
+
+
 def test_train_runs_api(ui_client) -> None:
     r = ui_client.get("/api/v1/train/runs?page=1&page_size=10")
     assert r.status_code == 200
