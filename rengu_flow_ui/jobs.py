@@ -122,6 +122,14 @@ def poll_job(job_id: str) -> db.JobRecord:
         exit_code=exit_code,
         pid=None,
     )
+    # Auto-advance the queue on a natural end (finished or failed), regardless of which UI
+    # page polled this job. A user stop/quit lands in "stopped" (force-stop, or a *_quit
+    # signal that flipped the job to "stopping") and intentionally does NOT advance — the
+    # queue only halts on an explicit user quit.
+    if final_state in ("finished", "failed"):
+        from rengu_flow_ui.job_queue import try_start_next
+
+        try_start_next()
     return db.get_job(job_id)
 
 
@@ -184,19 +192,12 @@ def _now() -> str:
 
 
 def refresh_all_jobs() -> None:
-    # Poll active runs; note whether any just exited so we can advance the queue. We must NOT
-    # start an idle queue from a bare refresh — the first run is started explicitly by the user
-    # (Start / Run now). The queue only auto-drains as a consequence of a run finishing.
-    finished_any = False
+    # Poll active runs. poll_job advances the queue itself when a run ends naturally
+    # (finished/failed), so a bare refresh that finds nothing active never starts an idle
+    # queue — the first run is always started explicitly by the user (Start / Run now).
     for job in db.list_jobs():
         if job.state in ("running", "stopping"):
-            updated = poll_job(job.id)
-            if updated.state not in ("running", "stopping"):
-                finished_any = True
-    if finished_any:
-        from rengu_flow_ui.job_queue import try_start_next
-
-        try_start_next()
+            poll_job(job.id)
 
 
 def read_raw_log(job_id: str) -> str:

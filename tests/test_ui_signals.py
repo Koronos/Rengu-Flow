@@ -59,6 +59,27 @@ def test_job_signal_api(ui_client, ui_data_tmp: Path) -> None:
     r = ui_client.post(f"/api/v1/jobs/{job.id}/signals", json={"type": "save"})
     assert r.status_code == 200
     assert (run_dir / SIGNAL_SAVE).is_file()
+    assert db.get_job(job.id).state == "running"  # a plain save keeps it running
+
+
+def test_job_signal_quit_flips_to_stopping(ui_client, ui_data_tmp: Path) -> None:
+    """A user quit (*_quit) flips the job to 'stopping' so it ends as 'stopped' and the
+    queue does not auto-advance past a deliberate halt."""
+    from rengu_flow.utils.signal_files import SIGNAL_SAVE_QUIT
+    from rengu_flow_ui import db
+
+    run_dir = ui_data_tmp / "runs" / "quit_run"
+    run_dir.mkdir(parents=True)
+    job = db.create_job(
+        config_path="configs/x.toml",
+        log_path=str(ui_data_tmp / "logs" / "job.log"),
+        output_dir=str(ui_data_tmp / "output"),
+    )
+    db.update_job(job.id, state="running", run_dir=str(run_dir))
+    r = ui_client.post(f"/api/v1/jobs/{job.id}/signals", json={"type": "save_quit"})
+    assert r.status_code == 200
+    assert (run_dir / SIGNAL_SAVE_QUIT).is_file()
+    assert db.get_job(job.id).state == "stopping"
 
 
 def test_job_signal_rejects_stopped_job(ui_client, ui_data_tmp: Path) -> None:

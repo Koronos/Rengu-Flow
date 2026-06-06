@@ -36,6 +36,32 @@ def test_poll_job_stops_stopping_without_pid(ui_data_tmp) -> None:
     assert reconciled.pid is None
 
 
+def test_poll_job_finished_advances_queue(ui_data_tmp, monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[int] = []
+    monkeypatch.setattr("rengu_flow_ui.job_queue.try_start_next", lambda: calls.append(1))
+    job = _pending_job(ui_data_tmp)
+    db.update_job(job.id, state="running", pid=None)
+
+    reconciled = jobs.poll_job(job.id)
+
+    assert reconciled.state == "finished"
+    assert calls == [1]  # a natural end advances the queue
+
+
+def test_poll_job_stopped_does_not_advance_queue(
+    ui_data_tmp, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[int] = []
+    monkeypatch.setattr("rengu_flow_ui.job_queue.try_start_next", lambda: calls.append(1))
+    job = _pending_job(ui_data_tmp)
+    db.update_job(job.id, state="stopping", pid=None)  # user stop/quit
+
+    reconciled = jobs.poll_job(job.id)
+
+    assert reconciled.state == "stopped"
+    assert calls == []  # a user stop/quit halts the queue
+
+
 def test_poll_job_finishes_running_with_dead_pid(ui_data_tmp) -> None:
     job = _pending_job(ui_data_tmp)
     db.update_job(job.id, state="running", pid=999_999_999)
