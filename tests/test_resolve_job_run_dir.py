@@ -38,8 +38,9 @@ def _job(output_dir, started_epoch, *, run_name=None, state="running", run_dir=N
 
 
 def test_named_new_run_is_not_confused_with_source(tmp_path):
-    src = _mk_run(tmp_path, "myrun_20260101_10-00-00", 1_000.0)
-    new = _mk_run(tmp_path, "myrun_2_20260605_10-00-00", 1_800.0)
+    # Date-first folders: "{timestamp}_{name}".
+    src = _mk_run(tmp_path, "20260101_10-00-00_myrun", 1_000.0)
+    new = _mk_run(tmp_path, "20260605_10-00-00_myrun_2", 1_800.0)
     job = _job(tmp_path, started_epoch=1_500.0, run_name="myrun_2")
     assert training_hub.resolve_job_run_dir(job) == new.resolve()
     assert training_hub.resolve_job_run_dir(job) != src.resolve()
@@ -55,7 +56,7 @@ def test_nameless_run_picks_folder_created_after_start_not_older_source(tmp_path
 
 def test_returns_none_when_only_a_pre_existing_source_folder_exists(tmp_path):
     # New run's folder not created yet: must NOT borrow the older source folder.
-    _mk_run(tmp_path, "myrun_20260101_10-00-00", 1_000.0)
+    _mk_run(tmp_path, "20260101_10-00-00_myrun", 1_000.0)
     job = _job(tmp_path, started_epoch=1_500.0, run_name="myrun_2")
     assert training_hub.resolve_job_run_dir(job) is None
 

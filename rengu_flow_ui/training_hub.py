@@ -50,7 +50,8 @@ def _fallback_run_dir_for_job(job: db.JobRecord) -> Path | None:
     def name_matches(folder: str) -> bool:
         if not match_name:
             return False
-        return folder == match_name or folder.startswith(f"{match_name}_")
+        # Folders are "{timestamp}_{name}" (date first).
+        return folder == match_name or folder.endswith(f"_{match_name}")
 
     best: tuple[bool, float, Path] | None = None
     for r in runs:

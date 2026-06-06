@@ -19,9 +19,10 @@ def test_build_run_folder_name_timestamp_only() -> None:
 
 
 def test_build_run_folder_name_with_label() -> None:
+    # Date first, then name, so folders sort chronologically and are easy to find by date.
     assert (
         build_run_folder_name("sdxl-lora-v1", timestamp="20250217_14-30-00")
-        == "sdxl-lora-v1_20250217_14-30-00"
+        == "20250217_14-30-00_sdxl-lora-v1"
     )
 
 

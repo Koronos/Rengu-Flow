@@ -10,7 +10,7 @@ Signal files are empty files (or any file) placed in the **run directory**. The 
 
 The run directory is a subfolder of `output_dir` (set in your config; default is `output`).
 
-- **New run**: The framework creates a timestamped folder, e.g. `output/20250217_14-30-00`, or `output/my_experiment_20250217_14-30-00` if you set `run_name` in config (optional label for folders and TensorBoard).
+- **New run**: The framework creates a timestamped folder, e.g. `output/20250217_14-30-00`, or `output/20250217_14-30-00_my_experiment` if you set `run_name` in config (optional label appended after the date, for folders and TensorBoard).
 - **Resume**: The run directory is the checkpoint folder you are resuming from (e.g. the same timestamped folder or one you pass via `--resume_from_checkpoint <folder_name>`).
 
 To find the current run directory:

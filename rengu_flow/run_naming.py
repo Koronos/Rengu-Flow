@@ -44,8 +44,9 @@ def build_run_folder_name(
 ) -> str:
     """Folder name under ``output_dir`` for a new training run.
 
-    With ``run_name``: ``{sanitized_name}_{timestamp}``
-    Without: ``{timestamp}`` only (legacy date-only default).
+    With ``run_name``: ``{timestamp}_{sanitized_name}`` — date first so folders sort
+    chronologically by name and are easy to locate by date.
+    Without: ``{timestamp}`` only (date-only default).
     """
     ts = timestamp or format_run_timestamp()
     label = normalize_run_name(run_name)
@@ -54,7 +55,7 @@ def build_run_folder_name(
     safe = sanitize_run_name(label)
     if not safe:
         return ts
-    return f"{safe}_{ts}"
+    return f"{ts}_{safe}"
 
 
 def collect_run_name_validation_errors(config: dict[str, Any]) -> list[str]:

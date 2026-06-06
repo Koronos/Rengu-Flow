@@ -114,7 +114,7 @@ On **Runs**, when launching a job:
 | Field | Purpose |
 |-------|---------|
 | **Resume folder** | Existing run directory under `output_dir` (e.g. `20250217_14-30-00`). Passes `--resume_from_checkpoint` to the trainer. Prefer the TOML snapshot in that folder over an edited library config. |
-| *(empty)* | New timestamped folder under `output_dir`. Optional **`run_name`** in config prefixes the folder (e.g. `my_experiment_20250217_14-30-00`). |
+| *(empty)* | New timestamped folder under `output_dir`. Optional **`run_name`** in config is appended after the date (e.g. `20250217_14-30-00_my_experiment`). |
 
 | Key | Purpose | Values | Default |
 |-----|---------|--------|---------|
