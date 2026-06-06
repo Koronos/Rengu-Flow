@@ -70,21 +70,20 @@
         </el-descriptions-item>
       </el-descriptions>
 
-      <div v-if="runDir || (mode === 'job' && job?.id)" class="run-detail__hint">
-        <el-link
-          v-if="tbStatus?.running && tbStatus.url"
-          :href="tbStatus.url"
-          target="_blank"
-          type="primary"
-        >
-          {{ tbStatus.url }}
-        </el-link>
-        <el-text type="info" size="small">
-          {{
-            runDir
-              ? "Load run TOML, edit epochs/steps, resume in this folder"
-              : "No checkpoint to resume — Retry re-runs this same record from scratch; New run creates a separate one."
-          }}
+      <div
+        v-if="(tbStatus?.running && tbStatus.url) || (runDir && !runIsActive) || (!runDir && mode === 'job' && job?.id)"
+        class="run-detail__hint"
+      >
+        <span v-if="tbStatus?.running && tbStatus.url" class="run-detail__tb">
+          <el-text type="info" size="small">TensorBoard:</el-text>
+          <el-link :href="tbStatus.url" target="_blank" type="primary">{{ tbStatus.url }}</el-link>
+          <el-text type="info" size="small">(opens in a new tab)</el-text>
+        </span>
+        <el-text v-if="runDir && !runIsActive" type="info" size="small">
+          “Continue training…” loads this run's TOML so you can edit epochs/steps and resume in this folder.
+        </el-text>
+        <el-text v-else-if="!runDir && mode === 'job' && job?.id" type="info" size="small">
+          No checkpoint to resume — “Retry run” re-runs this record from scratch; “New run from this config” creates a separate one.
         </el-text>
       </div>
 
@@ -481,10 +480,16 @@ watch(key, () => {
 }
 .run-detail__hint {
   display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 12px;
+}
+.run-detail__tb {
+  display: inline-flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
-  margin-top: 12px;
+  gap: 8px;
 }
 .signals-intro {
   display: flex;
