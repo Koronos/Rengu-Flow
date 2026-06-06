@@ -122,6 +122,32 @@ def test_update_preview_config_api(ui_client, ui_data_tmp: Path) -> None:
     assert (run_dir / SIGNAL_PREVIEW).is_file()
 
 
+def test_job_signal_does_not_borrow_older_folder(ui_client, ui_data_tmp: Path) -> None:
+    """An active run whose own folder isn't created yet must NOT borrow (or persist) an
+    older run's folder — that made the UI open the previous run's stats."""
+    import os
+
+    from rengu_flow.utils.signal_files import SIGNAL_SAVE
+    from rengu_flow_ui import db
+
+    out = ui_data_tmp / "output"
+    out.mkdir(parents=True, exist_ok=True)
+    old = out / "20250101_00-00-00_prev"
+    old.mkdir()
+    (old / "config.toml").write_text("epochs = 1\n", encoding="utf-8")
+    os.utime(old, (1000.0, 1000.0))  # far in the past, before this job started
+    job = db.create_job(
+        config_path="configs/x.toml",
+        log_path=str(ui_data_tmp / "logs" / "job.log"),
+        output_dir=str(out),
+    )
+    db.update_job(job.id, state="running")  # run_dir stays None (folder not created yet)
+    r = ui_client.post(f"/api/v1/jobs/{job.id}/signals", json={"type": "save"})
+    assert r.status_code == 400  # not the old folder
+    assert not (old / SIGNAL_SAVE).exists()
+    assert db.get_job(job.id).run_dir is None  # not poisoned with the old folder
+
+
 def test_update_preview_config_rejects_inactive_job(ui_client, ui_data_tmp: Path) -> None:
     from rengu_flow_ui import db
 

@@ -953,12 +953,9 @@ def create_app() -> FastAPI:
                 409,
                 f"Job is not active (state={job.state!r}); signals only apply to running training",
             )
-        run_dir = job.run_dir
-        if not run_dir and job.output_dir:
-            scanned = runs_scanner.scan_output_runs(job.output_dir)
-            if scanned:
-                run_dir = scanned[-1]["path"]
-                db.update_job(job_id, run_dir=run_dir)
+        from rengu_flow_ui import training_hub
+
+        run_dir = training_hub.resolve_job_run_dir(job)
         if not run_dir:
             raise HTTPException(400, "Run directory unknown; wait for training to create output folder")
         try:
@@ -974,15 +971,13 @@ def create_app() -> FastAPI:
         """Current [preview] table for a job's live config (for the live editor)."""
         import toml as _toml
 
+        from rengu_flow_ui import training_hub
+
         job = db.get_job(job_id)
         candidates: list[Path] = []
         if job.config_path:
             candidates.append(Path(job.config_path))
-        run_dir = job.run_dir
-        if not run_dir and job.output_dir:
-            scanned = runs_scanner.scan_output_runs(job.output_dir)
-            if scanned:
-                run_dir = scanned[-1]["path"]
+        run_dir = training_hub.resolve_job_run_dir(job)
         if run_dir:
             rc = runs_scanner.pick_main_config_path(Path(run_dir))
             if rc:
@@ -1011,12 +1006,9 @@ def create_app() -> FastAPI:
                 409,
                 f"Job is not active (state={job.state!r}); live preview edits need a running run",
             )
-        run_dir = job.run_dir
-        if not run_dir and job.output_dir:
-            scanned = runs_scanner.scan_output_runs(job.output_dir)
-            if scanned:
-                run_dir = scanned[-1]["path"]
-                db.update_job(job_id, run_dir=run_dir)
+        from rengu_flow_ui import training_hub
+
+        run_dir = training_hub.resolve_job_run_dir(job)
         if not run_dir:
             raise HTTPException(400, "Run directory unknown; wait for training to create output folder")
 
@@ -1060,11 +1052,7 @@ def create_app() -> FastAPI:
         from rengu_flow_ui import training_hub
 
         job = db.get_job(job_id)
-        run_dir = job.run_dir
-        if not run_dir and job.output_dir:
-            scanned = runs_scanner.scan_output_runs(job.output_dir)
-            if scanned:
-                run_dir = scanned[-1]["path"]
+        run_dir = training_hub.resolve_job_run_dir(job)
         if not run_dir:
             return {"scalars": {}, "preview_images": []}
         return {
@@ -1074,14 +1062,13 @@ def create_app() -> FastAPI:
 
     @app.get(f"{API_PREFIX}/jobs/{{job_id}}/artifacts")
     def job_artifacts(job_id: str) -> dict[str, Any]:
+        from rengu_flow_ui import training_hub
+
         job = db.get_job(job_id)
-        if not job.run_dir:
-            if job.output_dir:
-                scanned = runs_scanner.scan_output_runs(job.output_dir)
-                if scanned:
-                    return {"artifacts": scanned[-1]["artifacts"]}
+        run_dir = training_hub.resolve_job_run_dir(job)
+        if not run_dir:
             return {"artifacts": []}
-        return {"artifacts": runs_scanner.describe_run_dir(Path(job.run_dir))["artifacts"]}
+        return {"artifacts": runs_scanner.describe_run_dir(Path(run_dir))["artifacts"]}
 
     # --- Filesystem runs ---
     @app.get(f"{API_PREFIX}/runs")
