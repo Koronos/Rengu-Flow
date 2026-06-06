@@ -793,9 +793,16 @@ def create_app() -> FastAPI:
         content = unstage_config_dataset_refs(content, run_dir=job.run_dir)
         try:
             cfg = toml.loads(content)
+            changed = False
+            # A fresh run must not inherit a resume pointer from the source config, or it
+            # would resume into the SOURCE run's folder instead of starting a new one.
+            if cfg.pop("resume_from_checkpoint", None) is not None:
+                changed = True
             base = cfg.get("run_name")
             if isinstance(base, str) and base.strip():
                 cfg["run_name"] = run_staging.next_run_name(base)
+                changed = True
+            if changed:
                 content = toml.dumps(cfg)
         except Exception:
             pass

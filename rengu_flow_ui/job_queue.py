@@ -353,6 +353,14 @@ def clone_run(
     from rengu_flow_ui.job_import import unstage_config_dataset_refs
 
     content = unstage_config_dataset_refs(content, run_dir=src.run_dir)
+    # A clone is a brand-new run: never inherit a resume pointer from the source config,
+    # or it would resume into the source run's folder instead of a fresh one.
+    try:
+        _cfg = toml.loads(content)
+        if isinstance(_cfg, dict) and _cfg.pop("resume_from_checkpoint", None) is not None:
+            content = toml.dumps(_cfg)
+    except Exception:
+        pass
 
     kwargs: dict[str, Any] = dict(
         content=content,

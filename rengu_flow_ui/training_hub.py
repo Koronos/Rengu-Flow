@@ -18,18 +18,72 @@ NEW_STATES = frozenset({"new"})
 TERMINAL_STATES = frozenset({"finished", "failed", "stopped"})
 
 
+def _job_started_epoch(job: db.JobRecord) -> float | None:
+    try:
+        from datetime import datetime
+
+        return datetime.fromisoformat(job.started_at).timestamp()
+    except Exception:
+        return None
+
+
+def _fallback_run_dir_for_job(job: db.JobRecord) -> Path | None:
+    """Best guess at an active job's folder before the trainer's ``Run dir:`` line is parsed.
+
+    Never borrow an unrelated or older run's folder (the bug behind a fresh "new run
+    from this config" showing the SOURCE run's stats): only consider folders created
+    at/after this job started, preferring one whose name matches the job's run_name.
+    Returns None when nothing clearly belongs to this job yet — the next poll fills in
+    the authoritative run_dir from the log.
+    """
+    runs = runs_scanner.scan_output_runs(job.output_dir)
+    if not runs:
+        return None
+    started = _job_started_epoch(job)
+    run_name = _config_run_name(job.config_content)
+    match_name: str | None = None
+    if run_name:
+        from rengu_flow.run_naming import sanitize_run_name
+
+        match_name = sanitize_run_name(run_name) or None
+
+    def name_matches(folder: str) -> bool:
+        if not match_name:
+            return False
+        return folder == match_name or folder.startswith(f"{match_name}_")
+
+    best: tuple[bool, float, Path] | None = None
+    for r in runs:
+        path = Path(r["path"])
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            continue
+        folder = r.get("name") or path.name
+        named = name_matches(folder)
+        # A folder that predates this job cannot be its output.
+        if started is not None and mtime < started:
+            continue
+        # No start time and no name match: don't guess (would borrow an unrelated run).
+        if started is None and not named:
+            continue
+        cand = (named, mtime, path)
+        if best is None or (cand[0], cand[1]) > (best[0], best[1]):
+            best = cand
+    return best[2].resolve() if best else None
+
+
 def resolve_job_run_dir(job: db.JobRecord) -> Path | None:
     """Best-effort run directory for a job."""
     if job.run_dir:
         p = Path(job.run_dir)
         if p.is_dir():
             return p.resolve()
-    # Newest-folder fallback only for active jobs: a terminal job without a run_dir must not
-    # borrow an unrelated run's folder (that made every finished job show the latest progress).
+    # Fallback only for active jobs without a recorded run_dir yet. A terminal job must
+    # not borrow another run's folder, and an active job must not borrow the previous
+    # (source) run's folder while its own is still being created.
     if job.output_dir and job.state in ACTIVE_STATES:
-        runs = runs_scanner.scan_output_runs(job.output_dir)
-        if runs:
-            return Path(runs[-1]["path"]).resolve()
+        return _fallback_run_dir_for_job(job)
     return None
 
 
