@@ -105,28 +105,7 @@
 
     <el-card v-if="runIsActive && progress" shadow="never" class="mt-12">
       <template #header>Progress</template>
-      <template v-if="progress.phase === 'caching'">
-        <div class="run-detail__progress-line">
-          Caching<template v-if="progress.total"> {{ progress.current ?? 0 }}/{{ progress.total }}</template><template v-else>…</template>
-        </div>
-        <el-progress :percentage="cachePercent" :text-inside="true" :stroke-width="18" />
-      </template>
-      <template v-else>
-        <div class="run-detail__progress-line">
-          <span v-if="progress.step != null">step {{ progress.step }}<template v-if="progress.max_steps"> / {{ progress.max_steps }}</template></span>
-          <span v-if="progress.epoch != null"> · epoch {{ progress.epoch }}<template v-if="progress.epochs"> / {{ progress.epochs }} ({{ Math.max(0, progress.epochs - progress.epoch) }} left)</template></span>
-          <span v-if="(progress.loss_avg ?? progress.loss) != null"> · loss {{ Number(progress.loss_avg ?? progress.loss).toFixed(6) }}</span>
-          <span v-if="progress.val_loss != null" title="held-out validation loss"> · val {{ Number(progress.val_loss).toFixed(6) }}</span>
-          <span v-if="progress.val_gap != null" :class="{ 'gap-warn': progress.val_gap > 0 }" title="train-val gap (val − train probe); rising = overfitting"> · gap {{ Number(progress.val_gap).toFixed(6) }}</span>
-          <span v-if="progressHint"> · {{ progressHint }}</span>
-        </div>
-        <el-progress
-          v-if="progress.percent != null"
-          :percentage="Math.min(100, Math.round(progress.percent))"
-          :text-inside="true"
-          :stroke-width="18"
-        />
-      </template>
+      <RunProgress :progress="progress" />
     </el-card>
 
     <el-card v-if="mode === 'job' && job?.id && signalsAvailable" shadow="never" class="mt-12">
@@ -175,11 +154,11 @@ import { useTensorboard } from "../composables/useTensorboard";
 import { formatError } from "../lib/formatError";
 import RunLossMonitor from "../components/RunLossMonitor.vue";
 import type { ScalarPoint } from "../lib/scalarChart";
-import type { RunPreviewImageRef, RunProgress } from "../types/api";
+import type { RunPreviewImageRef, RunProgress as RunProgressData } from "../types/api";
 import DocMarkdownDrawer from "../components/DocMarkdownDrawer.vue";
 import RunSignalActions from "../components/RunSignalActions.vue";
 import LivePreviewEditor from "../components/LivePreviewEditor.vue";
-import { formatRunProgressHint } from "../lib/formatRunProgress";
+import RunProgress from "../components/RunProgress.vue";
 import { SIGNAL_DOC_PATH, SIGNAL_SECTION_HINT } from "../lib/signalHelp";
 import { fsRunSignalsAvailable, jobSignalsAvailable } from "../lib/trainingSignals";
 import { useConfigEditorStore } from "../stores/configEditor";
@@ -204,7 +183,7 @@ const fsRun = ref<FsRunRecord | null>(null);
 const jobArtifacts = ref<Record<string, unknown>[]>([]);
 const metrics = ref<Record<string, ScalarPoint[]>>({});
 const previewImages = ref<RunPreviewImageRef[]>([]);
-const progress = ref<RunProgress | null>(null);
+const progress = ref<RunProgressData | null>(null);
 const error = ref("");
 const outputDir = ref("output");
 const { tbLoading, tbStatus, refreshTbStatus, openTensorboard, stopTensorboard } = useTensorboard(
@@ -269,14 +248,6 @@ const runIsActive = computed(() => {
   }
   return false;
 });
-const cachePercent = computed(() => {
-  const p = progress.value;
-  if (!p || !p.total) return 0;
-  return Math.min(100, Math.round(((p.current ?? 0) / p.total) * 100));
-});
-// Same "s/it · ETA …" readout the runs-page live panel shows.
-const progressHint = computed(() => formatRunProgressHint(progress.value));
-
 function goBack() {
   router.push("/runs");
 }
@@ -358,7 +329,7 @@ async function poll(signal: AbortSignal) {
       if (signal.aborted) return;
       job.value = jobResult as JobRecord;
       progress.value =
-        (jobResult as JobRecord & { progress?: RunProgress | null }).progress ?? null;
+        (jobResult as JobRecord & { progress?: RunProgressData | null }).progress ?? null;
       const m = metricsResult as {
         scalars?: Record<string, ScalarPoint[]>;
         preview_images?: RunPreviewImageRef[];
@@ -492,9 +463,6 @@ watch(key, () => {
 .mono {
   font-family: ui-monospace, monospace;
   font-size: 12px;
-}
-.gap-warn {
-  color: var(--el-color-warning);
 }
 .loss-card-head {
   display: flex;

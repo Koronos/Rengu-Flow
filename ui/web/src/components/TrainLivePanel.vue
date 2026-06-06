@@ -46,62 +46,7 @@
         class="live-disk-alert"
       />
 
-      <div v-if="caching" class="live-progress">
-        <div class="progress-labels">
-          <span>
-            Caching {{ progress?.current ?? 0 }}
-            <template v-if="progress?.total"> / {{ progress?.total }}</template>
-          </span>
-        </div>
-        <el-progress
-          v-if="progress?.percent != null"
-          :percentage="progress.percent"
-          :stroke-width="12"
-          :show-text="true"
-        />
-        <el-progress v-else :percentage="0" :indeterminate="true" :stroke-width="12" />
-      </div>
-
-      <div v-else-if="progress" class="live-progress">
-        <el-progress
-          v-if="progress.percent != null"
-          :percentage="Math.min(100, Math.round(progress.percent))"
-          :stroke-width="14"
-          :show-text="true"
-          class="live-progress-bar"
-        />
-        <div class="progress-readout">
-          <span v-if="progress.step != null" class="live-step">
-            step {{ progress.step }}<template v-if="progress.max_steps"> / {{ progress.max_steps }}</template>
-          </span>
-          <span v-else class="live-step">Waiting for first step…</span>
-          <template v-if="epochInfo">
-            <span class="live-sep">·</span>
-            <span class="live-epoch">
-              epoch {{ epochInfo.cur }}<template v-if="epochInfo.total != null"> / {{ epochInfo.total }}</template><template v-if="epochInfo.left != null"> ({{ epochInfo.left }} left)</template>
-            </span>
-          </template>
-          <span v-if="displayLoss != null" class="live-sep">·</span>
-          <span v-if="displayLoss != null" class="live-loss" :title="lossTitle">
-            loss {{ formatLoss(displayLoss) }}
-          </span>
-          <span v-if="valLoss != null" class="live-sep">·</span>
-          <span v-if="valLoss != null" class="live-val" title="held-out validation loss">
-            val {{ formatLoss(valLoss) }}
-          </span>
-          <span v-if="valGap != null" class="live-sep">·</span>
-          <span
-            v-if="valGap != null"
-            class="live-gap"
-            :class="{ 'live-gap-warn': valGap > 0 }"
-            title="train-val gap (val − train probe); rising = overfitting"
-          >
-            gap {{ formatLoss(valGap) }}
-          </span>
-          <span v-if="progressHint" class="live-sep">·</span>
-          <span v-if="progressHint" class="live-speed">{{ progressHint }}</span>
-        </div>
-      </div>
+      <RunProgress :progress="progress" class="live-progress" />
 
       <el-text type="info" size="small" class="live-open-hint">
         Open detail for signals, previews & charts →
@@ -114,7 +59,7 @@
 import { computed } from "vue";
 import type { LiveStreamStatus } from "../composables/useTrainLiveStream";
 import type { PropType } from "vue";
-import { formatRunProgressHint } from "../lib/formatRunProgress";
+import RunProgress from "./RunProgress.vue";
 import type { TrainingRunRow } from "../types/api";
 
 interface PreviewImage {
@@ -141,32 +86,6 @@ const props = defineProps({
 defineEmits(["open-detail", "stop", "signal"]);
 
 const progress = computed(() => props.run?.progress || null);
-const progressHint = computed(() => formatRunProgressHint(progress.value));
-
-const epochInfo = computed(() => {
-  const p = progress.value;
-  if (!p || p.epoch == null) return null;
-  const total = p.epochs ?? null;
-  const left = total != null ? Math.max(0, total - p.epoch) : null;
-  return { cur: p.epoch, total, left };
-});
-
-// Show the Kohya-style moving-average loss (steady) when available; fall back to the
-// instant per-step loss. The tooltip surfaces the raw value when smoothing is shown.
-const displayLoss = computed(() => {
-  const p = progress.value;
-  if (!p) return null;
-  return p.loss_avg ?? p.loss ?? null;
-});
-const lossTitle = computed(() => {
-  const p = progress.value;
-  if (!p || p.loss_avg == null || p.loss == null) return "";
-  return `avg loss (last steps); instant ${p.loss.toFixed(6)}`;
-});
-
-// Generalization probe: held-out validation loss and the train-val gap (overfitting signal).
-const valLoss = computed(() => progress.value?.val_loss ?? null);
-const valGap = computed(() => progress.value?.val_gap ?? null);
 
 const streamStatusLabel = computed(() => {
   switch (props.streamStatus) {
@@ -188,11 +107,6 @@ const streamTagType = computed((): "success" | "warning" | "info" => {
 });
 
 const diskExportWait = computed(() => progress.value?.phase === "waiting_disk_export");
-const caching = computed(() => progress.value?.phase === "caching");
-
-function formatLoss(v: number | null | undefined): string | number | null | undefined {
-  return typeof v === "number" ? v.toFixed(6) : v;
-}
 </script>
 
 <style scoped>
@@ -249,49 +163,6 @@ function formatLoss(v: number | null | undefined): string | number | null | unde
 }
 .live-progress {
   margin-bottom: 8px;
-}
-.progress-labels {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
-  margin-bottom: 6px;
-  font-size: 13px;
-}
-.live-progress-bar {
-  margin-bottom: 6px;
-}
-.progress-readout {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 8px;
-  font-size: 13px;
-  font-family: ui-monospace, monospace;
-}
-.live-step {
-  font-weight: 600;
-}
-.live-sep {
-  color: var(--el-text-color-secondary);
-}
-.live-epoch,
-.live-loss,
-.live-val,
-.live-gap,
-.live-speed {
-  font-family: ui-monospace, monospace;
-}
-.live-speed {
-  color: var(--el-text-color-secondary);
-}
-.live-val {
-  color: var(--el-color-info);
-}
-.live-gap {
-  color: var(--el-text-color-secondary);
-}
-.live-gap-warn {
-  color: var(--el-color-warning);
 }
 .live-open-hint {
   display: block;
