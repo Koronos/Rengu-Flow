@@ -2,8 +2,7 @@
   <el-config-provider>
   <el-container class="app-shell">
     <el-aside v-if="!isMobile" width="220px" class="app-aside hide-mobile">
-      <div class="app-brand">Rengu Flow UI</div>
-      <div v-if="versionLabel" class="app-brand-version" :title="versionTitle">{{ versionLabel }}</div>
+      <router-link to="/" class="app-brand">Rengu Flow UI</router-link>
       <nav class="app-nav">
         <el-menu :default-active="activeMenu" class="app-menu app-menu--main" router>
           <el-menu-item index="/runs">
@@ -15,6 +14,13 @@
             <span>Datasets</span>
           </el-menu-item>
         </el-menu>
+        <div
+          v-if="versionLabel"
+          class="app-brand-version"
+          :title="versionTitle"
+        >
+          {{ versionLabel }}
+        </div>
         <div class="app-menu-bottom">
           <el-menu :default-active="activeMenu" class="app-menu app-menu--footer" router>
             <el-menu-item index="/docs">
@@ -161,8 +167,9 @@ const pageTitle = computed(() => {
 
 <style scoped>
 .app-brand-version {
-  padding: 0 16px 8px;
-  margin-top: -4px;
+  /* Pinned to the bottom, just above the Docs/Maintenance panel. */
+  margin-top: auto;
+  padding: 8px 16px;
   font-size: 11px;
   line-height: 1.4;
   color: var(--el-text-color-secondary);

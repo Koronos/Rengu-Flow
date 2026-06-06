@@ -86,10 +86,16 @@ html.dark {
 }
 
 .app-brand {
+  display: block;
   padding: 16px;
   font-size: 1.1rem;
   font-weight: 600;
   border-bottom: 1px solid var(--el-border-color);
+  color: inherit;
+  text-decoration: none;
+}
+.app-brand:hover {
+  color: var(--el-color-primary);
 }
 
 .app-nav {
