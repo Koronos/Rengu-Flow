@@ -30,6 +30,26 @@ def resolve_cache_num_proc(value: int | None) -> int:
     return max(1, int(value))
 
 
+def content_fingerprint(dataset, columns: list[str]) -> str:
+    """Stable hash of specific column *contents*, independent of HuggingFace's chained
+    fingerprint.
+
+    ``dataset._fingerprint`` is derived from the dataset's whole transform history, so a
+    cache keyed on it is invalidated by any unrelated upstream change (e.g. a reshuffled
+    caption column invalidating the latent cache). Hashing only the columns that actually
+    determine a cache's contents lets each cache invalidate solely when its own inputs
+    change. Order-dependent on purpose: rows are stored positionally, so a reordering must
+    rebuild the cache anyway.
+    """
+    hasher = Hasher()
+    for col in columns:
+        hasher.update(col)
+        # dataset[col] is a lazy Column whose hash carries the source dataset's identity;
+        # materialize to plain Python so the hash depends only on the values.
+        hasher.update(list(dataset[col]))
+    return hasher.hexdigest()
+
+
 def bucket_suffix(key: tuple) -> str:
     """Format a bucket key as a path-safe suffix."""
     if len(key) == 2:
@@ -60,6 +80,7 @@ def _map_and_cache(
     cache_dir: str | Path,
     cache_file_prefix: str = "",
     new_fingerprint_args: list | None = None,
+    fingerprint_override: str | None = None,
     regenerate_cache: bool = False,
     caching_batch_size: int = 1,
     num_proc: int | None = None,
@@ -68,11 +89,15 @@ def _map_and_cache(
 ):
     """Map over dataset with map_fn(example, rank), persist results in Cache.
 
-    Uses HuggingFace dataset fingerprint + new_fingerprint_args for cache key.
-    If map_fn is None, loads existing cache only (trust_cache path).
+    Cache key = new_fingerprint_args + (fingerprint_override or dataset._fingerprint) +
+    cache_format. Pass ``fingerprint_override`` (e.g. a ``content_fingerprint`` over the
+    columns that actually determine this cache) to decouple it from the dataset's chained
+    HuggingFace fingerprint. If map_fn is None, loads existing cache only (trust_cache path).
     """
-    new_fingerprint_args = new_fingerprint_args or []
-    new_fingerprint_args.append(dataset._fingerprint)
+    new_fingerprint_args = list(new_fingerprint_args or [])
+    new_fingerprint_args.append(
+        fingerprint_override if fingerprint_override is not None else dataset._fingerprint
+    )
     new_fingerprint_args.append(f"cache_format={cache_format}")
     new_fingerprint = Hasher.hash(new_fingerprint_args)
     cache_dir = Path(cache_dir)

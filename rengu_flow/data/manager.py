@@ -53,14 +53,15 @@ def _cache_fn(
         first_size_bucket = example["size_bucket"][0]
         tensors_and_masks = []
         image_specs = []
-        captions = []
         control_tensors_and_masks = []
-        for i, (image_spec, mask_path, size_bucket, caption) in enumerate(
+        # Captions are intentionally not read or stored here: a latent is shared across an
+        # image's N captions, and the caption that reaches the model is resolved per
+        # (image, caption_number) at sample time (see SizeBucketDataset._sample_from_entry).
+        for i, (image_spec, mask_path, size_bucket) in enumerate(
             zip(
                 example["image_spec"],
                 example["mask_file"],
                 example["size_bucket"],
-                example["caption"],
             )
         ):
             assert size_bucket == first_size_bucket
@@ -69,7 +70,6 @@ def _cache_fn(
             )
             tensors_and_masks.extend(items)
             image_specs.extend([image_spec] * len(items))
-            captions.extend([caption] * len(items))
             if is_edit:
                 control_file = example["control_file"][i]
                 control_items = preprocess_media_file_fn(
@@ -86,7 +86,6 @@ def _cache_fn(
                 "latents": [],
                 "mask": [],
                 "image_spec": [],
-                "caption": [],
             }
 
         batch_size = len(example["image_spec"])
@@ -114,7 +113,6 @@ def _cache_fn(
             results[k] = torch.cat(results[k])
         results["image_spec"] = image_specs
         results["mask"] = [t[1] for t in tensors_and_masks]
-        results["caption"] = captions
         return results
 
     for ds in datasets_list:
