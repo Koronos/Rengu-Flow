@@ -22,6 +22,7 @@ OPTIMIZER_ALIASES: dict[str, tuple[str, str]] = {
     # git-backed (installed via the "koptim" install profile, see rengu_flow.install.profiles)
     "adafusion": ("koptim", "Adafusion"),
     "muon": ("koptim", "Muon"),
+    "adamuon": ("koptim", "AdaMuon"),
 }
 
 

@@ -130,7 +130,7 @@ def profiles_for_config_dict(data: dict[str, Any]) -> list[str]:
     otype = str(optim.get("type", "")).strip().lower()
     if otype in _OPTIMIZER_EXTRA_TYPES:
         profiles.append("optim")
-    if otype in {"adafusion", "muon"} or otype.startswith("koptim."):
+    if otype in {"adafusion", "muon", "adamuon"} or otype.startswith("koptim."):
         profiles.append("koptim")
 
     out: list[str] = []

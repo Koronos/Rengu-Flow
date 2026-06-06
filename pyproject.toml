@@ -100,4 +100,4 @@ torchvision = { index = "pytorch-cu130" }
 # `rev` is bumped (then committed to renga). Bump it to ship a newer koptim; users pick it up on
 # their next `rengu update` (only if the koptim extra is already installed). Only installed when
 # the `koptim` extra is selected (see rengu_flow/install/profiles.py).
-koptim = { git = "https://github.com/Koronos/K-Optimizers", rev = "8b03b945321a9a70f04106639cb17fb15fd6a2b4" }
+koptim = { git = "https://github.com/Koronos/K-Optimizers", rev = "7865f04db750d88c73502b36bd5b8fba459fa355" }

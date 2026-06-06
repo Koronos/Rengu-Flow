@@ -41,6 +41,7 @@ You can use these names (case-insensitive) for `optimizer.type`:
 | **prodigy** | Prodigy adaptive LR (`pytorch-optimizer`) | [Prodigy paper/repo](https://github.com/konstmish/prodigy), [pytorch-optimizer Prodigy](https://github.com/kozistr/pytorch_optimizer) |
 | **adafusion** | Conv-aware factored optimizer; AdamW-quality at 1–2 B/param with bf16-correct updates (`koptim`) | [K-Optimizers](https://github.com/Koronos/K-Optimizers), [Adafusion docs](https://github.com/Koronos/K-Optimizers/blob/main/docs/adafusion.md) |
 | **muon** | Orthogonalized-momentum (Newton-Schulz) with AdamW fallback for 1-D / embedding params (`koptim`) | [K-Optimizers](https://github.com/Koronos/K-Optimizers), [Muon docs](https://github.com/Koronos/K-Optimizers/blob/main/docs/muon.md) |
+| **adamuon** | Muon orthogonalized momentum + factored quantized 2nd moment; near-Adafactor memory. **Diffusion lr is much lower than Muon's** — start ~`1e-3` (≈ AdamW lr ÷ 5), not the `2e-2` Muon/LLM default (`koptim`) | [K-Optimizers](https://github.com/Koronos/K-Optimizers), [AdaMuon docs](https://github.com/Koronos/K-Optimizers/blob/main/docs/adamuon.md) |
 
 Install optional optimizer dependencies:
 
@@ -48,7 +49,7 @@ Install optional optimizer dependencies:
 pip install -e ".[optim]"
 ```
 
-`adafusion` and `muon` come from the git-backed [`koptim`](https://github.com/Koronos/K-Optimizers) package and are installed on demand via the **koptim** install profile when you select one of these types.
+`adafusion`, `muon`, and `adamuon` come from the git-backed [`koptim`](https://github.com/Koronos/K-Optimizers) package and are installed on demand via the **koptim** install profile when you select one of these types.
 
 ### Form pre-fill (optimizer KV)
 
@@ -66,6 +67,7 @@ When you pick a built-in name in the form, common keys are pre-filled (edit as n
 | **prodigy** | `lr` → `1.0`, `betas` → `[0.9, 0.99]`, `weight_decay` → `0.01`, `d0` → `1e-6`, `d_coef` → `1.0`, `weight_decouple` → `true`, `bias_correction` → `true`, `safeguard_warmup` → `true` |
 | **adafusion** | `lr` → `1e-4`, `betas` → `[0.9, 0.999]`, `eps` → `[1e-30, 1e-3]`, `weight_decay` → `0.0`, `clip_threshold` → `1.0`, `momentum_dtype` → `"bfloat16"`, `cautious` → `true`, `bf16_method` → `"stochastic_rounding"` |
 | **muon** | `lr` → `2e-2`, `momentum` → `0.95`, `adamw_lr` → `3e-4`, `bf16_method` → `"stochastic_rounding"` |
+| **adamuon** | `lr` → `1e-3` (diffusion-scale, **not** Muon's `2e-2`), `betas` → `[0.95, 0.999]`, `eps` → `[1e-30, 1e-3]`, `weight_decay` → `0.0`, `ns_steps` → `2`, `clip_threshold` → `1.0`, `momentum_dtype` → `"bfloat16"`, `cautious` → `true`, `bf16_method` → `"stochastic_rounding"` |
 | Custom class path | (empty list until you add rows) |
 
 ### Common parameters (by family)
@@ -81,14 +83,16 @@ When you pick a built-in name in the form, common keys are pre-filled (edit as n
 | **kahan_buffer_offload** | **genericoptim**, **adamw8bitkahan** | Offload Kahan buffer to CPU (saves VRAM) |
 | **d0**, **d_coef** | **prodigy** | D-adaptation initial estimate and scale; tune `d_coef` (not `lr`) to force larger/smaller adaptive LR |
 | **weight_decouple**, **bias_correction**, **safeguard_warmup** | **prodigy** | `pytorch-optimizer` kwargs; diffusion-friendly defaults are pre-filled in the form |
-| **eps** | **adafusion** | Two floats `[eps_factored, eps_clip]` (default `[1e-30, 1e-3]`) |
-| **clip_threshold** | **adafusion** | RMS clip on the update (default `1.0`) |
-| **momentum_dtype** | **adafusion**, **muon** | Momentum storage: `"float32"`, `"bfloat16"`, `"int8"`, or `"4bit"` (Adafusion). bf16 keeps state at ~1–2 B/param. Set `betas` to `[0.0, …]` for a true no-momentum (lowest-memory) Adafusion run |
-| **cautious** | **adafusion** | Cautious update masking; helps with momentum. Set `false` when `betas[0] = 0.0` (no momentum), where it's a no-op |
-| **bf16_method** | **adafusion**, **muon** | bf16-correct weight update: `"stochastic_rounding"` (no extra buffer), `"kahan"`, or `"none"` |
+| **eps** | **adafusion**, **adamuon** | Two floats `[eps_factored, eps_clip]` (default `[1e-30, 1e-3]`) |
+| **clip_threshold** | **adafusion**, **adamuon** | RMS ceiling on the normalized update (default `1.0`). Internal / load-bearing — an Adafactor-style RMS clip, **not** the DeepSpeed `gradient_clipping` grad-norm clip; leave at `1.0` |
+| **momentum_dtype** | **adafusion**, **muon**, **adamuon** | Momentum storage: `"float32"`, `"bfloat16"`, `"int8"`, or `"4bit"`. bf16 keeps state at ~2 B/param (int8 ~1 B, 4bit ~0.5 B). For Adafusion, set `betas` to `[0.0, …]` for a true no-momentum (lowest-memory) run |
+| **cautious** | **adafusion**, **adamuon** | Cautious update masking; helps with momentum (on by default for AdaMuon — flips it from a loss to a win vs Adafusion). For Adafusion, set `false` when `betas[0] = 0.0` (no momentum), where it's a no-op |
+| **ns_steps** | **adamuon** | Newton-Schulz orthogonalization steps (default `2`). `2` is the validated sweet spot for diffusion; `5` (LLM Muon) over-orthogonalizes |
+| **bf16_method** | **adafusion**, **muon**, **adamuon** | bf16-correct weight update: `"stochastic_rounding"` (no extra buffer), `"kahan"`, or `"none"` |
+| **compile** | **adamuon** | Optional whole-step `torch.compile` (off by default; workload-dependent) |
 | **adamw_lr** | **muon** | LR for Muon's AdamW fallback on 1-D / embedding params (default `3e-4`) |
 
-For the full Adafusion / Muon parameter set (e.g. `foreach` batching, `momentum_4bit_block`, Muon's `ns_steps` / `nesterov`), see the [koptim docs](https://github.com/Koronos/K-Optimizers/tree/main/docs). Any key under `[optimizer]` is forwarded to the constructor, so unlisted kwargs work too.
+For the full Adafusion / Muon / AdaMuon parameter set (e.g. `foreach` batching, `momentum_4bit_block`, Muon's `nesterov`), see the [koptim docs](https://github.com/Koronos/K-Optimizers/tree/main/docs). Any key under `[optimizer]` is forwarded to the constructor, so unlisted kwargs work too.
 
 `gradient_release` requires **`pipeline_stages = 1`** and data-parallel world size 1.
 
