@@ -12,7 +12,7 @@
           >
             Continue training…
           </el-button>
-          <el-button v-if="mode === 'job' && job?.id" @click="cloneToNewRun">Clone to new run</el-button>
+          <el-button v-if="mode === 'job' && job?.id" @click="newRunFromThisConfig">New run from this config</el-button>
           <el-button :loading="tbLoading" @click="openTensorboardForRun">Open TensorBoard</el-button>
           <el-button
             v-if="tbStatus?.running"
@@ -287,17 +287,6 @@ function goContinueTraining() {
   // Filesystem-only run with no job id: fall back to the path query.
   if (!runDir.value) return;
   router.push({ name: "run-new", query: { continue_run: runDir.value } });
-}
-
-async function cloneToNewRun() {
-  if (!job.value?.id) return;
-  try {
-    const cloned = await api.cloneJob(String(job.value.id));
-    ElMessage.success(`Cloned to a new run (job #${cloned.id})`);
-    router.push({ name: "job-detail", params: { id: String(cloned.id) } });
-  } catch (e) {
-    ElMessage.error(formatError(e));
-  }
 }
 
 /** Retry path for a run with no checkpoint to resume (e.g. failed at setup): open a fresh,

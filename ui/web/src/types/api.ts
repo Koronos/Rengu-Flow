@@ -229,13 +229,6 @@ export interface JobStartBody {
   source_run_dir?: string;
 }
 
-export interface CloneJobBody {
-  num_gpus?: number;
-  output_dir?: string;
-  extra_args?: string;
-  start_immediately?: boolean;
-}
-
 export interface JobPatchBody {
   state?: string;
   [key: string]: unknown;

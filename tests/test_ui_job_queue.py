@@ -380,53 +380,6 @@ def test_prepare_job_snapshots_config_content(
     assert 'type = "sdxl"' in job.config_content
 
 
-def test_clone_run_creates_fresh_run_from_snapshot(
-    job_content: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr("rengu_flow_ui.job_queue.try_start_next", lambda: None)
-    src = job_queue.prepare_job(
-        content=job_content,
-        num_gpus=2,
-        resume_from="/tmp/prev/checkpoint",
-        output_dir=None,
-        extra_args="--foo",
-        reset_dataloader=False,
-        reset_optimizer=False,
-    )
-    clone = job_queue.clone_run(src.id)
-
-    assert clone.id != src.id
-    assert clone.state == "pending"
-    assert clone.config_content == src.config_content  # same config
-    assert clone.num_gpus == src.num_gpus  # inherited runtime knobs
-    assert clone.extra_args == src.extra_args
-    assert clone.resume_from is None  # fresh: no data from the previous run
-    assert clone.run_dir is None
-
-
-def test_clone_run_strips_resume_from_checkpoint(
-    job_content: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    import toml
-
-    monkeypatch.setattr("rengu_flow_ui.job_queue.try_start_next", lambda: None)
-    # A source config that carries a resume pointer must not pass it to a fresh clone,
-    # or the clone would resume into (and show the stats of) the source run's folder.
-    src = job_queue.prepare_job(
-        # Top-level key (before any [table]) so it is a real top-level resume pointer.
-        content="resume_from_checkpoint = true\n" + job_content,
-        num_gpus=1,
-        resume_from=None,
-        output_dir=None,
-        extra_args="",
-        reset_dataloader=False,
-        reset_optimizer=False,
-    )
-    assert toml.loads(src.config_content).get("resume_from_checkpoint") is True
-    clone = job_queue.clone_run(src.id)
-    assert "resume_from_checkpoint" not in toml.loads(clone.config_content)
-
-
 def test_merge_job_cli_args_run_dir_managed() -> None:
     """--run_dir is managed like the cache flags: stripped, then re-added only when given."""
     from rengu_flow_ui.job_queue import merge_job_cli_args
@@ -481,9 +434,6 @@ def test_continue_from_scratch_pins_run_folder(
     assert "--run_dir" in toks
     assert toks[toks.index("--run_dir") + 1] == str(folder.resolve())
 
-    # Cloning that job for a brand-new run must NOT inherit the folder pin.
-    clone = job_queue.clone_run(cont.id)
-    assert "--run_dir" not in shlex.split(clone.extra_args)
 
 
 def test_save_draft_creates_new_without_staging(

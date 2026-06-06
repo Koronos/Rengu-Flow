@@ -372,55 +372,6 @@ def start_job_immediately(**kwargs: Any) -> db.JobRecord:
     return db.get_job(job.id)
 
 
-def clone_run(
-    source_job_id: str | int,
-    *,
-    num_gpus: int | None = None,
-    output_dir: str | None = None,
-    extra_args: str | None = None,
-    start_immediately: bool = False,
-) -> db.JobRecord:
-    """Create a NEW run seeded with an existing run's config, without its runtime data.
-
-    Implements "edit = create new": the clone reuses the source run's config snapshot
-    (library refs intact) but starts fresh — new run_dir/output, no resume checkpoint,
-    no inherited logs. The source run stays immutable as history.
-    """
-    src = db.get_job(source_job_id)
-    content = src.config_content or ""
-    if not content.strip():
-        raise ValueError(f"Run {source_job_id} has no config content to clone")
-    # Preserve the original dataset reference: revert any per-job staging path that may
-    # have leaked into the snapshot (e.g. from a prior continue/import).
-    from rengu_flow_ui.job_import import unstage_config_dataset_refs
-
-    content = unstage_config_dataset_refs(content, run_dir=src.run_dir)
-    # A clone is a brand-new run: never inherit a resume pointer from the source config,
-    # or it would resume into the source run's folder instead of a fresh one.
-    try:
-        _cfg = toml.loads(content)
-        if isinstance(_cfg, dict) and _cfg.pop("resume_from_checkpoint", None) is not None:
-            content = toml.dumps(_cfg)
-    except Exception:
-        pass
-
-    kwargs: dict[str, Any] = dict(
-        content=content,
-        num_gpus=num_gpus if num_gpus is not None else src.num_gpus,
-        resume_from=None,  # fresh run: no data from the previous run
-        output_dir=output_dir,
-        extra_args=extra_args if extra_args is not None else src.extra_args,
-        reset_dataloader=False,
-        reset_optimizer=False,
-        cache_only=src.cache_only,
-        trust_cache=src.trust_cache,
-        regenerate_cache=src.regenerate_cache,
-    )
-    if start_immediately:
-        return start_job_immediately(**kwargs)
-    return enqueue_job(**kwargs)
-
-
 def save_draft(
     *,
     content: str | None,
