@@ -786,6 +786,11 @@ def create_app() -> FastAPI:
         content = job.config_content or ""
         if not content.strip():
             raise HTTPException(400, "This run has no config content to copy")
+        # Keep the original dataset reference: revert any per-job staging path that may
+        # have leaked into config_content (e.g. from a prior continue/import).
+        from rengu_flow_ui.job_import import unstage_config_dataset_refs
+
+        content = unstage_config_dataset_refs(content, run_dir=job.run_dir)
         try:
             cfg = toml.loads(content)
             base = cfg.get("run_name")

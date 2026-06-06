@@ -348,6 +348,11 @@ def clone_run(
     content = src.config_content or ""
     if not content.strip():
         raise ValueError(f"Run {source_job_id} has no config content to clone")
+    # Preserve the original dataset reference: revert any per-job staging path that may
+    # have leaked into the snapshot (e.g. from a prior continue/import).
+    from rengu_flow_ui.job_import import unstage_config_dataset_refs
+
+    content = unstage_config_dataset_refs(content, run_dir=src.run_dir)
 
     kwargs: dict[str, Any] = dict(
         content=content,

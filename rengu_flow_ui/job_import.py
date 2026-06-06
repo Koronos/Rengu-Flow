@@ -50,6 +50,99 @@ def resolve_config_dataset_paths(config_toml_text: str) -> str:
     return toml.dumps(cfg)
 
 
+def _unstage_dataset_entry(entry: Any, run_dir: Path | None) -> Any:
+    """Map a per-job staged dataset copy back to its original reference.
+
+    The job runner materializes dataset references into
+    ``<data>/staging/<job_id>/<id>.dataset.toml`` and rewrites the config's
+    ``dataset`` field to that path. When a config is later re-used (clone / new run
+    / continue / import), that staging path must NOT replace the run's original
+    reference. This reverses it:
+
+    - ``<id>.dataset.toml`` under a ``staging`` dir whose id still exists in the
+      dataset library -> the library ref ``rengu-flow-dataset:<id>`` (the original);
+    - otherwise, the run folder's co-located copy of the same file, if present;
+    - otherwise the value is left unchanged.
+    """
+    if not isinstance(entry, str) or not entry.strip():
+        return entry
+    if library_db.is_library_dataset_ref(entry):
+        return entry
+    p = Path(entry)
+    # Heuristic, machine-independent: a staged copy lives at .../staging/<job_id>/<file>.
+    if p.parent.parent.name != "staging":
+        return entry
+    name = p.name
+    suffix = ".dataset.toml"
+    if name.endswith(suffix):
+        stem = name[: -len(suffix)]
+        if stem.isdigit():
+            did = int(stem)
+            try:
+                if library_db.dataset_exists(did):
+                    return library_db.dataset_library_ref(did)
+            except Exception:
+                pass
+    if run_dir is not None:
+        candidate = Path(run_dir) / name
+        if candidate.is_file():
+            return str(candidate.resolve())
+    return entry
+
+
+def unstage_config_dataset_refs(config_toml_text: str, run_dir: str | Path | None = None) -> str:
+    """Reverse job-staging dataset paths in a config so re-use keeps the original ref.
+
+    Idempotent and lossless: returns the input unchanged (same text) when nothing
+    needs reversing, so clean configs keep their original formatting/comments.
+    """
+    try:
+        cfg = toml.loads(config_toml_text)
+    except Exception:
+        return config_toml_text
+    if not isinstance(cfg, dict):
+        return config_toml_text
+    rd = Path(run_dir) if run_dir else None
+    changed = False
+
+    ds = cfg.get("dataset")
+    if isinstance(ds, str):
+        new = _unstage_dataset_entry(ds, rd)
+        if new != ds:
+            cfg["dataset"] = new
+            changed = True
+    elif isinstance(ds, list):
+        new_list = [_unstage_dataset_entry(x, rd) for x in ds]
+        if new_list != ds:
+            cfg["dataset"] = new_list
+            changed = True
+
+    ev = cfg.get("eval_datasets")
+    if isinstance(ev, list):
+        new_ev: list[Any] = []
+        ev_changed = False
+        for entry in ev:
+            if isinstance(entry, str):
+                ne = _unstage_dataset_entry(entry, rd)
+                ev_changed = ev_changed or ne != entry
+                new_ev.append(ne)
+            elif isinstance(entry, dict) and isinstance(entry.get("config"), str):
+                ne = _unstage_dataset_entry(entry["config"], rd)
+                if ne != entry["config"]:
+                    entry = {**entry, "config": ne}
+                    ev_changed = True
+                new_ev.append(entry)
+            else:
+                new_ev.append(entry)
+        if ev_changed:
+            cfg["eval_datasets"] = new_ev
+            changed = True
+
+    if not changed:
+        return config_toml_text
+    return toml.dumps(cfg)
+
+
 def resolve_dataset_toml_paths(dataset_toml_text: str) -> str:
     """Rewrite a dataset TOML's directory ``path``/``cache_dir`` to absolute paths.
 
@@ -163,8 +256,12 @@ def import_run(
 
     # The imported run is self-contained via its config_content snapshot; there is no
     # separate config library. Optionally add the run's dataset TOML to the dataset library.
+    # Reverse any per-job staging path first so the snapshot keeps the original dataset
+    # reference (library ref or the run's own copy), then resolve relative paths.
     config_content = resolve_config_dataset_paths(
-        config_path.read_text(encoding="utf-8")
+        unstage_config_dataset_refs(
+            config_path.read_text(encoding="utf-8"), run_dir=run_dir
+        )
     )
     if import_dataset:
         ds_path = _dataset_file_in_run(run_dir, config_path)

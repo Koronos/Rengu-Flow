@@ -8,7 +8,7 @@ from typing import Any
 import toml
 
 from rengu_flow_ui import runs_scanner
-from rengu_flow_ui.job_import import resolve_run_path
+from rengu_flow_ui.job_import import resolve_run_path, unstage_config_dataset_refs
 from rengu_flow_ui.paths import resolve_repo_path
 
 
@@ -98,7 +98,9 @@ def describe_run_config(run_path: str | Path) -> dict[str, Any]:
         "config_path": str(config_path) if config_path else None,
         "output_dir": str(resolve_output_dir(cfg)),
         "resume_from": resume_checkpoint_arg(run_dir, cfg),
-        "content": read_run_config_text(run_dir),
+        # Reverse any per-job staging dataset path so the editor shows the original
+        # reference (library ref / the run's own dataset copy), not a staging copy.
+        "content": unstage_config_dataset_refs(read_run_config_text(run_dir), run_dir=run_dir),
         "model_type": (cfg.get("model") or {}).get("type") if isinstance(cfg.get("model"), dict) else None,
         "epochs": cfg.get("epochs"),
         "max_steps": cfg.get("max_steps"),

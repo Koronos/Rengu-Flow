@@ -32,8 +32,6 @@
           <el-select
             :model-value="row.resolutions"
             multiple
-            collapse-tags
-            collapse-tags-tooltip
             placeholder="Resolutions"
             class="stage-res"
             @update:model-value="(v) => updateResolutions(idx, v as number[])"
