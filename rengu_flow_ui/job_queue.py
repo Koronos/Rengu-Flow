@@ -252,6 +252,10 @@ def enqueue_continue_run(
         run_dir_pin = resume_checkpoint_arg(run_dir, cfg)
     elif resume_from:
         resume_arg = resume_from
+        # `resume_from` is a checkpoint tag (global_stepN), not a folder — pin the run
+        # folder so the trainer resolves that tag inside it instead of looking for
+        # output/<tag>.
+        run_dir_pin = resume_checkpoint_arg(run_dir, cfg)
     else:
         resume_arg = resume_checkpoint_arg(run_dir, cfg)
 
@@ -313,6 +317,10 @@ def continue_existing(
             run_dir_pin = resume_checkpoint_arg(Path(run_dir), cfg)
     elif resume_from:
         resume_arg = resume_from
+        # `resume_from` is a checkpoint tag (global_stepN), not a folder — pin the run
+        # folder so the trainer resolves that tag inside it instead of looking for
+        # output/<tag>.
+        run_dir_pin = resume_checkpoint_arg(Path(run_dir), cfg)
     else:
         resume_arg = resume_checkpoint_arg(Path(run_dir), cfg)
 
@@ -539,6 +547,14 @@ def update_pending_job(
     if extra_args is not None or reset_dataloader is not None or reset_optimizer is not None or cache_changed:
         base = extra_args if extra_args is not None else job.extra_args
         tokens = shlex.split(base) if base else []
+        # Preserve an existing --run_dir folder pin (merge_job_cli_args strips it and only
+        # re-adds when passed), so editing a resume job doesn't lose its folder pin.
+        existing_run_dir: str | None = None
+        for i, tok in enumerate(tokens):
+            if tok == "--run_dir" and i + 1 < len(tokens):
+                existing_run_dir = tokens[i + 1]
+            elif tok.startswith("--run_dir="):
+                existing_run_dir = tok.split("=", 1)[1]
         if reset_dataloader is not None or reset_optimizer is not None:
             tokens = [t for t in tokens if t not in ("--reset_dataloader", "--reset_optimizer")]
             if reset_dataloader:
@@ -546,7 +562,11 @@ def update_pending_job(
             if reset_optimizer:
                 tokens.append("--reset_optimizer")
         fields["extra_args"] = merge_job_cli_args(
-            " ".join(tokens), cache_only=co, trust_cache=tc, regenerate_cache=rc
+            " ".join(tokens),
+            cache_only=co,
+            trust_cache=tc,
+            regenerate_cache=rc,
+            run_dir=existing_run_dir,
         )
 
     if fields:

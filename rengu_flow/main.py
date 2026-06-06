@@ -545,6 +545,14 @@ def _run_training(args, config):
     if run_dir is None:
         raise RuntimeError("run_dir was not set on rank 0")
     os.makedirs(run_dir, exist_ok=True)
+    # When the folder is pinned (--run_dir) and a specific checkpoint tag was requested
+    # (e.g. global_step40), resume that tag from inside the folder; otherwise DeepSpeed
+    # resumes the folder's `latest`. (Without --run_dir, --resume_from_checkpoint names a
+    # run folder, handled above.)
+    resume_tag = None
+    if args.run_dir and isinstance(resume_from_checkpoint, str) and resume_from_checkpoint:
+        if os.path.isdir(os.path.join(run_dir, resume_from_checkpoint)):
+            resume_tag = resume_from_checkpoint
     # Sweep any signal files left over from a prior run (e.g. a save_quit from a force-stop that
     # killed the process before a step consumed it) so this run doesn't quit on its first step.
     from rengu_flow.utils.signal_files import clear_stale_signals
@@ -658,6 +666,7 @@ def _run_training(args, config):
             param_groups = param_groups.copy()
         load_path, client_state = model_engine.load_checkpoint(
             run_dir,
+            tag=resume_tag,
             load_module_strict=False,
             load_lr_scheduler_states=load_lr,
             load_optimizer_states=load_optimizer,

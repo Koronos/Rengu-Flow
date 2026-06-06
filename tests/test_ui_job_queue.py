@@ -196,6 +196,34 @@ def test_continue_existing_reuses_record(
     assert draft.state == "new"
 
 
+def test_continue_existing_specific_checkpoint_pins_folder(
+    job_content: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Resuming a specific checkpoint passes the tag AND pins the run folder via --run_dir,
+    so the trainer resolves output/<run>/<tag> instead of the bogus output/<tag>."""
+    monkeypatch.setattr("rengu_flow_ui.job_queue.try_start_next", lambda: None)
+    folder = tmp_path / "run_ckpt"
+    folder.mkdir()
+    (folder / "train.toml").write_text("run_name = 'r'\n", encoding="utf-8")
+    (folder / "global_step40").mkdir()  # the checkpoint to resume
+
+    job = job_queue.prepare_job(
+        content=job_content,
+        num_gpus=1,
+        resume_from=None,
+        output_dir=None,
+        extra_args="",
+        reset_dataloader=False,
+        reset_optimizer=False,
+        source_run_dir=str(folder),
+    )
+    db.update_job(job.id, state="finished")
+    cont = job_queue.continue_existing(job.id, content=job_content, resume_from="global_step40")
+    assert cont.resume_from == "global_step40"  # the tag (not a folder)
+    assert "--run_dir" in (cont.extra_args or "")
+    assert str(folder.resolve()) in (cont.extra_args or "")
+
+
 def test_continue_existing_without_folder_reuses_record(
     job_content: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
