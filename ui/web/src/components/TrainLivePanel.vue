@@ -85,6 +85,19 @@
           <span v-if="displayLoss != null" class="live-loss" :title="lossTitle">
             loss {{ formatLoss(displayLoss) }}
           </span>
+          <span v-if="valLoss != null" class="live-sep">·</span>
+          <span v-if="valLoss != null" class="live-val" title="held-out validation loss">
+            val {{ formatLoss(valLoss) }}
+          </span>
+          <span v-if="valGap != null" class="live-sep">·</span>
+          <span
+            v-if="valGap != null"
+            class="live-gap"
+            :class="{ 'live-gap-warn': valGap > 0 }"
+            title="train-val gap (val − train probe); rising = overfitting"
+          >
+            gap {{ formatLoss(valGap) }}
+          </span>
           <span v-if="progressHint" class="live-sep">·</span>
           <span v-if="progressHint" class="live-speed">{{ progressHint }}</span>
         </div>
@@ -150,6 +163,10 @@ const lossTitle = computed(() => {
   if (!p || p.loss_avg == null || p.loss == null) return "";
   return `avg loss (last steps); instant ${p.loss.toFixed(6)}`;
 });
+
+// Generalization probe: held-out validation loss and the train-val gap (overfitting signal).
+const valLoss = computed(() => progress.value?.val_loss ?? null);
+const valGap = computed(() => progress.value?.val_gap ?? null);
 
 const streamStatusLabel = computed(() => {
   switch (props.streamStatus) {
@@ -259,11 +276,22 @@ function formatLoss(v: number | null | undefined): string | number | null | unde
 }
 .live-epoch,
 .live-loss,
+.live-val,
+.live-gap,
 .live-speed {
   font-family: ui-monospace, monospace;
 }
 .live-speed {
   color: var(--el-text-color-secondary);
+}
+.live-val {
+  color: var(--el-color-info);
+}
+.live-gap {
+  color: var(--el-text-color-secondary);
+}
+.live-gap-warn {
+  color: var(--el-color-warning);
 }
 .live-open-hint {
   display: block;

@@ -676,6 +676,21 @@ def get_sections() -> list[dict[str, Any]]:
                 _field("eval_before_first_step", "Eval before first step", "boolean", default=True),
                 _field("eval_gradient_accumulation_steps", "Eval grad accum", "integer", default=1),
                 _field(
+                    "val_gap_enable",
+                    "Train-val gap probe",
+                    "boolean",
+                    default=True,
+                    description="Deterministic held-out val loss + train-val gap (overfitting signal). Uses the first eval dataset; no-ops if none.",
+                ),
+                _field(
+                    "val_gap_probe_batches",
+                    "Gap probe batches",
+                    "integer",
+                    default=8,
+                    min_value=1,
+                    description="Forward batches per probe (per timestep quantile). Smaller = faster.",
+                ),
+                _field(
                     "disable_block_swap_for_eval",
                     "Disable block swap for eval",
                     "boolean",

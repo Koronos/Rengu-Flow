@@ -16,6 +16,20 @@ You can run validation during training over one or more **eval datasets**. Eval 
 | **`eval_every_n_epochs`** | Run evaluation at the end of every N epochs. | Positive integer or omit. | `null` |
 | **`eval_every_n_examples`** | Run evaluation every N examples (converted to steps using global batch size). | Positive integer or omit. | `null` |
 | **`eval_before_first_step`** | Run one evaluation before the first training step (useful for baseline metrics). | `true` or `false`. | `true` |
+| **`val_gap_enable`** | Enable the deterministic **generalization probe**: a held-out validation loss plus the **train–val gap** (see below). | `true` or `false`. | `true` |
+| **`val_gap_probe_batches`** | Forward batches per probe (per timestep quantile). Keeps the probe cheap regardless of dataset size. | Positive integer. | `8` |
+
+### Generalization probe (train–val gap)
+
+Train loss alone is misleading for diffusion fine-tuning: a model can drive train loss down while overfitting/memorizing and producing worse samples. The recognized cheap signal (EveryDream2 / kohya / OneTrainer) is a **held-out validation loss**, and especially the **train–val gap** (rising gap = overfitting).
+
+When `val_gap_enable` is on and at least one `eval_datasets` entry is configured, the trainer runs a deterministic, forward-only probe on the existing eval cadence (`eval_every_n_*`):
+
+- **`val/loss`** — held-out validation loss on the first eval dataset.
+- **`train/probe`** — the same probe on a small fixed train subset.
+- **`val/gap`** — `val/loss − train/probe`, the headline overfitting signal.
+
+The probe is deterministic — the timestep is fixed per pass (averaged over a fixed spread of quantiles) and the per-item noise is frozen by reseeding before every probe — so the curves are smooth and comparable across steps. It reuses the model's own training loss (eps-pred / v-pred / flow-matching), runs under `torch.no_grad()` with the model in inference state, and restores training state after. There is **no sampling/generation** (forward passes only). All three scalars plot in TensorBoard alongside `train/loss`, and `val/loss` + `val/gap` are surfaced live in the UI next to the train loss. If no `eval_datasets` are configured, the probe no-ops gracefully (no crash).
 
 ### Examples
 

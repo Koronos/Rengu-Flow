@@ -182,11 +182,16 @@ def build_progress_payload(
     epoch: int,
     metrics: dict[str, Any],
     phase: str = "training",
+    val_metrics: dict[str, float] | None = None,
 ) -> dict[str, Any]:
     """Compact progress payload for the throttled stdout marker.
 
     Reuses the numeric fields from ``TrainingProgressTracker.metrics()`` and adds the
     per-step loss, current epoch, and phase. Mirrors the fields the UI bar consumes.
+
+    ``val_metrics`` (when present) carries the latest deterministic generalization probe —
+    ``val_loss``, optional ``train_probe`` and ``val_gap`` (the overfitting signal) — so the
+    UI can show the held-out loss and the train-val gap next to the train loss.
     """
     payload: dict[str, Any] = {
         "phase": phase,
@@ -195,6 +200,13 @@ def build_progress_payload(
         "epoch": int(epoch),
     }
     payload.update(metrics)
+    if val_metrics:
+        if "val_loss" in val_metrics:
+            payload["val_loss"] = round(float(val_metrics["val_loss"]), 6)
+        if "val_gap" in val_metrics:
+            payload["val_gap"] = round(float(val_metrics["val_gap"]), 6)
+        if "train_probe" in val_metrics:
+            payload["train_probe"] = round(float(val_metrics["train_probe"]), 6)
     return payload
 
 

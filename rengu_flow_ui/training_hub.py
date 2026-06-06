@@ -162,6 +162,21 @@ def compute_run_progress(
             step = step if step is not None else last.get("step")
             loss = loss if loss is not None else last.get("value")
 
+    # Generalization probe (held-out val loss + train-val gap). Prefer the live marker; fall
+    # back to the last TensorBoard scalars for finished/imported runs.
+    val_loss = m.get("val_loss")
+    val_gap = m.get("val_gap")
+    if (val_loss is None or val_gap is None) and has_dir:
+        scalars = metrics_tb.read_scalars(run_dir, tag_prefix="")
+        if val_loss is None:
+            vseries = scalars.get("val/loss") or []
+            if vseries:
+                val_loss = vseries[-1].get("value")
+        if val_gap is None:
+            gseries = scalars.get("val/gap") or []
+            if gseries:
+                val_gap = gseries[-1].get("value")
+
     # Prefer the marker's own max_steps/percent (it knows epoch-derived totals too),
     # falling back to the config-derived budget.
     max_steps = m.get("max_steps") or limits.get("max_steps")
@@ -176,6 +191,8 @@ def compute_run_progress(
         "epochs": limits.get("epochs"),
         "loss": loss,
         "loss_avg": m.get("loss_avg"),
+        "val_loss": val_loss,
+        "val_gap": val_gap,
         "percent": percent,
         "phase": m.get("phase"),
         "updated_at": None,

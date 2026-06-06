@@ -22,8 +22,14 @@ def evaluate_single(
     eval_gradient_accumulation_steps: int,
     quantile: float,
     pbar: Any = None,
+    max_batches: int | None = None,
 ) -> float:
-    """Run eval over one full pass of eval_dataloader at a fixed timestep quantile; return mean loss."""
+    """Run eval over eval_dataloader at a fixed timestep quantile; return mean loss.
+
+    Covers one full pass by default. ``max_batches`` caps the number of forward
+    batches (used by the generalization probe to keep a fixed train subset cheap and
+    deterministic regardless of train-set size).
+    """
     eval_dataloader.set_eval_quantile(quantile)
     total_loss = 0.0
     count = 0
@@ -42,6 +48,8 @@ def evaluate_single(
             pbar.update(1)
         total_loss += loss
         count += 1
+        if max_batches is not None and count >= max_batches:
+            break
         if eval_dataloader.epoch == 2:
             break
     eval_dataloader.reset()

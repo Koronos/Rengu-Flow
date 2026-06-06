@@ -280,6 +280,10 @@ export interface RunProgress {
   loss?: number | null;
   /** Kohya-style moving-average loss over the last epoch of steps (steady). */
   loss_avg?: number | null;
+  /** Deterministic held-out validation loss (generalization probe). */
+  val_loss?: number | null;
+  /** Train-val gap (val − train probe); the overfitting signal — rising = overfitting. */
+  val_gap?: number | null;
   percent?: number | null;
   steps_remaining?: number | null;
   /** Seconds for the last completed step (s/it, instant). */

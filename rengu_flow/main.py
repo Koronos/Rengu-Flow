@@ -234,6 +234,7 @@ def _run_training(args, config):
     from rengu_flow.utils import ManualPipelineModule, get_data_iterator_for_step, is_main_process
     from rengu_flow.utils.saver import Saver
     from rengu_flow.utils.eval import evaluate
+    from rengu_flow.utils.gen_probe import generalization_probe
     from rengu_flow.data import (
         Dataset,
         DatasetManager,
@@ -476,6 +477,30 @@ def _run_training(args, config):
         )
         for name, eval_data in eval_data_map.items()
     }
+    # Deterministic generalization probe (val loss / train probe / GAP). The val curve comes
+    # from the first explicit eval dataset (held-out by construction); the train probe is a
+    # cheap separate loader over the train dataset (forward-only, capped to a fixed number of
+    # batches — never advances the training iterator). Both no-op when unavailable.
+    val_gap_enable = config.get("val_gap_enable", True)
+    val_gap_probe_batches = config.get("val_gap_probe_batches", 8)
+    val_probe_dataloader = None
+    train_probe_dataloader = None
+    if val_gap_enable and eval_dataloaders:
+        # Use the first eval dataset as the held-out validation source for the gap.
+        val_probe_dataloader = next(iter(eval_dataloaders.values()))
+        if train_data is not None:
+            train_probe_dataloader = PipelineDataLoader(
+                train_data,
+                model_engine,
+                eval_gradient_accumulation_steps,
+                model,
+                **_loader_kwargs,
+            )
+    elif val_gap_enable and is_main_process():
+        print(
+            "rengu_flow: val_gap_enable is set but no eval_datasets are configured; "
+            "the train-val gap probe is disabled (add an eval_datasets entry to enable it)."
+        )
     # A resolution schedule samples only a subset of resolutions per epoch, so the
     # live dataloader length shrinks; measure steps_per_epoch over the full set of
     # resolutions (full_epoch_len) to keep total_steps/progress stable.
@@ -652,6 +677,9 @@ def _run_training(args, config):
     last_save_step = -1  # last step at which an inference model was saved (for the final save)
     epoch_loss = 0.0
     num_steps = 0
+    # Latest generalization-probe result (val loss / train probe / gap), surfaced in the live
+    # progress marker so the UI can show it next to the train loss. None until the first probe.
+    last_val_metrics: dict[str, float] | None = None
     bench_csv = (
         bench_init(run_dir)
         if bench_enabled(config) and is_main_process()
@@ -704,6 +732,20 @@ def _run_training(args, config):
             optimizer=optimizer,
             wandb_enable=wandb_enable,
         )
+        if val_probe_dataloader is not None:
+            last_val_metrics = generalization_probe(
+                model,
+                model_engine,
+                val_probe_dataloader,
+                train_probe_dataloader,
+                tb_writer,
+                0,
+                eval_gradient_accumulation_steps,
+                disable_block_swap_for_eval,
+                probe_batches=val_gap_probe_batches,
+                optimizer=optimizer,
+                wandb_enable=wandb_enable,
+            )
 
     if (
         preview_before_first_step
@@ -865,6 +907,7 @@ def _run_training(args, config):
                         loss=loss,
                         epoch=display_epoch,
                         metrics=step_progress,
+                        val_metrics=last_val_metrics,
                     ),
                     force=is_final or finished_epoch or saved,
                 )
@@ -893,6 +936,33 @@ def _run_training(args, config):
                     optimizer=optimizer,
                     wandb_enable=wandb_enable,
                 )
+                if val_probe_dataloader is not None:
+                    last_val_metrics = generalization_probe(
+                        model,
+                        model_engine,
+                        val_probe_dataloader,
+                        train_probe_dataloader,
+                        tb_writer,
+                        x_axis,
+                        eval_gradient_accumulation_steps,
+                        disable_block_swap_for_eval,
+                        probe_batches=val_gap_probe_batches,
+                        optimizer=optimizer,
+                        wandb_enable=wandb_enable,
+                    )
+                    # Re-emit a fresh marker so the UI surfaces the new val/gap promptly
+                    # (the per-step emit above ran before this probe).
+                    if progress_emitter is not None and last_val_metrics is not None:
+                        progress_emitter.emit(
+                            build_progress_payload(
+                                step=step,
+                                loss=loss,
+                                epoch=display_epoch,
+                                metrics=step_progress,
+                                val_metrics=last_val_metrics,
+                            ),
+                            force=True,
+                        )
 
             if finished_epoch:
                 if is_main_process() and num_steps > 0:

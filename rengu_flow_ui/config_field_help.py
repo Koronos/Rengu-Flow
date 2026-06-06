@@ -293,6 +293,20 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "summary": "Gradient accumulation steps used during eval.",
         "doc": "docs/user/training-loop-and-eval.md",
     },
+    "val_gap_enable": {
+        "summary": "Deterministic held-out val loss + train-val gap (overfitting signal).",
+        "detail": (
+            "Forward-only probe on the existing eval cadence. The val curve uses the first "
+            "eval dataset; a matched probe runs on a fixed train subset. Logs val/loss, "
+            "train/probe and val/gap (val − train). No-ops if no eval dataset is configured."
+        ),
+        "doc": "docs/user/training-loop-and-eval.md",
+    },
+    "val_gap_probe_batches": {
+        "summary": "Forward batches per gap probe (per timestep quantile).",
+        "detail": "Smaller is faster. Keeps the probe cheap regardless of dataset size.",
+        "doc": "docs/user/training-loop-and-eval.md",
+    },
     "preview.enabled": {
         "summary": "Generate sample images during training.",
         "doc": "docs/user/previews.md",

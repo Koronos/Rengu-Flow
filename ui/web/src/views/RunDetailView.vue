@@ -116,6 +116,8 @@
           <span v-if="progress.step != null">step {{ progress.step }}<template v-if="progress.max_steps"> / {{ progress.max_steps }}</template></span>
           <span v-if="progress.epoch != null"> · epoch {{ progress.epoch }}<template v-if="progress.epochs"> / {{ progress.epochs }} ({{ Math.max(0, progress.epochs - progress.epoch) }} left)</template></span>
           <span v-if="(progress.loss_avg ?? progress.loss) != null"> · loss {{ Number(progress.loss_avg ?? progress.loss).toFixed(6) }}</span>
+          <span v-if="progress.val_loss != null" title="held-out validation loss"> · val {{ Number(progress.val_loss).toFixed(6) }}</span>
+          <span v-if="progress.val_gap != null" :class="{ 'gap-warn': progress.val_gap > 0 }" title="train-val gap (val − train probe); rising = overfitting"> · gap {{ Number(progress.val_gap).toFixed(6) }}</span>
           <span v-if="progressHint"> · {{ progressHint }}</span>
         </div>
         <el-progress
@@ -490,6 +492,9 @@ watch(key, () => {
 .mono {
   font-family: ui-monospace, monospace;
   font-size: 12px;
+}
+.gap-warn {
+  color: var(--el-color-warning);
 }
 .loss-card-head {
   display: flex;

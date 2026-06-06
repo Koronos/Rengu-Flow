@@ -122,6 +122,11 @@ def set_config_defaults(config: dict[str, Any]) -> None:
     config.setdefault("eval_every_n_examples", None)
     config.setdefault("eval_before_first_step", True)
     config.setdefault("disable_block_swap_for_eval", False)
+    # Deterministic generalization probe: held-out val loss + matched train probe + GAP
+    # (val − train), the fast overfitting signal. Forward-only, runs on the existing eval
+    # cadence. No-ops gracefully when no val set (eval_datasets) is available.
+    config.setdefault("val_gap_enable", True)
+    config.setdefault("val_gap_probe_batches", 8)
     config.setdefault("cache_dedup_text_embeddings", False)
     config.setdefault("compile", False)
     config.setdefault("x_axis_examples", False)
