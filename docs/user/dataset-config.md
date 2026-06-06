@@ -244,6 +244,12 @@ How it works:
 | **`resolution_schedule.enabled`** | Turn the staged schedule on. | `true` / `false` | `false` (uniform mixing). |
 | **`resolution_schedule.stage`** | Ordered list of stages, each `{ resolutions, fraction }`. | `[[resolution_schedule.stage]]` tables. | — |
 
+In the **web UI dataset editor**, the **Resolution schedule** section provides a
+visual editor: toggle it on, then add stages — each row picks the active
+resolution(s) (from the dataset's Resolutions) and its fraction, with the
+normalized percentage shown next to it. An "Edit as JSON" escape hatch is there
+for advanced cases.
+
 ### Captions
 
 - **Per-image `.txt` files:** One caption **per line**. Empty lines are skipped. If the file is empty or missing, the image uses **`directory_caption`** (if set on that `[[directory]]`) as the full caption, or an empty caption if not set.

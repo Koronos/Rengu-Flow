@@ -135,6 +135,13 @@
       @update:model-value="onSizeBucketsInput"
     />
 
+    <ResolutionScheduleField
+      v-else-if="field.path === 'resolution_schedule'"
+      :model-value="scheduleModel"
+      :available-resolutions="availableResolutions"
+      @update:model-value="onScheduleInput"
+    />
+
     <KeyValueListField
       v-else-if="field.type === 'key_value_list'"
       :model-value="effectiveValue"
@@ -208,9 +215,11 @@ import {
 import EvalDatasetsField, { type EvalDatasetEntry } from "./EvalDatasetsField.vue";
 import NumericListField from "./NumericListField.vue";
 import SizeBucketsField from "./SizeBucketsField.vue";
+import ResolutionScheduleField from "./ResolutionScheduleField.vue";
 import StringListField from "./StringListField.vue";
 import KeyValueListField from "./KeyValueListField.vue";
 import type { SizeBucket } from "../lib/sizeBuckets";
+import { normalizeResolutions } from "../lib/resolutionSchedule";
 import { listToFormValue } from "../lib/listToFormValue";
 import { formatDefaultValue } from "../lib/defaultFormat";
 import { stringListNeedsJsonEditor } from "../lib/stringList";
@@ -289,6 +298,13 @@ const stringListModel = computed(
 const sizeBucketsModel = computed(
   () => effectiveValue.value as SizeBucket[] | string | null | undefined
 );
+
+const scheduleModel = computed(
+  () => effectiveValue.value as string | Record<string, unknown> | null | undefined
+);
+
+/** Resolutions the schedule stages can pick from (the dataset's `resolutions` field). */
+const availableResolutions = computed(() => normalizeResolutions(props.form["resolutions"]));
 
 const evalDatasetsModel = computed(
   () => effectiveValue.value as EvalDatasetEntry[] | EvalDatasetEntry | null | undefined
@@ -432,6 +448,10 @@ function onListInput(val: unknown[]): void {
 }
 
 function onSizeBucketsInput(val: SizeBucket[] | string): void {
+  emit("update:path", { path: props.field.path, value: val });
+}
+
+function onScheduleInput(val: string): void {
   emit("update:path", { path: props.field.path, value: val });
 }
 

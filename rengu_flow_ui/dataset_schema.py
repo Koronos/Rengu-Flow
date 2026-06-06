@@ -306,14 +306,11 @@ def get_dataset_schema() -> dict[str, Any]:
             "fields": [
                 _field(
                     "resolution_schedule",
-                    "Schedule (JSON)",
+                    "Schedule",
                     "json",
-                    show_if_set=True,
-                    description='{"enabled": true, "stage": ['
-                    '{"resolutions": [512], "fraction": 0.33}, '
-                    '{"resolutions": [768], "fraction": 0.33}, '
-                    '{"resolutions": [1024], "fraction": 0.34}]} '
-                    "— a stage with multiple resolutions mixes them.",
+                    description="Toggle on, then add stages: pick which resolution(s) are "
+                    "active and each stage's share of the run. One resolution per stage = "
+                    "staged (no mixing); several = mixed.",
                 ),
             ],
         },
