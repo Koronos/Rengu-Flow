@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyOptimizerTypeChange,
   isCustomOptimizerType,
+  KNOWN_BUILTIN_OPTIMIZER_TYPES,
   pruneOptimizerForm,
 } from "./optimizerForm";
 import { OPTIMIZER_REGISTRY_KV_DEFAULTS } from "./optimKvDefaults";
@@ -18,16 +19,32 @@ describe("optimizerForm", () => {
     // koptim aliases are builtin (auto-installed), not custom — so their params populate.
     expect(isCustomOptimizerType("adafusion")).toBe(false);
     expect(isCustomOptimizerType("muon")).toBe(false);
+    expect(isCustomOptimizerType("adamuon")).toBe(false);
+    expect(isCustomOptimizerType("AdaMuon")).toBe(false);
     expect(isCustomOptimizerType("torch.optim.SGD")).toBe(true);
     expect(isCustomOptimizerType("pytorch_optimizer.Prodigy")).toBe(true);
   });
 
-  it("prefills adafusion/muon KV defaults (koptim optimizers show their params)", () => {
+  it("prefills adafusion/muon/adamuon KV defaults (koptim optimizers show their params)", () => {
     const adafusion = applyOptimizerTypeChange({ "optimizer.type": "adamw" }, "adafusion");
     expect(adafusion["optimizer.type"]).toBe("adafusion");
     expect(adafusion["optimizer.extra_params"]).toEqual(OPTIMIZER_REGISTRY_KV_DEFAULTS.adafusion);
     const muon = applyOptimizerTypeChange({ "optimizer.type": "adamw" }, "muon");
     expect(muon["optimizer.extra_params"]).toEqual(OPTIMIZER_REGISTRY_KV_DEFAULTS.muon);
+    // AdaMuon: the option value from the registry select is "AdaMuon" (mixed case).
+    const adamuon = applyOptimizerTypeChange({ "optimizer.type": "adamw" }, "AdaMuon");
+    expect(adamuon["optimizer.type"]).toBe("adamuon");
+    expect(adamuon["optimizer.extra_params"]).toEqual(OPTIMIZER_REGISTRY_KV_DEFAULTS.adamuon);
+    expect(adamuon["optimizer.extra_params"]).toMatchObject({ lr: 1e-3, ns_steps: 2 });
+  });
+
+  it("every known builtin optimizer type has KV defaults (guards against mirror drift)", () => {
+    for (const type of KNOWN_BUILTIN_OPTIMIZER_TYPES) {
+      expect(
+        Object.keys(OPTIMIZER_REGISTRY_KV_DEFAULTS[type] ?? {}).length,
+        `missing KV defaults for builtin optimizer "${type}"`
+      ).toBeGreaterThan(0);
+    }
   });
 
   it("replaces KV when switching builtin types", () => {

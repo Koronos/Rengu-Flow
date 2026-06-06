@@ -93,6 +93,19 @@ export const OPTIMIZER_REGISTRY_KV_DEFAULTS: Record<string, Record<string, unkno
     adamw_lr: 3e-4,
     bf16_method: "stochastic_rounding",
   },
+  // AdaMuon: Muon orthogonalized momentum + factored quantized variance. koptim's
+  // API default lr=2e-2 is Muon/LLM-scale; for diffusion use ~1e-3 (≈ AdamW lr ÷ 5).
+  adamuon: {
+    lr: 1e-3,
+    betas: [0.95, 0.999],
+    eps: [1e-30, 1e-3],
+    weight_decay: 0.0,
+    ns_steps: 2,
+    clip_threshold: 1.0,
+    momentum_dtype: "bfloat16",
+    cautious: true,
+    bf16_method: "stochastic_rounding",
+  },
 };
 
 export const SCHEDULER_BUILTIN_KV_DEFAULTS: Record<string, Record<string, unknown>> = {

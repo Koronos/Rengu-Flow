@@ -23,6 +23,7 @@ export const KNOWN_BUILTIN_OPTIMIZER_TYPES = new Set([
   // github.com/Koronos/K-Optimizers (installed on demand via the "koptim" profile).
   "adafusion",
   "muon",
+  "adamuon",
 ]);
 
 export function normalizeOptimizerType(value: unknown): string {
