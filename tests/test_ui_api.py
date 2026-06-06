@@ -32,6 +32,39 @@ def test_health(ui_client) -> None:
     assert r.json()["status"] == "ok"
 
 
+def test_force_stop_writes_no_signal(
+    ui_client, ui_data_tmp: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """POST /jobs/{id}/stop is a force stop: terminate the process, write no save_quit."""
+    from rengu_flow.utils.signal_files import SIGNAL_SAVE_QUIT
+    from rengu_flow_ui import job_queue
+
+    monkeypatch.setattr("rengu_flow_ui.job_queue.try_start_next", lambda: None)
+    monkeypatch.setattr("rengu_flow_ui.jobs.poll_job", lambda job_id: db.get_job(job_id))
+    killed: list[int] = []
+    monkeypatch.setattr(
+        "rengu_flow_ui.jobs.terminate_process_tree", lambda pid: killed.append(pid)
+    )
+    run_dir = tmp_path / "run_force"
+    run_dir.mkdir()
+    job = job_queue.prepare_job(
+        content=MINIMAL_TOML,
+        num_gpus=1,
+        resume_from=None,
+        output_dir=None,
+        extra_args="",
+        reset_dataloader=False,
+        reset_optimizer=False,
+        source_run_dir=str(run_dir),
+    )
+    db.update_job(job.id, state="running", pid=4242)
+
+    r = ui_client.post(f"/api/v1/jobs/{job.id}/stop")
+    assert r.status_code == 200
+    assert killed == [4242]  # process tree terminated
+    assert not (run_dir / SIGNAL_SAVE_QUIT).exists()  # no save_quit signal left behind
+
+
 def test_schema_and_dataset_schema(ui_client) -> None:
     r = ui_client.get("/api/v1/schema")
     assert r.status_code == 200

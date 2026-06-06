@@ -399,6 +399,65 @@ def test_clone_run_strips_resume_from_checkpoint(
     assert "resume_from_checkpoint" not in toml.loads(clone.config_content)
 
 
+def test_merge_job_cli_args_run_dir_managed() -> None:
+    """--run_dir is managed like the cache flags: stripped, then re-added only when given."""
+    from rengu_flow_ui.job_queue import merge_job_cli_args
+
+    # Added when requested.
+    assert merge_job_cli_args("", run_dir="output/run_a") == "--run_dir output/run_a"
+    # A stale pin is dropped when none is requested (so a clone gets a fresh folder).
+    assert merge_job_cli_args("--run_dir output/old", run_dir=None) == ""
+    # A stale pin is replaced, other flags preserved.
+    out = merge_job_cli_args(
+        "--reset_optimizer --run_dir output/old", run_dir="output/new"
+    )
+    assert "--reset_optimizer" in out
+    assert "--run_dir output/new" in out
+    assert "output/old" not in out
+
+
+def test_merge_job_cli_args_run_dir_spaces() -> None:
+    """A pin with spaces (custom output path) survives the extra_args round-trip."""
+    import shlex
+
+    from rengu_flow_ui.job_queue import merge_job_cli_args
+
+    out = merge_job_cli_args("", run_dir="/data/Link to train/run_x")
+    assert shlex.split(out) == ["--run_dir", "/data/Link to train/run_x"]
+
+
+def test_continue_from_scratch_pins_run_folder(
+    job_content: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Continue-from-scratch reuses the run's folder (pins --run_dir) instead of a new one."""
+    import shlex
+
+    monkeypatch.setattr("rengu_flow_ui.job_queue.try_start_next", lambda: None)
+    folder = tmp_path / "run_fs"
+    folder.mkdir()
+    job = job_queue.prepare_job(
+        content=job_content,
+        num_gpus=1,
+        resume_from=None,
+        output_dir=None,
+        extra_args="",
+        reset_dataloader=False,
+        reset_optimizer=False,
+        source_run_dir=str(folder),
+    )
+    db.update_job(job.id, state="finished")
+
+    cont = job_queue.continue_existing(job.id, content=job_content, from_scratch=True)
+    assert cont.resume_from is None  # from scratch: no checkpoint resume
+    toks = shlex.split(cont.extra_args)
+    assert "--run_dir" in toks
+    assert toks[toks.index("--run_dir") + 1] == str(folder.resolve())
+
+    # Cloning that job for a brand-new run must NOT inherit the folder pin.
+    clone = job_queue.clone_run(cont.id)
+    assert "--run_dir" not in shlex.split(clone.extra_args)
+
+
 def test_save_draft_creates_new_without_staging(
     job_content: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:

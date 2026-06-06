@@ -919,8 +919,12 @@ def create_app() -> FastAPI:
 
     @app.post(f"{API_PREFIX}/jobs/{{job_id}}/stop")
     def stop_job(job_id: str) -> dict[str, Any]:
+        # Force stop: terminate the process tree without writing a save_quit signal. A killed
+        # process never consumes a signal, so writing one would only leave a stale file that
+        # makes the next run reusing the folder quit on its first step. The graceful path is the
+        # separate /signals {save_quit} endpoint, which lets the run checkpoint and exit itself.
         try:
-            jobs.stop_job(job_id)
+            jobs.stop_job(job_id, graceful_signal=False)
         except KeyError:
             raise HTTPException(404, "Job not found")
         return _job_dict(jobs.poll_job(job_id))

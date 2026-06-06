@@ -21,7 +21,42 @@ SIGNAL_RELOAD_CONFIG = "reload_config"
 SIGNAL_CONTINUE = "continue"
 SIGNAL_QUIT = "quit"
 
+# Every control-signal filename, used to sweep stale signals at startup.
+ALL_SIGNAL_FILES = (
+    SIGNAL_SAVE,
+    SIGNAL_SAVE_QUIT,
+    SIGNAL_EXPORT_MODEL,
+    SIGNAL_EXPORT_MODEL_QUIT,
+    SIGNAL_PREVIEW,
+    SIGNAL_RELOAD_CONFIG,
+    SIGNAL_CONTINUE,
+    SIGNAL_QUIT,
+)
+
 _EXPORT_RECOVERY_POLL_SEC = 2.0
+
+
+def clear_stale_signals(run_dir: str | Path) -> list[str]:
+    """Remove any signal files left over in run_dir before the training loop starts (rank 0).
+
+    A force-stop kills the process tree, so a ``save_quit`` it dropped is never consumed by a
+    step and lingers in the folder. Without this sweep the next run reusing that folder would
+    read the stale ``save_quit`` on its very first step and immediately checkpoint-and-quit.
+    Run once at startup; live signals sent during training are unaffected.
+    """
+    if not is_main_process():
+        return []
+    root = Path(run_dir)
+    removed: list[str] = []
+    for name in ALL_SIGNAL_FILES:
+        path = root / name
+        if path.exists() and path.is_file():
+            try:
+                path.unlink()
+                removed.append(name)
+            except OSError:
+                pass
+    return removed
 
 
 class SignalResult(NamedTuple):

@@ -107,20 +107,39 @@ def merge_job_cli_args(
     regenerate_cache: bool = False,
     reset_dataloader: bool = False,
     reset_optimizer: bool = False,
+    run_dir: str | None = None,
 ) -> str:
     """Merge job toggle flags into a CLI ``extra_args`` string (idempotent, deduped).
 
     ``cache_only`` (cache latents/text-embeds then exit) and ``trust_cache`` (skip the
     cache freshness check) are mutually exclusive — passing both raises ``ValueError``.
     Existing cache flags in ``extra_args`` are stripped first so this is the single
-    source of truth for the cache toggles.
+    source of truth for the cache toggles. ``--run_dir`` is managed the same way: any
+    existing one is dropped and re-added only when ``run_dir`` is given, so a stale folder
+    pin never leaks into a re-continue or a clone (a clone must get a fresh folder).
+    Parsed/serialized with ``shlex`` so values with spaces (e.g. a custom output path)
+    survive the round-trip.
     """
     if cache_only and trust_cache:
         raise ValueError(
             "cache_only and trust_cache are mutually exclusive — pick one."
         )
     managed = {"--cache_only", "--trust_cache", "--regenerate_cache"}
-    tokens = [t for t in (extra_args or "").split() if t not in managed]
+    raw = shlex.split(extra_args or "")
+    tokens: list[str] = []
+    skip_next = False
+    for tok in raw:
+        if skip_next:
+            skip_next = False
+            continue
+        if tok in managed:
+            continue
+        if tok == "--run_dir":
+            skip_next = True  # drop the flag and its value; re-added below if requested
+            continue
+        if tok.startswith("--run_dir="):
+            continue
+        tokens.append(tok)
 
     def _add(flag: str) -> None:
         if flag not in tokens:
@@ -136,7 +155,9 @@ def merge_job_cli_args(
         _add("--trust_cache")
     if regenerate_cache:
         _add("--regenerate_cache")
-    return " ".join(tokens)
+    if run_dir:
+        tokens += ["--run_dir", run_dir]
+    return shlex.join(tokens)
 
 
 def prepare_job(
@@ -153,6 +174,7 @@ def prepare_job(
     regenerate_cache: bool = False,
     queue_position: int | None = None,
     source_run_dir: str | None = None,
+    run_dir_pin: str | None = None,
 ) -> db.JobRecord:
     content = _resolve_run_content(content, source_run_dir)
 
@@ -180,6 +202,7 @@ def prepare_job(
         regenerate_cache=regenerate_cache,
         reset_dataloader=reset_dataloader,
         reset_optimizer=reset_optimizer,
+        run_dir=run_dir_pin,
     )
     cfg = toml.loads(staging.read_text(encoding="utf-8"))
     out_dir = output_dir or cfg.get("output_dir", "output")
@@ -221,8 +244,12 @@ def enqueue_continue_run(
 
     run_dir = resolve_run_path(run_path)
     cfg = toml.loads(content)
+    run_dir_pin: str | None = None
     if from_scratch:
         resume_arg: str | None = None
+        # Reuse this run's folder (one folder per run) but train from step 0 — pin the folder
+        # so the trainer doesn't spawn a new timestamped one.
+        run_dir_pin = resume_checkpoint_arg(run_dir, cfg)
     elif resume_from:
         resume_arg = resume_from
     else:
@@ -237,6 +264,7 @@ def enqueue_continue_run(
         reset_dataloader=reset_dataloader,
         reset_optimizer=reset_optimizer,
         source_run_dir=str(run_dir),
+        run_dir_pin=run_dir_pin,
     )
     if start_immediately or not enqueue:
         job = start_job_immediately(**kwargs)
@@ -276,8 +304,13 @@ def continue_existing(
     run_dir = job.run_dir or job.source_run_dir
 
     cfg = toml.loads(content)
+    run_dir_pin: str | None = None
     if from_scratch or not run_dir:
         resume_arg: str | None = None
+        if from_scratch and run_dir:
+            # Reuse this run's folder (one folder per run) but train from step 0 — pin the
+            # folder so the trainer doesn't spawn a new timestamped one.
+            run_dir_pin = resume_checkpoint_arg(Path(run_dir), cfg)
     elif resume_from:
         resume_arg = resume_from
     else:
@@ -293,6 +326,7 @@ def continue_existing(
         regenerate_cache=job.regenerate_cache,
         reset_dataloader=reset_dataloader,
         reset_optimizer=reset_optimizer,
+        run_dir=run_dir_pin,
     )
     resolved_dir = str(Path(run_dir).resolve()) if run_dir else None
     db.update_job(

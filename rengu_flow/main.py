@@ -29,6 +29,15 @@ def parse_args(argv: list[str] | None = None):
     )
     parser.add_argument("--local_rank", type=int, default=-1, help="Local rank from distributed launcher.")
     parser.add_argument("--resume_from_checkpoint", nargs="?", const=True, default=None)
+    parser.add_argument(
+        "--run_dir",
+        default=None,
+        help=(
+            "Pin the run folder (name under output_dir, or absolute path) without resuming a "
+            "checkpoint. Lets 'continue from scratch' reuse a run's folder and train from step 0, "
+            "keeping one folder per run."
+        ),
+    )
     parser.add_argument("--reset_dataloader", action="store_true")
     parser.add_argument("--reset_optimizer", action="store_true")
     parser.add_argument("--reset_optimizer_params", action="store_true")
@@ -505,7 +514,16 @@ def _run_training(args, config):
     run_dir_container = [None]
     if is_main_process():
         os.makedirs(output_dir, exist_ok=True)
-        if resume_from_checkpoint is True:
+        if args.run_dir:
+            # Folder pinned by the caller (e.g. 'continue from scratch'): reuse this exact run
+            # folder regardless of whether we resume a checkpoint. Decoupled from
+            # resume_from_checkpoint so one run keeps one folder.
+            run_dir_container[0] = (
+                args.run_dir
+                if os.path.isabs(args.run_dir)
+                else os.path.join(output_dir, args.run_dir)
+            )
+        elif resume_from_checkpoint is True:
             run_dir_container[0] = _get_most_recent_run_dir(output_dir)
         elif isinstance(resume_from_checkpoint, str):
             if os.path.isabs(resume_from_checkpoint) and os.path.isdir(resume_from_checkpoint):
@@ -527,6 +545,13 @@ def _run_training(args, config):
     if run_dir is None:
         raise RuntimeError("run_dir was not set on rank 0")
     os.makedirs(run_dir, exist_ok=True)
+    # Sweep any signal files left over from a prior run (e.g. a save_quit from a force-stop that
+    # killed the process before a step consumed it) so this run doesn't quit on its first step.
+    from rengu_flow.utils.signal_files import clear_stale_signals
+
+    if is_main_process():
+        for stale in clear_stale_signals(run_dir):
+            print(f"Cleared stale signal file: {stale}")
     if is_main_process() and not resume_from_checkpoint:
         shutil.copy(args.config, run_dir)
         if config.get("dataset") and os.path.isfile(config["dataset"]):

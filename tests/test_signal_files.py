@@ -69,6 +69,21 @@ def test_process_signals_reload_config(tmp_path):
     assert not (tmp_path / SIGNAL_RELOAD_CONFIG).exists()
 
 
+def test_clear_stale_signals(tmp_path):
+    from rengu_flow.utils.signal_files import clear_stale_signals
+
+    (tmp_path / SIGNAL_SAVE_QUIT).touch()  # e.g. left by a force-stop that killed the process
+    (tmp_path / SIGNAL_PREVIEW).touch()
+    (tmp_path / "latest").write_text("global_step5", encoding="utf-8")  # not a signal
+
+    removed = clear_stale_signals(tmp_path)
+    assert set(removed) == {SIGNAL_SAVE_QUIT, SIGNAL_PREVIEW}
+    assert not (tmp_path / SIGNAL_SAVE_QUIT).exists()
+    assert not (tmp_path / SIGNAL_PREVIEW).exists()
+    assert (tmp_path / "latest").exists()  # non-signal files are left alone
+    assert clear_stale_signals(tmp_path) == []  # nothing left to clear
+
+
 def test_wait_for_export_recovery_continue(tmp_path):
     (tmp_path / SIGNAL_CONTINUE).touch()
     action = wait_for_export_recovery(tmp_path)
