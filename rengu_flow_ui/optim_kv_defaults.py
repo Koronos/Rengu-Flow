@@ -147,6 +147,10 @@ SCHEDULER_BUILTIN_KV_DEFAULTS: dict[str, dict[str, Any]] = {
     "cosine": {
         "lr_min": 0.0,
     },
+    "rex": {
+        "lr_min": 0.0,
+        "rex_d": 0.5,
+    },
 }
 
 # Fully-qualified scheduler paths -> default [lr_scheduler_args] (runtime tokens as strings).

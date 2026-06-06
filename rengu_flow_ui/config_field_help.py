@@ -209,7 +209,7 @@ FIELD_HELP: dict[str, dict[str, str]] = {
     "lr_scheduler": {
         "summary": "Registry name (cosine, linear, …) or a fully-qualified scheduler class.",
         "detail": (
-            "Built-in names: constant, linear, cosine, none. "
+            "Built-in names: constant, linear, cosine, rex, none. "
             "For custom classes, use Scheduler parameters and runtime token string values "
             "(total_steps, effective_total_steps, …) — open the (i) help on that field for "
             "meanings; resolved when training starts."

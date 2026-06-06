@@ -108,6 +108,10 @@ export const SCHEDULER_BUILTIN_KV_DEFAULTS: Record<string, Record<string, unknow
   cosine: {
     lr_min: 0.0,
   },
+  rex: {
+    lr_min: 0.0,
+    rex_d: 0.5,
+  },
 };
 
 export const SCHEDULER_FQN_KV_DEFAULTS: Record<string, Record<string, unknown>> = {

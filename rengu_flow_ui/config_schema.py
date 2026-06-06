@@ -425,7 +425,7 @@ def get_sections() -> list[dict[str, Any]]:
                     options=None,
                     recommended=True,
                     allow_custom=True,
-                    description="Registry name (cosine, linear, …) or fully-qualified scheduler class.",
+                    description="Registry name (cosine, rex, linear, …) or fully-qualified scheduler class.",
                 ),
                 _field(
                     "warmup_steps",

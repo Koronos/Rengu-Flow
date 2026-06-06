@@ -16,6 +16,7 @@ export const KNOWN_BUILTIN_SCHEDULER_TYPES = new Set([
   "constant",
   "linear",
   "cosine",
+  "rex",
   "none",
 ]);
 

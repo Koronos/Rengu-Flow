@@ -128,6 +128,7 @@ Set **`lr_scheduler`** at the top level of your config (or omit it; default is `
 - **constant** — Constant learning rate (no decay).
 - **linear** — Linear decay from initial LR to 0 over training.
 - **cosine** — Cosine annealing; minimum LR via `lr_min` in `[lr_scheduler_args]`.
+- **rex** — REX reflected-exponential decay (Chen et al. 2021); decays slowly early and faster near the end. With remaining fraction `z = 1 - step/total_steps`, the multiplier is `z / ((1−d) + d·z)` (1.0 at the start, 0.0 at the end) and `lr = lr_min + (base_lr − lr_min)·multiplier`. Tune the curve via `rex_d` in `[lr_scheduler_args]` (`0.0` = linear, `0.5` = canonical REX (default), `→1.0` = holds LR higher then drops sharply) and the floor via `lr_min`. Often a strong default for short-budget LoRA runs.
 - **none** — No scheduler (optimizer LR is used as-is).
 
 In the training config form, **Scheduler parameters** is a single key-value list for every scheduler type (built-in and custom). Rows map to TOML as follows:
@@ -157,6 +158,7 @@ When you pick a built-in name in the form, common keys are pre-filled (edit as n
 | **constant** | `factor` → `1.0`, `warmup_steps` → `0` |
 | **linear** | `start_factor`, `end_factor`, `total_iters` → `total_steps`, `warmup_steps` → `0` |
 | **cosine** | `lr_min` → `0.0`, `warmup_steps` → `0` |
+| **rex** | `lr_min` → `0.0`, `rex_d` → `0.5`, `warmup_steps` → `0` |
 
 Built-in training code uses fixed defaults for some keys today (e.g. linear decay uses full `total_steps`); extra `[lr_scheduler_args]` keys are stored for clarity and forward compatibility.
 

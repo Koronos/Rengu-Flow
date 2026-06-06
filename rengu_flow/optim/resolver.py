@@ -77,6 +77,41 @@ def resolve_optimizer_class(optim_type: str) -> type[torch.optim.Optimizer]:
     return get_optimizer_class(optim_type)
 
 
+class RexLR(torch.optim.lr_scheduler.LRScheduler):
+    """REX schedule (Chen et al. 2021, *Revisiting Budgeted Training with an Improved Schedule*).
+
+    Reflected-exponential decay: slower at the start, faster near the end. With remaining
+    fraction ``z = clamp(1 - step / total_steps, 0, 1)`` the multiplier is
+    ``z / ((1 - d) + d * z)`` (1.0 at step 0, 0.0 at ``total_steps``) and the LR for each
+    param group is ``lr_min + (base_lr - lr_min) * multiplier``.
+
+    The shape coefficient ``d`` (``rex_d``) interpolates the curve:
+    ``d = 0.0`` is linear decay, ``d = 0.5`` is the canonical REX profile, and ``d -> 1.0``
+    holds the LR higher for longer before a sharper final drop. Defaults to ``0.5``.
+    """
+
+    def __init__(
+        self,
+        optimizer: torch.optim.Optimizer,
+        total_steps: int,
+        lr_min: float = 0.0,
+        rex_d: float = 0.5,
+        last_epoch: int = -1,
+    ) -> None:
+        self.total_steps = int(total_steps)
+        self.lr_min = lr_min
+        self.rex_d = min(max(float(rex_d), 0.0), 1.0)
+        super().__init__(optimizer, last_epoch)
+
+    def get_lr(self) -> list[float]:
+        if self.total_steps <= 0:
+            return list(self.base_lrs)
+        z = 1.0 - min(max(self.last_epoch, 0), self.total_steps) / self.total_steps
+        denom = (1.0 - self.rex_d) + self.rex_d * z
+        factor = z / denom if denom > 0.0 else 0.0
+        return [self.lr_min + (base_lr - self.lr_min) * factor for base_lr in self.base_lrs]
+
+
 def _constant_scheduler(optimizer: torch.optim.Optimizer, config: dict[str, Any], total_steps: int, steps_per_epoch: int) -> torch.optim.lr_scheduler.ConstantLR:
     return torch.optim.lr_scheduler.ConstantLR(optimizer, factor=1.0)
 
@@ -94,6 +129,13 @@ def _cosine_scheduler(optimizer: torch.optim.Optimizer, config: dict[str, Any], 
     )
 
 
+def _rex_scheduler(optimizer: torch.optim.Optimizer, config: dict[str, Any], total_steps: int, steps_per_epoch: int) -> RexLR:
+    args = config.get("lr_scheduler_args", {})
+    lr_min = args.get("lr_min", 0.0)
+    rex_d = args.get("rex_d", 0.5)
+    return RexLR(optimizer, total_steps=total_steps, lr_min=lr_min, rex_d=rex_d)
+
+
 def _none_scheduler(optimizer: torch.optim.Optimizer, config: dict[str, Any], total_steps: int, steps_per_epoch: int) -> None:
     return None
 
@@ -101,6 +143,7 @@ def _none_scheduler(optimizer: torch.optim.Optimizer, config: dict[str, Any], to
 register_scheduler("constant")(_constant_scheduler)
 register_scheduler("linear")(_linear_scheduler)
 register_scheduler("cosine")(_cosine_scheduler)
+register_scheduler("rex")(_rex_scheduler)
 register_scheduler("none")(_none_scheduler)
 
 
@@ -128,7 +171,7 @@ def resolve_scheduler(
         return scheduler_class(optimizer, **scheduler_kwargs)
     raise ValueError(
         f"Unknown scheduler type '{scheduler_type}'. "
-        "Use 'constant', 'linear', 'cosine', 'none', or a fully-qualified path."
+        "Use 'constant', 'linear', 'cosine', 'rex', 'none', or a fully-qualified path."
     )
 
 

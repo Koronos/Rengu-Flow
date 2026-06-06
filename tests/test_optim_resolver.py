@@ -6,6 +6,7 @@ import pytest
 import torch
 
 from rengu_flow.optim.resolver import (
+    RexLR,
     apply_warmup,
     build_scheduler_runtime_values,
     register_scheduler,
@@ -114,6 +115,81 @@ def test_resolve_scheduler_cosine_default_lr_min():
     sched = resolve_scheduler("cosine", optimizer, config, total_steps=10, steps_per_epoch=10)
     assert sched is not None
     assert sched.eta_min == 0.0
+
+
+def test_resolve_scheduler_rex_returns_rexlr():
+    optimizer = torch.optim.AdamW([torch.nn.Parameter(torch.zeros(1))], lr=1e-3)
+    config = {"epochs": 1}
+    sched = resolve_scheduler("rex", optimizer, config, total_steps=10, steps_per_epoch=10)
+    assert isinstance(sched, RexLR)
+    assert sched.total_steps == 10
+    assert sched.lr_min == 0.0
+
+
+def test_resolve_scheduler_rex_uses_lr_scheduler_args():
+    optimizer = torch.optim.AdamW([torch.nn.Parameter(torch.zeros(1))], lr=1e-3)
+    config = {"epochs": 1, "lr_scheduler_args": {"lr_min": 0.0001}}
+    sched = resolve_scheduler("rex", optimizer, config, total_steps=10, steps_per_epoch=10)
+    assert isinstance(sched, RexLR)
+    assert sched.lr_min == 0.0001
+
+
+def test_rex_profile_endpoints_and_monotonic():
+    base_lr, lr_min, total = 1e-3, 0.0, 10
+    optimizer = torch.optim.SGD([torch.nn.Parameter(torch.zeros(1))], lr=base_lr)
+    config = {"epochs": 1, "lr_scheduler_args": {"lr_min": lr_min}}
+    sched = resolve_scheduler("rex", optimizer, config, total_steps=total, steps_per_epoch=total)
+    lrs = [optimizer.param_groups[0]["lr"]]
+    for _ in range(total):
+        optimizer.step()
+        sched.step()
+        lrs.append(optimizer.param_groups[0]["lr"])
+    # Starts at base_lr, ends at lr_min, monotonically non-increasing.
+    assert lrs[0] == pytest.approx(base_lr)
+    assert lrs[-1] == pytest.approx(lr_min, abs=1e-9)
+    assert all(b <= a + 1e-12 for a, b in zip(lrs, lrs[1:]))
+    # Midpoint multiplier matches d/(0.5+0.5d) with d=0.5 -> 2/3.
+    assert lrs[total // 2] == pytest.approx(base_lr * (0.5 / (0.5 + 0.5 * 0.5)), rel=1e-6)
+
+
+def test_rex_d_default_is_canonical_rex():
+    optimizer = torch.optim.AdamW([torch.nn.Parameter(torch.zeros(1))], lr=1e-3)
+    sched = resolve_scheduler("rex", optimizer, {"epochs": 1}, total_steps=10, steps_per_epoch=10)
+    assert isinstance(sched, RexLR)
+    assert sched.rex_d == 0.5
+
+
+def test_rex_d_zero_equals_linear_decay():
+    base_lr, total = 1e-3, 10
+    optimizer = torch.optim.SGD([torch.nn.Parameter(torch.zeros(1))], lr=base_lr)
+    config = {"epochs": 1, "lr_scheduler_args": {"lr_min": 0.0, "rex_d": 0.0}}
+    sched = resolve_scheduler("rex", optimizer, config, total_steps=total, steps_per_epoch=total)
+    lrs = []
+    for step in range(total + 1):
+        lrs.append(optimizer.param_groups[0]["lr"])
+        optimizer.step()
+        sched.step()
+    # d=0 -> factor = z = 1 - step/total (pure linear ramp to 0).
+    for step, lr in enumerate(lrs):
+        assert lr == pytest.approx(base_lr * (1.0 - step / total), abs=1e-9)
+
+
+def test_rex_d_clamped_to_unit_interval():
+    optimizer = torch.optim.SGD([torch.nn.Parameter(torch.zeros(1))], lr=1e-3)
+    config = {"epochs": 1, "lr_scheduler_args": {"rex_d": 5.0}}
+    sched = resolve_scheduler("rex", optimizer, config, total_steps=10, steps_per_epoch=10)
+    assert sched.rex_d == 1.0
+
+
+def test_rex_respects_lr_min_floor():
+    base_lr, lr_min, total = 1e-3, 2e-4, 5
+    optimizer = torch.optim.SGD([torch.nn.Parameter(torch.zeros(1))], lr=base_lr)
+    config = {"epochs": 1, "lr_scheduler_args": {"lr_min": lr_min}}
+    sched = resolve_scheduler("rex", optimizer, config, total_steps=total, steps_per_epoch=total)
+    for _ in range(total + 3):  # step past the end
+        optimizer.step()
+        sched.step()
+    assert optimizer.param_groups[0]["lr"] == pytest.approx(lr_min, abs=1e-9)
 
 
 def test_resolve_scheduler_unknown_raises():

@@ -1,6 +1,7 @@
 """Optimizer and LR scheduler resolution (torch-only for Phase 1)."""
 
 from rengu_flow.optim.resolver import (
+    RexLR,
     apply_warmup,
     register_scheduler,
     resolve_optimizer_class,
@@ -11,6 +12,7 @@ from rengu_flow.optim.resolver import (
 )
 
 __all__ = [
+    "RexLR",
     "apply_warmup",
     "build_scheduler_runtime_values",
     "register_scheduler",

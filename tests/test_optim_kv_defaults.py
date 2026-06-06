@@ -42,6 +42,11 @@ def test_scheduler_builtin_cosine_defaults() -> None:
     assert "warmup_steps" not in kv
 
 
+def test_scheduler_builtin_rex_defaults() -> None:
+    kv = scheduler_kv_defaults("rex")
+    assert kv == {"lr_min": 0.0, "rex_d": 0.5}
+
+
 def test_scheduler_none_has_no_warmup() -> None:
     assert scheduler_kv_defaults("none") == {}
 

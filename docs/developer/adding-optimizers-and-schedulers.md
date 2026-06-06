@@ -94,7 +94,7 @@ Then in TOML: `lr_scheduler = "my_cosine"`. Runtime tokens (`total_steps`, etc.)
 - **Optimizers** (in `registry/optimizers.py`): `adamw`, `sgd`, `adam` — `torch.optim`; `genericoptim`, `automagic`, `adamw8bitkahan` — lazy-loaded from `rengu_flow/vendor/diffusion_pipe_optimizers/` (see NOTICE there).
 - **Optional aliases** (lazy import, `[optim]` extra): `adamw8bit`, `adamw_optimi`, `stableadamw`, `offload`, `prodigy` — see `OPTIMIZER_ALIASES` in `registry/optimizers.py`.
 - **Fallback:** names without `.` are also looked up on the `pytorch_optimizer` package by class name when not registered as an alias.
-- **Schedulers** (in `optim/resolver.py`): `constant`, `linear`, `cosine`, `none`.
+- **Schedulers** (in `optim/resolver.py`): `constant`, `linear`, `cosine`, `rex` (REX reflected-exponential, custom `RexLR` class), `none`.
 
 ## Third-party optimizers (vendored)
 
