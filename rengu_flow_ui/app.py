@@ -939,6 +939,20 @@ def create_app() -> FastAPI:
         except WebSocketDisconnect:
             pass
 
+    @app.websocket(f"{API_PREFIX}/system/stats/ws")
+    async def system_stats_ws(websocket: WebSocket):
+        # Global host stats (CPU/RAM/GPU) pushed on a dedicated socket so a single connection
+        # replaces the per-client 2s HTTP polling of GET /system/stats.
+        await websocket.accept()
+
+        async def send_json(payload: dict[str, Any]) -> None:
+            await websocket.send_text(json.dumps(payload, default=str))
+
+        try:
+            await live_stream.run_system_stats_ws(send_json)
+        except WebSocketDisconnect:
+            pass
+
     @app.get(f"{API_PREFIX}/signals")
     def list_signals() -> dict[str, Any]:
         return signals.list_signal_definitions()

@@ -4,13 +4,16 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rengu-flow"
-version = "0.1.9"
+version = "0.1.10"
 description = "TOML-driven diffusion training: DeepSpeed, LoRA/LoKr/full finetune (SDXL, Cosmos Predict2), optional web UI."
 readme = "README.md"
 license = "GPL-3.0-or-later"
 requires-python = ">=3.10,<3.14"
 dependencies = [
     "toml>=0.10.2",
+    # tomlkit is TOML-1.0 compliant (the strict `toml` lib is not): the UI parses configs with it
+    # so legacy mixed int/float arrays load, then re-renders homogeneously for the strict trainer.
+    "tomlkit>=0.12.0",
     # Pinned to the tested CUDA 13 build: 2.12.0+cu130. DeepSpeed >= 0.19 requires torch >= 2.11
     # (it skips its compiled C++/CUDA ops otherwise); pairing 0.19 with torch 2.10 left those ops
     # unbuilt. Keep torch and deepspeed bumped together so that contract holds.

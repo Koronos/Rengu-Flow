@@ -117,3 +117,23 @@ async def run_job_live_ws(send_json, job_id: str) -> None:
             return
 
         await asyncio.sleep(_TICK_SEC)
+
+
+# Seconds between host-stats pushes on the global system-stats socket.
+_SYSTEM_STATS_SEC = 2.0
+
+
+async def run_system_stats_ws(send_json, *, interval_sec: float = _SYSTEM_STATS_SEC) -> None:
+    """Push host CPU/RAM/GPU stats over a global WebSocket, replacing per-client HTTP polling.
+
+    Stats are app-global (not per-job), so this rides a dedicated socket rather than the per-job
+    live stream. ``collect_system_stats`` blocks (psutil CPU sampling + an ``nvidia-smi`` subprocess),
+    so it runs in a thread to keep the event loop responsive. The loop ends when the client
+    disconnects (``send_json`` raises ``WebSocketDisconnect``, handled by the endpoint).
+    """
+    from rengu_flow_ui.system_stats import collect_system_stats
+
+    while True:
+        stats = await asyncio.to_thread(collect_system_stats)
+        await send_json({"type": "system_stats", "stats": stats})
+        await asyncio.sleep(interval_sec)

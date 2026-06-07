@@ -46,6 +46,11 @@
         />
         <el-alert v-if="message" type="success" :title="message" show-icon class="mb-12" />
 
+        <el-alert v-if="parseError" type="warning" show-icon class="mb-12">
+          <template #title>Form ↔ TOML sync failed</template>
+          {{ parseError }}
+        </el-alert>
+
         <el-alert
           v-if="continuation"
           type="info"
@@ -298,6 +303,7 @@ const {
   validating,
   error,
   message,
+  parseError,
   validationErrors,
   modelCapabilities,
   continuation,

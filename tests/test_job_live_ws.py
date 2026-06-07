@@ -81,3 +81,13 @@ def test_job_live_ws_delivers_progress(ui_client, ui_data_tmp: Path) -> None:
                 assert msg["progress"]["step"] == 1
                 break
         assert "progress" in seen
+
+
+def test_system_stats_ws_pushes_stats(ui_client) -> None:
+    """The global host-stats socket pushes a system_stats message (replaces HTTP polling)."""
+    with ui_client.websocket_connect("/api/v1/system/stats/ws") as ws:
+        msg = json.loads(ws.receive_text())
+        assert msg["type"] == "system_stats"
+        assert msg["stats"]["ok"] is True
+        assert "summary" in msg["stats"]
+        assert "detail" in msg["stats"]

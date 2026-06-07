@@ -336,6 +336,8 @@ type = "adamw"
 
 
 def test_preview_prompts_toml_roundtrip() -> None:
+    # A single mixed array of a plain-string prompt and a detailed table prompt — the
+    # standards-compliant way to mix the two (this is also what the UI editor produces).
     toml_in = """
 dataset = "x.toml"
 [model]
@@ -346,13 +348,10 @@ checkpoint_path = "/t"
 type = "adamw"
 [preview]
 enabled = true
-prompts = ["a cat on a mat"]
-
-[[preview.prompts]]
-name = "portrait"
-prompt = "1woman, soft light"
-seed = 42
-preview_every_n_steps = 500
+prompts = [
+  "a cat on a mat",
+  { name = "portrait", prompt = "1woman, soft light", seed = 42, preview_every_n_steps = 500 },
+]
 """
     form = parse_toml(toml_in)
     assert form["preview.prompts"][0] == "a cat on a mat"
@@ -397,3 +396,44 @@ type = "adamw"
     merged = merge_form_into_config(base, form)
     assert "adapter" not in merged
     assert merged["model"]["checkpoint_path"] == "/x"
+
+
+def test_form_to_toml_homogenizes_mixed_numeric_arrays() -> None:
+    """A betas array like [0.0, 0.999] collapses to [0, 0.999] over JSON transport; the
+    rendered TOML must promote it back to all-float so the strict `toml` loader accepts it."""
+    import toml
+
+    form = {"optimizer.type": "adafusion", "optimizer.extra_params": {"betas": [0, 0.999]}}
+    rendered = form_to_toml(form)
+    # Round-trips through the strict loader (no "Not a homogeneous array").
+    loaded = toml.loads(rendered)
+    assert loaded["optimizer"]["betas"] == [0.0, 0.999]
+    assert all(isinstance(x, float) for x in loaded["optimizer"]["betas"])
+
+
+def test_form_to_toml_keeps_integer_arrays_integer() -> None:
+    """Pure-int arrays (e.g. resolutions) must stay int — only mixed arrays are promoted."""
+    import toml
+
+    rendered = form_to_toml({"resolutions": [512, 768]})
+    loaded = toml.loads(rendered)
+    assert loaded["resolutions"] == [512, 768]
+    assert all(isinstance(x, int) for x in loaded["resolutions"])
+
+
+def test_parse_toml_tolerates_legacy_mixed_arrays() -> None:
+    """Configs saved before arrays were homogenized contain `betas = [0, 0.999]`, which the
+    strict `toml` lib rejects. Seeding/editing such a config must still load (via tomlkit)."""
+    legacy = """
+epochs = 5
+[optimizer]
+type = "adafusion"
+betas = [0, 0.999]
+"""
+    form = parse_toml(legacy)
+    assert form["optimizer.type"] == "adafusion"
+    # Re-rendering repairs it to a homogeneous, strictly-loadable array.
+    import toml
+
+    rendered = form_to_toml(form, legacy)
+    assert toml.loads(rendered)["optimizer"]["betas"] == [0.0, 0.999]

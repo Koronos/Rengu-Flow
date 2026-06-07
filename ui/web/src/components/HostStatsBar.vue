@@ -219,31 +219,27 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, ref } from "vue";
 
 defineOptions({ inheritAttrs: false });
 import { ArrowDown } from "@element-plus/icons-vue";
-import { api } from "../api";
 import { useBreakpoint } from "../composables/useBreakpoint";
+import { useSystemStatsStream } from "../composables/useSystemStatsStream";
 import type {
   CpuDetail,
   GpuDeviceDetail,
   GpusDetail,
   RamDetail,
   SystemStatsDetail,
-  SystemStatsResponse,
   SystemStatsSummary,
   SystemStatsSummaryGpu,
   TemperatureReading,
 } from "../types/api";
 
-const POLL_MS = 2000;
-
 const { isMobile } = useBreakpoint();
-const stats = ref<SystemStatsResponse | null>(null);
-const loading = ref(true);
+// Host stats arrive over a single global WebSocket (HTTP polling is the fallback).
+const { stats, loading } = useSystemStatsStream();
 const drawerOpen = ref(false);
-let timer: ReturnType<typeof setInterval> | null = null;
 
 const summary = computed<SystemStatsSummary>(() => stats.value?.summary ?? {});
 const detail = computed<SystemStatsDetail>(() => stats.value?.detail ?? {});
@@ -311,24 +307,6 @@ function loadClass(pct: number | null | undefined): string {
   return "";
 }
 
-async function poll(): Promise<void> {
-  try {
-    stats.value = await api.getSystemStats();
-  } catch {
-    if (!stats.value) stats.value = null;
-  } finally {
-    loading.value = false;
-  }
-}
-
-onMounted(() => {
-  poll();
-  timer = setInterval(poll, POLL_MS);
-});
-
-onUnmounted(() => {
-  if (timer) clearInterval(timer);
-});
 </script>
 
 <style scoped>

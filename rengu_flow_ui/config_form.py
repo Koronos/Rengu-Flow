@@ -6,6 +6,7 @@ import json
 from typing import Any
 
 import toml
+import tomlkit
 
 from rengu_flow.config import set_config_defaults
 from rengu_flow.registry.model_capabilities import normalize_model_type
@@ -108,7 +109,11 @@ def _parse_json_value(value: Any) -> Any:
 
 
 def parse_toml(content: str) -> dict[str, Any]:
-    config = toml.loads(content)
+    # tomlkit is TOML-1.0 compliant, so it accepts mixed int/float arrays (e.g. a legacy
+    # `betas = [0, 0.999]`) that the strict `toml` lib rejects outright. Parsing with it lets
+    # such configs load into the form; re-rendering writes them back homogeneously via
+    # `_homogenize_numeric_arrays`, keeping the on-disk TOML loadable by the strict trainer.
+    config = tomlkit.loads(content).unwrap()
     config = _dtype_to_str(config)
     if "model" in config and "type" in config["model"]:
         config["model"]["type"] = normalize_model_type(config["model"]["type"]) or config["model"]["type"]
@@ -157,6 +162,26 @@ def _coerce_preview_prompts_for_toml(config: dict[str, Any]) -> None:
     preview["prompts"] = out
 
 
+def _homogenize_numeric_arrays(obj: Any) -> Any:
+    """Promote mixed int/float arrays to all-float so ``toml.dumps`` stays homogeneous.
+
+    The form round-trips through JSON, where ``0.0`` collapses to the integer ``0``; an
+    array like ``[0.0, 0.999]`` (e.g. adafusion betas) then reaches us as ``[0, 0.999]``.
+    ``toml`` writes that verbatim and refuses to load it back ("Not a homogeneous array").
+    Pure-int arrays (resolutions, etc.) are left untouched; only arrays that already mix
+    ints with floats are promoted.
+    """
+    if isinstance(obj, dict):
+        return {k: _homogenize_numeric_arrays(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        items = [_homogenize_numeric_arrays(v) for v in obj]
+        numeric = [v for v in items if isinstance(v, (int, float)) and not isinstance(v, bool)]
+        if len(numeric) == len(items) and items and any(isinstance(v, float) for v in numeric):
+            return [float(v) for v in items]
+        return items
+    return obj
+
+
 def form_to_config(form: dict[str, Any]) -> dict[str, Any]:
     merged = merge_scheduler_extras(
         merge_optimizer_extras(prune_scheduler_form(prune_optimizer_form(form)))
@@ -169,6 +194,7 @@ def form_to_config(form: dict[str, Any]) -> dict[str, Any]:
         else:
             config["dataset"] = normalized
     _coerce_preview_prompts_for_toml(config)
+    config = _homogenize_numeric_arrays(config)
     return config
 
 
