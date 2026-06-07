@@ -7,7 +7,7 @@ import json
 import logging
 import subprocess
 import sys
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -47,6 +47,30 @@ from rengu_flow_ui.settings import (
 API_PREFIX = "/api/v1"
 
 _logger = logging.getLogger("rengu_flow_ui.app")
+
+# Suffix -> media type for served image files (dataset previews and training previews).
+_IMAGE_MEDIA_TYPES = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".jpe": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+    ".bmp": "image/bmp",
+    ".tif": "image/tiff",
+    ".tiff": "image/tiff",
+}
+
+
+@contextmanager
+def _job_http_errors():
+    """Translate job-operation errors to HTTP status: missing job -> 404, bad request -> 400."""
+    try:
+        yield
+    except KeyError:
+        raise HTTPException(404, "Job not found")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
 
 
 class ConfigExportBody(BaseModel):
@@ -355,17 +379,7 @@ def create_app() -> FastAPI:
             path = resolve_image_token(t)
         except ValueError as e:
             raise HTTPException(400, str(e))
-        media = {
-            ".jpg": "image/jpeg",
-            ".jpeg": "image/jpeg",
-            ".jpe": "image/jpeg",
-            ".png": "image/png",
-            ".webp": "image/webp",
-            ".gif": "image/gif",
-            ".bmp": "image/bmp",
-            ".tif": "image/tiff",
-            ".tiff": "image/tiff",
-        }.get(path.suffix.lower(), "application/octet-stream")
+        media = _IMAGE_MEDIA_TYPES.get(path.suffix.lower(), "application/octet-stream")
         return FileResponse(path, media_type=media)
 
     @app.get(f"{API_PREFIX}/datasets/{{dataset_id}}")
@@ -391,23 +405,11 @@ def create_app() -> FastAPI:
 
     @app.post(f"{API_PREFIX}/datasets")
     def post_dataset(body: DatasetCreate) -> dict[str, Any]:
-        cid = datasets_store.create_dataset(body.content, name=body.name)
-        row = datasets_store.read_dataset_for_ui(cid)
-        return {
-            "id": cid,
-            "name": row["name"],
-            "dataset_ref": datasets_store.dataset_library_ref(cid),
-        }
+        return _created_dataset_response(body.content, body.name)
 
     @app.post(f"{API_PREFIX}/datasets/import")
     def import_dataset(body: DatasetCreate) -> dict[str, Any]:
-        cid = datasets_store.create_dataset(body.content, name=body.name)
-        row = datasets_store.read_dataset_for_ui(cid)
-        return {
-            "id": cid,
-            "name": row["name"],
-            "dataset_ref": datasets_store.dataset_library_ref(cid),
-        }
+        return _created_dataset_response(body.content, body.name)
 
     @app.put(f"{API_PREFIX}/datasets/{{dataset_id}}")
     def put_dataset(dataset_id: str, body: DatasetUpdate) -> dict[str, Any]:
@@ -581,12 +583,7 @@ def create_app() -> FastAPI:
             raise HTTPException(400, str(e)) from e
         except FileNotFoundError as e:
             raise HTTPException(404, str(e)) from e
-        media = {
-            ".png": "image/png",
-            ".jpg": "image/jpeg",
-            ".jpeg": "image/jpeg",
-            ".webp": "image/webp",
-        }.get(path.suffix.lower(), "application/octet-stream")
+        media = _IMAGE_MEDIA_TYPES.get(path.suffix.lower(), "application/octet-stream")
         return FileResponse(path, media_type=media)
 
     # --- Jobs / runs ---
@@ -741,7 +738,7 @@ def create_app() -> FastAPI:
     def patch_job(job_id: str, body: JobUpdate) -> dict[str, Any]:
         from rengu_flow_ui import job_queue
 
-        try:
+        with _job_http_errors():
             job = job_queue.update_pending_job(
                 job_id,
                 content=body.content,
@@ -755,10 +752,6 @@ def create_app() -> FastAPI:
                 trust_cache=body.trust_cache,
                 regenerate_cache=body.regenerate_cache,
             )
-        except KeyError:
-            raise HTTPException(404, "Job not found")
-        except ValueError as e:
-            raise HTTPException(400, str(e))
         return _job_dict(job)
 
     @app.post(f"{API_PREFIX}/jobs/{{job_id}}/enqueue")
@@ -766,12 +759,8 @@ def create_app() -> FastAPI:
         """Promote a saved (new) run into the pending queue."""
         from rengu_flow_ui import job_queue
 
-        try:
+        with _job_http_errors():
             job = job_queue.enqueue_existing(job_id)
-        except KeyError:
-            raise HTTPException(404, "Job not found")
-        except ValueError as e:
-            raise HTTPException(400, str(e))
         return _job_dict(job)
 
     @app.post(f"{API_PREFIX}/jobs/{{job_id}}/dequeue")
@@ -779,12 +768,8 @@ def create_app() -> FastAPI:
         """Remove a queued (pending) run from the queue, keeping it as a saved draft."""
         from rengu_flow_ui import job_queue
 
-        try:
+        with _job_http_errors():
             job = job_queue.dequeue_job(job_id)
-        except KeyError:
-            raise HTTPException(404, "Job not found")
-        except ValueError as e:
-            raise HTTPException(400, str(e))
         return _job_dict(job)
 
     @app.post(f"{API_PREFIX}/jobs/queue/reorder")
@@ -855,24 +840,16 @@ def create_app() -> FastAPI:
     def delete_job(job_id: str) -> dict[str, str]:
         from rengu_flow_ui import job_queue
 
-        try:
+        with _job_http_errors():
             job_queue.delete_job_record(job_id)
-        except KeyError:
-            raise HTTPException(404, "Job not found")
-        except ValueError as e:
-            raise HTTPException(400, str(e))
         return {"ok": "deleted"}
 
     @app.post(f"{API_PREFIX}/jobs/{{job_id}}/queue/move")
     def move_job_in_queue(job_id: str, direction: str = Query(..., pattern="^(up|down)$")) -> dict[str, Any]:
         from rengu_flow_ui import job_queue
 
-        try:
+        with _job_http_errors():
             job = job_queue.move_queue(job_id, direction)
-        except KeyError:
-            raise HTTPException(404, "Job not found")
-        except ValueError as e:
-            raise HTTPException(400, str(e))
         return _job_dict(job)
 
     @app.post(f"{API_PREFIX}/jobs/{{job_id}}/queue/start-now")
@@ -1072,10 +1049,7 @@ def create_app() -> FastAPI:
         run_dir = training_hub.resolve_job_run_dir(job)
         if not run_dir:
             return {"scalars": {}, "preview_images": []}
-        return {
-            "scalars": metrics_tb.read_scalars(run_dir),
-            "preview_images": training_hub.list_run_preview_images(run_dir),
-        }
+        return _run_metrics_payload(run_dir)
 
     @app.get(f"{API_PREFIX}/jobs/{{job_id}}/artifacts")
     def job_artifacts(job_id: str) -> dict[str, Any]:
@@ -1119,15 +1093,10 @@ def create_app() -> FastAPI:
 
     @app.get(f"{API_PREFIX}/runs/{{run_name}}/metrics")
     def fs_run_metrics(run_name: str, output_dir: str = "output") -> dict[str, Any]:
-        from rengu_flow_ui import training_hub
-
         run_dir = resolve_repo_path(output_dir) / run_name
         if not run_dir.is_dir():
             raise HTTPException(404, "Run not found")
-        return {
-            "scalars": metrics_tb.read_scalars(run_dir),
-            "preview_images": training_hub.list_run_preview_images(run_dir),
-        }
+        return _run_metrics_payload(run_dir)
 
     @app.get(f"{API_PREFIX}/tensorboard/status")
     def tensorboard_status() -> dict[str, Any]:
@@ -1303,6 +1272,27 @@ def _parse_validate_error(stderr: str, stdout: str) -> str:
     if stdout_lines:
         return stdout_lines[-1]
     return "Config validation failed."
+
+
+def _run_metrics_payload(run_dir) -> dict[str, Any]:
+    """Scalars + preview images for a run folder — the shared body of the /metrics endpoints."""
+    from rengu_flow_ui import training_hub
+
+    return {
+        "scalars": metrics_tb.read_scalars(run_dir),
+        "preview_images": training_hub.list_run_preview_images(run_dir),
+    }
+
+
+def _created_dataset_response(content: str, name: str | None) -> dict[str, Any]:
+    """Create a dataset from TOML and return the UI's create/import response shape."""
+    cid = datasets_store.create_dataset(content, name=name)
+    row = datasets_store.read_dataset_for_ui(cid)
+    return {
+        "id": cid,
+        "name": row["name"],
+        "dataset_ref": datasets_store.dataset_library_ref(cid),
+    }
 
 
 def _job_run_name(job: db.JobRecord) -> str | None:

@@ -56,6 +56,21 @@ def _job_sort_key(job: db.JobRecord) -> tuple:
     return (state_order.get(job.state, 9), pos, job.started_at or "")
 
 
+def _pending_sort_key(job: db.JobRecord) -> tuple:
+    return (
+        job.queue_position if job.queue_position is not None else 999999,
+        job.started_at or "",
+    )
+
+
+def _pending_sorted(limit: int = 500) -> list[db.JobRecord]:
+    """Pending jobs in queue order: ``queue_position`` first, then start time."""
+    return sorted(
+        (j for j in db.list_jobs(limit=limit) if j.state == "pending"),
+        key=_pending_sort_key,
+    )
+
+
 def list_jobs_sorted(limit: int = 200) -> list[db.JobRecord]:
     jobs.refresh_all_jobs()
     rows = db.list_jobs(limit=limit * 2)
@@ -82,13 +97,7 @@ def try_start_next() -> db.JobRecord | None:
     """Start the first pending job if nothing is running."""
     if has_active_runner():
         return None
-    pending = sorted(
-        [j for j in db.list_jobs(limit=500) if j.state == "pending"],
-        key=lambda j: (
-            j.queue_position if j.queue_position is not None else 999999,
-            j.started_at or "",
-        ),
-    )
+    pending = _pending_sorted()
     if not pending:
         return None
     job = pending[0]
@@ -571,17 +580,7 @@ def reorder_queue(ordered_ids: list[int]) -> list[db.JobRecord]:
             continue
         db.update_job(jid, queue_position=pos)
         pos += 1
-    remaining = sorted(
-        [
-            j
-            for j in db.list_jobs(limit=500)
-            if j.state == "pending" and j.id not in listed_set
-        ],
-        key=lambda j: (
-            j.queue_position if j.queue_position is not None else 999999,
-            j.started_at or "",
-        ),
-    )
+    remaining = [j for j in _pending_sorted() if j.id not in listed_set]
     for j in remaining:
         db.update_job(j.id, queue_position=pos)
         pos += 1
@@ -592,13 +591,7 @@ def move_queue(job_id: str, direction: str) -> db.JobRecord:
     job = db.get_job(job_id)
     if job.state != "pending":
         raise ValueError("Only pending jobs can be reordered")
-    pending = sorted(
-        [j for j in db.list_jobs(limit=500) if j.state == "pending"],
-        key=lambda j: (
-            j.queue_position if j.queue_position is not None else 999999,
-            j.started_at or "",
-        ),
-    )
+    pending = _pending_sorted()
     idx = next((i for i, j in enumerate(pending) if j.id == job_id), None)
     if idx is None:
         return job
@@ -627,13 +620,7 @@ def bump_pending_after(job_id: str) -> None:
 
 
 def _normalize_queue_positions() -> None:
-    pending = sorted(
-        [j for j in db.list_jobs(limit=500) if j.state == "pending"],
-        key=lambda j: (
-            j.queue_position if j.queue_position is not None else 999999,
-            j.started_at or "",
-        ),
-    )
+    pending = _pending_sorted()
     for i, job in enumerate(pending):
         if job.queue_position != i:
             db.update_job(job.id, queue_position=i)
