@@ -19,20 +19,26 @@ DIST_NAME = "rengu-flow"
 
 @lru_cache(maxsize=1)
 def package_version() -> str:
-    """The renga version, with pyproject ``[project].version`` as the single source of truth.
+    """The renga version, read from pyproject ``[project].version`` (the single source of truth).
 
-    Prefers installed distribution metadata (which is generated from pyproject); falls back to
-    reading pyproject directly so a raw source checkout — not ``pip install``-ed — still reports a
-    real version instead of a sentinel.
+    renga is deployed as a git checkout updated in place by ``rengu update`` (``git pull``), so the
+    just-pulled ``pyproject.toml`` is authoritative. We read it **before** the installed distribution
+    metadata because an editable install's recorded version lags behind a pull until the package is
+    reinstalled — and ``uv sync`` skips that reinstall whenever it sees no resolution change (e.g. a
+    version-only bump), leaving the UI showing a stale version. A plain wheel install has no
+    pyproject beside the package, so there we fall back to the installed distribution metadata.
     """
+    from_pyproject = _version_from_pyproject()
+    if from_pyproject:
+        return from_pyproject
     try:
         return _dist_version(DIST_NAME)
     except PackageNotFoundError:
-        return _version_from_pyproject() or "0.0.0+unknown"
+        return "0.0.0+unknown"
 
 
 def _version_from_pyproject() -> str | None:
-    """Read ``[project].version`` from pyproject (fallback for non-installed source checkouts)."""
+    """Read ``[project].version`` from the source checkout's pyproject (None for a wheel install)."""
     try:
         import toml
 
