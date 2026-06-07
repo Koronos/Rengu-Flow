@@ -131,6 +131,36 @@ OPTIMIZER_REGISTRY_KV_DEFAULTS: dict[str, dict[str, Any]] = {
         "cautious": True,
         "bf16_method": "stochastic_rounding",
     },
+    # KProdigy: memory-efficient parameter-free Prodigy (D-adaptation). Train at lr=1.0 and
+    # it discovers the effective LR itself; d0/d_coef are the D-adaptation knobs.
+    "kprodigy": {
+        "lr": 1.0,
+        "betas": [0.9, 0.999],
+        "weight_decay": 0.0,
+        "d0": 1e-6,
+        "d_coef": 1.0,
+        "momentum_dtype": "bfloat16",
+        "bf16_method": "stochastic_rounding",
+    },
+    # Autofusion: parameter-free LR on Adafusion via a Mechanic tuner. Train at lr=1.0; the
+    # tuner finds the scale. s_init/lr_freeze/scale_cap stay on koptim's "auto" defaults.
+    "autofusion": {
+        "lr": 1.0,
+        "adafusion_betas": [0.0, 0.999],
+        "momentum_dtype": "bfloat16",
+        "bf16_method": "stochastic_rounding",
+    },
+    # Liofusion: Lion sign-momentum on Adafusion's quantized-momentum backend (no 2nd moment).
+    # betas are a loss<->generalization dial; (0.95, 0.98) (classic Lion) is the recommended
+    # small-data starting point. lr is sign-update scale (~AdamW lr x2).
+    "liofusion": {
+        "lr": 2e-4,
+        "betas": [0.95, 0.98],
+        "weight_decay": 0.0,
+        "momentum_dtype": "bfloat16",
+        "cautious": True,
+        "bf16_method": "stochastic_rounding",
+    },
 }
 
 # Built-in lr_scheduler registry names -> default scheduler KV ([lr_scheduler_args] only).

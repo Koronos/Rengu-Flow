@@ -29,6 +29,21 @@ def test_optimizer_genericoptim_defaults() -> None:
     assert kv["lr"] == 1e-4
 
 
+def test_new_koptim_optimizer_defaults() -> None:
+    """kprodigy/autofusion/liofusion pre-fill the diffusion-recommended koptim defaults."""
+    kprodigy = optimizer_extra_params_defaults("kprodigy")
+    assert kprodigy["lr"] == 1.0  # parameter-free: train at lr=1.0
+    assert kprodigy["d_coef"] == 1.0
+
+    autofusion = optimizer_extra_params_defaults("autofusion")
+    assert autofusion["lr"] == 1.0  # parameter-free
+    assert autofusion["adafusion_betas"] == [0.0, 0.999]
+
+    liofusion = optimizer_extra_params_defaults("liofusion")
+    assert liofusion["lr"] == 2e-4
+    assert liofusion["betas"] == [0.95, 0.98]  # classic Lion betas
+
+
 def test_scheduler_cosine_fqn_defaults_use_tokens() -> None:
     kv = scheduler_kv_defaults("torch.optim.lr_scheduler.CosineAnnealingLR")
     assert kv["T_max"] == "effective_total_steps"

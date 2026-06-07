@@ -126,3 +126,32 @@ def test_forced_preview_ignores_enabled_flag():
     assert should_run_previews(disabled, 7, 1, forced=False) is False  # disabled => no schedule
     # Nothing to render without prompts.
     assert should_run_previews({"preview": {"enabled": True}}, 7, 1, forced=True) is False
+
+
+def test_save_preview_png_names_step_first_zero_padded(tmp_path):
+    """PNG previews are named step-first (zero-padded) so they sort chronologically."""
+    from pathlib import Path
+
+    from rengu_flow.utils.preview import _save_preview_png
+
+    class _Img:
+        def __init__(self):
+            self.saved_to = None
+
+        def save(self, path):
+            self.saved_to = path
+            Path(path).write_bytes(b"\x89PNG")
+
+    class _Writer:
+        log_dir = str(tmp_path)
+
+    img = _Img()
+    _save_preview_png(img, _Writer(), {"preview_save_png": True}, "portrait", 500)
+    saved = Path(img.saved_to)
+    assert saved.name == "step00000500_portrait.png"
+    assert saved.parent == tmp_path / "preview"
+
+    # Larger step keeps a name that sorts after the smaller one lexicographically.
+    img2 = _Img()
+    _save_preview_png(img2, _Writer(), {"preview_save_png": True}, "portrait", 1000)
+    assert Path(img.saved_to).name < Path(img2.saved_to).name

@@ -23,6 +23,9 @@ OPTIMIZER_ALIASES: dict[str, tuple[str, str]] = {
     "adafusion": ("koptim", "Adafusion"),
     "muon": ("koptim", "Muon"),
     "adamuon": ("koptim", "AdaMuon"),
+    "kprodigy": ("koptim", "KProdigy"),
+    "autofusion": ("koptim", "Autofusion"),
+    "liofusion": ("koptim", "Liofusion"),
 }
 
 

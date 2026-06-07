@@ -31,6 +31,15 @@ _OPTIMIZER_EXTRA_TYPES = frozenset(
     }
 )
 
+# koptim-backed optimizer types, derived from the registry so adding a koptim alias there
+# automatically routes it to the "koptim" install profile (no second list to keep in sync).
+def _koptim_optimizer_types() -> frozenset[str]:
+    from rengu_flow.registry.optimizers import OPTIMIZER_ALIASES
+
+    return frozenset(
+        name for name, (module, _cls) in OPTIMIZER_ALIASES.items() if module == "koptim"
+    )
+
 
 def profile_installed(profile: str) -> bool:
     """True when all of the profile's required modules import (no checks => always True)."""
@@ -130,7 +139,7 @@ def profiles_for_config_dict(data: dict[str, Any]) -> list[str]:
     otype = str(optim.get("type", "")).strip().lower()
     if otype in _OPTIMIZER_EXTRA_TYPES:
         profiles.append("optim")
-    if otype in {"adafusion", "muon", "adamuon"} or otype.startswith("koptim."):
+    if otype in _koptim_optimizer_types() or otype.startswith("koptim."):
         profiles.append("koptim")
 
     out: list[str] = []

@@ -24,7 +24,7 @@ PROFILE_LABELS: dict[str, str] = {
     "optim": "Optimizers (bitsandbytes, torchao, …)",
     "lycoris": "LyCORIS adapters",
     "dev": "Development (pytest, httpx)",
-    "koptim": "K-Optimizers (Adafusion, Muon, AdaMuon)",
+    "koptim": "K-Optimizers (Adafusion, Muon, AdaMuon, KProdigy, Autofusion, Liofusion)",
 }
 
 PROFILE_DESCRIPTIONS: dict[str, str] = {
@@ -35,7 +35,7 @@ PROFILE_DESCRIPTIONS: dict[str, str] = {
     "optim": "Optional optimizer backends (bitsandbytes, pytorch-optimizer, …).",
     "lycoris": "LyCORIS-style adapter backend.",
     "dev": "pytest and httpx for development.",
-    "koptim": "Memory-efficient Adafusion / Muon / AdaMuon optimizers from github.com/Koronos/K-Optimizers.",
+    "koptim": "Memory-efficient optimizers (Adafusion, Muon, AdaMuon, KProdigy, Autofusion, Liofusion) from github.com/Koronos/K-Optimizers.",
 }
 
 ALL_PROFILE_NAMES = ("base", "ui", "cosmos", "optim", "lycoris", "dev", "koptim")

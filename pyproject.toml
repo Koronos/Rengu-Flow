@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rengu-flow"
-version = "0.1.10"
+version = "0.1.11"
 description = "TOML-driven diffusion training: DeepSpeed, LoRA/LoKr/full finetune (SDXL, Cosmos Predict2), optional web UI."
 readme = "README.md"
 license = "GPL-3.0-or-later"
@@ -98,9 +98,10 @@ explicit = true
 [tool.uv.sources]
 torch = { index = "pytorch-cu130" }
 torchvision = { index = "pytorch-cu130" }
-# Memory-efficient Adafusion / Muon optimizers. K-Optimizers ships no release tags, so we pin an
+# Memory-efficient optimizers (Adafusion, Muon, AdaMuon, KProdigy, Autofusion, Liofusion).
+# K-Optimizers ships no release tags, so we pin an
 # exact commit — that SHA *is* koptim's version here: reproducible, and it only changes when this
 # `rev` is bumped (then committed to renga). Bump it to ship a newer koptim; users pick it up on
 # their next `rengu update` (only if the koptim extra is already installed). Only installed when
 # the `koptim` extra is selected (see rengu_flow/install/profiles.py).
-koptim = { git = "https://github.com/Koronos/K-Optimizers", rev = "7865f04db750d88c73502b36bd5b8fba459fa355" }
+koptim = { git = "https://github.com/Koronos/K-Optimizers", rev = "f117cc53c457e5109d38538bd4d0968d73e8fd4f" }

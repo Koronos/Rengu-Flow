@@ -108,7 +108,11 @@ def _save_preview_png(
     name: str,
     step: int,
 ) -> None:
-    """Write ``preview/{name}_step{N}.png`` under the TensorBoard run directory."""
+    """Write ``preview/step{NNNNNNNN}_{name}.png`` under the TensorBoard run directory.
+
+    The step comes first (zero-padded) so the files sort chronologically in a file browser —
+    plain ``step1000`` would otherwise sort before ``step9``.
+    """
     if not preview_cfg.get("preview_save_png", False):
         return
     log_dir = getattr(tb_writer, "log_dir", None) if tb_writer is not None else None
@@ -117,7 +121,7 @@ def _save_preview_png(
     out_dir = Path(log_dir) / "preview"
     out_dir.mkdir(parents=True, exist_ok=True)
     safe = str(name).replace("/", "_")
-    path = out_dir / f"{safe}_step{step}.png"
+    path = out_dir / f"step{step:08d}_{safe}.png"
     image.save(path)
     print(f"rengu_flow: saved preview PNG {path}", flush=True)
 

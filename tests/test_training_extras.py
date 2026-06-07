@@ -45,6 +45,15 @@ def test_profiles_for_prodigy_adds_optim():
     assert training_extras.profiles_for_config_dict(data) == ["optim"]
 
 
+def test_koptim_optimizers_route_to_koptim_profile() -> None:
+    """All koptim-backed aliases (incl. the newer kprodigy/autofusion/liofusion) install koptim."""
+    koptim_names = [n for n, (mod, _c) in OPTIMIZER_ALIASES.items() if mod == "koptim"]
+    assert {"adafusion", "muon", "adamuon", "kprodigy", "autofusion", "liofusion"} <= set(koptim_names)
+    for name in koptim_names:
+        profiles = training_extras.profiles_for_config_dict({"optimizer": {"type": name}})
+        assert "koptim" in profiles, f"{name!r} did not route to the koptim profile"
+
+
 def test_registry_optional_optimizers_map_to_an_install_profile() -> None:
     """Every dropdown alias needing a non-base dependency must map to an install profile
     (the [optim] extra, or a git-backed profile like 'adafusion')."""
