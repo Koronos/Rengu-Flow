@@ -76,8 +76,9 @@ export const OPTIMIZER_REGISTRY_KV_DEFAULTS: Record<string, Record<string, unkno
     max_lr: 1e-3,
     lr_bump: 1e-6,
   },
-  // github.com/Koronos/K-Optimizers (installed on demand via the "koptim" profile).
-  adafusion: {
+  // github.com/Koronos/K-Optimizers (the `kaon` package; installed on demand via the "kaon" profile).
+  // Adakaon: conv-aware factored optimizer (formerly "Adafusion").
+  adakaon: {
     lr: 1e-4,
     betas: [0.9, 0.999],
     eps: [1e-30, 1e-3],
@@ -93,7 +94,7 @@ export const OPTIMIZER_REGISTRY_KV_DEFAULTS: Record<string, Record<string, unkno
     adamw_lr: 3e-4,
     bf16_method: "stochastic_rounding",
   },
-  // AdaMuon: Muon orthogonalized momentum + factored quantized variance. koptim's
+  // AdaMuon: Muon orthogonalized momentum + factored quantized variance. kaon's
   // API default lr=2e-2 is Muon/LLM-scale; for diffusion use ~1e-3 (≈ AdamW lr ÷ 5).
   adamuon: {
     lr: 1e-3,
@@ -104,6 +105,43 @@ export const OPTIMIZER_REGISTRY_KV_DEFAULTS: Record<string, Record<string, unkno
     clip_threshold: 1.0,
     momentum_dtype: "bfloat16",
     cautious: true,
+    bf16_method: "stochastic_rounding",
+  },
+  // KProdigy: parameter-free Prodigy (D-adaptation). Train at lr=1.0; d0/d_coef are the knobs.
+  kprodigy: {
+    lr: 1.0,
+    betas: [0.9, 0.999],
+    weight_decay: 0.0,
+    d0: 1e-6,
+    d_coef: 1.0,
+    momentum_dtype: "bfloat16",
+    bf16_method: "stochastic_rounding",
+  },
+  // Autokaon: parameter-free LR on Adakaon via a Mechanic tuner (formerly "Autofusion").
+  autokaon: {
+    lr: 1.0,
+    adakaon_betas: [0.0, 0.999],
+    momentum_dtype: "bfloat16",
+    bf16_method: "stochastic_rounding",
+  },
+  // Lion: sign-momentum on Adakaon's backend (formerly "Liofusion"; no 2nd moment).
+  // betas are a loss<->generalization dial; (0.95, 0.98) (classic Lion) is the small-data start.
+  lion: {
+    lr: 2e-4,
+    betas: [0.95, 0.98],
+    weight_decay: 0.0,
+    momentum_dtype: "bfloat16",
+    cautious: true,
+    bf16_method: "stochastic_rounding",
+  },
+  // AdaPNM: Adam + Positive-Negative Momentum. beta1 is the loss<->gap dial; beta0 the PN coefficient.
+  adapnm: {
+    lr: 1e-3,
+    betas: [0.8, 0.999],
+    beta0: 0.5,
+    weight_decay: 0.0,
+    cautious: true,
+    momentum_dtype: "bfloat16",
     bf16_method: "stochastic_rounding",
   },
 };

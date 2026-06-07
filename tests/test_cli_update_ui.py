@@ -56,25 +56,25 @@ def test_update_no_pull_only_syncs(monkeypatch):
 
 
 def test_update_refreshes_previously_installed_profiles(monkeypatch):
-    # koptim was installed earlier; a plain `rengu update` must refresh it too (so a bumped commit
+    # kaon was installed earlier; a plain `rengu update` must refresh it too (so a bumped commit
     # pin in the pulled pyproject is applied) without the user re-listing it.
     calls = {}
     monkeypatch.setattr(update_cmd, "git_pull", lambda *a, **k: None)
     _stub_sync(monkeypatch, calls)
-    monkeypatch.setattr(update_cmd, "read_installed_profiles", lambda *a, **k: ["koptim"])
+    monkeypatch.setattr(update_cmd, "read_installed_profiles", lambda *a, **k: ["kaon"])
     update_cmd.run(argparse.Namespace(profiles=["base"], all_extras=False, no_pull=False))
-    assert "koptim" in calls.get("sync")
+    assert "kaon" in calls.get("sync")
     assert "base" in calls.get("sync")
 
 
 def test_update_leaves_uninstalled_git_profiles_untouched(monkeypatch):
-    # Nothing optional installed -> a plain update never pulls in koptim for someone who never
+    # Nothing optional installed -> a plain update never pulls in kaon for someone who never
     # enabled it.
     calls = {}
     monkeypatch.setattr(update_cmd, "git_pull", lambda *a, **k: None)
     _stub_sync(monkeypatch, calls)  # read_installed_profiles -> []
     update_cmd.run(argparse.Namespace(profiles=["base"], all_extras=False, no_pull=False))
-    assert "koptim" not in calls.get("sync")
+    assert "kaon" not in calls.get("sync")
 
 
 def test_update_recompiles_ui_after_sync(monkeypatch):

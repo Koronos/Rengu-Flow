@@ -403,7 +403,7 @@ def test_form_to_toml_homogenizes_mixed_numeric_arrays() -> None:
     rendered TOML must promote it back to all-float so the strict `toml` loader accepts it."""
     import toml
 
-    form = {"optimizer.type": "adafusion", "optimizer.extra_params": {"betas": [0, 0.999]}}
+    form = {"optimizer.type": "adakaon", "optimizer.extra_params": {"betas": [0, 0.999]}}
     rendered = form_to_toml(form)
     # Round-trips through the strict loader (no "Not a homogeneous array").
     loaded = toml.loads(rendered)
@@ -427,11 +427,11 @@ def test_parse_toml_tolerates_legacy_mixed_arrays() -> None:
     legacy = """
 epochs = 5
 [optimizer]
-type = "adafusion"
+type = "adakaon"
 betas = [0, 0.999]
 """
     form = parse_toml(legacy)
-    assert form["optimizer.type"] == "adafusion"
+    assert form["optimizer.type"] == "adakaon"
     # Re-rendering repairs it to a homogeneous, strictly-loadable array.
     import toml
 

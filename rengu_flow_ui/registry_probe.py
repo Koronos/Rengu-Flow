@@ -22,7 +22,7 @@ def probe_optimizer(name: str) -> dict[str, Any]:
     try:
         cls = get_optimizer_class(key)
     except Exception as e:
-        # Known optional-dependency aliases (e.g. adafusion/muon from koptim, adamw8bit, prodigy)
+        # Known optional-dependency aliases (e.g. adakaon/muon from kaon, adamw8bit, prodigy)
         # are installed automatically by the autoinstaller when training starts (see
         # rengu_flow.install / rengu_flow.cli.training_extras). Don't surface a "not available" /
         # "please install" error for them — report them as resolvable so the UI doesn't nag.

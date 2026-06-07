@@ -61,7 +61,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--version",
         action="store_true",
-        help="Show the rengu version, git commit, and installed koptim, then exit",
+        help="Show the rengu version, git commit, and installed kaon, then exit",
     )
     sub = parser.add_subparsers(dest="command", required=False)
 
@@ -69,7 +69,7 @@ def _build_parser() -> argparse.ArgumentParser:
     update_cmd.add_parser(sub)
     train_cmd.add_parser(sub)
     ui_cmd.add_parser(sub)
-    sub.add_parser("version", help="Show the rengu version, git commit, and installed koptim")
+    sub.add_parser("version", help="Show the rengu version, git commit, and installed kaon")
     return parser
 
 
@@ -80,7 +80,7 @@ def _print_version() -> None:
     print(f"rengu-flow {info['version']}")
     if info["commit"]:
         print(f"commit:    {info['commit']}")
-    print(f"koptim:    {info['koptim'] or 'not installed'}")
+    print(f"kaon:      {info['kaon'] or 'not installed'}")
 
 
 def main(argv: list[str] | None = None) -> None:

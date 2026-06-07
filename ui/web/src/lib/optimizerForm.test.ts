@@ -16,8 +16,8 @@ describe("optimizerForm", () => {
   it("detects custom optimizer types", () => {
     expect(isCustomOptimizerType("adamw")).toBe(false);
     expect(isCustomOptimizerType("prodigy")).toBe(false);
-    // koptim aliases are builtin (auto-installed), not custom — so their params populate.
-    expect(isCustomOptimizerType("adafusion")).toBe(false);
+    // kaon aliases are builtin (auto-installed), not custom — so their params populate.
+    expect(isCustomOptimizerType("adakaon")).toBe(false);
     expect(isCustomOptimizerType("muon")).toBe(false);
     expect(isCustomOptimizerType("adamuon")).toBe(false);
     expect(isCustomOptimizerType("AdaMuon")).toBe(false);
@@ -25,10 +25,10 @@ describe("optimizerForm", () => {
     expect(isCustomOptimizerType("pytorch_optimizer.Prodigy")).toBe(true);
   });
 
-  it("prefills adafusion/muon/adamuon KV defaults (koptim optimizers show their params)", () => {
-    const adafusion = applyOptimizerTypeChange({ "optimizer.type": "adamw" }, "adafusion");
-    expect(adafusion["optimizer.type"]).toBe("adafusion");
-    expect(adafusion["optimizer.extra_params"]).toEqual(OPTIMIZER_REGISTRY_KV_DEFAULTS.adafusion);
+  it("prefills adakaon/muon/adamuon KV defaults (kaon optimizers show their params)", () => {
+    const adakaon = applyOptimizerTypeChange({ "optimizer.type": "adamw" }, "adakaon");
+    expect(adakaon["optimizer.type"]).toBe("adakaon");
+    expect(adakaon["optimizer.extra_params"]).toEqual(OPTIMIZER_REGISTRY_KV_DEFAULTS.adakaon);
     const muon = applyOptimizerTypeChange({ "optimizer.type": "adamw" }, "muon");
     expect(muon["optimizer.extra_params"]).toEqual(OPTIMIZER_REGISTRY_KV_DEFAULTS.muon);
     // AdaMuon: the option value from the registry select is "AdaMuon" (mixed case).

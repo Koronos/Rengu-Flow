@@ -19,13 +19,14 @@ OPTIMIZER_ALIASES: dict[str, tuple[str, str]] = {
     "stableadamw": ("optimi", "StableAdamW"),
     "offload": ("torchao.prototype.low_bit_optim", "CPUOffloadOptimizer"),
     "prodigy": ("pytorch_optimizer", "Prodigy"),
-    # git-backed (installed via the "koptim" install profile, see rengu_flow.install.profiles)
-    "adafusion": ("koptim", "Adafusion"),
-    "muon": ("koptim", "Muon"),
-    "adamuon": ("koptim", "AdaMuon"),
-    "kprodigy": ("koptim", "KProdigy"),
-    "autofusion": ("koptim", "Autofusion"),
-    "liofusion": ("koptim", "Liofusion"),
+    # git-backed (installed via the "kaon" install profile, see rengu_flow.install.profiles)
+    "adakaon": ("kaon", "Adakaon"),
+    "muon": ("kaon", "Muon"),
+    "adamuon": ("kaon", "AdaMuon"),
+    "kprodigy": ("kaon", "KProdigy"),
+    "autokaon": ("kaon", "Autokaon"),
+    "lion": ("kaon", "Lion"),
+    "adapnm": ("kaon", "AdaPNM"),
 }
 
 

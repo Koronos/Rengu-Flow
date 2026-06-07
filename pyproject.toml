@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rengu-flow"
-version = "0.1.11"
+version = "0.1.12"
 description = "TOML-driven diffusion training: DeepSpeed, LoRA/LoKr/full finetune (SDXL, Cosmos Predict2), optional web UI."
 readme = "README.md"
 license = "GPL-3.0-or-later"
@@ -59,9 +59,9 @@ ui = [
     "psutil>=5.9.0",
 ]
 # Git-backed; resolved from [tool.uv.sources] below. uv locks the commit in uv.lock, and
-# `rengu update` re-resolves it to the latest commit (uv sync --upgrade-package koptim) only
-# when the koptim profile is already installed.
-koptim = ["koptim"]
+# `rengu update` re-resolves it to the latest commit (uv sync --upgrade-package kaon) only
+# when the kaon profile is already installed.
+kaon = ["kaon"]
 
 [project.scripts]
 rengu = "rengu_flow.cli:main"
@@ -98,10 +98,10 @@ explicit = true
 [tool.uv.sources]
 torch = { index = "pytorch-cu130" }
 torchvision = { index = "pytorch-cu130" }
-# Memory-efficient optimizers (Adafusion, Muon, AdaMuon, KProdigy, Autofusion, Liofusion).
-# K-Optimizers ships no release tags, so we pin an
-# exact commit — that SHA *is* koptim's version here: reproducible, and it only changes when this
-# `rev` is bumped (then committed to renga). Bump it to ship a newer koptim; users pick it up on
-# their next `rengu update` (only if the koptim extra is already installed). Only installed when
-# the `koptim` extra is selected (see rengu_flow/install/profiles.py).
-koptim = { git = "https://github.com/Koronos/K-Optimizers", rev = "f117cc53c457e5109d38538bd4d0968d73e8fd4f" }
+# Memory-efficient optimizers (Adakaon, Muon, AdaMuon, KProdigy, Autokaon, Lion, AdaPNM).
+# K-Optimizers (the `kaon` package) ships no release tags, so we pin an
+# exact commit — that SHA *is* kaon's version here: reproducible, and it only changes when this
+# `rev` is bumped (then committed to renga). Bump it to ship a newer kaon; users pick it up on
+# their next `rengu update` (only if the kaon extra is already installed). Only installed when
+# the `kaon` extra is selected (see rengu_flow/install/profiles.py).
+kaon = { git = "https://github.com/Koronos/K-Optimizers", rev = "9d42f8a5fe9b87858e59d9c1e7eda1a32b8f28c4" }

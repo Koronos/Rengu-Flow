@@ -29,19 +29,23 @@ def test_optimizer_genericoptim_defaults() -> None:
     assert kv["lr"] == 1e-4
 
 
-def test_new_koptim_optimizer_defaults() -> None:
-    """kprodigy/autofusion/liofusion pre-fill the diffusion-recommended koptim defaults."""
+def test_new_kaon_optimizer_defaults() -> None:
+    """kprodigy/autokaon/lion/adapnm pre-fill the diffusion-recommended kaon defaults."""
     kprodigy = optimizer_extra_params_defaults("kprodigy")
     assert kprodigy["lr"] == 1.0  # parameter-free: train at lr=1.0
     assert kprodigy["d_coef"] == 1.0
 
-    autofusion = optimizer_extra_params_defaults("autofusion")
-    assert autofusion["lr"] == 1.0  # parameter-free
-    assert autofusion["adafusion_betas"] == [0.0, 0.999]
+    autokaon = optimizer_extra_params_defaults("autokaon")
+    assert autokaon["lr"] == 1.0  # parameter-free
+    assert autokaon["adakaon_betas"] == [0.0, 0.999]
 
-    liofusion = optimizer_extra_params_defaults("liofusion")
-    assert liofusion["lr"] == 2e-4
-    assert liofusion["betas"] == [0.95, 0.98]  # classic Lion betas
+    lion = optimizer_extra_params_defaults("lion")
+    assert lion["lr"] == 2e-4
+    assert lion["betas"] == [0.95, 0.98]  # classic Lion betas
+
+    adapnm = optimizer_extra_params_defaults("adapnm")
+    assert adapnm["betas"] == [0.8, 0.999]
+    assert adapnm["beta0"] == 0.5
 
 
 def test_scheduler_cosine_fqn_defaults_use_tokens() -> None:

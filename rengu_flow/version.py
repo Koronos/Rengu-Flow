@@ -46,7 +46,7 @@ def _version_from_pyproject() -> str | None:
 
 
 def installed_version(dist: str) -> str | None:
-    """Version of another installed distribution (e.g. ``koptim``), or None when absent."""
+    """Version of another installed distribution (e.g. ``kaon``), or None when absent."""
     try:
         return _dist_version(dist)
     except PackageNotFoundError:
@@ -84,9 +84,9 @@ def version_string(root: Path | None = None) -> str:
 
 
 def version_info(root: Path | None = None) -> dict[str, str | None]:
-    """Structured payload for the API/UI: renga version + git commit + installed koptim."""
+    """Structured payload for the API/UI: renga version + git commit + installed kaon."""
     return {
         "version": package_version(),
         "commit": git_revision(root),
-        "koptim": installed_version("koptim"),
+        "kaon": installed_version("kaon"),
     }

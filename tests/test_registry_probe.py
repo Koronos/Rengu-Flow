@@ -72,7 +72,7 @@ def test_resolution_errors_ignores_missing_prodigy_extra() -> None:
 
 
 def test_probe_optimizer_deferred_install_alias(monkeypatch: pytest.MonkeyPatch) -> None:
-    # An optional-dependency alias that isn't importable yet (e.g. koptim not installed) must be
+    # An optional-dependency alias that isn't importable yet (e.g. kaon not installed) must be
     # reported as resolvable — the autoinstaller installs it when the user starts training, just
     # like prodigy. The UI must NOT nag with a "not available / please install" message at select.
     import rengu_flow_ui.registry_probe as rp
@@ -81,10 +81,10 @@ def test_probe_optimizer_deferred_install_alias(monkeypatch: pytest.MonkeyPatch)
         raise ImportError("optional dependency missing")
 
     monkeypatch.setattr(rp, "get_optimizer_class", _boom)
-    r = rp.probe_optimizer("adafusion")
+    r = rp.probe_optimizer("adakaon")
     assert r["available"] is True
     assert r["deferred_install"] is True
-    assert r["resolved_class"] == "koptim.Adafusion"
+    assert r["resolved_class"] == "kaon.Adakaon"
     assert r["source"] == "optional_dependency"
     assert resolution_errors({"optimizer": r}) == []
 

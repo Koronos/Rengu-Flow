@@ -100,8 +100,9 @@ OPTIMIZER_REGISTRY_KV_DEFAULTS: dict[str, dict[str, Any]] = {
         "max_lr": 1e-3,
         "lr_bump": 1e-6,
     },
-    # github.com/Koronos/K-Optimizers (installed on demand via the "koptim" profile).
-    "adafusion": {
+    # github.com/Koronos/K-Optimizers (the `kaon` package; installed on demand via the "kaon" profile).
+    # Adakaon: conv-aware factored optimizer (formerly "Adafusion").
+    "adakaon": {
         "lr": 1e-4,
         "betas": [0.9, 0.999],
         "eps": [1e-30, 1e-3],
@@ -118,7 +119,7 @@ OPTIMIZER_REGISTRY_KV_DEFAULTS: dict[str, dict[str, Any]] = {
         "bf16_method": "stochastic_rounding",
     },
     # AdaMuon: Muon orthogonalized momentum + factored quantized variance.
-    # NOTE: koptim's API default lr=2e-2 is Muon/LLM-scale; for diffusion use a much
+    # NOTE: kaon's API default lr=2e-2 is Muon/LLM-scale; for diffusion use a much
     # lower lr (~1e-3, ≈ AdamW's lr ÷ 5) — that is what we pre-fill here.
     "adamuon": {
         "lr": 1e-3,
@@ -142,23 +143,34 @@ OPTIMIZER_REGISTRY_KV_DEFAULTS: dict[str, dict[str, Any]] = {
         "momentum_dtype": "bfloat16",
         "bf16_method": "stochastic_rounding",
     },
-    # Autofusion: parameter-free LR on Adafusion via a Mechanic tuner. Train at lr=1.0; the
-    # tuner finds the scale. s_init/lr_freeze/scale_cap stay on koptim's "auto" defaults.
-    "autofusion": {
+    # Autokaon: parameter-free LR on Adakaon via a Mechanic tuner (formerly "Autofusion").
+    # Train at lr=1.0; the tuner finds the scale. s_init/lr_freeze/scale_cap stay on "auto".
+    "autokaon": {
         "lr": 1.0,
-        "adafusion_betas": [0.0, 0.999],
+        "adakaon_betas": [0.0, 0.999],
         "momentum_dtype": "bfloat16",
         "bf16_method": "stochastic_rounding",
     },
-    # Liofusion: Lion sign-momentum on Adafusion's quantized-momentum backend (no 2nd moment).
-    # betas are a loss<->generalization dial; (0.95, 0.98) (classic Lion) is the recommended
-    # small-data starting point. lr is sign-update scale (~AdamW lr x2).
-    "liofusion": {
+    # Lion: sign-momentum (EvoLved Sign Momentum) on Adakaon's quantized-momentum backend
+    # (formerly "Liofusion"; no 2nd moment). betas are a loss<->generalization dial; (0.95, 0.98)
+    # (classic Lion) is the recommended small-data starting point. lr is sign-update scale (~AdamW lr x2).
+    "lion": {
         "lr": 2e-4,
         "betas": [0.95, 0.98],
         "weight_decay": 0.0,
         "momentum_dtype": "bfloat16",
         "cautious": True,
+        "bf16_method": "stochastic_rounding",
+    },
+    # AdaPNM: Adam + Positive-Negative Momentum on the factored/quantized backend. beta1 is the
+    # loss<->gap dial (0.8 shipped elbow); beta0 is the PN coefficient (0.5 default, 0 = plain Adam).
+    "adapnm": {
+        "lr": 1e-3,
+        "betas": [0.8, 0.999],
+        "beta0": 0.5,
+        "weight_decay": 0.0,
+        "cautious": True,
+        "momentum_dtype": "bfloat16",
         "bf16_method": "stochastic_rounding",
     },
 }

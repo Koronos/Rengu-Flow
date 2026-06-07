@@ -21,7 +21,7 @@ def test_version_string_includes_commit_when_in_checkout():
 
 def test_version_info_shape():
     info = version_mod.version_info()
-    assert set(info) == {"version", "commit", "koptim"}
+    assert set(info) == {"version", "commit", "kaon"}
     assert info["version"] == version_mod.package_version()
 
 
@@ -45,12 +45,12 @@ def test_cli_version_subcommand(capsys):
     main(["version"])
     out = capsys.readouterr().out
     assert "rengu-flow" in out
-    assert "koptim:" in out
+    assert "kaon:" in out
 
 
 def test_api_version_endpoint(ui_client):
     r = ui_client.get("/api/v1/version")
     assert r.status_code == 200
     body = r.json()
-    assert set(body) == {"version", "commit", "koptim"}
+    assert set(body) == {"version", "commit", "kaon"}
     assert body["version"] == version_mod.package_version()

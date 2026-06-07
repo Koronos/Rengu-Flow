@@ -2,11 +2,11 @@
 
 import type { FormValues } from "./forms";
 
-/** GET /version — renga version + git commit + installed koptim (any may be null). */
+/** GET /version — renga version + git commit + installed kaon (any may be null). */
 export interface VersionInfo {
   version: string;
   commit: string | null;
-  koptim: string | null;
+  kaon: string | null;
 }
 
 export type QueryParams =

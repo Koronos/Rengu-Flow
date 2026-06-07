@@ -11,9 +11,9 @@ PROFILE_EXTRAS: dict[str, str | None] = {
     "optim": "optim",
     "lycoris": "lycoris",
     "dev": "dev",
-    # Git-backed extra: the `koptim` package is declared in pyproject with a [tool.uv.sources]
+    # Git-backed extra: the `kaon` package is declared in pyproject with a [tool.uv.sources]
     # git source, so uv installs and version-manages it like any other extra (lockfile-pinned).
-    "koptim": "koptim",
+    "kaon": "kaon",
 }
 
 PROFILE_LABELS: dict[str, str] = {
@@ -24,7 +24,7 @@ PROFILE_LABELS: dict[str, str] = {
     "optim": "Optimizers (bitsandbytes, torchao, …)",
     "lycoris": "LyCORIS adapters",
     "dev": "Development (pytest, httpx)",
-    "koptim": "K-Optimizers (Adafusion, Muon, AdaMuon, KProdigy, Autofusion, Liofusion)",
+    "kaon": "K-Optimizers (Adakaon, Muon, AdaMuon, KProdigy, Autokaon, Lion, AdaPNM)",
 }
 
 PROFILE_DESCRIPTIONS: dict[str, str] = {
@@ -35,10 +35,10 @@ PROFILE_DESCRIPTIONS: dict[str, str] = {
     "optim": "Optional optimizer backends (bitsandbytes, pytorch-optimizer, …).",
     "lycoris": "LyCORIS-style adapter backend.",
     "dev": "pytest and httpx for development.",
-    "koptim": "Memory-efficient optimizers (Adafusion, Muon, AdaMuon, KProdigy, Autofusion, Liofusion) from github.com/Koronos/K-Optimizers.",
+    "kaon": "Memory-efficient optimizers (Adakaon, Muon, AdaMuon, KProdigy, Autokaon, Lion, AdaPNM) from github.com/Koronos/K-Optimizers.",
 }
 
-ALL_PROFILE_NAMES = ("base", "ui", "cosmos", "optim", "lycoris", "dev", "koptim")
+ALL_PROFILE_NAMES = ("base", "ui", "cosmos", "optim", "lycoris", "dev", "kaon")
 
 # Profile -> modules that must import for the profile to count as installed. Used by the manager
 # to decide whether anything needs installing (on-demand) and to verify success afterwards.
@@ -49,12 +49,12 @@ PROFILE_IMPORT_CHECKS: dict[str, tuple[str, ...]] = {
     "lycoris": ("lycoris",),
     "optim": ("bitsandbytes",),
     "dev": ("pytest",),
-    "koptim": ("koptim",),
+    "kaon": ("kaon",),
 }
 
 # Profile -> pip/git requirement specs that uv cannot install via pyproject extras. Installed
 # additively with ``uv pip install`` when the profile's modules are still missing after the
-# regular sync. Prefer a pyproject extra + [tool.uv.sources] git source (like ``koptim``) so the
+# regular sync. Prefer a pyproject extra + [tool.uv.sources] git source (like ``kaon``) so the
 # package is lockfile-pinned and upgradable via PROFILE_GIT_PACKAGES below. Only use this escape
 # hatch for specs uv's project workflow genuinely can't express; register them as:
 #     "myoptim": ["git+https://github.com/acme/cool-optimizer@v1.2.0"],
@@ -90,7 +90,7 @@ def uv_sync_argv(profiles: list[str]) -> list[str]:
     not part of the selected resolution (other extras, user-installed custom optimizers/schedulers,
     git packages) are preserved instead of being removed.
 
-    Git-sourced extras (e.g. ``koptim``) are pinned to an exact commit in [tool.uv.sources], so
+    Git-sourced extras (e.g. ``kaon``) are pinned to an exact commit in [tool.uv.sources], so
     selecting the extra installs exactly that revision; the package only changes when the pin is
     bumped in pyproject — uv re-locks and applies it on the next sync.
     """

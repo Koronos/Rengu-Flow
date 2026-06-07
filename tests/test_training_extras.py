@@ -45,18 +45,26 @@ def test_profiles_for_prodigy_adds_optim():
     assert training_extras.profiles_for_config_dict(data) == ["optim"]
 
 
-def test_koptim_optimizers_route_to_koptim_profile() -> None:
-    """All koptim-backed aliases (incl. the newer kprodigy/autofusion/liofusion) install koptim."""
-    koptim_names = [n for n, (mod, _c) in OPTIMIZER_ALIASES.items() if mod == "koptim"]
-    assert {"adafusion", "muon", "adamuon", "kprodigy", "autofusion", "liofusion"} <= set(koptim_names)
-    for name in koptim_names:
+def test_kaon_optimizers_route_to_kaon_profile() -> None:
+    """All kaon-backed aliases (adakaon/muon/adamuon/kprodigy/autokaon/lion/adapnm) install kaon."""
+    kaon_names = [n for n, (mod, _c) in OPTIMIZER_ALIASES.items() if mod == "kaon"]
+    assert {
+        "adakaon",
+        "muon",
+        "adamuon",
+        "kprodigy",
+        "autokaon",
+        "lion",
+        "adapnm",
+    } <= set(kaon_names)
+    for name in kaon_names:
         profiles = training_extras.profiles_for_config_dict({"optimizer": {"type": name}})
-        assert "koptim" in profiles, f"{name!r} did not route to the koptim profile"
+        assert "kaon" in profiles, f"{name!r} did not route to the kaon profile"
 
 
 def test_registry_optional_optimizers_map_to_an_install_profile() -> None:
     """Every dropdown alias needing a non-base dependency must map to an install profile
-    (the [optim] extra, or a git-backed profile like 'adafusion')."""
+    (the [optim] extra, or a git-backed profile like 'kaon')."""
     names = set(OPTIMIZER_ALIASES) | set(VENDOR_OPTIMIZER_ALIASES)
     for name in names:
         profiles = training_extras.profiles_for_config_dict({"optimizer": {"type": name}})

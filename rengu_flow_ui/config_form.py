@@ -166,7 +166,7 @@ def _homogenize_numeric_arrays(obj: Any) -> Any:
     """Promote mixed int/float arrays to all-float so ``toml.dumps`` stays homogeneous.
 
     The form round-trips through JSON, where ``0.0`` collapses to the integer ``0``; an
-    array like ``[0.0, 0.999]`` (e.g. adafusion betas) then reaches us as ``[0, 0.999]``.
+    array like ``[0.0, 0.999]`` (e.g. adakaon betas) then reaches us as ``[0, 0.999]``.
     ``toml`` writes that verbatim and refuses to load it back ("Not a homogeneous array").
     Pure-int arrays (resolutions, etc.) are left untouched; only arrays that already mix
     ints with floats are promoted.

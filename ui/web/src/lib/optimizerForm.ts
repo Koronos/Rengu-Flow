@@ -20,10 +20,14 @@ export const KNOWN_BUILTIN_OPTIMIZER_TYPES = new Set([
   "automagic",
   "adamw8bitkahan",
   "prodigy",
-  // github.com/Koronos/K-Optimizers (installed on demand via the "koptim" profile).
-  "adafusion",
+  // github.com/Koronos/K-Optimizers (the `kaon` package; installed on demand via the "kaon" profile).
+  "adakaon",
   "muon",
   "adamuon",
+  "kprodigy",
+  "autokaon",
+  "lion",
+  "adapnm",
 ]);
 
 export function normalizeOptimizerType(value: unknown): string {

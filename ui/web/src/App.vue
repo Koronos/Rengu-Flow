@@ -138,8 +138,8 @@ onMounted(async () => {
   try {
     const v = await api.version();
     versionLabel.value = v.commit ? `v${v.version} · ${v.commit}` : `v${v.version}`;
-    versionTitle.value = v.koptim
-      ? `rengu-flow ${v.version}${v.commit ? ` (${v.commit})` : ""} · koptim ${v.koptim}`
+    versionTitle.value = v.kaon
+      ? `rengu-flow ${v.version}${v.commit ? ` (${v.commit})` : ""} · kaon ${v.kaon}`
       : `rengu-flow ${v.version}${v.commit ? ` (${v.commit})` : ""}`;
   } catch {
     versionLabel.value = "";

@@ -25,7 +25,7 @@ def add_parser(sub: argparse._SubParsersAction) -> None:
         "profiles",
         nargs="*",
         default=["base"],
-        help="Profiles: base, ui, cosmos, optim, lycoris, dev, koptim, all",
+        help="Profiles: base, ui, cosmos, optim, lycoris, dev, kaon, all",
     )
     p.add_argument(
         "--all-extras",
@@ -188,7 +188,7 @@ def run(args: argparse.Namespace) -> None:
         requested = normalize_profiles(list(args.profiles))
 
     # Also refresh the optional profiles the user already set up, so a plain `rengu update` keeps
-    # them current without re-listing them — and, for git-pinned extras like koptim, applies a
+    # them current without re-listing them — and, for git-pinned extras like kaon, applies a
     # bumped commit pin from the freshly pulled pyproject. Profiles that were never installed are
     # left out entirely (uv --inexact never touches them), so an update never pulls in, say,
     # K-Optimizers for someone who never enabled it. ``read_installed_profiles`` is filtered to
