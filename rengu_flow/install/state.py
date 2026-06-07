@@ -25,7 +25,16 @@ def installed_profiles_path(root: Path | None = None) -> Path:
 
 
 def read_installed_profiles(root: Path | None = None) -> list[str]:
-    """Return the recorded profile names (empty list when nothing recorded / unreadable)."""
+    """Return the recorded profile names (empty list when nothing recorded / unreadable).
+
+    The state file outlives the set of known profiles, so we drop any recorded name that is no
+    longer a valid profile. Profiles are independent libraries — a removed or renamed one (e.g. a
+    dropped ``koptim`` package) is simply forgotten, never collided with or migrated. This keeps
+    ``self_heal`` from raising on a stale record without making ``normalize_profiles`` (user CLI
+    input) tolerate typos. To keep a profile after a library swap, re-enable it (``rengu init <p>``).
+    """
+    from rengu_flow.install.profiles import PROFILE_EXTRAS
+
     path = installed_profiles_path(root)
     if not path.is_file():
         return []
@@ -36,7 +45,11 @@ def read_installed_profiles(root: Path | None = None) -> list[str]:
     profiles = data.get("profiles") if isinstance(data, dict) else data
     if not isinstance(profiles, list):
         return []
-    return [str(p) for p in profiles if isinstance(p, str) and p.strip()]
+    out: list[str] = []
+    for p in profiles:
+        if isinstance(p, str) and p.strip() in PROFILE_EXTRAS and p.strip() not in out:
+            out.append(p.strip())
+    return out
 
 
 def record_installed_profiles(profiles: list[str], *, root: Path | None = None) -> list[str]:

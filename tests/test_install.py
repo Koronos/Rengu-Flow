@@ -20,6 +20,23 @@ def test_installed_profiles_roundtrip_and_additive_merge(tmp_path):
     assert read_installed_profiles(tmp_path) == ["ui", "cosmos", "optim"]
 
 
+def test_read_installed_profiles_drops_unknown(tmp_path):
+    """A state file can outlive the set of known profiles (a dropped/renamed library leaves a
+    stale name). Unknown names are silently dropped so self_heal never raises; known ones survive,
+    order-preserved and de-duped."""
+    import json
+
+    from rengu_flow.install.state import installed_profiles_path
+
+    path = installed_profiles_path(tmp_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # 'koptim' (a removed library's profile) and 'bogus' are no longer valid -> dropped.
+    path.write_text(
+        json.dumps({"profiles": ["ui", "koptim", "bogus", "kaon", "kaon"]}), encoding="utf-8"
+    )
+    assert read_installed_profiles(tmp_path) == ["ui", "kaon"]
+
+
 # --- run_uv_pip_install (additive git/VCS specs) -----------------------------------------------
 
 def test_run_uv_pip_install_builds_argv(tmp_path, monkeypatch):
