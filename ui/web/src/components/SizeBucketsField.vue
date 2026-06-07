@@ -56,35 +56,25 @@
       </div>
     </template>
 
-    <template v-else>
-      <el-input
-        :model-value="jsonText"
-        type="textarea"
-        :rows="5"
-        class="field-full"
-        placeholder="[[512, 512, 1], [768, 768, 1]]"
-        @update:model-value="onJsonInput"
-      />
-      <el-text v-if="jsonError" type="danger" size="small" class="json-error">
-        {{ jsonError }}
-      </el-text>
-      <el-button
-        v-if="canUseTableEditor"
-        size="small"
-        link
-        class="mt-8"
-        @click="showJson = false"
-      >
-        Back to table editor
-      </el-button>
-    </template>
+    <JsonFallbackEditor
+      v-else
+      :json-text="jsonText"
+      :error="jsonError"
+      :can-return="canUseTableEditor"
+      :rows="5"
+      placeholder="[[512, 512, 1], [768, 768, 1]]"
+      back-label="Back to table editor"
+      @update:json="onJsonInput"
+      @return="showJson = false"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, type PropType } from "vue";
+import { computed, type PropType } from "vue";
 import { Delete, Plus } from "@element-plus/icons-vue";
-import { jsonStringify } from "../lib/formUtils";
+import JsonFallbackEditor from "./JsonFallbackEditor.vue";
+import { useJsonFieldToggle } from "../composables/useJsonFieldToggle";
 import {
   SIZE_BUCKET_PRESETS,
   formatSizeBucketLabel,
@@ -105,28 +95,15 @@ const props = defineProps({
 
 const emit = defineEmits(["update:modelValue"]);
 
-const showJson = ref(false);
-
-watch(
-  () => props.modelValue,
-  (value) => {
-    if (sizeBucketsNeedJsonEditor(value)) {
-      showJson.value = true;
-    }
-  },
-  { immediate: true }
-);
+const { showJson, jsonText, jsonError, canUseTableEditor, onJsonInput } =
+  useJsonFieldToggle({
+    modelValue: () => props.modelValue,
+    needsJsonEditor: sizeBucketsNeedJsonEditor,
+    validate: validateSizeBucketsJson,
+    emit: (v) => emit("update:modelValue", v),
+  });
 
 const rows = computed(() => parseSizeBuckets(props.modelValue));
-
-const jsonText = computed(() => jsonStringify(props.modelValue));
-
-const jsonError = computed(() => {
-  if (!showJson.value) return null;
-  return validateSizeBucketsJson(jsonText.value);
-});
-
-const canUseTableEditor = computed(() => !jsonError.value && jsonText.value.trim() !== "");
 
 const presetOptions = computed(() => {
   const current = new Set(rows.value.map(sizeBucketKey));
@@ -161,11 +138,6 @@ function updateRow(index: number, dim: 0 | 1 | 2, value: number | undefined): vo
 function addPreset(preset: SizeBucket): void {
   emitRows([...rows.value, preset]);
 }
-
-function onJsonInput(text: string): void {
-  const trimmed = text.trim();
-  emit("update:modelValue", trimmed ? text : "");
-}
 </script>
 
 <style scoped>
@@ -198,15 +170,5 @@ function onJsonInput(text: string): void {
 }
 .preset-label {
   margin-right: 2px;
-}
-.json-error {
-  display: block;
-  margin-top: 6px;
-}
-.mt-8 {
-  margin-top: 8px;
-}
-.field-full {
-  width: 100%;
 }
 </style>

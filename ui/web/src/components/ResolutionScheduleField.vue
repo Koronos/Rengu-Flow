@@ -71,33 +71,25 @@
       </template>
     </template>
 
-    <template v-else>
-      <el-input
-        :model-value="jsonText"
-        type="textarea"
-        :rows="6"
-        class="field-full"
-        placeholder='{ "enabled": true, "stage": [ { "resolutions": [512], "fraction": 0.33 } ] }'
-        @update:model-value="onJsonInput"
-      />
-      <el-text v-if="jsonError" type="danger" size="small" class="json-error">{{ jsonError }}</el-text>
-      <el-button
-        v-if="canUseTableEditor"
-        size="small"
-        link
-        class="mt-8"
-        @click="showJson = false"
-      >
-        Back to table editor
-      </el-button>
-    </template>
+    <JsonFallbackEditor
+      v-else
+      :json-text="jsonText"
+      :error="jsonError"
+      :can-return="canUseTableEditor"
+      :rows="6"
+      placeholder='{ "enabled": true, "stage": [ { "resolutions": [512], "fraction": 0.33 } ] }'
+      back-label="Back to table editor"
+      @update:json="onJsonInput"
+      @return="showJson = false"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, type PropType } from "vue";
+import { computed, type PropType } from "vue";
 import { Delete, Plus } from "@element-plus/icons-vue";
-import { jsonStringify } from "../lib/formUtils";
+import JsonFallbackEditor from "./JsonFallbackEditor.vue";
+import { useJsonFieldToggle } from "../composables/useJsonFieldToggle";
 import {
   parseResolutionSchedule,
   scheduleFormValue,
@@ -121,25 +113,18 @@ const props = defineProps({
 
 const emit = defineEmits(["update:modelValue"]);
 
-const showJson = ref(false);
-
-watch(
-  () => props.modelValue,
-  (value) => {
-    if (scheduleNeedsJsonEditor(value)) showJson.value = true;
-  },
-  { immediate: true }
-);
+const { showJson, jsonText, jsonError, canUseTableEditor, onJsonInput } =
+  useJsonFieldToggle({
+    modelValue: () => props.modelValue,
+    needsJsonEditor: scheduleNeedsJsonEditor,
+    validate: validateResolutionScheduleJson,
+    emit: (v) => emit("update:modelValue", v),
+    requireNonEmpty: false,
+  });
 
 const schedule = computed(() => parseResolutionSchedule(props.modelValue));
 const enabled = computed(() => schedule.value.enabled);
 const rows = computed(() => schedule.value.stages);
-
-const jsonText = computed(() => jsonStringify(props.modelValue));
-const jsonError = computed(() =>
-  showJson.value ? validateResolutionScheduleJson(jsonText.value) : null
-);
-const canUseTableEditor = computed(() => !jsonError.value);
 
 const percents = computed(() => stageEffectivePercent(rows.value));
 
@@ -201,11 +186,6 @@ function updateFraction(index: number, value: number | undefined): void {
   const stages = rows.value.map((row, i) => (i === index ? { ...row, fraction: n } : row));
   emitSchedule({ enabled: enabled.value, stages });
 }
-
-function onJsonInput(text: string): void {
-  const trimmed = text.trim();
-  emit("update:modelValue", trimmed ? text : "");
-}
 </script>
 
 <style scoped>
@@ -252,15 +232,5 @@ function onJsonInput(text: string): void {
   display: block;
   margin-top: 8px;
   line-height: 1.5;
-}
-.json-error {
-  display: block;
-  margin-top: 6px;
-}
-.mt-8 {
-  margin-top: 8px;
-}
-.field-full {
-  width: 100%;
 }
 </style>

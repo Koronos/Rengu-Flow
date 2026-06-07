@@ -73,38 +73,28 @@
       </el-space>
     </template>
 
-    <template v-else>
-      <el-input
-        :model-value="jsonText"
-        type="textarea"
-        :rows="6"
-        class="field-full"
-        placeholder='[{"tags":["char"],"drop_probability":0.08},{"tags_file":"drop.txt","drop_probability":0.5}]'
-        @update:model-value="onJsonInput"
-      />
-      <el-text v-if="jsonError" type="danger" size="small" class="json-error">
-        {{ jsonError }}
-      </el-text>
-      <el-button
-        v-if="canUseTableEditor"
-        size="small"
-        link
-        class="mt-8"
-        @click="showJson = false"
-      >
-        Back to rule editor
-      </el-button>
-    </template>
+    <JsonFallbackEditor
+      v-else
+      :json-text="jsonText"
+      :error="jsonError"
+      :can-return="canUseTableEditor"
+      :rows="6"
+      placeholder='[{"tags":["char"],"drop_probability":0.08},{"tags_file":"drop.txt","drop_probability":0.5}]'
+      back-label="Back to rule editor"
+      @update:json="onJsonInput"
+      @return="showJson = false"
+    />
 
     <p v-if="hint" class="field-hint">{{ hint }}</p>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, type PropType } from "vue";
+import { computed, type PropType } from "vue";
 import { Delete, Plus } from "@element-plus/icons-vue";
 import PathFieldControl from "./PathFieldControl.vue";
-import { jsonStringify } from "../lib/formUtils";
+import JsonFallbackEditor from "./JsonFallbackEditor.vue";
+import { useJsonFieldToggle } from "../composables/useJsonFieldToggle";
 import {
   emptyTagDropoutRule,
   parseTagDropoutRules,
@@ -124,28 +114,15 @@ const props = defineProps({
 
 const emit = defineEmits(["update:modelValue"]);
 
-const showJson = ref(false);
-
-watch(
-  () => props.modelValue,
-  (value) => {
-    if (tagDropoutRulesNeedJsonEditor(value)) {
-      showJson.value = true;
-    }
-  },
-  { immediate: true }
-);
+const { showJson, jsonText, jsonError, canUseTableEditor, onJsonInput } =
+  useJsonFieldToggle({
+    modelValue: () => props.modelValue,
+    needsJsonEditor: tagDropoutRulesNeedJsonEditor,
+    validate: validateTagDropoutRulesJson,
+    emit: (v) => emit("update:modelValue", v),
+  });
 
 const rows = computed(() => parseTagDropoutRules(props.modelValue));
-
-const jsonText = computed(() => jsonStringify(props.modelValue));
-
-const jsonError = computed(() => {
-  if (!showJson.value) return null;
-  return validateTagDropoutRulesJson(jsonText.value);
-});
-
-const canUseTableEditor = computed(() => !jsonError.value && jsonText.value.trim() !== "");
 
 function emitRows(next: TagDropoutRuleUi[]): void {
   emit("update:modelValue", tagDropoutRulesFormValue(next));
@@ -181,11 +158,6 @@ function updateProbability(index: number, value: number | number[] | undefined):
 
 function formatProbTooltip(value: number): string {
   return `${Math.round(value * 100)}%`;
-}
-
-function onJsonInput(text: string): void {
-  const trimmed = text.trim();
-  emit("update:modelValue", trimmed ? text : "");
 }
 </script>
 
@@ -229,13 +201,6 @@ function onJsonInput(text: string): void {
 }
 .actions-row {
   margin-top: 4px;
-}
-.json-error {
-  display: block;
-  margin-top: 6px;
-}
-.mt-8 {
-  margin-top: 8px;
 }
 .field-full {
   width: 100%;
