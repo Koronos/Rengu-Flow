@@ -211,6 +211,49 @@ def _build_optimizer(
     return klass(param_groups, *opt_args, **kwargs)
 
 
+def _maybe_start_profiler():
+    """Env-gated torch profiler. RENGU_PROF_DIR enables it; tune the window with
+    RENGU_PROF_WAIT/WARMUP/ACTIVE (defaults skip compile warmup, capture 6 steady steps).
+    on_trace_ready writes a kernel table (sorted by CUDA time) + a chrome trace, then it stops."""
+    import os
+
+    prof_dir = os.environ.get("RENGU_PROF_DIR")
+    if not prof_dir:
+        return None
+    import torch
+    from torch.profiler import ProfilerActivity, profile, schedule
+
+    os.makedirs(prof_dir, exist_ok=True)
+    wait = int(os.environ.get("RENGU_PROF_WAIT", "12"))
+    warmup = int(os.environ.get("RENGU_PROF_WARMUP", "3"))
+    active = int(os.environ.get("RENGU_PROF_ACTIVE", "6"))
+
+    def _on_ready(p):
+        tbl = p.key_averages().table(sort_by="cuda_time_total", row_limit=45)
+        with open(os.path.join(prof_dir, "kernels_cuda.txt"), "w") as fh:
+            fh.write(tbl)
+        tbl2 = p.key_averages().table(sort_by="self_cuda_time_total", row_limit=45)
+        with open(os.path.join(prof_dir, "kernels_self_cuda.txt"), "w") as fh:
+            fh.write(tbl2)
+        try:
+            p.export_chrome_trace(os.path.join(prof_dir, "trace.json"))
+        except Exception as e:  # trace export is best-effort
+            print(f"[prof] chrome trace export failed: {e}", flush=True)
+        print(f"[prof] wrote profiler tables + trace to {prof_dir}", flush=True)
+
+    prof = profile(
+        activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+        schedule=schedule(wait=wait, warmup=warmup, active=active, repeat=1),
+        on_trace_ready=_on_ready,
+        record_shapes=False,
+        with_stack=False,
+        profile_memory=False,
+    )
+    prof.start()
+    print(f"[prof] torch profiler armed (wait={wait} warmup={warmup} active={active}) -> {prof_dir}", flush=True)
+    return prof
+
+
 def _run_training(args, config):
     import torch
     import deepspeed
@@ -340,7 +383,9 @@ def _run_training(args, config):
     activation_checkpointing = config.get("activation_checkpointing", False)
     extra_kw = {}
     if activation_checkpointing:
-        extra_kw["activation_checkpoint_interval"] = 1
+        # interval N = checkpoint every N transformer blocks (1 = every block, most memory-saving /
+        # most recompute). Raise to recompute less at the cost of more activation VRAM.
+        extra_kw["activation_checkpoint_interval"] = int(config.get("activation_checkpoint_interval", 1))
         extra_kw["checkpointable_layers"] = model.checkpointable_layers
         if activation_checkpointing == "unsloth":
             from rengu_flow.utils.unsloth_utils import unsloth_checkpoint
@@ -795,6 +840,10 @@ def _run_training(args, config):
         train_data.current_step = step
         epoch = budget_display_epoch(step, steps_per_epoch, epochs)
 
+    # Optional env-gated torch profiler (RENGU_PROF_DIR=/path). Skips compile/warmup steps, captures
+    # a steady window, and on completion writes a key_averages table + chrome trace. Zero cost off.
+    _prof = _maybe_start_profiler() if is_main_process() else None
+
     try:
         while True:
             model_engine.reset_activation_shape()
@@ -827,6 +876,8 @@ def _run_training(args, config):
             else:
                 loss = model_engine.train_batch(iterator).item()
             iter_sec = time.perf_counter() - t0
+            if _prof is not None:
+                _prof.step()
             if skipped_oom:
                 if effective_max_steps is not None and step >= effective_max_steps:
                     final_model_name = f"step{step}"
