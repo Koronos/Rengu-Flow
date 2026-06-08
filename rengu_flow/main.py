@@ -544,6 +544,17 @@ def _run_training(args, config):
             compile_kwargs["dynamic"] = True
         cache_enabled, cache_dir = _setup_compile_disk_cache(config, is_main_process())
 
+        # ====================================================================
+        # REJECTED — DO NOT MERGE TO main. See BRANCH_REJECTED_DO_NOT_MERGE.md.
+        # Measured net-negative for production (Cosmos LoKr, 4080, multi-res):
+        # naive per-block compile halves the one-time cold-compile spike
+        # (77s->38s) but costs +2-5%/step FOREVER (graph breaks); crossover
+        # ~1000-1600 steps, so real long runs come out slower overall. The
+        # "proper" fix (nested_compile_region) is a dud here too: crashes on
+        # dynamic shapes (torch 2.12) and gives ~no compile win on static
+        # (compile is inductor-bound, not trace-bound). Kept opt-in default-off
+        # for short/debug runs only. Do not enable by default; do not merge.
+        # ====================================================================
         # Regional (per-block) compile: compile each identical transformer block on its
         # own so inductor compiles ONE artifact and reuses it across all ~28 blocks (and
         # per shape), shrinking the cold-compile / per-shape recompile spike to ~one
