@@ -488,6 +488,30 @@ def _run_training(args, config):
                 )
 
             extra_kw["activation_checkpoint_func"] = _selective_checkpoint
+
+            # SAC uses MORE VRAM than full checkpointing (it keeps the saved activations instead of
+            # recomputing them). It is opt-in, but warn loudly — and extra-loudly on small GPUs —
+            # so a low-VRAM user who enabled it isn't surprised by an OOM. Tunable / revertible:
+            #   - revert to safe full checkpointing: activation_checkpointing = true
+            #   - dial the VRAM/speed tradeoff: selective_checkpoint_save_ops (fewer ops = less VRAM)
+            from rengu_flow.utils import is_main_process as _imp
+            if _imp():
+                _gb = 0.0
+                try:
+                    _gb = torch.cuda.get_device_properties(0).total_memory / 1e9
+                except Exception:
+                    pass
+                _saved = sorted(o._name if hasattr(o, "_name") else str(o) for o in _save_ops)
+                _msg = (
+                    f"[checkpoint] activation_checkpointing='selective' (SAC): saving {len(_save_ops)} op type(s) "
+                    f"{_saved}, recomputing the rest. This is faster than full checkpointing but uses MORE VRAM. "
+                    "If you OOM: set activation_checkpointing=true (full, safe) or shrink "
+                    "selective_checkpoint_save_ops."
+                )
+                if 0 < _gb < 12.0:
+                    _msg += (f" WARNING: this GPU has ~{_gb:.0f} GB — SAC may not fit; full checkpointing "
+                             "(activation_checkpointing=true) is the safer choice here.")
+                print(_msg, flush=True)
         else:
             from functools import partial
             extra_kw["activation_checkpoint_func"] = partial(
