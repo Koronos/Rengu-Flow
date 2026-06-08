@@ -29,7 +29,7 @@ from rengu_flow.registry.optimizers import (
 )
 
 DTYPE_OPTIONS = list(DTYPE_MAP.keys())
-ACTIVATION_CHECKPOINTING_OPTIONS = [False, True, "unsloth"]
+ACTIVATION_CHECKPOINTING_OPTIONS = [False, True, "selective", "unsloth"]
 PARTITION_METHODS = ["parameters", "uniform", "manual"]
 HAS_ADAPTER = {"field": "_has_adapter", "equals": True}
 
@@ -540,7 +540,34 @@ def get_sections() -> list[dict[str, Any]]:
                     "activation_checkpointing",
                     "Activation checkpointing",
                     "select",
-                    options=[False, True, "unsloth"],
+                    options=ACTIVATION_CHECKPOINTING_OPTIONS,
+                    description=(
+                        "true = full (lowest VRAM, safe default); false = fastest but OOMs at high res; "
+                        "'selective' = SAC, ~4% faster at 1024, quality-neutral but uses MORE VRAM "
+                        "(needs headroom — not for small GPUs); 'unsloth' = alt kernel."
+                    ),
+                ),
+                _field(
+                    "selective_checkpoint_save_ops",
+                    "SAC: extra ops to keep",
+                    "string",
+                    importance="advanced",
+                    when={"field": "activation_checkpointing", "equals": "selective"},
+                    placeholder="mm,addmm,bmm",
+                    description=(
+                        "Only for activation_checkpointing='selective'. Comma-separated aten ops SAC keeps "
+                        "instead of recomputing (attention is always kept). More = a touch faster, more VRAM; "
+                        "empty = attention only (the sweet spot)."
+                    ),
+                ),
+                _field(
+                    "activation_checkpoint_interval",
+                    "Checkpoint interval (blocks)",
+                    "integer",
+                    default=1,
+                    min_value=1,
+                    importance="advanced",
+                    description="Checkpoint every N transformer blocks (1 = every block). Measured neutral on Cosmos.",
                 ),
                 _field(
                     "reentrant_activation_checkpointing",
@@ -607,6 +634,29 @@ def get_sections() -> list[dict[str, Any]]:
                     importance="advanced",
                     when={"field": "compile", "equals": True},
                     description="Pass dynamic=True to torch.compile when input shapes vary between steps.",
+                ),
+                _field(
+                    "compile_disk_cache",
+                    "Persist compile cache to disk",
+                    "select",
+                    options=["auto", True, False],
+                    allow_custom=True,
+                    importance="advanced",
+                    when={"field": "compile", "equals": True},
+                    description=(
+                        "'auto' (default) persists Inductor/Triton kernels only when compile_dynamic is off "
+                        "(static shapes — where the cache actually hits; dynamic shapes are a no-op). Needs an "
+                        "ext4 cache dir; auto-disables with a warning on encrypted homes."
+                    ),
+                ),
+                _field(
+                    "compile_cache_dir",
+                    "Compile cache dir",
+                    "string",
+                    importance="advanced",
+                    when={"field": "compile", "equals": True},
+                    placeholder="<repo>/.compile_cache",
+                    description="Where the on-disk compile cache lives (must be ext4/255-char). Default: beside the repo.",
                 ),
                 _field("x_axis_examples", "TensorBoard x-axis = examples", "boolean"),
                 _field("caching_batch_size", "Dataset cache batch size", "integer", default=1),
