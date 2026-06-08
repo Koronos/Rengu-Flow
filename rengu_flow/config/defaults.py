@@ -64,6 +64,21 @@ def set_config_defaults(config: dict[str, Any]) -> None:
             config.setdefault("reentrant_activation_checkpointing", True)
 
     if str(model_config.get("type", "")).lower() in ("cosmos_predict2", "anima"):
+        # Frozen-base quantization knobs (A/B; default-off, mutually exclusive).
+        model_config.setdefault("transformer_fp8_matmul", False)
+        model_config.setdefault("transformer_4bit", False)
+        model_config.setdefault("fp8_matmul_dtype", "e5m2")
+        if model_config["transformer_fp8_matmul"] and model_config["transformer_4bit"]:
+            raise ConfigValidationError(
+                "model.transformer_fp8_matmul and model.transformer_4bit are mutually "
+                "exclusive; enable only one."
+            )
+        if model_config["fp8_matmul_dtype"] not in ("e5m2", "e4m3"):
+            raise ConfigValidationError(
+                "model.fp8_matmul_dtype must be 'e5m2' (default) or 'e4m3'."
+            )
+
+    if str(model_config.get("type", "")).lower() in ("cosmos_predict2", "anima"):
         preview_cfg = config.get("preview")
         if isinstance(preview_cfg, dict):
             preview_cfg.setdefault("num_inference_steps", 20)
