@@ -23,6 +23,20 @@ adds the trainable Kronecker delta on top -- so LoKr trains on top of the quanti
 Only the matmul-heavy block linears are quantized. Embedders, the final layer, all 1-D params,
 ``KEEP_IN_HIGH_PRECISION`` modules and the ``llm_adapter`` are skipped (they stay in their
 loaded precision), mirroring ``load_diffusion_model``'s dtype policy.
+
+MEASURED OUTCOME (Cosmos LoKr, RTX 4080 16GB, 1024px, 2026-06): NEITHER scheme helped, kept here
+for other hardware/models. Baselines: full-ckpt 1.82s/7.6GB, SAC 1.74s/9.45GB.
+  * 4-bit: with activation_checkpointing=false it OOMs (14.6GB) — checkpointing saves *activation*
+    memory, 4-bit only shrinks *weight* memory, so it can't enable dropping AC. With AC on it just
+    adds dequant overhead. It's a VRAM-fit lever (run a bigger model), not a speed lever.
+  * fp8: ``torch._scaled_mm`` on the 4080 requires the **weight operand to be e4m3** (e5m2 weight
+    is rejected; e5m2×e5m2 unsupported), but Cosmos is fp8-sensitive precisely to e4m3 (outliers
+    > ±448). Even setting it to e4m3 (and after fixing the missing autograd derivative + the bf16
+    row-wise output requirement), it ran at **~2.95s/11.3GB = ~70% SLOWER**: the per-step activation
+    quant over ~280 linears + the autograd.Function graph breaks (no compile fusion) dwarf the fp8
+    gemm gain. A fused/delayed-scaling fp8 (torchao) might net positive but conflicts with the LoKr
+    forward override and still forces e4m3 on Ada. Revisit fp8 on Hopper (e5m2 matmul) or a
+    non-fp8-sensitive model.
 """
 
 from __future__ import annotations
@@ -101,6 +115,40 @@ def _fp8_max(dtype: torch.dtype) -> float:
     return float(torch.finfo(dtype).max)
 
 
+class _Fp8ScaledMatmul(torch.autograd.Function):
+    """fp8 ``_scaled_mm`` forward + a hand-written backward (the op has no native derivative).
+
+    The frozen base weight is pre-quantized to fp8 (``weight_fp8`` [N, K] + per-output-row
+    ``weight_scale`` [N]); the activation is quantized row-wise here. Backward only needs the
+    input gradient (weight is frozen), computed with the high-precision ``weight_hp`` —
+    ``y = x @ Wᵀ`` ⇒ ``grad_x = grad_out @ W`` — a QLoRA-style straight-through (fp8 forward,
+    hi-precision backward) that lets gradients flow to the LoKr delta and earlier layers.
+    """
+
+    @staticmethod
+    def forward(ctx, x2d, weight_fp8, weight_scale, weight_hp, fp8_dtype, out_dtype):
+        fp8_max = _fp8_max(fp8_dtype)
+        x_amax = x2d.detach().abs().amax(dim=1, keepdim=True).clamp_min(1e-12).float()
+        x_scale = (x_amax / fp8_max).to(torch.float32)               # [M, 1] per-row
+        x_fp8 = (x2d.detach().float() / x_scale).clamp(-fp8_max, fp8_max).to(fp8_dtype)
+        out = torch._scaled_mm(
+            x_fp8,                                   # [M, K]
+            weight_fp8.t(),                          # [K, N]
+            scale_a=x_scale,                         # [M, 1]
+            scale_b=weight_scale.reshape(1, -1),     # [1, N] per-output-row
+            bias=None,
+            out_dtype=out_dtype,
+        )
+        ctx.save_for_backward(weight_hp)
+        return out
+
+    @staticmethod
+    def backward(ctx, grad_out):
+        (weight_hp,) = ctx.saved_tensors
+        grad_x = grad_out.to(weight_hp.dtype) @ weight_hp            # [M, N] @ [N, K] -> [M, K]
+        return grad_x.to(grad_out.dtype), None, None, None, None, None
+
+
 class Fp8MatmulLinear(nn.Linear):
     """A frozen ``nn.Linear`` whose forward runs an fp8 scaled matmul.
 
@@ -138,29 +186,21 @@ class Fp8MatmulLinear(nn.Linear):
         self.register_buffer("weight_scale", scale.to(torch.float32), persistent=False)
 
     def base_linear(self, x: torch.Tensor) -> torch.Tensor:
-        """fp8 scaled matmul: dynamic row-wise activation quant -> ``_scaled_mm`` -> compute dtype.
+        """fp8 scaled matmul via an autograd.Function (``_scaled_mm`` has no native derivative).
 
         Row-wise scaling convention (sm89+/Hopper): the lhs ``x_fp8`` [M, K] carries a float32
         per-row scale ``scale_a`` [M, 1]; the rhs (weight, transposed to [K, N]) carries a
-        per-column scale ``scale_b`` [1, N], which is exactly the per-output-row weight scale
-        from :meth:`_quantize_weight` transposed. ``_scaled_mm`` for fp8 is a CUDA path; on CPU
-        this raises (the caller's smoke catches and reports that).
+        per-column scale ``scale_b`` [1, N] (= the per-output-row weight scale transposed). The
+        weight is frozen, so the backward only needs grad wrt the input, computed with the kept
+        high-precision weight (``grad_x = grad_out @ W``) — standard QLoRA-style straight-through.
+        ``_scaled_mm`` is a CUDA fp8 path; on CPU it raises (caller's smoke catches that).
         """
-        out_dtype = x.dtype if x.is_floating_point() else torch.bfloat16
+        # row-wise _scaled_mm only emits bf16/fp16; fp32 activations -> bf16 output (model is bf16).
+        out_dtype = x.dtype if x.dtype in (torch.bfloat16, torch.float16) else torch.bfloat16
         orig_shape = x.shape
         x2d = x.reshape(-1, orig_shape[-1])
-        x_fp8_dtype = self.weight_fp8_dtype
-        fp8_max = _fp8_max(x_fp8_dtype)
-        x_amax = x2d.detach().abs().amax(dim=1, keepdim=True).clamp_min(1e-12).float()
-        x_scale = (x_amax / fp8_max).to(torch.float32)  # [M, 1]
-        x_fp8 = (x2d.float() / x_scale).clamp(-fp8_max, fp8_max).to(x_fp8_dtype)
-        out = torch._scaled_mm(
-            x_fp8,                               # [M, K]
-            self.weight_fp8.t(),                 # [K, N], column-major view of [N, K]
-            scale_a=x_scale,                     # [M, 1] per-row
-            scale_b=self.weight_scale.reshape(1, -1),  # [1, N] per-column (= per-output-row)
-            bias=None,
-            out_dtype=out_dtype,
+        out = _Fp8ScaledMatmul.apply(
+            x2d, self.weight_fp8, self.weight_scale, self.weight, self.weight_fp8_dtype, out_dtype
         )
         if self.bias is not None:
             out = out + self.bias.to(out_dtype)
