@@ -578,7 +578,32 @@ FIELD_HELP: dict[str, dict[str, str]] = {
             "During the forward pass the intermediate activations are dropped and re-computed during "
             "backprop — large activation-memory savings for a small extra compute cost (an extra "
             "forward per checkpointed block). Keep it true on small GPUs; false can OOM. Values: "
-            "true, false, or unsloth (a faster checkpointing kernel for supported models)."
+            "true (full, lowest VRAM, safe default), false (fastest, highest VRAM — OOMs at high res), "
+            "'selective' (SAC: keeps the expensive attention activations and recomputes only cheaper "
+            "ops — quality-neutral, ~4% faster at 1024 but uses MORE VRAM than full, so it needs "
+            "headroom — ~9.5 GB at 1024/batch2; NOT for small GPUs), or 'unsloth' (a faster "
+            "checkpointing kernel for supported models). Tune SAC with selective_checkpoint_save_ops."
+        ),
+        "doc": "docs/user/training-loop-and-eval.md",
+    },
+    "selective_checkpoint_save_ops": {
+        "summary": "Extra op types SAC keeps instead of recomputing (the VRAM/speed dial).",
+        "detail": (
+            "Only applies when activation_checkpointing = 'selective'. SAC always keeps the attention "
+            "outputs; this comma-separated list adds more aten ops to keep resident, e.g. "
+            "'mm,addmm,bmm'. More kept = less recompute (a touch faster) but MORE VRAM; empty = keep "
+            "attention only (the lightest SAC). On a tight card leave empty or use "
+            "activation_checkpointing = true. (Adding mm/addmm/bmm gave no extra speed at 1024 — "
+            "torch.compile's partitioner already handles those — so attention-only is enough.)"
+        ),
+        "doc": "docs/user/training-loop-and-eval.md",
+    },
+    "activation_checkpoint_interval": {
+        "summary": "Checkpoint every N transformer blocks (1 = every block).",
+        "detail": (
+            "Only applies when activation_checkpointing is on. 1 (default) checkpoints every block "
+            "(most VRAM-saving, most recompute); higher keeps more activations to recompute less. "
+            "Measured neutral on Cosmos at 1024 — leave at 1 unless you have a specific reason."
         ),
         "doc": "docs/user/training-loop-and-eval.md",
     },
@@ -632,7 +657,31 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "summary": "Pass dynamic=True to torch.compile for varying input shapes.",
         "detail": (
             "Maps to torch.compile(dynamic=True). Leave off for fixed-shape training; turn on if input "
-            "shapes change between steps so Inductor avoids recompiling per shape. Only applies when compile is on."
+            "shapes change between steps so Inductor avoids recompiling per shape. Only applies when compile is on. "
+            "Note: dynamic shapes defeat the on-disk compile cache (compile_disk_cache) — the cache only "
+            "helps with fixed (static) shapes."
+        ),
+        "doc": "docs/user/training-cosmos-predict2-lora-lokr-finetune.md",
+    },
+    "compile_disk_cache": {
+        "summary": "Persist torch.compile's kernels to disk so re-runs skip recompilation (static shapes only).",
+        "detail": (
+            "Values: 'auto' (default — enable only when compile is on AND compile_dynamic is off, where it "
+            "actually helps), true (always on; warns if dynamic, since it won't help), false (never). "
+            "Sets the Inductor/Triton on-disk caches so a second run with the SAME static shapes reuses the "
+            "compiled kernels instead of recompiling (~30s of compile saved per run). With compile_dynamic "
+            "on it is a no-op (dynamic-shape guards never match). The cache must live on an ext4-style "
+            "filesystem (255-char filenames); on an encrypted home (~143-char limit) it auto-disables with a "
+            "warning — set compile_cache_dir to an ext4 path. Only applies when compile is on."
+        ),
+        "doc": "docs/user/training-cosmos-predict2-lora-lokr-finetune.md",
+    },
+    "compile_cache_dir": {
+        "summary": "Where the on-disk compile cache lives (default: <repo>/.compile_cache).",
+        "detail": (
+            "Directory for compile_disk_cache. Default is a folder beside the repo (ext4). Point it at an "
+            "ext4 path if your repo/home is on an encrypted or short-filename filesystem. Only used when "
+            "compile_disk_cache is active."
         ),
         "doc": "docs/user/training-cosmos-predict2-lora-lokr-finetune.md",
     },

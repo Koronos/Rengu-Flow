@@ -114,6 +114,29 @@ Short tuning smokes (30 steps) are only **previews** for CI and quick regression
 | **`cache_dedup_text_embeddings = true`** | Speeds `--cache_only` when many images share the same caption (tag-heavy sets). |
 | **`micro_batch_size_per_gpu`** | Set from VRAM; use **`gradient_accumulation_steps`** for effective batch without OOM. |
 
+### Faster checkpointing (SAC) — for GPUs with VRAM headroom
+
+`activation_checkpointing` accepts more than `true`/`false`:
+
+| Value | What it does | When |
+|-------|--------------|------|
+| `true` | **Full** checkpointing — recompute every block. Lowest VRAM. | **Default. Use on small/tight GPUs.** |
+| `"selective"` | **Selective Activation Checkpointing (SAC)** — *keep* the expensive attention activations, recompute only the cheaper ops. Quality-neutral (same math). | **16 GB+ with headroom**, to trim the recompute tax. |
+| `"unsloth"` | Alternative checkpoint kernel for supported models. | If standard AC is tight. |
+
+SAC is **opt-in** and **uses MORE VRAM than full checkpointing** (it stores what it would otherwise recompute). Measured on Anima/Cosmos LoKR at **1024px, batch 2**: full ckpt **1.82 s @ 7.6 GB** vs SAC **1.74 s @ 9.5 GB** — ~**4 %** faster at the resolution that dominates a multi-res schedule, still well within 16 GB. It works *with* `compile_dynamic = true` (orthogonal to compile).
+
+> ⚠️ **Not for low-VRAM cards.** SAC needs free VRAM; on a small GPU it can OOM. The trainer prints a warning when it's enabled (extra-loud on <12 GB). If you OOM, set `activation_checkpointing = true` or shrink `selective_checkpoint_save_ops`. At higher resolution (e.g. 1536) re-check that it still fits before relying on it.
+
+- **`selective_checkpoint_save_ops`** — the VRAM/speed dial for SAC. Comma-separated extra aten ops to keep (e.g. `"mm,addmm,bmm"`); empty keeps attention only (lightest). Adding matmuls gave *no* extra speed at 1024 (torch.compile's partitioner already handles them), so attention-only is the sweet spot.
+- **`activation_checkpoint_interval`** — checkpoint every N blocks (default `1`). Measured neutral on Cosmos; leave at `1`.
+
+### Compile on-disk cache (static shapes only)
+
+**`compile_disk_cache`** (default `"auto"`) persists `torch.compile`'s Inductor/Triton kernels to disk so a re-run skips recompilation. `"auto"` enables it **only when `compile_dynamic` is off** — because dynamic shapes (which multi-resolution + aspect-ratio bucketing require) never reproduce the cache key, so the cache is a no-op there. With static (fixed-shape) training it saves ~30 s of compile per run.
+
+> The cache must live on an ext4-style filesystem (255-char filenames). On an **encrypted home** (~143-char limit) it auto-disables with a warning — point **`compile_cache_dir`** at an ext4 path. When compile is on, the trainer also prints a one-line heads-up that the first step compiles (and may take ~1–4 min) so a long first step doesn't look like a hang.
+
 ### Very low VRAM (≈8 GB)
 
 The DiT is large, so on an 8 GB card lean on block swap of `transformer.blocks` plus the shared
