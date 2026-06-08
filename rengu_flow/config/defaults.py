@@ -138,6 +138,15 @@ def set_config_defaults(config: dict[str, Any]) -> None:
     # <repo_root>/.compile_cache (the renga-flow repo lives on ext4).
     config.setdefault("compile_disk_cache", "auto")
     config.setdefault("compile_cache_dir", None)
+    # Regional (per-block) torch.compile. When compile is on AND this is true, each
+    # transformer block is compiled individually instead of the whole pipeline as one
+    # graph. The Cosmos DiT has ~28 IDENTICAL blocks, so inductor compiles ONE and
+    # reuses the artifact for all of them (and per shape) -> the cold-compile and
+    # per-shape RECOMPILE spikes shrink to ~one block's cost instead of ~28. Steady
+    # per-step time is expected ~unchanged (this targets compile/spike time, not
+    # throughput). Falls back to whole-model compile when blocks_to_swap > 0 (the
+    # swapped blocks stream CPU<->GPU and are unsafe to compile in place).
+    config.setdefault("compile_regional", False)
     config.setdefault("x_axis_examples", False)
     config.setdefault("steps_per_print", 1)
     config.setdefault("monitoring", {})

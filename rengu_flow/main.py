@@ -543,25 +543,87 @@ def _run_training(args, config):
         if compile_dynamic:
             compile_kwargs["dynamic"] = True
         cache_enabled, cache_dir = _setup_compile_disk_cache(config, is_main_process())
-        if is_main_process():
-            print(f"pipeline_model.compile({compile_kwargs or 'defaults'})", flush=True)
-            msg = (
-                f"[compile] torch.compile enabled (mode={compile_mode or 'default'}, "
-                f"dynamic={compile_dynamic}). The FIRST training step per resolution/shape "
-                "compiles kernels and may take ~1-4 min - this is NORMAL, not a hang."
-            )
-            if cache_enabled:
-                msg += (
-                    f" Disk cache: {cache_dir} (subsequent runs with the same static "
-                    "shapes skip recompile)."
+
+        # Regional (per-block) compile: compile each identical transformer block on its
+        # own so inductor compiles ONE artifact and reuses it across all ~28 blocks (and
+        # per shape), shrinking the cold-compile / per-shape recompile spike to ~one
+        # block's cost instead of the whole-pipeline graph. Unsafe with block swapping
+        # (blocks stream CPU<->GPU), so fall back to whole-model compile in that case.
+        regional = bool(config.get("compile_regional"))
+        if regional and config.get("blocks_to_swap", 0) > 0:
+            if is_main_process():
+                print(
+                    "[compile] compile_regional requested but blocks_to_swap > 0; the "
+                    "swapped blocks stream CPU<->GPU and are unsafe to compile in place. "
+                    "Falling back to whole-model compile.",
+                    flush=True,
                 )
-            if compile_dynamic:
-                msg += (
-                    " (dynamic shapes: each new resolution/AR-bucket recompiles; disk "
-                    "cache does not help dynamic.)"
+            regional = False
+
+        if regional:
+            # Compile the blocks in place. The TransformerLayer wrappers built by
+            # to_layers() (and fed to ManualPipelineModule) cache `self.block`, so update
+            # both the ModuleList and the wrappers' references to the compiled blocks.
+            from rengu_flow.model.cosmos_predict2.layers import TransformerLayer as _TL
+
+            blocks = model.transformer.blocks
+            num_blocks = len(blocks)
+            compiled = {}
+            for i in range(num_blocks):
+                cb = torch.compile(blocks[i], **compile_kwargs)
+                compiled[id(blocks[i])] = cb
+                blocks[i] = cb
+            # Re-point the already-constructed TransformerLayer wrappers at the compiled
+            # blocks (they were created from the uncompiled ones in to_layers()).
+            for layer in layers:
+                if isinstance(layer, _TL):
+                    new_block = compiled.get(id(layer.block))
+                    if new_block is not None:
+                        layer.block = new_block
+            if is_main_process():
+                print(
+                    f"torch.compile (regional) per block x{num_blocks} "
+                    f"({compile_kwargs or 'defaults'})",
+                    flush=True,
                 )
-            print(msg, flush=True)
-        pipeline_model.compile(**compile_kwargs)
+                msg = (
+                    f"[compile] torch.compile enabled REGIONAL (mode={compile_mode or 'default'}, "
+                    f"dynamic={compile_dynamic}): compiling 1 transformer block, reused across "
+                    f"{num_blocks} - much smaller compile/recompile spikes. The FIRST training "
+                    "step per resolution/shape still compiles kernels (~one block's cost) - this "
+                    "is NORMAL, not a hang."
+                )
+                if cache_enabled:
+                    msg += (
+                        f" Disk cache: {cache_dir} (subsequent runs with the same static "
+                        "shapes skip recompile)."
+                    )
+                if compile_dynamic:
+                    msg += (
+                        " (dynamic shapes: each new resolution/AR-bucket recompiles; disk "
+                        "cache does not help dynamic.)"
+                    )
+                print(msg, flush=True)
+        else:
+            if is_main_process():
+                print(f"pipeline_model.compile({compile_kwargs or 'defaults'})", flush=True)
+                msg = (
+                    f"[compile] torch.compile enabled (mode={compile_mode or 'default'}, "
+                    f"dynamic={compile_dynamic}). The FIRST training step per resolution/shape "
+                    "compiles kernels and may take ~1-4 min - this is NORMAL, not a hang."
+                )
+                if cache_enabled:
+                    msg += (
+                        f" Disk cache: {cache_dir} (subsequent runs with the same static "
+                        "shapes skip recompile)."
+                    )
+                if compile_dynamic:
+                    msg += (
+                        " (dynamic shapes: each new resolution/AR-bucket recompiles; disk "
+                        "cache does not help dynamic.)"
+                    )
+                print(msg, flush=True)
+            pipeline_model.compile(**compile_kwargs)
     parameters_to_train = [p for p in pipeline_model.parameters() if p.requires_grad]
 
     micro_batch = config.get("micro_batch_size_per_gpu", 1)
