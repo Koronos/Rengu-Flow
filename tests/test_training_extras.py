@@ -46,16 +46,21 @@ def test_profiles_for_prodigy_adds_optim():
 
 
 def test_kaon_optimizers_route_to_kaon_profile() -> None:
-    """All kaon-backed aliases (adakaon/muon/adamuon/kprodigy/autokaon/lion/adapnm) install kaon."""
+    """All kaon-backed aliases install the kaon profile."""
     kaon_names = [n for n, (mod, _c) in OPTIMIZER_ALIASES.items() if mod == "kaon"]
     assert {
         "adakaon",
-        "muon",
         "adamuon",
         "kprodigy",
         "autokaon",
         "lion",
         "adapnm",
+        "adabelief",
+        "adamp",
+        "adopt",
+        "schedulefree",
+        "lookahead",
+        "sam",
     } <= set(kaon_names)
     for name in kaon_names:
         profiles = training_extras.profiles_for_config_dict({"optimizer": {"type": name}})

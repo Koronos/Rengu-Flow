@@ -21,12 +21,17 @@ OPTIMIZER_ALIASES: dict[str, tuple[str, str]] = {
     "prodigy": ("pytorch_optimizer", "Prodigy"),
     # git-backed (installed via the "kaon" install profile, see rengu_flow.install.profiles)
     "adakaon": ("kaon", "Adakaon"),
-    "muon": ("kaon", "Muon"),
     "adamuon": ("kaon", "AdaMuon"),
     "kprodigy": ("kaon", "KProdigy"),
     "autokaon": ("kaon", "Autokaon"),
     "lion": ("kaon", "Lion"),
     "adapnm": ("kaon", "AdaPNM"),
+    "adabelief": ("kaon", "AdaBelief"),
+    "adamp": ("kaon", "AdamP"),
+    "adopt": ("kaon", "ADOPT"),
+    "schedulefree": ("kaon", "ScheduleFree"),
+    "lookahead": ("kaon", "Lookahead"),
+    "sam": ("kaon", "SAM"),
 }
 
 

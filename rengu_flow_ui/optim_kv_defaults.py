@@ -110,12 +110,7 @@ OPTIMIZER_REGISTRY_KV_DEFAULTS: dict[str, dict[str, Any]] = {
         "clip_threshold": 1.0,
         "momentum_dtype": "bfloat16",
         "cautious": True,
-        "bf16_method": "stochastic_rounding",
-    },
-    "muon": {
-        "lr": 2e-2,
-        "momentum": 0.95,
-        "adamw_lr": 3e-4,
+        "fused": False,
         "bf16_method": "stochastic_rounding",
     },
     # AdaMuon: Muon orthogonalized momentum + factored quantized variance.
@@ -170,6 +165,67 @@ OPTIMIZER_REGISTRY_KV_DEFAULTS: dict[str, dict[str, Any]] = {
         "beta0": 0.5,
         "weight_decay": 0.0,
         "cautious": True,
+        "momentum_dtype": "bfloat16",
+        "fused": False,
+        "bf16_method": "stochastic_rounding",
+    },
+    # AdaBelief: Adam on the variance of the gradient residual (g - m) on the factored backend.
+    # eps is deliberately tiny (1e-16) — AdaBelief's denominator is a variance, not an RMS.
+    "adabelief": {
+        "lr": 1e-3,
+        "betas": [0.9, 0.999],
+        "weight_decay": 0.0,
+        "cautious": True,
+        "momentum_dtype": "bfloat16",
+        "bf16_method": "stochastic_rounding",
+    },
+    # AdamP: AdamW minus the radial update component on scale-invariant weights.
+    # delta/wd_ratio are the projection knobs (defaults match the paper).
+    "adamp": {
+        "lr": 1e-3,
+        "betas": [0.9, 0.999],
+        "weight_decay": 0.0,
+        "cautious": True,
+        "momentum_dtype": "bfloat16",
+        "bf16_method": "stochastic_rounding",
+    },
+    # ADOPT: modified Adam that converges with any beta2 (v-lag + normalize-then-momentum).
+    # betas default to (0.9, 0.9999) — the higher beta2 is intentional and safe here.
+    "adopt": {
+        "lr": 1e-3,
+        "betas": [0.9, 0.9999],
+        "weight_decay": 0.0,
+        "cautious": True,
+        "momentum_dtype": "bfloat16",
+        "bf16_method": "stochastic_rounding",
+    },
+    # ScheduleFree: Schedule-Free AdamW (iterate averaging; no LR schedule needed — pair with
+    # lr_scheduler "none"). warmup_steps optionally ramps the LR over the first N steps.
+    "schedulefree": {
+        "lr": 2.5e-3,
+        "betas": [0.9, 0.999],
+        "weight_decay": 0.0,
+        "warmup_steps": 0,
+        "cautious": True,
+        "momentum_dtype": "bfloat16",
+        "bf16_method": "stochastic_rounding",
+    },
+    # Lookahead: k-step slow-weight averaging wrapper over Adakaon. k = sync period, alpha =
+    # slow-weight step. Extra inner Adakaon kwargs (lr, betas, …) are passed through.
+    "lookahead": {
+        "lr": 1e-4,
+        "k": 5,
+        "alpha": 0.5,
+        "betas": [0.9, 0.999],
+        "momentum_dtype": "bfloat16",
+        "bf16_method": "stochastic_rounding",
+    },
+    # SAM: Sharpness-Aware Minimization (two-pass flat-minima) wrapper over Adakaon. rho = the
+    # neighborhood radius. Extra inner Adakaon kwargs (lr, betas, …) are passed through.
+    "sam": {
+        "lr": 1e-4,
+        "rho": 0.05,
+        "betas": [0.9, 0.999],
         "momentum_dtype": "bfloat16",
         "bf16_method": "stochastic_rounding",
     },

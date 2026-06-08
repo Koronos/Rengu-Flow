@@ -48,6 +48,31 @@ def test_new_kaon_optimizer_defaults() -> None:
     assert adapnm["beta0"] == 0.5
 
 
+def test_fused_flag_prefilled_for_fused_capable_kaon_optimizers() -> None:
+    """Adakaon and AdaPNM expose the Triton `fused` flag (default off) in the form."""
+    assert optimizer_extra_params_defaults("adakaon")["fused"] is False
+    assert optimizer_extra_params_defaults("adapnm")["fused"] is False
+
+
+def test_newer_kaon_optimizer_defaults() -> None:
+    """adabelief/adamp/adopt/schedulefree/lookahead/sam pre-fill sensible kaon defaults."""
+    assert optimizer_extra_params_defaults("adabelief")["betas"] == [0.9, 0.999]
+    assert optimizer_extra_params_defaults("adamp")["cautious"] is True
+
+    adopt = optimizer_extra_params_defaults("adopt")
+    assert adopt["betas"] == [0.9, 0.9999]  # high beta2 is intentional for ADOPT
+
+    schedulefree = optimizer_extra_params_defaults("schedulefree")
+    assert schedulefree["lr"] == 2.5e-3
+    assert schedulefree["warmup_steps"] == 0
+
+    lookahead = optimizer_extra_params_defaults("lookahead")
+    assert lookahead["k"] == 5
+    assert lookahead["alpha"] == 0.5
+
+    assert optimizer_extra_params_defaults("sam")["rho"] == 0.05
+
+
 def test_scheduler_cosine_fqn_defaults_use_tokens() -> None:
     kv = scheduler_kv_defaults("torch.optim.lr_scheduler.CosineAnnealingLR")
     assert kv["T_max"] == "effective_total_steps"

@@ -98,10 +98,11 @@ explicit = true
 [tool.uv.sources]
 torch = { index = "pytorch-cu130" }
 torchvision = { index = "pytorch-cu130" }
-# Memory-efficient optimizers (Adakaon, Muon, AdaMuon, KProdigy, Autokaon, Lion, AdaPNM).
+# Memory-efficient optimizers (Adakaon, AdaMuon, KProdigy, Autokaon, Lion, AdaPNM,
+# AdaBelief, AdamP, ADOPT, ScheduleFree, Lookahead, SAM).
 # K-Optimizers (the `kaon` package) ships no release tags, so we pin an
 # exact commit — that SHA *is* kaon's version here: reproducible, and it only changes when this
 # `rev` is bumped (then committed to renga). Bump it to ship a newer kaon; users pick it up on
 # their next `rengu update` (only if the kaon extra is already installed). Only installed when
 # the `kaon` extra is selected (see rengu_flow/install/profiles.py).
-kaon = { git = "https://github.com/Koronos/K-Optimizers", rev = "9d42f8a5fe9b87858e59d9c1e7eda1a32b8f28c4" }
+kaon = { git = "https://github.com/Koronos/K-Optimizers", rev = "f1b0dbf4868de5fd5042d37b6badca8a4c249d05" }
