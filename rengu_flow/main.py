@@ -254,6 +254,70 @@ def _maybe_start_profiler():
     return prof
 
 
+def _setup_compile_disk_cache(config, is_main):
+    """Configure the TorchInductor/Triton disk cache for torch.compile.
+
+    Returns (enabled, cache_dir). Sets the TORCHINDUCTOR_* / TRITON_CACHE_DIR env
+    vars (in every rank, before compile) when caching should be active. Honors
+    config["compile_disk_cache"] ("auto"/true/false) and config["compile_cache_dir"].
+    See MEASURED FACTS: caching only helps with static shapes, and the dir must be
+    on an ext4 (255-char filename) filesystem.
+    """
+    raw = config.get("compile_disk_cache", "auto")
+    mode = str(raw).lower() if isinstance(raw, str) else raw
+    compile_dynamic = config.get("compile_dynamic") is True
+
+    if mode is True or mode == "true":
+        if compile_dynamic and is_main:
+            print(
+                "[compile-cache] compile_disk_cache=true but compile_dynamic is on; "
+                "the disk cache likely won't help (shape guards won't match).",
+                flush=True,
+            )
+    elif mode == "auto":
+        if compile_dynamic:
+            return False, None
+    else:
+        # false or any unrecognized value -> never cache.
+        return False, None
+
+    repo_root = Path(__file__).resolve().parent.parent
+    cache_dir = config.get("compile_cache_dir") or str(repo_root / ".compile_cache")
+    cache_dir = os.path.abspath(os.path.expanduser(cache_dir))
+    triton_dir = os.path.join(cache_dir, "triton")
+
+    try:
+        os.makedirs(triton_dir, exist_ok=True)
+    except OSError as exc:
+        if is_main:
+            print(f"[compile-cache] disabled: could not create cache dir {cache_dir} ({exc}).", flush=True)
+        return False, None
+
+    # Safety check: filesystem must accept a ~200-char filename (Triton kernel-cache
+    # filenames are ~150 chars; eCryptfs home dirs cap at ~143 and raise ENAMETOOLONG).
+    probe = os.path.join(cache_dir, "c" * 200)
+    try:
+        with open(probe, "w"):
+            pass
+        os.remove(probe)
+    except OSError:
+        if is_main:
+            print(
+                f"[compile-cache] disabled: cache dir {cache_dir} is on a filesystem with a "
+                "short filename limit (compile cache needs ext4/255-char; e.g. an encrypted "
+                "home). Set compile_cache_dir to an ext4 path to enable.",
+                flush=True,
+            )
+        return False, None
+
+    # Respect existing env (user override) but still enable the FX/autograd caches.
+    os.environ.setdefault("TORCHINDUCTOR_FX_GRAPH_CACHE", "1")
+    os.environ.setdefault("TORCHINDUCTOR_AUTOGRAD_CACHE", "1")
+    os.environ.setdefault("TORCHINDUCTOR_CACHE_DIR", cache_dir)
+    os.environ.setdefault("TRITON_CACHE_DIR", triton_dir)
+    return True, cache_dir
+
+
 def _run_training(args, config):
     import torch
     import deepspeed
@@ -443,10 +507,28 @@ def _run_training(args, config):
         compile_kwargs = {}
         if compile_mode := config.get("compile_mode"):
             compile_kwargs["mode"] = compile_mode
-        if config.get("compile_dynamic") is True:
+        compile_dynamic = config.get("compile_dynamic") is True
+        if compile_dynamic:
             compile_kwargs["dynamic"] = True
+        cache_enabled, cache_dir = _setup_compile_disk_cache(config, is_main_process())
         if is_main_process():
-            print(f"pipeline_model.compile({compile_kwargs or 'defaults'})")
+            print(f"pipeline_model.compile({compile_kwargs or 'defaults'})", flush=True)
+            msg = (
+                f"[compile] torch.compile enabled (mode={compile_mode or 'default'}, "
+                f"dynamic={compile_dynamic}). The FIRST training step per resolution/shape "
+                "compiles kernels and may take ~1-4 min - this is NORMAL, not a hang."
+            )
+            if cache_enabled:
+                msg += (
+                    f" Disk cache: {cache_dir} (subsequent runs with the same static "
+                    "shapes skip recompile)."
+                )
+            if compile_dynamic:
+                msg += (
+                    " (dynamic shapes: each new resolution/AR-bucket recompiles; disk "
+                    "cache does not help dynamic.)"
+                )
+            print(msg, flush=True)
         pipeline_model.compile(**compile_kwargs)
     parameters_to_train = [p for p in pipeline_model.parameters() if p.requires_grad]
 

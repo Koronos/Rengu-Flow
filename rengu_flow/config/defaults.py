@@ -129,6 +129,15 @@ def set_config_defaults(config: dict[str, Any]) -> None:
     config.setdefault("val_gap_probe_batches", 8)
     config.setdefault("cache_dedup_text_embeddings", False)
     config.setdefault("compile", False)
+    # TorchInductor/Triton disk cache for torch.compile. "auto" enables the cache
+    # only when compile is on AND compile_dynamic is off (with dynamic shapes the
+    # shape guards never match, so the cache misses and adds a cold-population
+    # penalty). true = always enable; false = never. The cache dir must live on an
+    # ext4 (255-char filename) filesystem; the worker runs a safety check and
+    # disables caching if the chosen dir has a short filename limit. Default dir is
+    # <repo_root>/.compile_cache (the renga-flow repo lives on ext4).
+    config.setdefault("compile_disk_cache", "auto")
+    config.setdefault("compile_cache_dir", None)
     config.setdefault("x_axis_examples", False)
     config.setdefault("steps_per_print", 1)
     config.setdefault("monitoring", {})
