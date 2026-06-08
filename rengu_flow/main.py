@@ -390,6 +390,40 @@ def _run_training(args, config):
         if activation_checkpointing == "unsloth":
             from rengu_flow.utils.unsloth_utils import unsloth_checkpoint
             extra_kw["activation_checkpoint_func"] = unsloth_checkpoint
+        elif activation_checkpointing == "selective":
+            # Selective Activation Checkpointing (SAC): SAVE the expensive attention outputs
+            # (don't recompute them in backward), recompute only the cheaper ops. Middle ground
+            # between full recompute (lowest VRAM, ~33% recompute tax) and no-checkpoint (OOM at
+            # high res). Saves the attention-recompute tax while keeping VRAM in budget.
+            from functools import partial
+
+            from torch.utils.checkpoint import (
+                CheckpointPolicy,
+                checkpoint,
+                create_selective_checkpoint_contexts,
+            )
+
+            _aten = torch.ops.aten
+            _save_ops = {
+                _aten._scaled_dot_product_flash_attention.default,
+                _aten._scaled_dot_product_efficient_attention.default,
+                _aten._scaled_dot_product_cudnn_attention.default,
+            }
+            # extra ops to also save (e.g. "mm,bmm,addmm") via config, for tuning the VRAM/speed point
+            for _name in str(config.get("selective_checkpoint_save_ops", "")).replace(" ", "").split(","):
+                if _name and hasattr(_aten, _name):
+                    _save_ops.add(getattr(_aten, _name).default)
+
+            def _sac_policy(ctx, op, *a, **kw):
+                return CheckpointPolicy.MUST_SAVE if op in _save_ops else CheckpointPolicy.PREFER_RECOMPUTE
+
+            def _selective_checkpoint(function, *args, **kwargs):
+                return checkpoint(
+                    function, *args, use_reentrant=False,
+                    context_fn=partial(create_selective_checkpoint_contexts, _sac_policy), **kwargs,
+                )
+
+            extra_kw["activation_checkpoint_func"] = _selective_checkpoint
         else:
             from functools import partial
             extra_kw["activation_checkpoint_func"] = partial(
