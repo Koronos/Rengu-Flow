@@ -677,10 +677,11 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "doc": "docs/user/training-cosmos-predict2-lora-lokr-finetune.md",
     },
     "compile_cache_dir": {
-        "summary": "Where the on-disk compile cache lives (default: <repo>/.compile_cache).",
+        "summary": "Where the on-disk compile cache lives (default: a 'compile' subdir of cache_root).",
         "detail": (
-            "Directory for compile_disk_cache. Default is a folder beside the repo (ext4). Point it at an "
-            "ext4 path if your repo/home is on an encrypted or short-filename filesystem. Only used when "
+            "Directory for compile_disk_cache. Defaults to <cache_root>/compile — i.e. it sits with the "
+            "dataset caches and follows a custom cache_root. Must be ext4 (255-char filenames); point it at "
+            "an ext4 path if cache_root is on an encrypted/short-filename filesystem. Only used when "
             "compile_disk_cache is active."
         ),
         "doc": "docs/user/training-cosmos-predict2-lora-lokr-finetune.md",

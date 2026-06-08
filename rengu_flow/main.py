@@ -281,8 +281,16 @@ def _setup_compile_disk_cache(config, is_main):
         # false or any unrecognized value -> never cache.
         return False, None
 
-    repo_root = Path(__file__).resolve().parent.parent
-    cache_dir = config.get("compile_cache_dir") or str(repo_root / ".compile_cache")
+    # Default to a subdir of the dataset cache root (cache_root) — it's the install's folder for
+    # regenerable cache artifacts (same nature as the compile cache), is on the same disk the user
+    # already chose for caches, and follows a custom cache_root. Falls back to <repo>/cache/compile.
+    cache_dir = config.get("compile_cache_dir")
+    if not cache_dir:
+        try:
+            from rengu_flow.data.cache_paths import resolve_cache_root
+            cache_dir = str(resolve_cache_root(config) / "compile")
+        except Exception:
+            cache_dir = str(Path(__file__).resolve().parent.parent / "cache" / "compile")
     cache_dir = os.path.abspath(os.path.expanduser(cache_dir))
     triton_dir = os.path.join(cache_dir, "triton")
 

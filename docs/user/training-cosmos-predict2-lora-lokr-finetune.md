@@ -135,7 +135,7 @@ SAC is **opt-in** and **uses MORE VRAM than full checkpointing** (it stores what
 
 **`compile_disk_cache`** (default `"auto"`) persists `torch.compile`'s Inductor/Triton kernels to disk so a re-run skips recompilation. `"auto"` enables it **only when `compile_dynamic` is off** — because dynamic shapes (which multi-resolution + aspect-ratio bucketing require) never reproduce the cache key, so the cache is a no-op there. With static (fixed-shape) training it saves ~30 s of compile per run.
 
-> The cache must live on an ext4-style filesystem (255-char filenames). On an **encrypted home** (~143-char limit) it auto-disables with a warning — point **`compile_cache_dir`** at an ext4 path. When compile is on, the trainer also prints a one-line heads-up that the first step compiles (and may take ~1–4 min) so a long first step doesn't look like a hang.
+> By default the cache lives in **`<cache_root>/compile`** (next to your dataset caches, following a custom `cache_root`). It must be on an ext4-style filesystem (255-char filenames); on an **encrypted home** (~143-char limit) it auto-disables with a warning — point **`compile_cache_dir`** at an ext4 path. When compile is on, the trainer also prints a one-line heads-up that the first step compiles (and may take ~1–4 min) so a long first step doesn't look like a hang.
 
 ### Very low VRAM (≈8 GB)
 
