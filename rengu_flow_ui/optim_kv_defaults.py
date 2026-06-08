@@ -164,6 +164,7 @@ OPTIMIZER_REGISTRY_KV_DEFAULTS: dict[str, dict[str, Any]] = {
         "betas": [0.8, 0.999],
         "beta0": 0.5,
         "weight_decay": 0.0,
+        "clip_threshold": 1.0,
         "cautious": True,
         "momentum_dtype": "bfloat16",
         "fused": False,
