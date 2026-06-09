@@ -5,7 +5,7 @@ This page describes the **technical contract** and **implementation** of the fil
 ## Contract
 
 - **Location**: Signal files live in the **root** of the run directory (`run_dir`). There is no `signals/` subdirectory; `save` / `save_quit` match diffusion-pipe for manager/script compatibility.
-- **Names**: `save`, `save_quit`, `export_model`, `export_model_quit`, `preview`, `continue`, `quit` (see constants below).
+- **Names**: `save`, `save_quit`, `export_model`, `export_model_quit`, `preview_now`, `reload_config`, `continue`, `quit` (see constants below). The preview signal is `preview_now` (not `preview`) so it can't collide with the run folder's `preview/` image directory — `touch` on a directory silently no-ops and `is_file()` is False, which would make the signal look received but never fire.
 - **Consumption**: Normal step — `Saver.process_step` → `process_signals()`. Export wait — `wait_for_export_recovery(run_dir)` polls `continue` / `quit` / `save*` / `export_model*` every 2s.
 - Only rank 0 reads and removes files; result is broadcast to all ranks.
 - **Barriers**: Barriers keep ranks aligned before/after file removal.

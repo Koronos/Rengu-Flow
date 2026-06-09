@@ -16,7 +16,11 @@ SIGNAL_SAVE = "save"
 SIGNAL_SAVE_QUIT = "save_quit"
 SIGNAL_EXPORT_MODEL = "export_model"
 SIGNAL_EXPORT_MODEL_QUIT = "export_model_quit"
-SIGNAL_PREVIEW = "preview"
+# NOT "preview": preview PNGs and the UI's image listing use a `preview/` directory in the run
+# folder. A signal file named `preview` collides with that directory — `Path.touch()` on a dir
+# silently no-ops (updates mtime) and `is_file()` is False, so the signal is "received" by the UI
+# but never seen by the trainer (should_preview stays False). Use a distinct, non-colliding name.
+SIGNAL_PREVIEW = "preview_now"
 SIGNAL_RELOAD_CONFIG = "reload_config"
 SIGNAL_CONTINUE = "continue"
 SIGNAL_QUIT = "quit"

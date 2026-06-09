@@ -27,7 +27,7 @@ To find the current run directory:
 | Save & quit | `save_quit` | Same as `save`, then exit the training process. |
 | Export model | `export_model` | On the next step: export adapter or full model to `signal_step<N>/` (usable weights), then remove the file. |
 | Export & quit | `export_model_quit` | Same as `export_model`, then exit. |
-| Preview | `preview` | On the next step: run configured [previews](previews.md) and log images to TensorBoard, then remove the file. |
+| Preview | `preview_now` | On the next step: run configured [previews](previews.md) and log images to TensorBoard, then remove the file. (Named `preview_now`, not `preview`, so it can't collide with the run folder's `preview/` image directory.) |
 | Apply preview changes | `reload_config` | On the next step: re-read the `[preview]` section from the run's config file and apply it live (prompts, cadence, `enabled`, sampling). Other sections are **not** hot-reloaded. |
 | Continue export | `continue` | While paused after disk-full export: retry that export, then resume training. |
 | Quit without save | `quit` | While paused after disk-full export: exit without checkpoint or export. |
@@ -56,7 +56,7 @@ touch /path/to/output/20250217_14-30-00/export_model
 touch /path/to/output/20250217_14-30-00/export_model_quit
 
 # Generate preview images (TensorBoard)
-touch /path/to/output/20250217_14-30-00/preview
+touch /path/to/output/20250217_14-30-00/preview_now
 
 # Apply edited preview settings live: edit the run's config .toml (the [preview]
 # section — prompts, preview_every_n_steps, enabled, width/height, etc.), then:
@@ -81,6 +81,6 @@ touch /path/to/output/20250217_14-30-00/quit
 - **Run dir**: under `output_dir`, timestamped for new runs (and optional `run_name`).
 - **Resume signals**: `save`, `save_quit` — DeepSpeed checkpoints only.
 - **Export signals**: `export_model`, `export_model_quit` — inference-ready model export.
-- **Preview signal**: `preview` — sample images to TensorBoard (requires `[preview]` in config).
+- **Preview signal**: `preview_now` — sample images to TensorBoard (requires `[preview]` in config).
 - **When**: Checked once per training step; file is removed after the action.
 - **From outside**: Any tool that can create/touch files in that directory (shell, manager, cron, etc.) can trigger the signals.

@@ -62,6 +62,25 @@ def test_process_signals_preview(tmp_path):
     assert not (tmp_path / SIGNAL_PREVIEW).exists()
 
 
+def test_preview_signal_does_not_collide_with_preview_output_dir(tmp_path):
+    """Regression: a `preview/` output directory (PNGs + UI listing) must not break the preview
+    signal. The signal file name must differ from that directory, or touch() no-ops on the dir
+    and is_file() is False, so should_preview never fires while the run looks like it received it.
+    """
+    assert SIGNAL_PREVIEW != "preview"  # must not collide with the run folder's preview/ dir
+    (tmp_path / "preview").mkdir()  # preview PNGs / UI image listing live here
+
+    # The preview/ directory alone is NOT a signal.
+    assert process_signals(tmp_path).should_preview is False
+
+    # The real signal still fires even with the directory present, and leaves the dir intact.
+    (tmp_path / SIGNAL_PREVIEW).touch()
+    result = process_signals(tmp_path)
+    assert result.should_preview is True
+    assert not (tmp_path / SIGNAL_PREVIEW).exists()
+    assert (tmp_path / "preview").is_dir()  # output dir untouched
+
+
 def test_process_signals_reload_config(tmp_path):
     (tmp_path / SIGNAL_RELOAD_CONFIG).touch()
     result = process_signals(tmp_path)
