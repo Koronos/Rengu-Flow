@@ -143,7 +143,7 @@ def normalize_dataset_value(value: Any) -> Any:
     return value
 
 
-def _coerce_preview_prompts_for_toml(config: dict[str, Any]) -> None:
+def coerce_preview_prompts_for_toml(config: dict[str, Any]) -> None:
     """toml.dumps cannot encode a mixed list of strings and tables under preview.prompts."""
     preview = config.get("preview")
     if not isinstance(preview, dict):
@@ -193,7 +193,7 @@ def form_to_config(form: dict[str, Any]) -> dict[str, Any]:
             config.pop("dataset", None)
         else:
             config["dataset"] = normalized
-    _coerce_preview_prompts_for_toml(config)
+    coerce_preview_prompts_for_toml(config)
     config = _homogenize_numeric_arrays(config)
     return config
 

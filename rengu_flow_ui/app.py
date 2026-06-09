@@ -29,7 +29,7 @@ from rengu_flow_ui.dataset_image_preview import (
 from rengu_flow_ui.dataset_scan import scan_folder
 from rengu_flow_ui.fs_stat import stat_path
 from rengu_flow_ui.dataset_schema import get_dataset_schema
-from rengu_flow_ui.config_form import form_to_toml, toml_to_form
+from rengu_flow_ui.config_form import coerce_preview_prompts_for_toml, form_to_toml, toml_to_form
 from rengu_flow_ui.config_schema import get_schema
 from rengu_flow_ui.docs_reader import DocNotFoundError, DocPathError, read_doc
 from rengu_flow_ui import tensorboard_server
@@ -977,16 +977,29 @@ def create_app() -> FastAPI:
             if rc:
                 candidates.append(rc)
         preview: dict[str, Any] = {}
+        model_type = ""
         for path in candidates:
             try:
-                if path.is_file():
-                    cfg = _toml.load(str(path))
-                    if isinstance(cfg, dict) and isinstance(cfg.get("preview"), dict):
-                        preview = cfg["preview"]
-                        break
+                if not path.is_file():
+                    continue
+                cfg = _toml.load(str(path))
+                if not isinstance(cfg, dict):
+                    continue
+                model = cfg.get("model")
+                if not model_type and isinstance(model, dict) and isinstance(model.get("type"), str):
+                    model_type = model["type"]
+                if isinstance(cfg.get("preview"), dict):
+                    preview = cfg["preview"]
+                    break
             except Exception:
                 continue
-        return {"preview": preview, "active": job.state in signals.ACTIVE_JOB_STATES}
+        # model_type lets the live editor reuse the config form's per-prompt fields (it drives
+        # which model-specific override fields are shown), so previews keep their names/overrides.
+        return {
+            "preview": preview,
+            "model_type": model_type,
+            "active": job.state in signals.ACTIVE_JOB_STATES,
+        }
 
     @app.post(f"{API_PREFIX}/jobs/{{job_id}}/preview-config")
     def update_preview_config(job_id: str, body: PreviewConfigBody) -> dict[str, Any]:
@@ -1014,6 +1027,10 @@ def create_app() -> FastAPI:
             if not isinstance(cfg, dict):
                 cfg = {}
             cfg["preview"] = body.preview
+            # The live editor now sends named prompts (tables) alongside plain-string prompts;
+            # coerce the mixed list to all-tables so toml.dumps can encode it (same helper the
+            # config form uses on save).
+            coerce_preview_prompts_for_toml(cfg)
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(_toml.dumps(cfg), encoding="utf-8")
 

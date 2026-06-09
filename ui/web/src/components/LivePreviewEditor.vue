@@ -20,12 +20,13 @@
         </template>
       </el-form-item>
 
-      <el-form-item label="Prompts (one per line)">
-        <el-input
-          v-model="promptsText"
-          type="textarea"
-          :rows="4"
-          placeholder="a cat sitting on a sofa&#10;a watercolor landscape"
+      <el-form-item label="Sampling prompts">
+        <PreviewEntriesField
+          :model-value="prompts"
+          :entry-fields="previewEntryFields"
+          :parent-form="parentForm"
+          :capabilities="capabilities"
+          @update:model-value="(v) => (prompts = v)"
         />
       </el-form-item>
 
@@ -74,6 +75,9 @@ import { ElMessage } from "element-plus";
 import { Refresh } from "@element-plus/icons-vue";
 import { api } from "../api";
 import { formatError } from "../lib/formatError";
+import PreviewEntriesField from "./PreviewEntriesField.vue";
+import { normalizePreviewEntries, type PreviewEntry } from "../lib/previewEntries";
+import type { FormValues, ModelCapabilities, SchemaField } from "../types/forms";
 
 const props = defineProps<{ jobId: string | number }>();
 
@@ -83,8 +87,22 @@ const previewing = ref(false);
 /** The full [preview] table as last loaded — unknown keys are preserved on save. */
 const original = ref<Record<string, unknown>>({});
 
+// The schema feeds the shared PreviewEntriesField the same per-prompt fields the config form
+// uses, so live edits keep prompt names/titles and per-prompt overrides (no more "prompt 0/1").
+const schema = ref<Record<string, unknown> | null>(null);
+const modelType = ref("");
+const previewEntryFields = computed(
+  () => (schema.value?.registries as { preview_entry_fields?: SchemaField[] } | undefined)
+    ?.preview_entry_fields ?? []
+);
+const capabilities = computed<ModelCapabilities>(
+  () => (schema.value?.registries as { model_capabilities?: ModelCapabilities } | undefined)
+    ?.model_capabilities ?? {}
+);
+const parentForm = computed<FormValues>(() => ({ "model.type": modelType.value }));
+
 const enabled = ref(true);
-const promptsText = ref("");
+const prompts = ref<PreviewEntry[]>([]);
 const everyNSteps = ref<number | undefined>(undefined);
 const everyNEpochs = ref<number | undefined>(undefined);
 const width = ref<number | undefined>(undefined);
@@ -94,21 +112,6 @@ const guidance = ref<number | undefined>(undefined);
 const seed = ref<number | undefined>(undefined);
 const negativePrompt = ref("");
 
-function promptsToText(prompts: unknown): string {
-  if (!Array.isArray(prompts)) return "";
-  return prompts
-    .map((p) => {
-      if (typeof p === "string") return p;
-      if (p && typeof p === "object") {
-        const o = p as Record<string, unknown>;
-        return String(o.prompt ?? o.text ?? "");
-      }
-      return "";
-    })
-    .filter((s) => s.trim() !== "")
-    .join("\n");
-}
-
 function numOrUndef(v: unknown): number | undefined {
   const n = Number(v);
   return Number.isFinite(n) ? n : undefined;
@@ -117,7 +120,7 @@ function numOrUndef(v: unknown): number | undefined {
 function populate(preview: Record<string, unknown>): void {
   original.value = preview || {};
   enabled.value = preview.enabled !== false;
-  promptsText.value = promptsToText(preview.prompts);
+  prompts.value = normalizePreviewEntries(preview.prompts);
   everyNSteps.value = numOrUndef(preview.preview_every_n_steps);
   everyNEpochs.value = numOrUndef(preview.preview_every_n_epochs);
   width.value = numOrUndef(preview.width);
@@ -128,11 +131,22 @@ function populate(preview: Record<string, unknown>): void {
   negativePrompt.value = typeof preview.negative_prompt === "string" ? preview.negative_prompt : "";
 }
 
+async function ensureSchema(): Promise<void> {
+  if (schema.value) return;
+  try {
+    schema.value = (await api.getSchema()) as Record<string, unknown>;
+  } catch {
+    // Without the schema the per-prompt fields degrade gracefully; prompt names still render.
+  }
+}
+
 async function load(): Promise<void> {
   if (!props.jobId) return;
   loading.value = true;
   try {
+    void ensureSchema();
     const r = await api.getJobPreviewConfig(String(props.jobId));
+    modelType.value = r.model_type || "";
     populate(r.preview || {});
   } catch (e) {
     ElMessage.error(formatError(e));
@@ -146,11 +160,7 @@ function buildPreview(): Record<string, unknown> {
   // model-specific options) are preserved.
   const next: Record<string, unknown> = { ...original.value };
   next.enabled = enabled.value;
-  const prompts = promptsText.value
-    .split("\n")
-    .map((s) => s.trim())
-    .filter((s) => s !== "");
-  next.prompts = prompts;
+  next.prompts = prompts.value;
   const setOrDelete = (key: string, val: number | undefined) => {
     if (val === undefined || val === null || Number.isNaN(val)) delete next[key];
     else next[key] = val;

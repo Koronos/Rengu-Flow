@@ -4,11 +4,13 @@ import ElementPlus from "element-plus";
 
 const getJobPreviewConfig = vi.fn();
 const updateJobPreviewConfig = vi.fn();
+const getSchema = vi.fn();
 
 vi.mock("../api", () => ({
   api: {
     getJobPreviewConfig: (...a: unknown[]) => getJobPreviewConfig(...a),
     updateJobPreviewConfig: (...a: unknown[]) => updateJobPreviewConfig(...a),
+    getSchema: (...a: unknown[]) => getSchema(...a),
   },
 }));
 
@@ -43,6 +45,10 @@ describe("LivePreviewEditor", () => {
   beforeEach(() => {
     getJobPreviewConfig.mockReset();
     updateJobPreviewConfig.mockReset();
+    getSchema.mockReset();
+    getSchema.mockResolvedValue({
+      registries: { preview_entry_fields: [], model_capabilities: {} },
+    });
     updateJobPreviewConfig.mockResolvedValue({ ok: true, run_dir: "/x", preview_now: false });
   });
 

@@ -216,7 +216,7 @@ export const api = {
 
   /** Current [preview] table for a running job's live config. */
   getJobPreviewConfig: (id: string) =>
-    request<{ preview: Record<string, unknown>; active: boolean }>(
+    request<{ preview: Record<string, unknown>; model_type?: string; active: boolean }>(
       `/jobs/${id}/preview-config`
     ),
 
