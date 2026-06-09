@@ -875,6 +875,56 @@ def _run_training(args, config):
     epoch = epoch_schedule.current(step)
     logging_steps = config.get("logging_steps", 1)
 
+    def _log_resolution_exposure() -> None:
+        """Estimate how many times each image is trained per resolution and log it (rank 0).
+
+        With a resolution schedule, resolutions that appear in fewer stages are trained fewer
+        times; this surfaces that imbalance up front so epochs/stages can be sized to a target.
+        Best-effort: a reporting failure must never break training.
+        """
+        if not is_main_process():
+            return
+        try:
+            from rengu_flow.data.exposure import (
+                estimate_image_exposure,
+                format_exposure_report,
+                schedule_stage_spans,
+            )
+
+            weight: dict[int, float] = {}
+            distinct: dict[int, float] = {}
+            for b in getattr(train_data, "buckets", None) or []:
+                res = int(getattr(b, "resolution", 0) or 0)
+                if res <= 0:
+                    continue
+                weight[res] = weight.get(res, 0.0) + len(b)
+                d = sum(
+                    int(getattr(sub, "_effective_len", 0)) or len(sub)
+                    for sub in getattr(b, "datasets", []) or []
+                )
+                distinct[res] = distinct.get(res, 0.0) + (d or len(b))
+            if not weight:
+                return
+            if schedule_active and getattr(train_data, "_schedule_stages", None):
+                stage_res = [s[0] for s in train_data._schedule_stages]
+                cum = list(train_data._schedule_cum_frac)
+            else:
+                stage_res = [frozenset(weight)]
+                cum = [1.0]
+            stages = schedule_stage_spans(stage_res, cum, total_budget_steps)
+            exposure = estimate_image_exposure(stages, weight, distinct, global_batch_size)
+            print(format_exposure_report(exposure, target=config.get("min_image_exposure")), flush=True)
+            print(
+                "rengu_flow: exposure is an estimate (single-resolution batches cycling the "
+                "active pool); to even it out, give under-trained resolutions more schedule "
+                "stages/fraction or raise epochs.",
+                flush=True,
+            )
+        except Exception as e:  # noqa: BLE001 - reporting must never break training
+            print(f"rengu_flow: could not estimate image exposure: {e}", flush=True)
+
+    _log_resolution_exposure()
+
     progress_tracker = TrainingProgressTracker(
         max_steps=max_steps,
         total_steps=total_steps,
