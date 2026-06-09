@@ -36,6 +36,11 @@ ALL_SIGNAL_FILES = (
 _EXPORT_RECOVERY_POLL_SEC = 2.0
 
 
+def _log_signal(name: str, action: str) -> None:
+    """Rank-0 log line emitted when a control signal is consumed (before it is acted on)."""
+    print(f"rengu_flow: signal received: {name} -> {action}", flush=True)
+
+
 def clear_stale_signals(run_dir: str | Path) -> list[str]:
     """Remove any signal files left over in run_dir before the training loop starts (rank 0).
 
@@ -125,20 +130,28 @@ def process_signals(run_dir: str | Path) -> SignalResult:
     should_reload_config = False
 
     if is_main_process():
+        # Log every signal as it's picked up (before acting on it) so a run's log shows exactly
+        # what was requested and when — invaluable when debugging "why did it stop / export / etc."
         if save_quit_path.exists() and save_quit_path.is_file():
             should_checkpoint = True
             should_quit = True
+            _log_signal("save_quit", "write resume checkpoint, then quit")
         elif save_path.exists() and save_path.is_file():
             should_checkpoint = True
+            _log_signal("save", "write resume checkpoint")
         if export_quit_path.exists() and export_quit_path.is_file():
             should_export_model = True
             should_export_quit = True
+            _log_signal("export_model_quit", "export inference weights, then quit")
         elif export_path.exists() and export_path.is_file():
             should_export_model = True
+            _log_signal("export_model", "export inference weights")
         if preview_path.exists() and preview_path.is_file():
             should_preview = True
+            _log_signal("preview", "render previews now")
         if reload_config_path.exists() and reload_config_path.is_file():
             should_reload_config = True
+            _log_signal("reload_config", "hot-reload the [preview] section")
 
     result = _broadcast_object_list(
         [
@@ -224,6 +237,7 @@ def wait_for_export_recovery(run_dir: str | Path) -> ExportRecoveryAction:
         if is_main_process():
             found = _read_export_recovery_signals(root)
             if found is not None:
+                _log_signal(found.value, "disk-export recovery action")
                 _consume_export_recovery_signal(root, found)
         payload = _broadcast_object_list([found.value if found is not None else None])
         if payload[0] is not None:
