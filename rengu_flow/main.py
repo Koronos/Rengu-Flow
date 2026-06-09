@@ -339,6 +339,19 @@ def _run_training(args, config):
     from rengu_flow.utils.training_metrics import log_training_step
     import rengu_flow.utils.common as common_module
 
+    # Startup banner: rengu-flow version + the dep versions that actually move per-step speed and
+    # numerics. Logged once on rank 0 so a saved log is self-describing (which version produced these
+    # numbers? which torch?) — invaluable when debugging a perf/behaviour change across updates.
+    from rengu_flow.utils import is_main_process as _is_main
+    from rengu_flow.version import installed_version as _iv, version_string as _vs
+    if _is_main():
+        import sys as _sys
+        _deps = " ".join(f"{_n}={_iv(_n) or '?'}" for _n in ("torch", "kaon", "deepspeed", "triton"))
+        print(
+            f"[rengu-flow] version {_vs()} | python {_sys.version.split()[0]} | {_deps}",
+            flush=True,
+        )
+
     model_dtype = config["model"].get("dtype")
     forward_dtype = config["model"].get("diffusion_model_dtype") or model_dtype
     if hasattr(torch, "float16") and isinstance(forward_dtype, torch.dtype):
