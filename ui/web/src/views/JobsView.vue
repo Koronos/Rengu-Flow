@@ -33,19 +33,7 @@
       @open-detail="openRun"
       @stop="forceStop"
       @signal="sendRunSignal"
-    >
-      <template v-if="hasLiveRun" #header-extra>
-        <AutoRefreshBar
-          :interval-sec="liveIntervalSec"
-          :refreshing="liveRefreshing"
-          :polling="livePolling"
-          :last-updated="liveLastUpdated"
-          :paused="livePaused"
-          @update:interval-sec="setLiveInterval"
-          @refresh="refreshLiveNow"
-        />
-      </template>
-    </TrainLivePanel>
+    />
 
     <div class="page-toolbar">
       <el-input
@@ -463,7 +451,6 @@ import {
 } from "@element-plus/icons-vue";
 import Sortable from "sortablejs";
 import { api } from "../api";
-import AutoRefreshBar from "../components/AutoRefreshBar.vue";
 import TrainLivePanel from "../components/TrainLivePanel.vue";
 import PathFieldControl from "../components/PathFieldControl.vue";
 import { useAutoRefresh } from "../composables/useAutoRefresh";
@@ -737,16 +724,9 @@ watch(activeJobId, (id, prev) => {
   if (id && id !== prev) void refreshActive();
 });
 
-const {
-  intervalSec: liveIntervalSec,
-  isLoading: liveMetricsLoading,
-  refreshing: liveRefreshing,
-  polling: livePolling,
-  lastUpdated: liveLastUpdated,
-  paused: livePaused,
-  setIntervalSec: setLiveInterval,
-  refreshNow: refreshLiveNow,
-} = useAutoRefresh({
+// No visible refresh control on this page anymore — the live panel streams over the WebSocket
+// and this auto-refresh only powers the silent HTTP fallback for when the socket can't connect.
+const { isLoading: liveMetricsLoading } = useAutoRefresh({
   storageKey: TRAIN_LIVE_REFRESH_STORAGE_KEY,
   immediate: false,
   refresh: async (signal) => {

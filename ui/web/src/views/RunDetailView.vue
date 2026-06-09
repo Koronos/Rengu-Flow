@@ -122,7 +122,7 @@
         :scalars="metrics"
         :preview-images="previewImages"
         :loading="metricsLoading"
-        :loading-strong="metricsRefreshing"
+        @refresh="fetchMetrics"
       />
     </el-card>
 
@@ -184,6 +184,7 @@ const fsRun = ref<FsRunRecord | null>(null);
 const jobArtifacts = ref<Record<string, unknown>[]>([]);
 const metrics = ref<Record<string, ScalarPoint[]>>({});
 const previewImages = ref<RunPreviewImageRef[]>([]);
+const metricsLoading = ref(false);
 const progress = ref<RunProgressData | null>(null);
 const error = ref("");
 const outputDir = ref("output");
@@ -211,8 +212,6 @@ const runIsActive = computed(() => {
 const liveJobId = computed(() => (props.mode === "job" && runIsActive.value ? jobId.value : ""));
 const {
   progress: liveProgress,
-  scalars: liveScalars,
-  previewImages: livePreviewImages,
   logText: liveLogText,
   streamError: liveStreamError,
   useHttpFallback: liveUseHttpFallback,
@@ -230,18 +229,12 @@ const { logText: jobLogText, streamError: jobLogError } = useJobLogStream(logJob
 const logText = computed(() => (runIsActive.value ? liveLogText.value : jobLogText.value));
 const streamError = computed(() => (runIsActive.value ? liveStreamError.value : jobLogError.value));
 
-// Copy live pushes into the view refs while the socket is connected; on HTTP fallback the
-// poll owns these refs instead.
-watch(
-  () => [liveProgress.value, liveScalars.value, livePreviewImages.value] as const,
-  () => {
-    if (liveUseHttpFallback.value) return;
-    if (liveProgress.value) progress.value = liveProgress.value;
-    if (Object.keys(liveScalars.value).length) metrics.value = liveScalars.value;
-    if (livePreviewImages.value.length) previewImages.value = livePreviewImages.value;
-  },
-  { deep: true }
-);
+// The live socket drives the progress bar (instant push) while connected; on HTTP fallback the
+// poll owns it instead. Loss metrics / previews are deliberately NOT pushed from here — the Loss
+// monitor owns its own opt-in refresh (TensorBoard-style), so the charts only move when asked.
+watch(liveProgress, (p) => {
+  if (!liveUseHttpFallback.value && p) progress.value = p;
+});
 
 // Sticky auto-scroll for the log: follow new output while pinned to the bottom, but
 // stop following once the user scrolls up (recovered from the old runs-page panel).
@@ -355,41 +348,25 @@ async function loadJobMetadata(runKey: string): Promise<void> {
   }
 }
 
+// Refresh the run record (state / pid / metadata) and, on the HTTP fallback, the progress bar.
+// Loss metrics are fetched separately by fetchMetrics() so they stay on their own opt-in cadence.
 async function poll(signal: AbortSignal) {
   try {
     if (props.mode === "job") {
       const runKey = jobId.value;
       if (!runKey) return;
-      const [jobResult, metricsResult] = await Promise.all([
-        api.getJob(runKey),
-        api.jobMetrics(runKey),
-      ]);
+      const jobResult = await api.getJob(runKey);
       if (signal.aborted) return;
       job.value = jobResult as JobRecord;
       progress.value =
         (jobResult as JobRecord & { progress?: RunProgressData | null }).progress ?? null;
-      const m = metricsResult as {
-        scalars?: Record<string, ScalarPoint[]>;
-        preview_images?: RunPreviewImageRef[];
-      };
-      metrics.value = m.scalars || {};
-      previewImages.value = m.preview_images || [];
       await loadJobMetadata(runKey);
     } else {
       const runName = Array.isArray(key.value) ? key.value[0] : key.value;
       if (!runName) return;
-      const [runResult, metricsResult] = await Promise.all([
-        api.getFsRun(String(runName), outputDir.value),
-        api.fsMetrics(String(runName), outputDir.value),
-      ]);
+      const runResult = await api.getFsRun(String(runName), outputDir.value);
       if (signal.aborted) return;
       fsRun.value = runResult as FsRunRecord;
-      const m = metricsResult as {
-        scalars?: Record<string, ScalarPoint[]>;
-        preview_images?: RunPreviewImageRef[];
-      };
-      metrics.value = m.scalars || {};
-      previewImages.value = m.preview_images || [];
     }
     if (signal.aborted) return;
     error.value = "";
@@ -399,16 +376,36 @@ async function poll(signal: AbortSignal) {
   }
 }
 
-// The detail page polls live while the run is active, so the metrics card needs no
-// manual refresh button or interval picker — it's always current.
-const {
-  isLoading: metricsLoading,
-  refreshing: metricsRefreshing,
-  refreshNow: refreshMetricsNow,
-} = useAutoRefresh({
+// Loss metrics + previews are fetched on demand: once on load, then via the Loss monitor's manual
+// reload or its opt-in auto-update. Kept off the live progress stream so the charts behave like
+// TensorBoard — static unless you ask for updates.
+async function fetchMetrics(): Promise<void> {
+  const runKey = props.mode === "job" ? jobId.value : key.value;
+  const name = Array.isArray(runKey) ? runKey[0] : runKey;
+  if (!name) return;
+  metricsLoading.value = true;
+  try {
+    const result =
+      props.mode === "job"
+        ? await api.jobMetrics(String(name))
+        : await api.fsMetrics(String(name), outputDir.value);
+    const m = result as {
+      scalars?: Record<string, ScalarPoint[]>;
+      preview_images?: RunPreviewImageRef[];
+    };
+    metrics.value = m.scalars || {};
+    previewImages.value = m.preview_images || [];
+  } catch (e) {
+    error.value = formatError(e);
+  } finally {
+    metricsLoading.value = false;
+  }
+}
+
+// The poll keeps the run record fresh; progress arrives by push (live stream) with this as the
+// HTTP fallback, so it only needs to run on a timer while that fallback is in use.
+const { refreshNow: refreshMetricsNow } = useAutoRefresh({
   refresh: poll,
-  // Only poll on a timer while we're on the HTTP fallback; when the live socket is connected
-  // it pushes progress/metrics and the timer would just fight it with staler data.
   isActive: () => runIsActive.value && liveUseHttpFallback.value,
 });
 
@@ -437,6 +434,7 @@ async function sendSignal(type: string) {
 
 onMounted(() => {
   refreshTbStatus();
+  void fetchMetrics();
 });
 
 watch(key, () => {
@@ -447,6 +445,7 @@ watch(key, () => {
   previewImages.value = [];
   metrics.value = {};
   void refreshMetricsNow();
+  void fetchMetrics();
 });
 </script>
 

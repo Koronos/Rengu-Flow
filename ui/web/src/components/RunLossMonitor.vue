@@ -6,6 +6,29 @@
       'run-loss-monitor--loading-subtle': loading && !loadingStrong,
     }"
   >
+    <!-- TensorBoard-style refresh: manual reload + opt-in auto-update at a chosen cadence. Off by
+         default so the charts stay put unless you ask for live updates. -->
+    <div class="loss-monitor__toolbar">
+      <el-button size="small" :icon="Refresh" :loading="loading" @click="emit('refresh')">
+        Reload
+      </el-button>
+      <el-checkbox v-model="autoUpdate" size="small">Auto-update</el-checkbox>
+      <span class="loss-monitor__cadence" :class="{ 'loss-monitor__cadence--off': !autoUpdate }">
+        every
+        <el-input-number
+          v-model="cadenceSec"
+          :min="1"
+          :max="3600"
+          :step="1"
+          :controls="false"
+          :disabled="!autoUpdate"
+          size="small"
+          class="loss-monitor__cadence-input"
+        />
+        s
+      </span>
+    </div>
+
     <el-row :gutter="16">
       <el-col :xs="24" :sm="12" class="monitor-col">
         <div class="monitor-panel">
@@ -60,8 +83,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, onUnmounted, ref, watch } from "vue";
 import type { PropType } from "vue";
+import { Refresh } from "@element-plus/icons-vue";
 import PreviewStepBrowser from "./PreviewStepBrowser.vue";
 import ScalarLineChart from "./ScalarLineChart.vue";
 import {
@@ -84,6 +108,35 @@ const props = defineProps({
   loadingStrong: { type: Boolean, default: true },
 });
 
+const emit = defineEmits<{ refresh: [] }>();
+
+// Auto-update is opt-in (off by default), TensorBoard-style: when enabled we ask the parent to
+// re-fetch metrics every `cadenceSec` seconds; the parent owns the actual fetch.
+const autoUpdate = ref(false);
+const cadenceSec = ref(10);
+let timer: ReturnType<typeof setInterval> | null = null;
+
+function clearTimer(): void {
+  if (timer) clearInterval(timer);
+  timer = null;
+}
+
+function restartTimer(): void {
+  clearTimer();
+  if (autoUpdate.value && cadenceSec.value > 0) {
+    timer = setInterval(() => emit("refresh"), cadenceSec.value * 1000);
+  }
+}
+
+// Enabling auto-update refreshes once immediately, then on the cadence; changing the cadence just
+// reschedules without an extra fetch.
+watch(autoUpdate, (on) => {
+  if (on) emit("refresh");
+  restartTimer();
+});
+watch(cadenceSec, restartTimer);
+onUnmounted(clearTimer);
+
 const stepJumpTag = computed(() => resolveStepJumpTag(props.scalars));
 const stepJumpTitle = computed(() => stepJumpPanelTitle(stepJumpTag.value));
 const stepJumpValueLabel = computed(() => {
@@ -97,6 +150,26 @@ const stepJumpValueLabel = computed(() => {
 .run-loss-monitor {
   position: relative;
   width: 100%;
+}
+.loss-monitor__toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.loss-monitor__cadence {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+}
+.loss-monitor__cadence--off {
+  opacity: 0.6;
+}
+.loss-monitor__cadence-input {
+  width: 64px;
 }
 .run-loss-monitor--loading::after {
   content: "";
