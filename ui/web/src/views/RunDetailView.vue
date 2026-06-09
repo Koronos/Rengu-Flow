@@ -150,6 +150,7 @@ import { api } from "../api";
 import { useAutoRefresh } from "../composables/useAutoRefresh";
 import { useBreakpoint } from "../composables/useBreakpoint";
 import { useJobLogStream } from "../composables/useJobLogStream";
+import { useTrainLiveStream } from "../composables/useTrainLiveStream";
 import { useTensorboard } from "../composables/useTensorboard";
 import { formatError } from "../lib/formatError";
 import RunLossMonitor from "../components/RunLossMonitor.vue";
@@ -196,7 +197,51 @@ const jobId = computed(() => {
   const runKey = key.value;
   return props.mode === "job" && runKey != null ? String(Array.isArray(runKey) ? runKey[0] : runKey) : "";
 });
-const { logText, streamError } = useJobLogStream(jobId);
+const runIsActive = computed(() => {
+  if (props.mode === "job") {
+    const s = job.value?.state;
+    return s === "running" || s === "stopping";
+  }
+  return false;
+});
+
+// While the run is live, drive progress / metrics / previews / log from the same WebSocket
+// stream the Runs page uses, so the detail updates by instant push instead of waiting on the
+// HTTP poll. The poll below stays as the fallback for when the socket can't connect.
+const liveJobId = computed(() => (props.mode === "job" && runIsActive.value ? jobId.value : ""));
+const {
+  progress: liveProgress,
+  scalars: liveScalars,
+  previewImages: livePreviewImages,
+  logText: liveLogText,
+  streamError: liveStreamError,
+  useHttpFallback: liveUseHttpFallback,
+} = useTrainLiveStream(liveJobId, {
+  onRunFinished: () => {
+    void refreshMetricsNow();
+  },
+});
+
+// Terminal runs (and the brief moment before the socket connects) show their final log over
+// the dedicated log stream; the live stream above only runs while the job is active.
+const logJobId = computed(() => (props.mode === "job" && !runIsActive.value ? jobId.value : ""));
+const { logText: jobLogText, streamError: jobLogError } = useJobLogStream(logJobId);
+
+const logText = computed(() => (runIsActive.value ? liveLogText.value : jobLogText.value));
+const streamError = computed(() => (runIsActive.value ? liveStreamError.value : jobLogError.value));
+
+// Copy live pushes into the view refs while the socket is connected; on HTTP fallback the
+// poll owns these refs instead.
+watch(
+  () => [liveProgress.value, liveScalars.value, livePreviewImages.value] as const,
+  () => {
+    if (liveUseHttpFallback.value) return;
+    if (liveProgress.value) progress.value = liveProgress.value;
+    if (Object.keys(liveScalars.value).length) metrics.value = liveScalars.value;
+    if (livePreviewImages.value.length) previewImages.value = livePreviewImages.value;
+  },
+  { deep: true }
+);
 
 // Sticky auto-scroll for the log: follow new output while pinned to the bottom, but
 // stop following once the user scrolls up (recovered from the old runs-page panel).
@@ -241,13 +286,6 @@ const signalsAvailable = computed(() =>
   props.mode === "job" ? jobSignalsAvailable(job.value) : fsRunSignalsAvailable(fsRun.value)
 );
 const artifacts = computed(() => fsRun.value?.artifacts?.length ? fsRun.value.artifacts : jobArtifacts.value);
-const runIsActive = computed(() => {
-  if (props.mode === "job") {
-    const s = job.value?.state;
-    return s === "running" || s === "stopping";
-  }
-  return false;
-});
 function goBack() {
   router.push("/runs");
 }
@@ -369,7 +407,9 @@ const {
   refreshNow: refreshMetricsNow,
 } = useAutoRefresh({
   refresh: poll,
-  isActive: () => runIsActive.value,
+  // Only poll on a timer while we're on the HTTP fallback; when the live socket is connected
+  // it pushes progress/metrics and the timer would just fight it with staler data.
+  isActive: () => runIsActive.value && liveUseHttpFallback.value,
 });
 
 async function sendSignal(type: string) {
