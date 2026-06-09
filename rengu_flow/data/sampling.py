@@ -9,6 +9,35 @@ from __future__ import annotations
 import random
 
 
+class RandomCursor:
+    """Full-coverage random order, freshly reshuffled each epoch.
+
+    The simple sibling of :class:`RoundRobinCursor`: ``order(epoch)`` returns a *complete*
+    permutation of ``0..size-1`` (so nothing is ever left out of a full pass), reshuffled by a
+    deterministic per-epoch seed. Partial passes (a schedule stage boundary, or the run ending
+    mid-pass) therefore drop a *different* slice each epoch instead of always the same tail — so
+    no image is *systematically* under- or over-trained.
+
+    It does not track a position across passes, so it gives no strict +/-1 bound (random spread,
+    not a guarantee — that is RoundRobinCursor's job); it is cheap, stateless, and predictable.
+    Pure and deterministic given ``seed`` — every data-parallel rank produces the same order.
+    """
+
+    def __init__(self, size: int, seed: int = 0):
+        self._size = max(0, int(size))
+        self._seed = int(seed)
+
+    @property
+    def size(self) -> int:
+        return self._size
+
+    def order(self, epoch: int) -> list[int]:
+        """A full permutation of ``0..size-1`` for ``epoch`` (coverage guaranteed)."""
+        order = list(range(self._size))
+        random.Random(self._seed * 1_000_003 + int(epoch)).shuffle(order)
+        return order
+
+
 class RoundRobinCursor:
     """Cyclic, no-skip traversal of ``size`` items.
 

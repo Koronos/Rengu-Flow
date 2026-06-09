@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import math
 
-from rengu_flow.data.dataset import effective_sample_cap, rotation_window_index
+from rengu_flow.data.dataset import (
+    SizeBucketDataset,
+    effective_sample_cap,
+    rotation_window_index,
+)
 
 
 def _window(epoch, pool_len, cap, static):
@@ -13,6 +17,63 @@ def _window(epoch, pool_len, cap, static):
         rotation_window_index(pos, epoch, pool_len, cap, static)
         for pos in range(cap)
     ]
+
+
+class _FakeBucket:
+    """Minimal stand-in exposing only the fields SizeBucketDataset._pool_index reads, so the
+    uncapped per-epoch reshuffle can be tested without building a real cached dataset."""
+
+    def __init__(self, pool_len, cap=None, static=False):
+        self._len = pool_len
+        self._cap = cap
+        self.static_sampling = static
+        self._epoch = 1
+        self._epoch_order_seed = 4242
+        self._epoch_order_cache = None
+        self._epoch_order_for = None
+
+    @property
+    def _pool_len(self):
+        return self._len
+
+    @property
+    def _sample_cap(self):
+        return self._cap
+
+    @property
+    def _effective_len(self):
+        return self._len if self._cap is None else self._cap
+
+    def _epoch_pool_order(self):
+        return SizeBucketDataset._epoch_pool_order(self)
+
+    def pool_index(self, idx):
+        return SizeBucketDataset._pool_index(self, idx)
+
+
+def test_uncapped_pool_index_covers_everything_each_epoch():
+    b = _FakeBucket(pool_len=8)  # no cap
+    for epoch in (1, 2, 5):
+        b._epoch = epoch
+        served = sorted(b.pool_index(i) for i in range(8))
+        assert served == list(range(8))  # full coverage, nothing left out
+
+
+def test_uncapped_pool_index_varies_per_epoch():
+    b = _FakeBucket(pool_len=12)
+    b._epoch = 1
+    e1 = [b.pool_index(i) for i in range(12)]
+    b._epoch = 2
+    e2 = [b.pool_index(i) for i in range(12)]
+    assert e1 != e2  # the slice dropped on a partial pass differs between epochs
+
+
+def test_capped_pool_index_still_uses_rotation_window():
+    # With a cap the existing coverage-guaranteeing rotation is kept (not the reshuffle path).
+    b = _FakeBucket(pool_len=10, cap=4)
+    b._epoch = 2
+    expected = [rotation_window_index(p, 2, 10, 4, False) for p in range(4)]
+    assert [b.pool_index(i) for i in range(4)] == expected
 
 
 def test_no_cap_is_identity_modulo_pool():

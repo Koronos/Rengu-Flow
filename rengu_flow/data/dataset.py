@@ -293,6 +293,11 @@ class SizeBucketDataset:
         self.subsample_ratio = directory_subsample_ratio(directory_config)
         self.static_sampling = directory_static_sampling(directory_config)
         self._epoch = 1
+        # Per-epoch row order for the uncapped (whole-pool) case, so partial passes don't always
+        # drop the same images (see _pool_index). Cached per epoch; deterministic per bucket.
+        self._epoch_order_seed = seed_from_hash(("epoch_order", size_bucket))
+        self._epoch_order_cache: list[int] | None = None
+        self._epoch_order_for: int | None = None
         self._aug_fingerprint = getattr(directory_dataset, "_aug_fingerprint", "")
 
     def cache_latents(
@@ -505,9 +510,27 @@ class SizeBucketDataset:
         if m <= 0:
             return 0
         pos = idx % m
+        cap = self._sample_cap
+        if cap is None and not self.static_sampling:
+            # Whole pool served every epoch: reshuffle the row order per epoch (RandomCursor) so
+            # the partial passes at schedule-stage boundaries / run end don't always drop the same
+            # tail. Coverage is preserved (it's a full permutation); a capped pool keeps its own
+            # coverage-guaranteeing window rotation below.
+            return self._epoch_pool_order()[pos]
         return rotation_window_index(
-            pos, self._epoch, self._pool_len, self._sample_cap, self.static_sampling
+            pos, self._epoch, self._pool_len, cap, self.static_sampling
         )
+
+    def _epoch_pool_order(self) -> list[int]:
+        """Cached per-epoch permutation of the whole pool (built once per epoch)."""
+        if self._epoch_order_for != self._epoch or self._epoch_order_cache is None:
+            from rengu_flow.data.sampling import RandomCursor
+
+            self._epoch_order_for = self._epoch
+            self._epoch_order_cache = RandomCursor(
+                self._pool_len, seed=self._epoch_order_seed
+            ).order(self._epoch)
+        return self._epoch_order_cache
 
     def set_epoch(self, epoch: int) -> None:
         """Update the current epoch so a non-static sampler rotates its window."""

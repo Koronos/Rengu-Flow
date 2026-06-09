@@ -2,7 +2,27 @@
 
 from collections import Counter
 
-from rengu_flow.data.sampling import RoundRobinCursor
+from rengu_flow.data.sampling import RandomCursor, RoundRobinCursor
+
+
+def test_random_cursor_each_epoch_is_full_coverage():
+    cur = RandomCursor(10, seed=1)
+    for epoch in (1, 2, 7):
+        assert sorted(cur.order(epoch)) == list(range(10))  # nothing left out
+
+
+def test_random_cursor_varies_per_epoch():
+    cur = RandomCursor(20, seed=1)
+    assert cur.order(1) != cur.order(2)  # different slice would be cut on a partial pass
+
+
+def test_random_cursor_deterministic_per_seed_and_epoch():
+    assert RandomCursor(12, seed=5).order(3) == RandomCursor(12, seed=5).order(3)
+    assert RandomCursor(12, seed=5).order(3) != RandomCursor(12, seed=6).order(3)
+
+
+def test_random_cursor_empty_is_safe():
+    assert RandomCursor(0, seed=1).order(1) == []
 
 
 def test_one_cycle_is_a_permutation_no_skips():
