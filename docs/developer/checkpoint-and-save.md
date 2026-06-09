@@ -11,7 +11,7 @@ User-facing option tables: `docs/user/checkpoint-and-save.md`.
 | `save_checkpoint` | DeepSpeed checkpoint; returns `False` on ENOSPC after rollback; `_prune_old_checkpoints` on success. |
 | `save_model` | Export with ENOSPC wait loop (`wait_for_export_recovery`); `_prune_old_exports` on success. |
 | `save_adapter` / `save_full_model` | Gather shards via `prepare_export_tmp`; delegate to model/network save (atomic safetensors). |
-| `process_epoch` / `process_step` | Scheduled saves + `process_signals`. |
+| `process_epoch_boundary` / `process_step` | Per-epoch saves (named by the **completed** epoch from `EpochSchedule`) + `process_signals`. |
 
 **Helpers**: `rengu_flow.utils.save_io` — `is_disk_full_error`, `atomic_save_safetensors`, `rollback_failed_checkpoint`, `cleanup_export_dir`, export retention parsing.
 

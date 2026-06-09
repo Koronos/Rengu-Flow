@@ -117,29 +117,26 @@ def test_process_step_save_and_preview(_mock_ckpt, saver_bundle, mock_save_check
 
 
 @patch("rengu_flow.utils.saver._need_to_checkpoint", return_value=False)
-def test_process_epoch_uses_effective_epoch(_mock_ckpt, saver_bundle):
-    """With a resolution schedule the loop passes the budget epoch; saves are named/counted
-    by it, not by the short single-resolution dataloader epoch."""
+def test_process_epoch_boundary_names_by_completed_epoch(_mock_ckpt, saver_bundle):
+    """The export is named by the epoch that just COMPLETED, from the EpochSchedule authority —
+    not the dataloader's own (possibly short, resolution-staged) epoch counter."""
     saver, _ = saver_bundle
     saver.config["save_every_n_epochs"] = 1
-    saver.train_dataloader.epoch = 5  # short dataloader epoch (must be ignored)
+    saver.train_dataloader.epoch = 5  # dataloader counter must be ignored
     with patch.object(saver, "save_model", return_value=True) as save_model:
-        new_epoch, _ckpt, saved = saver.process_epoch(
-            2, 100, 1000, effective_epoch=3, advanced=True
-        )
-    assert new_epoch == 3
+        checkpointed, saved = saver.process_epoch_boundary(3, 100, 1000)
     assert saved is True
+    assert checkpointed is False
     save_model.assert_called_once_with("epoch3")
 
 
 @patch("rengu_flow.utils.saver._need_to_checkpoint", return_value=False)
-def test_process_epoch_no_advance_no_save(_mock_ckpt, saver_bundle):
+def test_process_epoch_boundary_respects_save_cadence(_mock_ckpt, saver_bundle):
     saver, _ = saver_bundle
-    saver.config["save_every_n_epochs"] = 1
+    saver.config["save_every_n_epochs"] = 2
     with patch.object(saver, "save_model", return_value=True) as save_model:
-        new_epoch, _ckpt, saved = saver.process_epoch(
-            2, 100, 1000, effective_epoch=2, advanced=False
-        )
-    assert new_epoch == 2
-    assert saved is False
-    save_model.assert_not_called()
+        _, saved_odd = saver.process_epoch_boundary(3, 100, 1000)  # 3 % 2 != 0 -> no save
+        _, saved_even = saver.process_epoch_boundary(4, 100, 1000)  # 4 % 2 == 0 -> save
+    assert saved_odd is False
+    assert saved_even is True
+    save_model.assert_called_once_with("epoch4")

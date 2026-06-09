@@ -14,8 +14,8 @@ Where the training loop lives, how **evaluation** is invoked, where metrics are 
 4. **Pipeline** — `model.to_layers()` → `ManualPipelineModule`; activation checkpointing (PyTorch or unsloth); `deepspeed.initialize`; `_configure_optimizer`.
 5. **Dataloaders** — `PipelineDataLoader` for train and for each eval dataset (`eval_data_map`).
 6. **Resume** — If `resume_from_checkpoint`, `model_engine.load_checkpoint(run_dir, ...)`; restore `step`, `examples`, `train_dataloader.state_dict()` (or epoch only if `--reset_dataloader`).
-7. **Loop** — Per step: `get_data_iterator_for_step` → `model_engine.train_batch(iterator)` → `train_dataloader.sync_epoch()`; then `saver.process_epoch` / `saver.process_step`; optional `evaluate()` and `run_previews()`; TensorBoard/WandB logging.
-8. **Exit** — Save final checkpoint and model if not already saved; print completion.
+7. **Loop** — Per step: `get_data_iterator_for_step` → `model_engine.train_batch(iterator)` → `train_dataloader.sync_epoch()`; then, on an epoch boundary from the single `EpochSchedule` authority, `saver.process_epoch_boundary(completed_epoch, …)`, plus `saver.process_step`; optional `evaluate()` and `run_previews()`; TensorBoard/WandB logging. Epoch numbers (naming, save/eval cadence, progress, termination) all come from `EpochSchedule` (step-based budget), not the dataloader's own counter.
+8. **Exit** — Always write a final resume checkpoint (unless one was already written at this exact step) and the final model; print completion.
 
 Code entry: **`rengu_flow/main.py`** — `_run_training(args, config)`.
 
@@ -94,7 +94,7 @@ When `monitoring.enable_status_file` is true, rank 0 calls **`rengu_flow.control
 
 ## Saver and signal files
 
-- **Saver** (`rengu_flow.utils.saver.Saver`): `process_epoch` / `process_step` handle scheduled checkpoint/export, `max_checkpoints_to_keep` pruning after `save_checkpoint`, and **signal files** via `process_signals()`:
+- **Saver** (`rengu_flow.utils.saver.Saver`): `process_epoch_boundary` / `process_step` handle scheduled checkpoint/export, `max_checkpoints_to_keep` pruning after `save_checkpoint`, and **signal files** via `process_signals()`:
   - **`save` / `save_quit`** — DeepSpeed resume checkpoint; quit on `save_quit`.
   - **`export_model` / `export_model_quit`** — Export to `signal_step<N>/`; quit on `export_model_quit`.
 - See **`docs/user/checkpoint-and-save.md`**, **`docs/user/signal-files.md`**, and **`docs/developer/signal-files.md`**.

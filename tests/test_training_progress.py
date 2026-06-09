@@ -6,10 +6,13 @@ from pathlib import Path
 
 from rengu_flow.control.status_file import read_status_file, write_status_file
 from rengu_flow.training_progress import (
+    EpochSchedule,
     TrainingProgressTracker,
     budget_display_epoch,
+    budget_reached_target,
     format_eta,
     format_training_log_line,
+    plan_final_saves,
     resolve_target_steps,
 )
 from rengu_flow_ui import training_hub
@@ -28,6 +31,74 @@ def test_budget_display_epoch_caps_at_configured_epochs():
 
 def test_budget_display_epoch_handles_zero_steps_per_epoch():
     assert budget_display_epoch(42, 0, 15) == 42
+
+
+def test_epoch_schedule_current_matches_budget_display():
+    sched = EpochSchedule(100, 15)
+    for step in (1, 100, 101, 1500, 4500):
+        assert sched.current(step) == budget_display_epoch(step, 100, 15)
+    assert sched.total_steps == 1500
+
+
+def test_epoch_schedule_completed_at_boundaries():
+    sched = EpochSchedule(100, 15)
+    # Completes only at exact multiples of steps_per_epoch, named by the COMPLETED epoch
+    # (so the first one is epoch 1, not epoch 2 — the off-by-one that mislabelled saves).
+    assert sched.completed_at(1) is None
+    assert sched.completed_at(99) is None
+    assert sched.completed_at(100) == 1
+    assert sched.completed_at(101) is None
+    assert sched.completed_at(200) == 2
+    assert sched.completed_at(1500) == 15
+    # Past the budget (e.g. max_steps lands beyond epochs*spe) does not invent epoch 16.
+    assert sched.completed_at(1600) is None
+
+
+def test_epoch_schedule_first_completed_epoch_is_one():
+    # Regression for "first saved epoch is named 2": the sequence of completed epochs over a
+    # full run must start at 1 and have no gaps.
+    sched = EpochSchedule(10, 5)
+    completed = [sched.completed_at(s) for s in range(1, sched.total_steps + 1)]
+    assert [c for c in completed if c is not None] == [1, 2, 3, 4, 5]
+
+
+def test_epoch_schedule_zero_steps_per_epoch_is_safe():
+    sched = EpochSchedule(0, 15)
+    assert sched.current(42) == 42
+    assert sched.completed_at(42) is None
+    assert sched.total_steps == 0
+
+
+def test_budget_reached_target_max_steps_vs_epochs():
+    assert budget_reached_target(8820, 15, 8820) == ("step8820", "Reached max_steps=8820")
+    assert budget_reached_target(None, 15, 1500) == ("epoch15", "Reached epochs=15")
+
+
+def test_plan_final_saves_writes_final_checkpoint_after_an_earlier_one():
+    # Regression for the reported bug: a resume checkpoint at step 8197 must NOT suppress the
+    # final checkpoint at step 8820 (the old sticky "checkpointed" flag did exactly that).
+    write_ckpt, export = plan_final_saves(
+        step=8820, last_checkpoint_step=8197, last_save_step=8197, final_model_name="step8820"
+    )
+    assert write_ckpt is True
+    assert export == "step8820"
+
+
+def test_plan_final_saves_skips_when_already_saved_at_this_step():
+    # A periodic export + checkpoint landed exactly on the final step -> no redundant final saves.
+    write_ckpt, export = plan_final_saves(
+        step=8820, last_checkpoint_step=8820, last_save_step=8820, final_model_name="epoch15"
+    )
+    assert write_ckpt is False
+    assert export is None
+
+
+def test_plan_final_saves_with_no_final_model_name():
+    write_ckpt, export = plan_final_saves(
+        step=100, last_checkpoint_step=-1, last_save_step=-1, final_model_name=None
+    )
+    assert write_ckpt is True  # nothing checkpointed yet -> still write the final checkpoint
+    assert export is None  # nothing to export
 
 
 def test_resolve_target_steps_prefers_max_steps() -> None:

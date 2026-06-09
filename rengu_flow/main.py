@@ -857,17 +857,23 @@ def _run_training(args, config):
 
     step = 1
     examples = global_batch_size
-    epoch = train_dataloader.epoch
-    # When a resolution schedule is active, the run is governed by the schedule's
-    # step budget (max_steps if set, else the epochs-derived total) rather than by
-    # the epoch count, since staged epochs are shorter than a full-resolution epoch.
-    effective_max_steps = schedule_target_steps if schedule_active else max_steps
-    logging_steps = config.get("logging_steps", 1)
     from rengu_flow.training_progress import (
+        EpochSchedule,
         TrainingProgressTracker,
-        budget_display_epoch,
+        budget_reached_target,
         build_progress_payload,
+        plan_final_saves,
     )
+
+    # Single epoch authority for the whole loop — naming, save/eval cadence, progress, and
+    # termination all read epoch numbers from here, derived from the step. The run is a fixed
+    # step budget (max_steps if set, else epochs*steps_per_epoch) split into `epochs` equal
+    # step chunks — identical with or without a resolution schedule, so components can no longer
+    # disagree. The dataloader keeps its own internal epoch only for shuffling/seeding.
+    epoch_schedule = EpochSchedule(steps_per_epoch, epochs)
+    total_budget_steps = schedule_target_steps  # = max_steps if set, else total_steps
+    epoch = epoch_schedule.current(step)
+    logging_steps = config.get("logging_steps", 1)
 
     progress_tracker = TrainingProgressTracker(
         max_steps=max_steps,
@@ -878,9 +884,9 @@ def _run_training(args, config):
     # per-iteration status.json writes; the web UI parses these for its live bar.
     progress_emitter = ProgressEmitter() if is_main_process() else None
     final_model_name = None
-    checkpointed = False
     saved = False
-    last_save_step = -1  # last step at which an inference model was saved (for the final save)
+    last_save_step = -1  # last step an inference model was exported (for the final export)
+    last_checkpoint_step = -1  # last step a resume checkpoint was written (for the final ckpt)
     epoch_loss = 0.0
     num_steps = 0
     # Latest generalization-probe result (val loss / train probe / gap), surfaced in the live
@@ -919,7 +925,7 @@ def _run_training(args, config):
                 train_dataloader.load_state_dict(client_state["custom_loader"])
             step = client_state["step"] + 1
             examples = client_state.get("examples", (step - 1) * global_batch_size) + global_batch_size
-            epoch = train_dataloader.epoch
+            epoch = epoch_schedule.current(step)
             if is_main_process():
                 print(f"Resuming from checkpoint at epoch {epoch}, step {step}")
 
@@ -999,7 +1005,7 @@ def _run_training(args, config):
     # using them would overshoot `epochs` for saves/eval/naming.
     if schedule_active:
         train_data.current_step = step
-        epoch = budget_display_epoch(step, steps_per_epoch, epochs)
+    epoch = epoch_schedule.current(step)
 
     # Optional env-gated torch profiler (RENGU_PROF_DIR=/path). Skips compile/warmup steps, captures
     # a steady window, and on completion writes a key_averages table + chrome trace. Zero cost off.
@@ -1040,15 +1046,11 @@ def _run_training(args, config):
             if _prof is not None:
                 _prof.step()
             if skipped_oom:
-                if effective_max_steps is not None and step >= effective_max_steps:
-                    final_model_name = f"step{step}"
+                # An OOM-skipped step still consumes one step of the budget.
+                if step >= total_budget_steps:
+                    final_model_name, _reason = budget_reached_target(max_steps, epochs, step)
                     if is_main_process():
-                        print(f"Reached max_steps={effective_max_steps}")
-                    break
-                if not schedule_active and epoch > epochs:
-                    final_model_name = f"epoch{epoch}"
-                    if is_main_process():
-                        print(f"Reached epochs={epochs}")
+                        print(_reason)
                     break
                 step += 1
                 examples += global_batch_size
@@ -1070,54 +1072,37 @@ def _run_training(args, config):
             num_steps += 1
 
             saver.set_status_context(step, examples, epoch, loss)
-            if schedule_active:
-                # Count/name epochs by the budget-relative epoch (full epochs), not the
-                # short single-resolution dataloader epochs.
-                budget_epoch = budget_display_epoch(step, steps_per_epoch, epochs)
-                new_epoch, checkpointed_ep, saved_ep = saver.process_epoch(
-                    epoch,
-                    step,
-                    examples,
-                    effective_epoch=budget_epoch,
-                    advanced=budget_epoch != epoch,
+            # Epoch boundary, save naming and save/eval cadence all come from the single
+            # EpochSchedule authority: `completed_at` is the epoch that finished exactly at this
+            # step (so the export is named after the COMPLETED epoch — first is epoch1, not epoch2).
+            completed_epoch = epoch_schedule.completed_at(step)
+            finished_epoch = completed_epoch is not None
+            if finished_epoch:
+                checkpointed_ep, saved_ep = saver.process_epoch_boundary(
+                    completed_epoch, step, examples
                 )
-            else:
-                new_epoch, checkpointed_ep, saved_ep = saver.process_epoch(epoch, step, examples)
-            if checkpointed_ep:
-                checkpointed = True
-            if saved_ep:
-                saved = True
-                last_save_step = step
-            finished_epoch = new_epoch is not None and new_epoch != epoch
-            if new_epoch is None:
-                final_model_name = f"epoch{epoch}"
-                break
-            if new_epoch != epoch:
-                epoch = new_epoch
+                if checkpointed_ep:
+                    last_checkpoint_step = step
+                if saved_ep:
+                    saved = True
+                    last_save_step = step
+            epoch = epoch_schedule.current(step)
 
             x_axis = examples if x_axis_examples else step
             progress_tracker.record_step_duration(iter_sec)
             progress_tracker.record_loss(loss)
             step_progress = progress_tracker.metrics(step=step)
-            # Throttled progress marker to stdout (rank 0). Always emit on the final step
-            # and on save/epoch boundaries so the UI never misses a transition; otherwise
-            # the emitter caps the rate (~1/sec). No per-step log line, no status.json.
-            # With a resolution schedule, dataloader epochs are short (one stage = a
-            # subset of resolutions), so the raw epoch counter overshoots the configured
-            # `epochs`. Report a budget-relative epoch (1..epochs) instead — total steps
-            # are unchanged, only the displayed epoch is made meaningful again.
-            display_epoch = (
-                budget_display_epoch(step, steps_per_epoch, epochs)
-                if schedule_active
-                else epoch
-            )
+            # Throttled progress marker to stdout (rank 0). Always emit on the final step and
+            # on save/epoch boundaries so the UI never misses a transition; otherwise the
+            # emitter caps the rate (~1/sec). `epoch` is the EpochSchedule's budget epoch, so
+            # it stays meaningful (1..epochs) even with short resolution-staged dataloader epochs.
             if progress_emitter is not None:
-                is_final = effective_max_steps is not None and step >= effective_max_steps
+                is_final = step >= total_budget_steps
                 progress_emitter.emit(
                     build_progress_payload(
                         step=step,
                         loss=loss,
-                        epoch=display_epoch,
+                        epoch=epoch,
                         metrics=step_progress,
                         val_metrics=last_val_metrics,
                     ),
@@ -1135,7 +1120,7 @@ def _run_training(args, config):
             )
 
             if (eval_every_n_steps and step % eval_every_n_steps == 0) or (
-                finished_epoch and eval_every_n_epochs and epoch % eval_every_n_epochs == 0
+                finished_epoch and eval_every_n_epochs and completed_epoch % eval_every_n_epochs == 0
             ):
                 evaluate(
                     model,
@@ -1169,7 +1154,7 @@ def _run_training(args, config):
                             build_progress_payload(
                                 step=step,
                                 loss=loss,
-                                epoch=display_epoch,
+                                epoch=epoch,
                                 metrics=step_progress,
                                 val_metrics=last_val_metrics,
                             ),
@@ -1192,7 +1177,7 @@ def _run_training(args, config):
 
             step_checkpointed, step_saved, step_signals = saver.process_step(step, examples)
             if step_checkpointed:
-                checkpointed = True
+                last_checkpoint_step = step
             if step_saved:
                 saved = True
                 last_save_step = step
@@ -1230,15 +1215,10 @@ def _run_training(args, config):
                     flush=True,
                 )
 
-            if effective_max_steps is not None and step >= effective_max_steps:
-                final_model_name = f"step{step}"
+            if step >= total_budget_steps:
+                final_model_name, _reason = budget_reached_target(max_steps, epochs, step)
                 if is_main_process():
-                    print(f"Reached max_steps={effective_max_steps}")
-                break
-            if not schedule_active and epoch > epochs:
-                final_model_name = f"epoch{epoch}"
-                if is_main_process():
-                    print(f"Reached epochs={epochs}")
+                    print(_reason)
                 break
             step += 1
             examples += global_batch_size
@@ -1247,7 +1227,7 @@ def _run_training(args, config):
         # resume instead of being lost. Best-effort and rank-0 gated logging; the original error is
         # always re-raised. Note: in multi-GPU runs the save's collective may not complete if only
         # some ranks OOM — the re-raise still tears the job down.
-        if save_on_oom and is_cuda_oom(exc) and not checkpointed:
+        if save_on_oom and is_cuda_oom(exc) and last_checkpoint_step != step:
             if is_main_process():
                 print(
                     f"rengu_flow: CUDA OOM at step {step} — attempting emergency checkpoint "
@@ -1257,7 +1237,7 @@ def _run_training(args, config):
             try:
                 empty_cuda_cache()
                 if saver.save_checkpoint(step, examples):
-                    checkpointed = True
+                    last_checkpoint_step = step
                     if is_main_process():
                         print(
                             f"rengu_flow: emergency checkpoint saved at step {step}; resume with "
@@ -1272,14 +1252,19 @@ def _run_training(args, config):
                     )
         raise
 
-    if not checkpointed:
-        if saver.save_checkpoint(step, examples):
-            checkpointed = True
-    # Always produce the final model unless the most recent save was already at this exact
-    # step. A periodic save (e.g. save_every_n_epochs) that fired earlier must not suppress
-    # the final weights — that left a run ending on max_steps mid-epoch without a final model.
-    if final_model_name and last_save_step != step:
-        saver.save_model(final_model_name)
+    # End-of-run saves (decision is the unit-tested plan_final_saves): always write a final
+    # resume checkpoint so the run can continue from the exact last step, and the final model,
+    # each unless one was already written at this very step.
+    write_checkpoint, export_name = plan_final_saves(
+        step=step,
+        last_checkpoint_step=last_checkpoint_step,
+        last_save_step=last_save_step,
+        final_model_name=final_model_name,
+    )
+    if write_checkpoint and saver.save_checkpoint(step, examples):
+        last_checkpoint_step = step
+    if export_name:
+        saver.save_model(export_name)
     saver.shutdown_async_exports()
 
     if is_main_process():

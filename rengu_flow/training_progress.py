@@ -162,17 +162,95 @@ class TrainingProgressTracker:
         return out
 
 
+class EpochSchedule:
+    """Single source of truth for epoch numbers, derived from the optimizer step.
+
+    Epochs used to be computed in several places at once — the dataloader's own counter
+    (which a resolution schedule makes "short", overshooting ``epochs``), a budget helper
+    for the progress bar, the saver's ``effective_epoch``, etc. — so different components
+    disagreed (off-by-one save names, wrong final epoch). This class makes the step budget
+    (``epochs * steps_per_epoch``) the only authority: the run is exactly ``total_steps``
+    long, split into ``epochs`` equal step chunks. The dataloader keeps its own internal
+    counter only for shuffling/seeding; everything user-facing (save names, eval/save
+    cadence, progress, termination) comes from here.
+
+    An OOM-skipped step still consumes one step of the budget (it advances ``step``), so
+    skips count toward the run length — consistent and predictable, unlike mixing a
+    data-rollover counter with a step counter.
+    """
+
+    def __init__(self, steps_per_epoch: int, epochs: int):
+        self.steps_per_epoch = int(steps_per_epoch)
+        self.epochs = int(epochs)
+
+    @property
+    def total_steps(self) -> int:
+        """Total optimizer steps in the epoch budget (``epochs * steps_per_epoch``)."""
+        return max(0, self.steps_per_epoch) * max(0, self.epochs)
+
+    def current(self, step: int) -> int:
+        """1-based epoch being trained at ``step`` (capped at ``epochs``)."""
+        if self.steps_per_epoch <= 0:
+            return int(step)
+        return max(1, min(self.epochs, (int(step) - 1) // self.steps_per_epoch + 1))
+
+    def completed_at(self, step: int) -> int | None:
+        """Epoch number that finishes *exactly* at ``step`` (a positive multiple of
+        ``steps_per_epoch``, within the budget), or ``None`` when ``step`` is mid-epoch.
+
+        Used to drive per-epoch saves/eval and to name the export after the epoch that
+        just completed — so the first one is ``epoch1`` (not ``epoch2``).
+        """
+        step = int(step)
+        if self.steps_per_epoch <= 0 or step <= 0 or step % self.steps_per_epoch != 0:
+            return None
+        done = step // self.steps_per_epoch
+        return done if done <= self.epochs else None
+
+
 def budget_display_epoch(step: int, steps_per_epoch: int, epochs: int) -> int:
     """Budget-relative epoch (1..epochs) for the progress display.
 
-    With a resolution schedule, dataloader epochs are short (each stage trains a subset
-    of resolutions), so the raw epoch counter overshoots the configured ``epochs``. The
-    total step budget is still ``epochs * steps_per_epoch``, so the meaningful epoch
-    number is derived from the current step within that budget and capped at ``epochs``.
+    Thin wrapper over :class:`EpochSchedule` (the single epoch authority) kept for the
+    progress/UI call sites and tests.
     """
-    if steps_per_epoch <= 0:
-        return int(step)
-    return max(1, min(int(epochs), (int(step) - 1) // int(steps_per_epoch) + 1))
+    return EpochSchedule(steps_per_epoch, epochs).current(step)
+
+
+def budget_reached_target(max_steps: int | None, epochs: int, step: int) -> tuple[str, str]:
+    """Final-model name + human reason when the step budget is reached.
+
+    ``max_steps`` set -> the run is step-bounded, so the final export is named ``step{step}``;
+    otherwise it completed the epoch budget, named ``epoch{epochs}``. Pure (no I/O) so the
+    loop's termination naming is unit-testable.
+    """
+    if max_steps is not None:
+        return f"step{step}", f"Reached max_steps={max_steps}"
+    return f"epoch{epochs}", f"Reached epochs={epochs}"
+
+
+def plan_final_saves(
+    *,
+    step: int,
+    last_checkpoint_step: int,
+    last_save_step: int,
+    final_model_name: str | None,
+) -> tuple[bool, str | None]:
+    """End-of-run save plan: ``(write_resume_checkpoint, export_model_name_or_None)``.
+
+    A final resume checkpoint is **always** written so the run can be continued from the exact
+    last step — unless a checkpoint was already written at this step (``last_checkpoint_step ==
+    step``). The final inference model is exported under ``final_model_name`` unless the most
+    recent export was already at this step (``last_save_step == step``).
+
+    This is the decision that two bugs lived in: the old loop used a sticky "checkpointed during
+    the whole run" flag, so any earlier checkpoint suppressed the final one (a run that
+    checkpointed at step 8197 ended without a checkpoint at its final step 8820). Pure function
+    so that decision is unit-tested rather than only exercised inside the GPU training loop.
+    """
+    write_checkpoint = last_checkpoint_step != step
+    export_name = final_model_name if (final_model_name and last_save_step != step) else None
+    return write_checkpoint, export_name
 
 
 def build_progress_payload(

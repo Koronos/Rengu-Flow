@@ -436,40 +436,27 @@ class Saver:
         dist.barrier()
         return True
 
-    def process_epoch(self, epoch, step, examples, *, effective_epoch=None, advanced=None):
-        """Run per-epoch checkpoint/export when an epoch boundary is crossed.
+    def process_epoch_boundary(self, completed_epoch: int, step: int, examples: int):
+        """Per-epoch checkpoint/export for the epoch that just **completed** at ``step``.
 
-        Normally the boundary is the dataloader's own epoch rollover. A step-driven
-        resolution schedule has short (single-resolution) dataloader epochs, so the loop
-        passes ``effective_epoch`` (the budget-relative epoch, 1..epochs) and ``advanced``
-        (whether that budget epoch just changed) to count and name by full epochs instead.
+        The training loop calls this only on an epoch boundary, with ``completed_epoch`` from
+        the single :class:`~rengu_flow.training_progress.EpochSchedule` authority (step-based).
+        The save is therefore named by the finished epoch — the first one is ``epoch1``, not
+        ``epoch2`` — and run termination is decided by the loop's step budget, not here.
+
+        Returns ``(checkpointed, saved)``.
         """
-        checkpointed, saved = False, False
-        if advanced is None:
-            advanced = self.train_dataloader.epoch != epoch
-        new_epoch = (
-            effective_epoch if effective_epoch is not None else self.train_dataloader.epoch
-        )
-        if advanced:
-            if _need_to_checkpoint(self.config, new_epoch):
-                checkpointed = self.save_checkpoint(step, examples)
-            if (
-                "save_every_n_epochs" in self.config
-                and new_epoch % self.config["save_every_n_epochs"] == 0
-            ):
-                saved = self.save_model(f"epoch{new_epoch}")
-            # With a resolution schedule the run length is governed by the schedule's
-            # step budget, not the epoch count (staged epochs are shorter), so the
-            # training loop stops on steps instead of here.
-            schedule_active = getattr(
-                getattr(self.train_dataloader, "dataset", None), "schedule_active", False
-            )
-            if not schedule_active and new_epoch > self.config["epochs"]:
-                return None, checkpointed, saved
-            if is_main_process():
-                print(f"Started new epoch: {new_epoch}")
-            return new_epoch, checkpointed, saved
-        return epoch, checkpointed, saved
+        checkpointed = saved = False
+        if _need_to_checkpoint(self.config, completed_epoch):
+            checkpointed = self.save_checkpoint(step, examples)
+        if (
+            "save_every_n_epochs" in self.config
+            and completed_epoch % self.config["save_every_n_epochs"] == 0
+        ):
+            saved = self.save_model(f"epoch{completed_epoch}")
+        if is_main_process():
+            print(f"Completed epoch {completed_epoch}")
+        return checkpointed, saved
 
     def process_step(self, step, examples):
         checkpointed, saved = False, False
