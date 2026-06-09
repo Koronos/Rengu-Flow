@@ -1204,12 +1204,13 @@ def _run_training(args, config):
                 reload_preview_config(config, args.config)
 
             preview_x_axis = examples if x_axis_examples else step
+            forced_preview = step_signals.should_preview
             if should_run_previews(
                 config,
                 step,
                 epoch,
                 finished_epoch=finished_epoch,
-                forced=step_signals.should_preview,
+                forced=forced_preview,
             ):
                 run_previews(
                     model,
@@ -1219,6 +1220,14 @@ def _run_training(args, config):
                     disable_block_swap=disable_block_swap_for_preview,
                     optimizer=optimizer,
                     wandb_enable=wandb_enable,
+                )
+            elif forced_preview and is_main_process():
+                # A preview was explicitly requested but there are no prompts to render. Don't
+                # silently swallow it — say so, so the log explains why no image appeared.
+                print(
+                    "rengu_flow: preview signal received but no prompts are configured "
+                    "([preview].prompts is empty) — nothing to render",
+                    flush=True,
                 )
 
             if effective_max_steps is not None and step >= effective_max_steps:
