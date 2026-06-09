@@ -956,7 +956,7 @@ def create_app() -> FastAPI:
         # A user quit (any *_quit) stops the run AND the queue: flip it to "stopping" so it
         # lands in "stopped" (not "finished"), which the queue treats as a deliberate halt
         # and does not auto-advance past. Plain save/export/preview/reload keep it running.
-        if body.type in ("save_quit", "export_model_quit", "quit"):
+        if body.type in ("save_quit", "quit"):
             db.update_job(job_id, state="stopping")
         return {"path": path}
 

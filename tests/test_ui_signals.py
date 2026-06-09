@@ -7,7 +7,6 @@ import pytest
 from rengu_flow.utils.signal_files import (
     SIGNAL_CONTINUE,
     SIGNAL_EXPORT_MODEL,
-    SIGNAL_EXPORT_MODEL_QUIT,
     SIGNAL_PREVIEW,
     SIGNAL_QUIT,
     SIGNAL_SAVE,
@@ -22,7 +21,6 @@ from rengu_flow_ui import signals
         ("save", SIGNAL_SAVE),
         ("save_quit", SIGNAL_SAVE_QUIT),
         ("export_model", SIGNAL_EXPORT_MODEL),
-        ("export_model_quit", SIGNAL_EXPORT_MODEL_QUIT),
         ("preview", SIGNAL_PREVIEW),
         ("continue", SIGNAL_CONTINUE),
         ("quit", SIGNAL_QUIT),

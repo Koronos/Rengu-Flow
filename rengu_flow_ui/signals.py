@@ -8,11 +8,13 @@ from typing import Any
 from rengu_flow.utils import signal_files as sf
 from rengu_flow_ui.training_hub import ACTIVE_STATES
 
+# "export_model_quit" is intentionally NOT exposed: exporting then quitting ends the run with no
+# resume checkpoint, so a misclick can throw away a whole training. The trainer still honours a
+# manually-touched export_model_quit file (diffusion-pipe compat) — we just don't offer the button.
 SIGNAL_MAP = {
     "save": sf.SIGNAL_SAVE,
     "save_quit": sf.SIGNAL_SAVE_QUIT,
     "export_model": sf.SIGNAL_EXPORT_MODEL,
-    "export_model_quit": sf.SIGNAL_EXPORT_MODEL_QUIT,
     "preview": sf.SIGNAL_PREVIEW,
     "reload_config": sf.SIGNAL_RELOAD_CONFIG,
     "continue": sf.SIGNAL_CONTINUE,
@@ -38,12 +40,6 @@ SIGNAL_DEFINITIONS: list[dict[str, Any]] = [
         "label": "Export model",
         "group": "Model export",
         "hint": "Export adapter or full weights to signal_step<N>/ on the next step.",
-    },
-    {
-        "id": "export_model_quit",
-        "label": "Export & quit",
-        "group": "Model export",
-        "hint": "Export inference weights, then exit.",
     },
     {
         "id": "preview",
