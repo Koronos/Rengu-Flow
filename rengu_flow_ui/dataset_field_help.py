@@ -161,8 +161,8 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "detail": (
             "When on, some caption tags are omitted each step so the model does not over-rely "
             "on any single tag. Dropout runs at training time only — captions stored in cache "
-            "metadata stay raw. Changing dropout rules that affect the text encoder requires "
-            "rebuilding the text cache (--regenerate_text_cache)."
+            "metadata stay raw. Requires cache_text_embeddings = false in the model config, "
+            "since cached text embeddings ignore per-sample caption changes."
         ),
         "doc": "docs/user/dataset-config.md",
     },

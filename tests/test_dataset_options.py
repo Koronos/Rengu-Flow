@@ -142,3 +142,68 @@ def test_directory_dataset_resolves_uncond_fraction(tmp_path):
         skip_dataset_validation=True,
     )
     assert dd2.uncond_fraction == 0.1
+
+
+def test_tag_dropout_applied_to_sampled_caption(tmp_path):
+    from rengu_flow.data.tag_dropout import TagDropoutConfig
+
+    class FakeDir:
+        captions_dict = None
+        tag_dropout = TagDropoutConfig(enabled=True, default_probability=1.0)
+
+    ds = _uncond_size_bucket(tmp_path, FakeDir())
+    item = ds[0]
+    assert item["caption"] == ""
+    assert item["emb"] == "cond"
+
+
+def test_directory_dataset_builds_tag_dropout(tmp_path):
+    from rengu_flow.data.dataset import DirectoryDataset
+
+    dd = DirectoryDataset(
+        {
+            "path": str(tmp_path),
+            "num_repeats": 1,
+            "tag_dropout_enabled": True,
+            "tag_dropout_probability": 0.5,
+        },
+        {"resolutions": [512]},
+        "sdxl",
+        skip_dataset_validation=True,
+    )
+    assert dd.tag_dropout.enabled
+    assert dd.tag_dropout.default_probability == 0.5
+    dd2 = DirectoryDataset(
+        {"path": str(tmp_path), "num_repeats": 1},
+        {"resolutions": [512]},
+        "sdxl",
+        skip_dataset_validation=True,
+    )
+    assert not dd2.tag_dropout.enabled
+
+
+def test_dataset_rejects_tag_dropout_with_cached_text_embeddings(tmp_path):
+    import pytest
+
+    from rengu_flow.data.dataset import Dataset
+
+    dataset_config = {
+        "resolutions": [512],
+        "tag_dropout_enabled": True,
+        "directory": [{"path": str(tmp_path), "num_repeats": 1}],
+    }
+
+    class CachedTEModel:
+        name = "sdxl"
+
+        def get_text_encoders(self):
+            return ["te"]
+
+    with pytest.raises(ValueError, match="tag_dropout"):
+        Dataset(dict(dataset_config), CachedTEModel())
+
+    class LiveTEModel(CachedTEModel):
+        def get_text_encoders(self):
+            return []
+
+    Dataset(dict(dataset_config), LiveTEModel())

@@ -36,6 +36,11 @@ from rengu_flow.data.cache_utils import (
     resolve_cache_num_proc,
     seed_from_hash,
 )
+from rengu_flow.data.tag_dropout import (
+    TagDropoutConfig,
+    apply_tag_dropout,
+    build_tag_dropout_config,
+)
 from rengu_flow.utils.common import is_main_process, round_to_nearest_multiple
 from rengu_flow.utils.paths import path_is_under
 
@@ -277,6 +282,9 @@ class SizeBucketDataset:
         self.uncond_fraction = float(
             getattr(directory_dataset, "uncond_fraction", 0.0)
         )
+        self.tag_dropout = (
+            getattr(directory_dataset, "tag_dropout", None) or TagDropoutConfig()
+        )
 
         if len(size_bucket) == 4:
             old_cache_dir = cache_base / f"cache_{bucket_suffix(size_bucket[1:])}"
@@ -474,6 +482,8 @@ class SizeBucketDataset:
                 caption = ""
         else:
             caption = entry["caption"]
+        if not use_uncond and self.tag_dropout.enabled:
+            caption = apply_tag_dropout(caption, self.tag_dropout, random)
         for ds, uncond_ds in zip(
             self.text_embedding_datasets, self.uncond_text_embeddings
         ):
@@ -926,6 +936,9 @@ class DirectoryDataset:
                 "uncond_fraction", dataset_config.get("uncond_fraction", 0.0)
             )
             or 0.0
+        )
+        self.tag_dropout = build_tag_dropout_config(
+            directory_config, dataset_config, tags_file_base=self.path
         )
 
     def _set_defaults(
@@ -1545,6 +1558,20 @@ class Dataset:
                 skip_dataset_validation=skip_dataset_validation,
             )
             self.directory_datasets.append(dir_dataset)
+        # Tag dropout rewrites the caption string per sample, which only reaches the
+        # model when captions are encoded at training time. With cached text
+        # embeddings the lookup is keyed by (image_spec, caption_number), so the
+        # rewritten caption would be silently ignored — refuse instead.
+        if (
+            not skip_dataset_validation
+            and any(d.tag_dropout.enabled for d in self.directory_datasets)
+            and model.get_text_encoders()
+        ):
+            raise ValueError(
+                "tag_dropout_enabled is set, but the model caches text embeddings, so "
+                "per-sample caption dropout would have no effect. Set "
+                "cache_text_embeddings = false in the model config to use tag dropout."
+            )
         # Rotation is active when at least one directory limits images (max_images or
         # subsample_ratio < 1) and is not static; the loader uses this to keep workers in sync
         # with the current epoch (see loader.py).

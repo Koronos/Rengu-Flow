@@ -182,7 +182,7 @@ These apply to all directories unless overridden per-directory.
 | **`subsample_ratio`** | Fraction of the combined training schedule (e.g. `0.25` for quick debug runs). | Float in (0, 1]. | `1` (full dataset). |
 | **`max_images`** | Default absolute image cap per folder per epoch (per size bucket); rotates each epoch unless `static_sampling`. Per-folder keys override it. Mutually exclusive with a per-folder `subsample_ratio`. See [per-epoch limiting](#per-epoch-image-limiting-subsample_ratio-vs-max_images). | Integer &gt; 0. | Not set (no cap). |
 | **`static_sampling`** | Default for whether the active limiter (subsample ratio or max images) uses a fixed subset every epoch instead of rotating. | `true` / `false` | `false` (rotate). |
-| **`tag_dropout_enabled`** | Enable random tag dropout at training time. | `true` / `false` | `false` |
+| **`tag_dropout_enabled`** | Enable random tag dropout at training time. Requires `cache_text_embeddings = false` in the model config (captions must be encoded at training time). | `true` / `false` | `false` |
 | **`tag_dropout_probability`** | Default drop probability for tags not in a rule. | Float in [0, 1]. | — |
 | **`tag_dropout_mode`** | `per_tag` or `full`. | String | `per_tag` |
 | **`tag_dropout_rules`** | List of `{ tags, drop_probability }` and/or `tags_file`. | Tables / JSON in UI | — |
