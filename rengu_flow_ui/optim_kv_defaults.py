@@ -230,6 +230,32 @@ OPTIMIZER_REGISTRY_KV_DEFAULTS: dict[str, dict[str, Any]] = {
         "momentum_dtype": "bfloat16",
         "bf16_method": "stochastic_rounding",
     },
+    # MSAM: Momentum-SAM (Becker et al. 2024) — SAM's perturbation along the stored momentum,
+    # zero extra forward/backward and zero extra state (wrapper over Adakaon). rho = perturbation
+    # radius (rho < 0 probes the downhill/Nesterov direction). Inner Adakaon kwargs pass through.
+    # Sampling/checkpointing must bracket with opt.eval()/opt.train() — renga does this automatically.
+    "msam": {
+        "lr": 1e-4,
+        "rho": 0.3,
+        "betas": [0.9, 0.999],
+        "momentum_dtype": "bfloat16",
+        "bf16_method": "stochastic_rounding",
+    },
+    # Nekaon: Adakaon + k-step negative momentum-lookahead (the in-house flat-minima flagship);
+    # gradient evaluated k steps ahead at zero extra passes/state. k = lookahead distance in steps
+    # (loss<->gap dial; 0 = plain Adakaon). betas[0] is the regime knob: 0.5 default (anti-memorization
+    # with margin), slide to 0.2 for small-data LoRA or 0.9 for fidelity (must be > 0). momentum_dtype
+    # defaults to "4bit" (~0.56 B/param, the optimizer's deliberate default — flat-within-noise vs bf16).
+    # Sampling/checkpointing must bracket with opt.eval()/opt.train() — renga does this automatically.
+    "nekaon": {
+        "lr": 1e-4,
+        "k": 1.5,
+        "betas": [0.5, 0.999],
+        "weight_decay": 0.1,
+        "cautious": True,
+        "momentum_dtype": "4bit",
+        "bf16_method": "stochastic_rounding",
+    },
 }
 
 # Built-in lr_scheduler registry names -> default scheduler KV ([lr_scheduler_args] only).

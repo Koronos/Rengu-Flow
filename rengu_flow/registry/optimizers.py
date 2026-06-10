@@ -32,6 +32,8 @@ OPTIMIZER_ALIASES: dict[str, tuple[str, str]] = {
     "schedulefree": ("kaon", "ScheduleFree"),
     "lookahead": ("kaon", "Lookahead"),
     "sam": ("kaon", "SAM"),
+    "msam": ("kaon", "MSAM"),
+    "nekaon": ("kaon", "Nekaon"),
 }
 
 

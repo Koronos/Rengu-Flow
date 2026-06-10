@@ -856,8 +856,8 @@ wheels = [
 
 [[package]]
 name = "kaon"
-version = "0.3.0"
-source = { git = "https://github.com/Koronos/K-Optimizers?rev=8ce33e8612fb46d5bb1f6ed9b1a2cd6ed09be7fc#8ce33e8612fb46d5bb1f6ed9b1a2cd6ed09be7fc" }
+version = "0.4.0"
+source = { git = "https://github.com/Koronos/K-Optimizers?rev=975648e665747d88781c989eefab207229631a3b#975648e665747d88781c989eefab207229631a3b" }
 dependencies = [
     { name = "torch" },
 ]
@@ -2295,7 +2295,7 @@ requires-dist = [
     { name = "fastapi", marker = "extra == 'ui'", specifier = ">=0.110.0" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.27.0" },
     { name = "imageio", specifier = ">=2.31.0" },
-    { name = "kaon", marker = "extra == 'kaon'", git = "https://github.com/Koronos/K-Optimizers?rev=8ce33e8612fb46d5bb1f6ed9b1a2cd6ed09be7fc" },
+    { name = "kaon", marker = "extra == 'kaon'", git = "https://github.com/Koronos/K-Optimizers?rev=975648e665747d88781c989eefab207229631a3b" },
     { name = "lazy-loader", specifier = ">=0.4" },
     { name = "lycoris-lora", marker = "extra == 'lycoris'" },
     { name = "multiprocess", specifier = ">=0.70.0" },
