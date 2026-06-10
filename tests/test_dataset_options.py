@@ -66,3 +66,79 @@ def test_size_bucket_online_caption_from_dict():
     ds.uncond_text_embeddings = []
     item = ds[0]
     assert item["caption"] == "alt"
+
+
+def _uncond_size_bucket(tmp_path, fake_dir):
+    import datasets
+
+    metadata = datasets.Dataset.from_dict(
+        {"image_spec": [["", "img.png"]], "caption": [["a cap"]]}
+    )
+
+    class FakeTE:
+        def get_text_embeddings(self, image_spec, caption_number):
+            return {"emb": "cond"}
+
+    ds = SizeBucketDataset(
+        metadata,
+        {"path": str(tmp_path), "num_repeats": 1},
+        (512, 512, 1),
+        tmp_path / "cache",
+        fake_dir,
+    )
+    ds.latent_dataset = [{"latents": torch.zeros(1)}]
+    ds.iteration_order = datasets.Dataset.from_dict(
+        {
+            "image_spec": [["", "img.png"]],
+            "latents_idx": [0],
+            "caption": ["a cap"],
+            "caption_number": [0],
+        }
+    )
+    ds.text_embedding_datasets = [FakeTE()]
+    ds.uncond_text_embeddings = [[{"emb": "uncond"}]]
+    return ds
+
+
+def test_uncond_fraction_one_swaps_caption_and_embeddings(tmp_path):
+    class FakeDir:
+        captions_dict = None
+        uncond_fraction = 1.0
+
+    ds = _uncond_size_bucket(tmp_path, FakeDir())
+    item = ds[0]
+    assert item["caption"] == ""
+    assert item["emb"] == "uncond"
+
+
+def test_uncond_fraction_defaults_to_zero(tmp_path):
+    class FakeDir:
+        captions_dict = None
+
+    ds = _uncond_size_bucket(tmp_path, FakeDir())
+    item = ds[0]
+    assert item["caption"] == "a cap"
+    assert item["emb"] == "cond"
+
+
+def test_directory_dataset_resolves_uncond_fraction(tmp_path):
+    from rengu_flow.data.dataset import DirectoryDataset
+
+    dataset_config = {
+        "resolutions": [512],
+        "uncond_fraction": 0.1,
+    }
+    dd = DirectoryDataset(
+        {"path": str(tmp_path), "num_repeats": 1, "uncond_fraction": 0.25},
+        dict(dataset_config),
+        "sdxl",
+        skip_dataset_validation=True,
+    )
+    assert dd.uncond_fraction == 0.25
+    dd2 = DirectoryDataset(
+        {"path": str(tmp_path), "num_repeats": 1},
+        dict(dataset_config),
+        "sdxl",
+        skip_dataset_validation=True,
+    )
+    assert dd2.uncond_fraction == 0.1

@@ -42,7 +42,6 @@ from rengu_flow.utils.paths import path_is_under
 logger = logging.getLogger(__name__)
 
 CAPTIONS_JSON_FILE = "captions.json"
-UNCOND_FRACTION = 0.0
 
 # Video extensions from imageio (same as diffusion-pipe utils.common)
 VIDEO_EXTENSIONS = set()
@@ -275,6 +274,9 @@ class SizeBucketDataset:
         self.captions_dict = (
             directory_dataset.captions_dict if directory_dataset is not None else None
         )
+        self.uncond_fraction = float(
+            getattr(directory_dataset, "uncond_fraction", 0.0)
+        )
 
         if len(size_bucket) == 4:
             old_cache_dir = cache_base / f"cache_{bucket_suffix(size_bucket[1:])}"
@@ -455,7 +457,7 @@ class SizeBucketDataset:
     def _sample_from_entry(self, entry, latent_dict: dict | None = None) -> dict:
         ret = dict(latent_dict if latent_dict is not None else self.latent_dataset[entry["latents_idx"]])
         use_uncond = (
-            UNCOND_FRACTION > 0 and random.random() < UNCOND_FRACTION
+            self.uncond_fraction > 0 and random.random() < self.uncond_fraction
         )
         if use_uncond:
             caption = ""
@@ -918,6 +920,13 @@ class DirectoryDataset:
                 self.captions_dict = json.load(f)
         else:
             self.captions_dict = None
+
+        self.uncond_fraction = float(
+            directory_config.get(
+                "uncond_fraction", dataset_config.get("uncond_fraction", 0.0)
+            )
+            or 0.0
+        )
 
     def _set_defaults(
         self, directory_config: dict, dataset_config: dict
