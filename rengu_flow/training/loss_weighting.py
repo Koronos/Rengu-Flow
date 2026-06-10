@@ -5,6 +5,19 @@ from __future__ import annotations
 import torch
 
 
+def _snr_for_timesteps(noise_scheduler, timesteps: torch.Tensor) -> torch.Tensor:
+    """Index all_snr by the timesteps tensor on the timesteps device.
+
+    Per-element ``int(t)`` indexing forces one GPU->CPU sync per sample every step;
+    keeping all_snr on the timesteps device makes the lookup a single gather.
+    """
+    all_snr = noise_scheduler.all_snr
+    if all_snr.device != timesteps.device:
+        all_snr = all_snr.to(timesteps.device)
+        noise_scheduler.all_snr = all_snr
+    return all_snr[timesteps.long()]
+
+
 def apply_min_snr_weight(
     loss: torch.Tensor,
     timesteps: torch.Tensor,
@@ -14,8 +27,8 @@ def apply_min_snr_weight(
     v_prediction: bool = False,
 ) -> torch.Tensor:
     """Scale per-sample loss by min-SNR gamma (SimpleTuner / Kohya-style)."""
-    snr = torch.stack([noise_scheduler.all_snr[int(t)] for t in timesteps])
-    min_snr_gamma = torch.minimum(snr, torch.full_like(snr, gamma))
+    snr = _snr_for_timesteps(noise_scheduler, timesteps)
+    min_snr_gamma = torch.clamp(snr, max=gamma)
     if v_prediction:
         snr_weight = torch.div(min_snr_gamma, snr + 1).float().to(loss.device)
     else:
@@ -30,7 +43,7 @@ def apply_debiased_estimation(
     *,
     v_prediction: bool = False,
 ) -> torch.Tensor:
-    snr_t = torch.stack([noise_scheduler.all_snr[int(t)] for t in timesteps])
-    snr_t = torch.minimum(snr_t, torch.ones_like(snr_t) * 1000)
+    snr_t = _snr_for_timesteps(noise_scheduler, timesteps)
+    snr_t = torch.clamp(snr_t, max=1000)
     weight = 1 / (snr_t + 1) if v_prediction else 1 / torch.sqrt(snr_t)
     return loss * weight.to(loss.device)
