@@ -476,7 +476,25 @@ def _run_training(args, config):
 
     activation_checkpointing = config.get("activation_checkpointing", False)
     extra_kw = {}
-    if activation_checkpointing:
+    if activation_checkpointing == "auto":
+        # Compiler-driven AC: no manual checkpoint wrapper at all — Inductor's
+        # memory-budget partitioner picks the save/recompute split per compiled
+        # layer graph (see training/activation_budget.py).
+        from rengu_flow.training.activation_budget import (
+            apply_activation_memory_budget,
+            resolve_auto_ac_budget,
+        )
+
+        _budget = resolve_auto_ac_budget(config)
+        apply_activation_memory_budget(_budget)
+        if is_main_process():
+            print(
+                f"[checkpoint] activation_checkpointing='auto': compile's memory-budget "
+                f"partitioner with activation_memory_budget={_budget} (exact recompute "
+                "chosen per graph; 0.0 ~ full-checkpoint VRAM, 1.0 ~ no-checkpoint speed).",
+                flush=True,
+            )
+    elif activation_checkpointing:
         # interval N = checkpoint every N transformer blocks (1 = every block, most memory-saving /
         # most recompute). Raise to recompute less at the cost of more activation VRAM.
         extra_kw["activation_checkpoint_interval"] = int(config.get("activation_checkpoint_interval", 1))

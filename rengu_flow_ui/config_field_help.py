@@ -578,10 +578,24 @@ FIELD_HELP: dict[str, dict[str, str]] = {
             "backprop — large activation-memory savings for a small extra compute cost (an extra "
             "forward per checkpointed block). Keep it true on small GPUs; false can OOM. Values: "
             "true (full, lowest VRAM, safe default), false (fastest, highest VRAM — OOMs at high res), "
-            "'selective' (SAC: keeps the expensive attention activations and recomputes only cheaper "
-            "ops — quality-neutral, ~4% faster at 1024 but uses MORE VRAM than full, so it needs "
-            "headroom — ~9.5 GB at 1024/batch2; NOT for small GPUs), or 'unsloth' (a faster "
-            "checkpointing kernel for supported models). Tune SAC with selective_checkpoint_save_ops."
+            "'auto' (compile's memory-budget partitioner picks the optimal save/recompute split per "
+            "graph — requires compile=true; tune with activation_memory_budget, beats 'selective' on "
+            "both speed AND VRAM at low budgets), 'selective' (SAC: keeps attention activations, "
+            "recomputes cheaper ops — quality-neutral, ~4% faster at 1024 but MORE VRAM than full), "
+            "or 'unsloth' (offloads block inputs to CPU; slightly slower, small VRAM gain). "
+            "Tune SAC with selective_checkpoint_save_ops."
+        ),
+        "doc": "docs/user/training-loop-and-eval.md",
+    },
+    "activation_memory_budget": {
+        "summary": "VRAM/speed dial for activation_checkpointing='auto' (0.0-1.0).",
+        "detail": (
+            "Fraction of activation memory the compile partitioner may keep instead of recomputing: "
+            "0.0 ~ full-checkpoint VRAM, 1.0 ~ no-checkpoint speed; gains plateau around 0.5. "
+            "Recompute is exact (same math, no precision cost). Measured on Cosmos LoKr @1024 "
+            "(RTX 4080, vs full checkpointing at 0.97 s / 5.8 GB): 0.1 = -9.5% step time / 6.4 GB "
+            "(faster AND smaller than SAC), 0.3 = -16% / 9.0 GB (default), 0.5 = -21% / 11.3 GB. "
+            "Requires compile = true."
         ),
         "doc": "docs/user/training-loop-and-eval.md",
     },

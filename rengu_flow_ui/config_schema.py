@@ -29,7 +29,7 @@ from rengu_flow.registry.optimizers import (
 )
 
 DTYPE_OPTIONS = list(DTYPE_MAP.keys())
-ACTIVATION_CHECKPOINTING_OPTIONS = [False, True, "selective", "unsloth"]
+ACTIVATION_CHECKPOINTING_OPTIONS = [False, True, "auto", "selective", "unsloth"]
 PARTITION_METHODS = ["parameters", "uniform", "manual"]
 HAS_ADAPTER = {"field": "_has_adapter", "equals": True}
 
@@ -543,8 +543,22 @@ def get_sections() -> list[dict[str, Any]]:
                     options=ACTIVATION_CHECKPOINTING_OPTIONS,
                     description=(
                         "true = full (lowest VRAM, safe default); false = fastest but OOMs at high res; "
-                        "'selective' = SAC, ~4% faster at 1024, quality-neutral but uses MORE VRAM "
-                        "(needs headroom — not for small GPUs); 'unsloth' = alt kernel."
+                        "'auto' = compile's memory-budget partitioner (needs compile=true) — continuous "
+                        "VRAM/speed dial via activation_memory_budget, beats 'selective' on both axes; "
+                        "'selective' = SAC, ~4% faster at 1024 but MORE VRAM; 'unsloth' = alt kernel."
+                    ),
+                ),
+                _field(
+                    "activation_memory_budget",
+                    "Auto-AC memory budget",
+                    "number",
+                    default=0.3,
+                    min_value=0.0,
+                    when={"field": "activation_checkpointing", "equals": "auto"},
+                    description=(
+                        "Only for activation_checkpointing='auto'. 0.0 ~ full-checkpoint VRAM, 1.0 ~ "
+                        "no-checkpoint speed (plateaus ~0.5). Measured @1024 LoKr: 0.1 = -9.5% step time / "
+                        "6.4 GB (beats SAC on both), 0.3 = -16% / 9.0 GB, 0.5 = -21% / 11.3 GB."
                     ),
                 ),
                 _field(
