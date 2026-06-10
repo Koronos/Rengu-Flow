@@ -194,13 +194,12 @@ Saves VRAM by recomputing activations in the backward pass. Configure in the mai
 
 | Key | Description | Values | Default |
 |-----|-------------|--------|---------|
-| **`activation_checkpointing`** | Enable and choose implementation. | `false`, `true`, `"auto"`, `"selective"`, or `"unsloth"`. | `false` |
+| **`activation_checkpointing`** | Enable and choose implementation. | `false`, `true`, or `"auto"`. | `false` |
 | **`reentrant_activation_checkpointing`** | When `activation_checkpointing = true`, use reentrant PyTorch checkpoint. | `true` or `false`. | `false` (`true` auto-default for `cosmos_predict2` when AC is on — see [Cosmos/Anima guide](training-cosmos-predict2-lora-lokr-finetune.md#performance-and-vram-anima--cosmos)) |
 
 - **`true`** — PyTorch `torch.utils.checkpoint.checkpoint`. Use `reentrant_activation_checkpointing = true` if you hit errors with block swap or certain layers. For **Cosmos/Anima**, keeping it `true` is recommended (~3% faster in LoKR tuning vs `false`).
 - **`"auto"`** — compiler-driven (requires `compile = true`): Inductor's memory-budget partitioner picks the optimal save/recompute split per compiled graph; dial it with **`activation_memory_budget`** (0.0 ≈ full-checkpoint VRAM, 1.0 ≈ no-checkpoint speed, default 0.3). Exact recompute — no precision cost. Measured @1024 LoKr it beats `"selective"` on speed AND VRAM at budget 0.1, and reaches −21% step time at 0.5. See [Cosmos guide](training-cosmos-predict2-lora-lokr-finetune.md#performance-and-vram-anima--cosmos).
-- **`"selective"`** — SAC: keep attention activations, recompute the rest (see Cosmos guide; superseded by `"auto"` when compile is on).
-- **`"unsloth"`** — Unsloth-style checkpoint that offloads block inputs to CPU (small VRAM gain, slightly slower; measured +2.6% step time / −0.5 GB vs `true` @1024).
+- Retired values: **`"selective"`** (SAC) and **`"unsloth"`** fall back to `true` with a warning — `"auto"` measured faster AND lighter than SAC (see `docs/EXPERIMENTS_GRAVEYARD.md`).
 
 Example:
 

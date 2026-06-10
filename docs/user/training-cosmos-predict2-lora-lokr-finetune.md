@@ -116,38 +116,35 @@ Short tuning smokes (30 steps) are only **previews** for CI and quick regression
 | **`cache_dedup_text_embeddings = true`** | Speeds `--cache_only` when many images share the same caption (tag-heavy sets). |
 | **`micro_batch_size_per_gpu`** | Set from VRAM; use **`gradient_accumulation_steps`** for effective batch without OOM. |
 
-### Faster checkpointing — `"auto"` (compile-driven) and SAC
+### Faster checkpointing — `"auto"` (compile-driven)
 
 `activation_checkpointing` accepts more than `true`/`false`:
 
 | Value | What it does | When |
 |-------|--------------|------|
 | `true` | **Full** checkpointing — recompute every block. Lowest VRAM. | **Default. Use on small/tight GPUs or without compile.** |
-| `"auto"` | **Compiler-driven AC** — Inductor's memory-budget partitioner picks the optimal save/recompute split per compiled graph. Quality-neutral (exact recompute). Dial with `activation_memory_budget`. | **Best option whenever `compile = true`** — beats SAC on speed AND VRAM. |
-| `"selective"` | **Selective Activation Checkpointing (SAC)** — *keep* the expensive attention activations, recompute only the cheaper ops. Quality-neutral (same math). | 16 GB+ **without** compile. |
-| `"unsloth"` | Offloads block inputs to CPU. Measured: +2.6% step time for −0.5 GB. | Rarely worth it. |
+| `"auto"` | **Compiler-driven AC** — Inductor's memory-budget partitioner picks the optimal save/recompute split per compiled graph. Quality-neutral (exact recompute). Dial with `activation_memory_budget`. | **Best option whenever `compile = true`.** |
+
+(The old `"selective"` (SAC) and `"unsloth"` modes were retired — `"auto"` measured faster AND lighter than SAC, and unsloth traded +2.6% step time for −0.5 GB. Legacy configs fall back to `true` with a warning; see `docs/EXPERIMENTS_GRAVEYARD.md`.)
 
 **Measured @1024 LoKr, batch 1, compile=true (RTX 4080, steady state):**
 
 | setting | iter time | vs full | peak VRAM |
 |---|---|---|---|
 | `true` (full) | 0.974 s | — | 5.76 GB |
-| `"selective"` (SAC) | 0.932 s | −4.3% | 6.56 GB |
-| `"auto"`, budget **0.1** | 0.881 s | **−9.5%** | **6.37 GB** (beats SAC on both axes) |
+| retired `"selective"` (SAC) | 0.932 s | −4.3% | 6.56 GB |
+| `"auto"`, budget **0.1** | 0.881 s | **−9.5%** | **6.37 GB** (beat SAC on both axes) |
 | `"auto"`, budget **0.3** (default) | 0.822 s | **−15.7%** | 8.99 GB |
 | `"auto"`, budget **0.5** | 0.774 s | **−20.6%** | 11.32 GB (speed plateau — 0.8 gains nothing) |
 | `false` | OOM | — | >15.5 GB |
 
-`"auto"` requires `compile = true` (the partitioner lives in the compiled joint graph) and composes with the per-shape static compile — multi-res schedules get the same gains. Per-step losses match `true`/`"selective"` to ~1e-5 (normal bf16 kernel-order noise): no precision cost. SDXL benefits even more: LoKr @512 measured **0.311 s vs 0.486 s** with full checkpointing (−36%) at +0.1 GB.
+`"auto"` requires `compile = true` (the partitioner lives in the compiled joint graph) and composes with the per-shape static compile — multi-res schedules get the same gains. Per-step losses match `true` to ~1e-5 (normal bf16 kernel-order noise): no precision cost. SDXL benefits even more: LoKr @512 measured **0.311 s vs 0.486 s** with full checkpointing (−36%) at +0.1 GB.
 
 **Full finetune (2B DiT @512, `adamw8bit` + `blocks_to_swap = 14` + `gradient_release`):** activations are not the binding constraint (optimizer states + grads are — plain finetune OOMs even with 8-bit Adam and full checkpointing), so block swap stays necessary; but `"auto"` composes on top: swap + `true` (no compile) **1.836 s / 6.81 GB** vs swap + `compile` + `"auto"` (budget 0.1) **1.560 s / 9.98 GB** (−15%). ⚠️ `true` + `compile` + block swap crashes with a `CheckpointError` (non-reentrant recompute metadata mismatch) — with block swap + compile use `"auto"` (it has no checkpoint wrapper), or drop `compile`.
 
-SAC is **opt-in** and **uses MORE VRAM than full checkpointing** (it stores what it would otherwise recompute). Measured on Anima/Cosmos LoKR at **1024px, batch 2**: full ckpt **1.82 s @ 7.6 GB** vs SAC **1.74 s @ 9.5 GB** — ~**4 %** faster at the resolution that dominates a multi-res schedule, still well within 16 GB.
+> ⚠️ **Mind the budget on low-VRAM cards.** Higher `activation_memory_budget` keeps more activations resident; if you OOM, lower it (0.1 still beat SAC on both axes) or fall back to `activation_checkpointing = true`. At higher resolution (e.g. 1536) re-check that your budget still fits.
 
-> ⚠️ **Not for low-VRAM cards.** SAC needs free VRAM; on a small GPU it can OOM. The trainer prints a warning when it's enabled (extra-loud on <12 GB). If you OOM, set `activation_checkpointing = true` or shrink `selective_checkpoint_save_ops`. At higher resolution (e.g. 1536) re-check that it still fits before relying on it.
-
-- **`selective_checkpoint_save_ops`** — the VRAM/speed dial for SAC. Comma-separated extra aten ops to keep (e.g. `"mm,addmm,bmm"`); empty keeps attention only (lightest). Adding matmuls gave *no* extra speed at 1024 (torch.compile's partitioner already handles them), so attention-only is the sweet spot.
-- **`activation_checkpoint_interval`** — checkpoint every N blocks (default `1`). Measured neutral on Cosmos; leave at `1`.
+- **`activation_checkpoint_interval`** — checkpoint every N blocks (default `1`, only applies to `true`). Measured neutral on Cosmos; leave at `1`.
 
 ### Compile on-disk cache (static shapes only)
 
@@ -198,7 +195,6 @@ The same lever interactions and trade-offs (and the WSL2 allocator caveat) are d
 
 | Setting | Notes |
 |---------|--------|
-| **`activation_checkpointing = "unsloth"`** | Alternative VRAM tradeoff if standard AC is tight. |
 | **`optimizer.type = 'adamw8bitkahan'`** | Needs bitsandbytes + CUDA on `LD_LIBRARY_PATH`; little benefit observed vs `adamw` on Anima LoKR. |
 | **`optimizer.gradient_release = true`** | Only with `pipeline_stages = 1`. |
 | **`genericoptim` + `compile`** | Slower than `adamw` + `compile` in previews — stick to `adamw` unless you need GenericOptim. |

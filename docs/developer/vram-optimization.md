@@ -31,10 +31,12 @@ Train weights in bf16 (half of fp32) with **no fp32 master copy**. The naïve da
 summation** (`GenericOptim`, `AdamW8bitKahan`) or stochastic rounding, so a bf16-only master stays
 trainable. *Side effect:* very slightly noisier updates than fp32; negligible in practice.
 
-### 2. `activation_checkpointing = true` (or `"unsloth"`)
+### 2. `activation_checkpointing = true` (or `"auto"` with compile)
 Recompute activations in the backward instead of storing them. Big activation-memory cut. *Side
-effect:* ~20-30% more compute (one extra forward). Essentially mandatory at low VRAM. The `unsloth`
-variant uses a reentrant checkpoint; `true` uses the non-reentrant torch checkpoint.
+effect:* ~20-30% more compute (one extra forward). Essentially mandatory at low VRAM. With
+`compile = true`, `"auto"` lets Inductor's memory-budget partitioner pick the save/recompute split
+(`activation_memory_budget`) — faster than full checkpointing at a chosen VRAM point. (`"unsloth"`
+was retired — see `docs/EXPERIMENTS_GRAVEYARD.md`.)
 
 ### 3. `optimizer.gradient_release = true` (fused backward)
 Runs each parameter's optimizer step **inside the backward** (`register_post_accumulate_grad_hook`)

@@ -41,9 +41,18 @@ def set_config_defaults(config: dict[str, Any]) -> None:
     config.setdefault("output_dir", "output")
     config.setdefault("pipeline_stages", 1)
     config.setdefault("activation_checkpointing", False)
+    # Retired modes (see docs/EXPERIMENTS_GRAVEYARD.md): 'selective' (SAC) and
+    # 'unsloth' were superseded by 'auto' (compile's memory-budget partitioner,
+    # faster AND lighter than SAC). Degrade old configs to the safe full mode.
+    if config["activation_checkpointing"] in ("selective", "unsloth"):
+        print(
+            f"[checkpoint] activation_checkpointing='{config['activation_checkpointing']}' was retired; "
+            "falling back to full checkpointing (true). For the speed gains use "
+            "activation_checkpointing='auto' with compile=true (better speed AND VRAM).",
+            flush=True,
+        )
+        config["activation_checkpointing"] = True
     config.setdefault("reentrant_activation_checkpointing", False)
-    if config["activation_checkpointing"] == "unsloth":
-        config["reentrant_activation_checkpointing"] = True
     config.setdefault("warmup_steps", 0)
     if "save_dtype" in config:
         config["save_dtype"] = DTYPE_MAP[config["save_dtype"]]

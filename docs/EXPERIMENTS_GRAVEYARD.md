@@ -14,6 +14,18 @@ Legend: ⛔ REJECTED (measured net-negative) · ⏸ PARKED (dead here, viable on
 
 ## ⛔ / ⏸ Speed & memory levers
 
+### ↩ SAC — `activation_checkpointing = "selective"` (retired 2026-06)
+- **What:** Selective Activation Checkpointing: non-reentrant checkpoint with a `MUST_SAVE` policy for SDPA ops (+ `selective_checkpoint_save_ops` to keep more), recompute the rest.
+- **Why superseded:** `activation_checkpointing = "auto"` (Inductor memory-budget partitioner, `training/activation_budget.py`) measured **better on BOTH axes** @1024 LoKr: SAC 0.932 s / 6.56 GB vs auto(0.1) 0.881 s / 6.37 GB — and auto scales to −20.6% at budget 0.5. SAC's only niche was compile-off runs (−4.3% for +0.8 GB), too thin to keep a second policy, config key, and UI field. Legacy configs degrade to `true` with a warning.
+- **Where the code was:** `main.py` AC block (removed; git history has it).
+- **Revisit when:** a supported model can't compile at all (auto requires `compile = true`).
+
+### ↩ unsloth-style CPU-offload checkpointing — `activation_checkpointing = "unsloth"` (retired 2026-06)
+- **What:** custom autograd.Function offloading each block's input hidden_states to CPU during forward, restoring on backward (`utils/unsloth_utils.py`).
+- **Why superseded:** measured **+2.6% step time for only −0.5 GB** vs full checkpointing @1024 (non-pinned, effectively synchronous transfers). Dominated by `true` (simpler) and `auto` (faster).
+- **Where the code was:** `rengu_flow/utils/unsloth_utils.py` (deleted; git history has it).
+- **Revisit when:** never as-is; an *async pinned-buffer* offload overlapping PCIe with compute would be a different experiment.
+
 ### ⏸ fp8 matmul for the frozen DiT base — `feat/cosmos-quant`
 - **What:** `torch._scaled_mm` row-wise fp8 GEMM for the ~280 frozen DiT linears (`transformer_fp8_matmul`), with a custom `_Fp8ScaledMatmul` autograd.Function (scaled_mm has no derivative) and LoKr-on-quantized-base composition.
 - **Why rejected:** **~70 % SLOWER** (2.95 s vs 1.74 s/step @1024) + more VRAM. The 4080's `_scaled_mm` forces the **weight operand to e4m3** (e5m2 weight rejected) — exactly Cosmos's fp8-**unsafe** format (weight outliers > ±448). The per-step manual activation quant over 280 linears + autograd graph breaks dwarf any GEMM gain.

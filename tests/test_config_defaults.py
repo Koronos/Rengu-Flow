@@ -77,3 +77,13 @@ def test_set_config_defaults_eval_and_monitoring(minimal_config_copy):
     assert "wandb_tracker_name" in mon
     assert mon.get("wandb_tracker_name") == "rengu-flow"
     assert "wandb_run_name" in mon
+
+
+@pytest.mark.parametrize("legacy", ["selective", "unsloth"])
+def test_set_config_defaults_degrades_retired_ac_modes(minimal_config_copy, legacy, capsys):
+    """Retired AC modes (SAC/unsloth) fall back to full checkpointing with a warning."""
+    minimal_config_copy["activation_checkpointing"] = legacy
+    set_config_defaults(minimal_config_copy)
+    assert minimal_config_copy["activation_checkpointing"] is True
+    out = capsys.readouterr().out
+    assert "retired" in out and "auto" in out

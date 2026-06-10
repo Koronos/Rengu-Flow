@@ -11,7 +11,7 @@ Where the training loop lives, how **evaluation** is invoked, where metrics are 
 1. **Config load** — Main TOML and dataset TOML(s); defaults and validation.
 2. **Distributed init** — `_distributed_init(args)`, `deepspeed.init_distributed()`.
 3. **Model and data** — Model from registry; train (and optional eval) datasets; cache if real data.
-4. **Pipeline** — `model.to_layers()` → `ManualPipelineModule`; activation checkpointing (PyTorch or unsloth); `deepspeed.initialize`; `_configure_optimizer`.
+4. **Pipeline** — `model.to_layers()` → `ManualPipelineModule`; activation checkpointing (PyTorch checkpoint or compile-budget "auto"); `deepspeed.initialize`; `_configure_optimizer`.
 5. **Dataloaders** — `PipelineDataLoader` for train and for each eval dataset (`eval_data_map`).
 6. **Resume** — If `resume_from_checkpoint`, `model_engine.load_checkpoint(run_dir, ...)`; restore `step`, `examples`, `train_dataloader.state_dict()` (or epoch only if `--reset_dataloader`).
 7. **Loop** — Per step: `get_data_iterator_for_step` → `model_engine.train_batch(iterator)` → `train_dataloader.sync_epoch()`; then, on an epoch boundary from the single `EpochSchedule` authority, `saver.process_epoch_boundary(completed_epoch, …)`, plus `saver.process_step`; optional `evaluate()` and `run_previews()`; TensorBoard/WandB logging. Epoch numbers (naming, save/eval cadence, progress, termination) all come from `EpochSchedule` (step-based budget), not the dataloader's own counter.
@@ -50,7 +50,7 @@ User-facing option tables: **`docs/user/training-loop-and-eval.md`** (Evaluation
 | `pipeline_stages` | `num_stages` → `ManualPipelineModule(..., num_stages=...)` | Default `1`. Should match GPU count for pipeline parallel. |
 | `partition_method` | `ManualPipelineModule(..., partition_method=...)` | Passed to DeepSpeed `PipelineModule._partition_layers`. Values: `parameters`, `uniform`, `manual`. Default from `set_config_defaults`: `parameters`. |
 | `partition_split` | `manual_partition_split=` when `partition_method == "manual"` | List of layer indices (length `pipeline_stages - 1`). If omitted and `num_stages > 1`, defaults to even split: `[len(layers) // num_stages] * (num_stages - 1)`. |
-| `activation_checkpointing` | `activation_checkpoint_interval`, `checkpointable_layers`, `activation_checkpoint_func` | `true` → PyTorch checkpoint; `"unsloth"` → `unsloth_checkpoint`; `reentrant_activation_checkpointing` passed to `checkpoint(..., use_reentrant=...)`. |
+| `activation_checkpointing` | `activation_checkpoint_interval`, `checkpointable_layers`, `activation_checkpoint_func` | `true` → PyTorch checkpoint (`reentrant_activation_checkpointing` → `use_reentrant`); `"auto"` → no wrapper, Inductor memory-budget partitioner (`training/activation_budget.py`). Retired: `"selective"`/`"unsloth"` degrade to `true`. |
 | `steps_per_print` | `ds_config["steps_per_print"]` | DeepSpeed console interval. Default `1` in defaults. |
 | `micro_batch_size_per_gpu` | `train_micro_batch_size_per_gpu` in DeepSpeed config | If value is a dict, first value is used for DS init (image-specific dict handled later for dataloaders). |
 | `gradient_accumulation_steps` | `ds_config` + dataloader `post_init` | |

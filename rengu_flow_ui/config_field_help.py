@@ -578,12 +578,10 @@ FIELD_HELP: dict[str, dict[str, str]] = {
             "backprop — large activation-memory savings for a small extra compute cost (an extra "
             "forward per checkpointed block). Keep it true on small GPUs; false can OOM. Values: "
             "true (full, lowest VRAM, safe default), false (fastest, highest VRAM — OOMs at high res), "
-            "'auto' (compile's memory-budget partitioner picks the optimal save/recompute split per "
-            "graph — requires compile=true; tune with activation_memory_budget, beats 'selective' on "
-            "both speed AND VRAM at low budgets), 'selective' (SAC: keeps attention activations, "
-            "recomputes cheaper ops — quality-neutral, ~4% faster at 1024 but MORE VRAM than full), "
-            "or 'unsloth' (offloads block inputs to CPU; slightly slower, small VRAM gain). "
-            "Tune SAC with selective_checkpoint_save_ops."
+            "or 'auto' (compile's memory-budget partitioner picks the optimal save/recompute split per "
+            "graph — requires compile=true; tune with activation_memory_budget; exact recompute, no "
+            "precision cost). The old 'selective' (SAC) and 'unsloth' modes were retired: 'auto' beats "
+            "SAC on both speed and VRAM; legacy configs fall back to true with a warning."
         ),
         "doc": "docs/user/training-loop-and-eval.md",
     },
@@ -596,18 +594,6 @@ FIELD_HELP: dict[str, dict[str, str]] = {
             "(RTX 4080, vs full checkpointing at 0.97 s / 5.8 GB): 0.1 = -9.5% step time / 6.4 GB "
             "(faster AND smaller than SAC), 0.3 = -16% / 9.0 GB (default), 0.5 = -21% / 11.3 GB. "
             "Requires compile = true."
-        ),
-        "doc": "docs/user/training-loop-and-eval.md",
-    },
-    "selective_checkpoint_save_ops": {
-        "summary": "Extra op types SAC keeps instead of recomputing (the VRAM/speed dial).",
-        "detail": (
-            "Only applies when activation_checkpointing = 'selective'. SAC always keeps the attention "
-            "outputs; this comma-separated list adds more aten ops to keep resident, e.g. "
-            "'mm,addmm,bmm'. More kept = less recompute (a touch faster) but MORE VRAM; empty = keep "
-            "attention only (the lightest SAC). On a tight card leave empty or use "
-            "activation_checkpointing = true. (Adding mm/addmm/bmm gave no extra speed at 1024 — "
-            "torch.compile's partitioner already handles those — so attention-only is enough.)"
         ),
         "doc": "docs/user/training-loop-and-eval.md",
     },

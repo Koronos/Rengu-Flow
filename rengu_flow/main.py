@@ -497,75 +497,16 @@ def _run_training(args, config):
     elif activation_checkpointing:
         # interval N = checkpoint every N transformer blocks (1 = every block, most memory-saving /
         # most recompute). Raise to recompute less at the cost of more activation VRAM.
+        # ('selective'/'unsloth' were retired — defaults.py degrades them to true with a warning;
+        # see docs/EXPERIMENTS_GRAVEYARD.md and activation_checkpointing='auto' for the fast path.)
+        from functools import partial
+
         extra_kw["activation_checkpoint_interval"] = int(config.get("activation_checkpoint_interval", 1))
         extra_kw["checkpointable_layers"] = model.checkpointable_layers
-        if activation_checkpointing == "unsloth":
-            from rengu_flow.utils.unsloth_utils import unsloth_checkpoint
-            extra_kw["activation_checkpoint_func"] = unsloth_checkpoint
-        elif activation_checkpointing == "selective":
-            # Selective Activation Checkpointing (SAC): SAVE the expensive attention outputs
-            # (don't recompute them in backward), recompute only the cheaper ops. Middle ground
-            # between full recompute (lowest VRAM, ~33% recompute tax) and no-checkpoint (OOM at
-            # high res). Saves the attention-recompute tax while keeping VRAM in budget.
-            from functools import partial
-
-            from torch.utils.checkpoint import (
-                CheckpointPolicy,
-                checkpoint,
-                create_selective_checkpoint_contexts,
-            )
-
-            _aten = torch.ops.aten
-            _save_ops = {
-                _aten._scaled_dot_product_flash_attention.default,
-                _aten._scaled_dot_product_efficient_attention.default,
-                _aten._scaled_dot_product_cudnn_attention.default,
-            }
-            # extra ops to also save (e.g. "mm,bmm,addmm") via config, for tuning the VRAM/speed point
-            for _name in str(config.get("selective_checkpoint_save_ops", "")).replace(" ", "").split(","):
-                if _name and hasattr(_aten, _name):
-                    _save_ops.add(getattr(_aten, _name).default)
-
-            def _sac_policy(ctx, op, *a, **kw):
-                return CheckpointPolicy.MUST_SAVE if op in _save_ops else CheckpointPolicy.PREFER_RECOMPUTE
-
-            def _selective_checkpoint(function, *args, **kwargs):
-                return checkpoint(
-                    function, *args, use_reentrant=False,
-                    context_fn=partial(create_selective_checkpoint_contexts, _sac_policy), **kwargs,
-                )
-
-            extra_kw["activation_checkpoint_func"] = _selective_checkpoint
-
-            # SAC uses MORE VRAM than full checkpointing (it keeps the saved activations instead of
-            # recomputing them). It is opt-in, but warn loudly — and extra-loudly on small GPUs —
-            # so a low-VRAM user who enabled it isn't surprised by an OOM. Tunable / revertible:
-            #   - revert to safe full checkpointing: activation_checkpointing = true
-            #   - dial the VRAM/speed tradeoff: selective_checkpoint_save_ops (fewer ops = less VRAM)
-            from rengu_flow.utils import is_main_process as _imp
-            if _imp():
-                _gb = 0.0
-                try:
-                    _gb = torch.cuda.get_device_properties(0).total_memory / 1e9
-                except Exception:
-                    pass
-                _saved = sorted(o._name if hasattr(o, "_name") else str(o) for o in _save_ops)
-                _msg = (
-                    f"[checkpoint] activation_checkpointing='selective' (SAC): saving {len(_save_ops)} op type(s) "
-                    f"{_saved}, recomputing the rest. This is faster than full checkpointing but uses MORE VRAM. "
-                    "If you OOM: set activation_checkpointing=true (full, safe) or shrink "
-                    "selective_checkpoint_save_ops."
-                )
-                if 0 < _gb < 12.0:
-                    _msg += (f" WARNING: this GPU has ~{_gb:.0f} GB — SAC may not fit; full checkpointing "
-                             "(activation_checkpointing=true) is the safer choice here.")
-                print(_msg, flush=True)
-        else:
-            from functools import partial
-            extra_kw["activation_checkpoint_func"] = partial(
-                torch.utils.checkpoint.checkpoint,
-                use_reentrant=config.get("reentrant_activation_checkpointing", False),
-            )
+        extra_kw["activation_checkpoint_func"] = partial(
+            torch.utils.checkpoint.checkpoint,
+            use_reentrant=config.get("reentrant_activation_checkpointing", False),
+        )
 
     pipeline_model = ManualPipelineModule(
         layers=layers,
