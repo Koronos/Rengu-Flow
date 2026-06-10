@@ -17,6 +17,7 @@ def maintenance_on(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture
 def maintenance_client(ui_data_tmp: Path, maintenance_on: None):
     """TestClient with maintenance API enabled (env set before create_app)."""
+    pytest.importorskip("starlette", reason="ui extra not installed (uv sync --extra ui)")
     from starlette.testclient import TestClient
 
     from rengu_flow_ui.app import create_app

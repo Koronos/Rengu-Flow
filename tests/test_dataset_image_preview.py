@@ -3,6 +3,8 @@
 from pathlib import Path
 
 import pytest
+
+pytest.importorskip("fastapi", reason="ui extra not installed (uv sync --extra ui)")
 from fastapi.testclient import TestClient
 
 from rengu_flow_ui.dataset_image_preview import (

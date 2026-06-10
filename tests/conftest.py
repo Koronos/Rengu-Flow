@@ -112,6 +112,7 @@ def _isolated_ui_sqlite(
 @pytest.fixture
 def ui_client(ui_data_tmp: Path, monkeypatch: pytest.MonkeyPatch):
     """FastAPI TestClient with UI routes (no auth token)."""
+    pytest.importorskip("starlette", reason="ui extra not installed (uv sync --extra ui)")
     from starlette.testclient import TestClient
 
     from rengu_flow_ui.app import create_app
@@ -124,6 +125,7 @@ def ui_client(ui_data_tmp: Path, monkeypatch: pytest.MonkeyPatch):
 
 @pytest.fixture
 def ui_client_auth(ui_data_tmp: Path, monkeypatch: pytest.MonkeyPatch):
+    pytest.importorskip("starlette", reason="ui extra not installed (uv sync --extra ui)")
     from starlette.testclient import TestClient
 
     from rengu_flow_ui.app import create_app
