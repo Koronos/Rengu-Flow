@@ -549,17 +549,22 @@ def _run_training(args, config):
         **extra_kw,
     )
     if config.get("compile"):
-        compile_kwargs = {}
-        if compile_mode := config.get("compile_mode"):
-            compile_kwargs["mode"] = compile_mode
+        from rengu_flow.training.compile_plan import apply_dynamo_limits, plan_compile
+
+        num_shapes = None
+        if train_data is not None:
+            shapes = set(train_data.distinct_size_buckets())
+            for eval_data in eval_data_map.values():
+                shapes |= eval_data.distinct_size_buckets()
+            num_shapes = len(shapes)
+        compile_plan = plan_compile(config, num_shapes)
+        apply_dynamo_limits(compile_plan)
         compile_dynamic = config.get("compile_dynamic") is True
-        if compile_dynamic:
-            compile_kwargs["dynamic"] = True
         cache_enabled, cache_dir = _setup_compile_disk_cache(config, is_main_process())
         if is_main_process():
-            print(f"pipeline_model.compile({compile_kwargs or 'defaults'})", flush=True)
+            print(f"pipeline_model.compile({compile_plan.kwargs or 'defaults'})", flush=True)
             msg = (
-                f"[compile] torch.compile enabled (mode={compile_mode or 'default'}, "
+                f"[compile] torch.compile enabled (mode={config.get('compile_mode') or 'default'}, "
                 f"dynamic={compile_dynamic}). The FIRST training step per resolution/shape "
                 "compiles kernels and may take ~1-4 min - this is NORMAL, not a hang."
             )
@@ -574,7 +579,9 @@ def _run_training(args, config):
                     "cache does not help dynamic.)"
                 )
             print(msg, flush=True)
-        pipeline_model.compile(**compile_kwargs)
+            for note in compile_plan.notes:
+                print(f"[compile] {note}", flush=True)
+        pipeline_model.compile(**compile_plan.kwargs)
     parameters_to_train = [p for p in pipeline_model.parameters() if p.requires_grad]
 
     micro_batch = config.get("micro_batch_size_per_gpu", 1)

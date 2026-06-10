@@ -1662,6 +1662,20 @@ class Dataset:
         stage = max(0, min(stage, len(self._schedule_stages) - 1))
         return self._schedule_stages[stage][0]
 
+    def distinct_size_buckets(self) -> set[tuple]:
+        """Distinct (width, height, frames) pixel buckets with at least one sample.
+
+        Each bucket is one latent shape the model will see, so the count sizes
+        torch.compile's per-shape recompile budget (see training/compile_plan.py).
+        Valid after the dataset manager's cache() pass, before post_init.
+        """
+        buckets = set()
+        for dir_ds in self.directory_datasets:
+            for sb in dir_ds.get_size_bucket_datasets():
+                if len(sb.metadata_dataset) > 0:
+                    buckets.add(tuple(sb.size_bucket[-3:]))
+        return buckets
+
     def get_augmentation_resolver(self):
         """Return callable(image_spec) -> (resolved_config, fingerprint) or None."""
         roots: list[tuple[str, dict, str]] = []
