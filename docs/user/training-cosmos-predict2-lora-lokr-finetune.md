@@ -111,7 +111,7 @@ Short tuning smokes (30 steps) are only **previews** for CI and quick regression
 | **`cache_text_embeddings = true`** | Run `--cache_only` once; training should not re-encode captions every step. |
 | **`activation_checkpointing = true`** | Required for typical VRAM on 16 GB; `false` caused **OOM** in tuning (~16 GB peak). |
 | **`reentrant_activation_checkpointing = true`** | Default for `cosmos_predict2` when AC is on (`rengu_flow/config/defaults.py`); modest steady-state gain vs `false`. |
-| **`compile = true`** | Enables **`pipeline_model.compile()`** — `torch.compile` on the whole pipeline model (diffusion-pipe parity). After Inductor warmup, steady steps were ~**0.51 s** vs ~**0.68–0.70 s** without compile on the same LoKR setup — worthwhile when the run is long enough to amortize slower early steps. Optional: **`compile_mode = "reduce-overhead"`** (CUDA-graph based, lowest per-step overhead — best for fixed-shape steps; can further cut step time over the default mode, benchmark per setup; other modes: `"max-autotune"`, `"max-autotune-no-cudagraphs"`). **Multi-res / AR buckets need no extra flag**: the trainer enumerates the dataset's size buckets and compiles one static graph per shape, so every bucket runs at single-res compiled speed (leave `compile_dynamic` unset; see [Shared training techniques — torch.compile](../developer/training-techniques.md#torchcompile)). |
+| **`compile = true`** | Enables **`pipeline_model.compile()`** — `torch.compile` on the whole pipeline model (diffusion-pipe parity). After Inductor warmup, steady steps were ~**0.51 s** vs ~**0.68–0.70 s** without compile on the same LoKR setup — worthwhile when the run is long enough to amortize slower early steps. Leave **`compile_mode`** unset (default mode is the validated one). ⚠️ Do **not** set `"reduce-overhead"` or `"max-autotune"`: both crash on the first step with a CUDAGraphs "output overwritten" error (torch 2.12 + DeepSpeed per-layer compile; measured on single-res and multi-res). `"max-autotune-no-cudagraphs"` runs but pays minutes of extra warmup per shape for marginal gain. **Multi-res / AR buckets need no extra flag**: the trainer enumerates the dataset's size buckets and compiles one static graph per shape, so every bucket runs at single-res compiled speed (leave `compile_dynamic` unset; see [Shared training techniques — torch.compile](../developer/training-techniques.md#torchcompile)). |
 | **`blocks_to_swap`** | Offload DiT blocks (`transformer.blocks`) to CPU and stream them on demand when VRAM is tight (`pipeline_stages = 1`). Works for **both adapters and full finetune** (full finetune additionally requires `optimizer.gradient_release = true`). Start around half the block count and tune; on very small cards swap most of them. See [VRAM optimization](../developer/vram-optimization.md). |
 | **`cache_dedup_text_embeddings = true`** | Speeds `--cache_only` when many images share the same caption (tag-heavy sets). |
 | **`micro_batch_size_per_gpu`** | Set from VRAM; use **`gradient_accumulation_steps`** for effective batch without OOM. |
@@ -193,8 +193,8 @@ The same lever interactions and trade-offs (and the WSL2 allocator caveat) are d
 activation_checkpointing = true
 reentrant_activation_checkpointing = true
 compile = true
-# compile_mode = "reduce-overhead"   # optional: CUDA-graph mode, lowest per-step overhead
-# compile_dynamic = true             # optional: only if input shapes vary between steps
+# compile_mode: leave unset — "reduce-overhead"/"max-autotune" crash (CUDAGraphs + DeepSpeed)
+# compile_dynamic = true             # only for dozens of distinct shapes; slower steady state
 micro_batch_size_per_gpu = 1
 gradient_accumulation_steps = 1
 ```
