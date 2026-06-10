@@ -678,7 +678,7 @@ def get_sections() -> list[dict[str, Any]]:
                     description="Optional; CPU shadow weights updated each step. No auto-export yet.",
                 ),
                 _field("dataloader_num_workers", "Train DataLoader workers", "integer", default=0, min_value=0),
-                _field("dataloader_prefetch", "Prefetch next batch (thread)", "boolean", default=False),
+                _field("dataloader_prefetch", "Prefetch next batch (thread)", "boolean", default=True),
                 _field("dataloader_pin_memory", "Pin memory (CUDA)", "boolean", default=False),
                 _field("dataloader_prefetch_factor", "DataLoader prefetch factor", "integer", default=2, min_value=1),
                 _field(

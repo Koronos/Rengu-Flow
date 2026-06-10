@@ -660,7 +660,7 @@ def _run_training(args, config):
 
     _loader_kwargs = dict(
         num_dataloader_workers=config.get("dataloader_num_workers", 0),
-        dataloader_prefetch=config.get("dataloader_prefetch", False),
+        dataloader_prefetch=config.get("dataloader_prefetch", True),
         pin_memory=config.get("dataloader_pin_memory", False),
         prefetch_factor=config.get("dataloader_prefetch_factor", 2),
         persistent_workers=config.get("dataloader_persistent_workers", True),

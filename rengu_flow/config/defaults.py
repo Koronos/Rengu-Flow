@@ -112,7 +112,11 @@ def set_config_defaults(config: dict[str, Any]) -> None:
     config.setdefault("cache_keep_in_memory", False)
     config.setdefault("train_seed", 42)
     config.setdefault("dataloader_num_workers", 0)
-    config.setdefault("dataloader_prefetch", False)
+    # Default on: with prefetch off the next-batch preload runs synchronously on the
+    # main thread before the step timer starts — a measured ~67-72 ms/step GPU stall
+    # (~9% schedule-weighted wall-clock, 18% @512) that no bench number surfaced.
+    # Same data either way; see docs/DIT_TRAINING_SPEED_RESEARCH (2026-06-09 x-ray).
+    config.setdefault("dataloader_prefetch", True)
     config.setdefault("dataloader_pin_memory", False)
     config.setdefault("dataloader_prefetch_factor", 2)
     config.setdefault("dataloader_persistent_workers", True)

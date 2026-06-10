@@ -146,7 +146,7 @@ Checkpoint restores model, optimizer, LR scheduler, and dataloader state (epoch 
 | **`cache_format`** | On-disk layout for latent and text-embedding cache. | `v2` (mmap bf16 tensor stacks + SQLite metadata) or `v1` (legacy pickle shards). | `v2` |
 | **`cache_dedup_text_embeddings`** | During `--cache_only`, reuse text-encoder outputs when captions are identical (hash dedup). | `true` or `false`. | `false` |
 | **`dataloader_num_workers`** | PyTorch DataLoader workers for training (load cached latents from disk). | Non-negative integer. | `0` |
-| **`dataloader_prefetch`** | Background thread loads the next raw batch while the GPU trains (only when `dataloader_num_workers = 0`). | `true` / `false`. | `false` |
+| **`dataloader_prefetch`** | Background thread loads the next raw batch while the GPU trains (only when `dataloader_num_workers = 0`). Off, the load runs synchronously and stalls the GPU every step. | `true` / `false`. | `true` |
 | **`dataloader_pin_memory`** | Page-locked CPU memory for faster host→GPU copies when using CUDA. | `true` / `false`. | `false` |
 | **`dataloader_prefetch_factor`** | Batches prefetched per worker when `dataloader_num_workers > 0`. | Positive integer. | `2` |
 | **`dataloader_persistent_workers`** | Keep DataLoader worker processes alive between epochs. | `true` / `false`. | `true` |
