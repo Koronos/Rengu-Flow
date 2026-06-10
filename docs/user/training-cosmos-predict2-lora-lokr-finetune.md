@@ -154,7 +154,7 @@ Short tuning smokes (30 steps) are only **previews** for CI and quick regression
 
 ### If it doesn't fit: the VRAM ladder
 
-When a run OOMs, follow the model-agnostic **[VRAM ladder](training-loop-and-eval.md#if-it-doesnt-fit-the-vram-ladder)** in the shared training guide — ordered, composable steps from cheapest (text-embedding cache, checkpointing, budget) to heaviest (8-bit optimizer, block swap). Cosmos data points: full AC takes 1024 LoKr from OOM (>15.5 GB) to 5.76 GB; block swap + `gradient_release` + `compile` + `"auto"`(0.1) fits the 2B **full finetune** on 16 GB (1.56 s/step @512, 9.98 GB peak).
+When a run OOMs, follow the model-agnostic **[VRAM ladder](training-loop-and-eval.md#if-it-doesnt-fit-the-vram-ladder)** in the shared training guide — ordered, composable steps from cheapest (text-embedding cache, checkpointing, budget) to heaviest (memory-efficient optimizer states — kaon — and block swap). Cosmos data points: full AC takes 1024 LoKr from OOM (>15.5 GB) to 5.76 GB; block swap + `gradient_release` + `compile` + `"auto"`(0.1) fits the 2B **full finetune** on 16 GB (1.56 s/step @512, 9.98 GB peak).
 
 ### Very low VRAM (≈8 GB)
 
