@@ -201,6 +201,22 @@ Saves VRAM by recomputing activations in the backward pass. Configure in the mai
 - **`"auto"`** — compiler-driven (requires `compile = true`): Inductor's memory-budget partitioner picks the optimal save/recompute split per compiled graph; dial it with **`activation_memory_budget`** (0.0 ≈ full-checkpoint VRAM, 1.0 ≈ no-checkpoint speed, default 0.3). Exact recompute — no precision cost. Measured @1024 LoKr it beats `"selective"` on speed AND VRAM at budget 0.1, and reaches −21% step time at 0.5. See [Cosmos guide](training-cosmos-predict2-lora-lokr-finetune.md#performance-and-vram-anima--cosmos).
 - Retired values: **`"selective"`** (SAC) and **`"unsloth"`** fall back to `true` with a warning — `"auto"` measured faster AND lighter than SAC (see `docs/EXPERIMENTS_GRAVEYARD.md`).
 
+If a run OOMs, follow the [VRAM ladder](#if-it-doesnt-fit-the-vram-ladder) below.
+
+### If it doesn't fit: the VRAM ladder
+
+Model-agnostic: every step applies to any supported model (Cosmos, SDXL, ...). When a run OOMs, enable these **in order** — each trades a little speed (or setup) for memory, cheapest first. Stop as soon as it fits; the steps compose freely.
+
+1. **`cache_text_embeddings = true` + run `--cache_only` once** (default on for Cosmos/SDXL) — keeps the text encoder out of the training graph entirely.
+2. **`activation_checkpointing = true`** — the big one for activations (Cosmos @1024 LoKr: OOM >15.5 GB → 5.76 GB). If you are on `"auto"`, first **lower `activation_memory_budget`** (0.5 → 0.3 → 0.1 → 0.0) before falling back to `true` — budget 0.1 is still faster than full checkpointing at almost the same VRAM.
+3. **`micro_batch_size_per_gpu = 1` + `gradient_accumulation_steps = N`** — same effective batch, activations of one sample at a time.
+4. **`PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`** (native Linux only, not WSL2) — no math change; fights allocator fragmentation, which multi-res shape changes aggravate.
+5. **8-bit optimizer states**: `optimizer.type = "adamw8bit"` — halves Adam's state memory. Matters mostly for **full finetune** (optimizer states dominate there); for LoRA/LoKr the states are tiny.
+6. **`blocks_to_swap = N`** — stream the model's blocks from CPU (Cosmos: `transformer.blocks`; SDXL: UNet down/mid/up blocks). Start near half the block count and raise until it fits. For **full finetune** also set `optimizer.gradient_release = true` (required). This is the step that fits a 2B full finetune on a 16 GB card.
+7. **Frugal optimizer for the extreme case**: Adafactor or `genericoptim` with `cpu_offload` — last resort.
+
+Not on the ladder: lowering resolution, steps, or what you train — those change the result, not the footprint of producing it. Model-specific measured numbers live in the [Cosmos guide](training-cosmos-predict2-lora-lokr-finetune.md#performance-and-vram-anima--cosmos) and [VRAM optimization](../developer/vram-optimization.md).
+
 Example:
 
 ```toml

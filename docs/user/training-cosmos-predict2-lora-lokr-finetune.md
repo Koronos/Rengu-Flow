@@ -152,6 +152,10 @@ Short tuning smokes (30 steps) are only **previews** for CI and quick regression
 
 > By default the cache lives in **`<cache_root>/compile`** (next to your dataset caches, following a custom `cache_root`). It must be on an ext4-style filesystem (255-char filenames); on an **encrypted home** (~143-char limit) it auto-disables with a warning — point **`compile_cache_dir`** at an ext4 path. When compile is on, the trainer also prints a one-line heads-up that the first step compiles (and may take ~1–4 min) so a long first step doesn't look like a hang.
 
+### If it doesn't fit: the VRAM ladder
+
+When a run OOMs, follow the model-agnostic **[VRAM ladder](training-loop-and-eval.md#if-it-doesnt-fit-the-vram-ladder)** in the shared training guide — ordered, composable steps from cheapest (text-embedding cache, checkpointing, budget) to heaviest (8-bit optimizer, block swap). Cosmos data points: full AC takes 1024 LoKr from OOM (>15.5 GB) to 5.76 GB; block swap + `gradient_release` + `compile` + `"auto"`(0.1) fits the 2B **full finetune** on 16 GB (1.56 s/step @512, 9.98 GB peak).
+
 ### Very low VRAM (≈8 GB)
 
 The DiT is large, so on an 8 GB card lean on block swap of `transformer.blocks` plus the shared
