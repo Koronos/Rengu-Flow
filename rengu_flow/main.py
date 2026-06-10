@@ -650,6 +650,24 @@ def _run_training(args, config):
     # With compile on, the first step on each latent shape pays a one-time
     # kernel compile; announce each new shape so the stall is explained.
     train_dataloader.announce_new_shapes = bool(config.get("compile")) and is_main_process()
+    if (
+        config.get("activation_checkpointing") == "auto"
+        and config.get("compile")
+        and train_data is not None
+    ):
+        # Per-shape activation budget: the configured budget belongs to the
+        # LARGEST bucket (the VRAM-binding one); smaller shapes scale up toward
+        # 1.0 at constant peak (see activation_budget.scale_budget_for_area).
+        from rengu_flow.training.activation_budget import resolve_auto_ac_budget
+
+        _factor = getattr(model, "vae_spatial_compression", 8)
+        _buckets = train_data.distinct_size_buckets()
+        if _buckets:
+            train_dataloader.auto_budget_base = resolve_auto_ac_budget(config)
+            train_dataloader.auto_budget_max_latent_area = max(
+                (w // _factor) * (h // _factor) * frames
+                for (w, h, frames) in (b[-3:] for b in _buckets)
+            )
     eval_gradient_accumulation_steps = config.get("eval_gradient_accumulation_steps", 1)
     eval_dataloaders = {
         name: PipelineDataLoader(

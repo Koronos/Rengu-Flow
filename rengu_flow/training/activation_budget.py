@@ -50,3 +50,19 @@ def apply_activation_memory_budget(budget: float) -> None:
     import torch._functorch.config as functorch_config
 
     functorch_config.activation_memory_budget = budget
+
+
+def scale_budget_for_area(base: float, latent_area: int, max_latent_area: int) -> float:
+    """Per-shape budget: ``base`` applies to the largest bucket; smaller shapes scale up.
+
+    The VRAM constraint comes from the largest shape only — a uniform budget
+    makes the partitioner recompute just as aggressively on small shapes where
+    activations are a fraction of the peak, slowing them for nothing. Scaling
+    by area keeps the saved-activation bytes of every shape at or below
+    ``base x (no-checkpoint bytes of the largest shape)``, so the peak is
+    unchanged while small shapes run with little or no recompute (budget
+    capped at 1.0). Applied per shape just before its first (compiling) step.
+    """
+    if max_latent_area <= 0 or latent_area <= 0:
+        return base
+    return min(1.0, base * max_latent_area / latent_area)

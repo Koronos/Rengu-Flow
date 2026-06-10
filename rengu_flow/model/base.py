@@ -131,6 +131,9 @@ class BasePipeline:
     framerate: float | None = None
     pixels_round_to_multiple: int = 16
     checkpointable_layers: list[str] = []  # Subclasses override (e.g. ['TransformerLayer']).
+    # Pixels-per-latent side of the VAE (8 for SDXL and Cosmos/Qwen image VAEs).
+    # Used to convert dataset pixel buckets to latent areas (activation budget scaling).
+    vae_spatial_compression: int = 8
 
     def _init_block_swap_state(self) -> None:
         from rengu_flow.training.block_swap import NoopOffloader

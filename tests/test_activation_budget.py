@@ -46,3 +46,54 @@ def test_apply_sets_functorch_config():
         assert fc.activation_memory_budget == 0.3
     finally:
         fc.activation_memory_budget = before
+
+
+def test_scale_budget_for_area():
+    from rengu_flow.training.activation_budget import scale_budget_for_area
+
+    # Largest bucket keeps the base budget.
+    assert scale_budget_for_area(0.1, 128 * 128, 128 * 128) == pytest.approx(0.1)
+    # Quarter-area shape (512 vs 1024) scales 4x.
+    assert scale_budget_for_area(0.1, 64 * 64, 128 * 128) == pytest.approx(0.4)
+    # Tiny shapes cap at 1.0 (no recompute).
+    assert scale_budget_for_area(0.1, 16 * 16, 128 * 128) == 1.0
+    # Degenerate inputs fall back to the base.
+    assert scale_budget_for_area(0.3, 0, 128 * 128) == 0.3
+    assert scale_budget_for_area(0.3, 64 * 64, 0) == 0.3
+
+
+def test_loader_applies_per_shape_budget(capsys):
+    import torch
+    import torch._functorch.config as fc
+
+    from rengu_flow.data.loader import PipelineDataLoader
+
+    loader = object.__new__(PipelineDataLoader)
+    loader.announce_new_shapes = True
+    loader._seen_latent_shapes = set()
+    loader.auto_budget_base = 0.1
+    loader.auto_budget_max_latent_area = 1 * 128 * 128  # T*H*W of the largest bucket
+
+    def batch(h, w):
+        return ((torch.zeros(1, 16, 1, h, w), torch.zeros(1)), (torch.zeros(1), None))
+
+    before = fc.activation_memory_budget
+    try:
+        loader._maybe_announce_shape(batch(128, 128))  # largest -> base
+        assert fc.activation_memory_budget == pytest.approx(0.1)
+        loader._maybe_announce_shape(batch(64, 64))  # quarter area -> 0.4
+        assert fc.activation_memory_budget == pytest.approx(0.4)
+        out = capsys.readouterr().out
+        assert "activation budget 0.10" in out and "activation budget 0.40" in out
+
+        # Budget application is independent of the announce flag (non-main ranks).
+        loader2 = object.__new__(PipelineDataLoader)
+        loader2.announce_new_shapes = False
+        loader2._seen_latent_shapes = set()
+        loader2.auto_budget_base = 0.1
+        loader2.auto_budget_max_latent_area = 1 * 128 * 128
+        loader2._maybe_announce_shape(batch(32, 32))
+        assert fc.activation_memory_budget == 1.0  # capped
+        assert capsys.readouterr().out == ""
+    finally:
+        fc.activation_memory_budget = before
