@@ -24,9 +24,13 @@ _METRICS_EVERY_TICKS = 10
 
 
 def _latest_marker(job_id: str) -> dict[str, Any] | None:
-    """Parse the last complete @@RFPROG@@ marker from the job's raw log, if any."""
+    """Parse the last complete @@RFPROG@@ marker from the job's raw log tail.
+
+    Only reads the last 64 KB of the log file instead of the entire thing — the marker
+    is emitted at most ~1/s and is <200 bytes, so this always captures the latest one.
+    """
     try:
-        raw = jobs.read_raw_log(job_id)
+        raw = jobs.read_raw_log_tail(job_id)
     except KeyError:
         return None
     if not raw:

@@ -73,6 +73,19 @@ def test_newer_kaon_optimizer_defaults() -> None:
     assert optimizer_extra_params_defaults("sam")["rho"] == 0.05
 
 
+def test_newest_kaon_optimizer_defaults() -> None:
+    """msam/nekaon (kaon 0.4.0) pre-fill sensible kaon defaults."""
+    msam = optimizer_extra_params_defaults("msam")
+    assert msam["rho"] == 0.3
+    assert msam["lr"] == 1e-4
+
+    nekaon = optimizer_extra_params_defaults("nekaon")
+    assert nekaon["k"] == 1.5
+    assert nekaon["betas"] == [0.5, 0.999]  # beta1 regime knob, must be > 0
+    assert nekaon["weight_decay"] == 0.1
+    assert nekaon["momentum_dtype"] == "4bit"  # Nekaon's deliberate default (not Adakaon's bf16)
+
+
 def test_scheduler_cosine_fqn_defaults_use_tokens() -> None:
     kv = scheduler_kv_defaults("torch.optim.lr_scheduler.CosineAnnealingLR")
     assert kv["T_max"] == "effective_total_steps"

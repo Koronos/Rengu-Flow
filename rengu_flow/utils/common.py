@@ -1,28 +1,19 @@
-"""Common utilities (distributed rank, main process). Used by models and training loop."""
+"""Common utilities. Used by models and training loop.
+
+Distributed rank helpers live in :mod:`rengu_flow.distributed` (the DeepSpeed boundary); they are
+re-exported here for the many existing ``from rengu_flow.utils.common import is_main_process``
+call sites.
+"""
 
 import gc
 from contextlib import contextmanager
+
+from rengu_flow.distributed import get_rank, is_main_process  # noqa: F401  (re-exported)
 
 try:
     import torch
 except ImportError:
     torch = None
-
-try:
-    import deepspeed.comm.comm as dist
-
-    def get_rank() -> int:
-        if dist.is_initialized():
-            return dist.get_rank()
-        return 0
-except ImportError:
-
-    def get_rank() -> int:
-        return 0
-
-
-def is_main_process() -> bool:
-    return get_rank() == 0
 
 
 def empty_cuda_cache() -> None:

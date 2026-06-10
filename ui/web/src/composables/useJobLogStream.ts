@@ -16,6 +16,9 @@ export function useJobLogStream(jobId: Ref<string | undefined> | (() => string |
   let pollTimer: ReturnType<typeof setTimeout> | null = null;
   let httpOffset = 0;
   let wsPrimed = false;
+  // Bumped on every teardown (job switch / unmount) so a late HTTP response from a previous
+  // job can't append to the new job's log or clobber its offset.
+  let fetchGen = 0;
   const charCount = { value: 0 };
 
   const logText = computed(() => chunks.value.join(""));
@@ -37,21 +40,25 @@ export function useJobLogStream(jobId: Ref<string | undefined> | (() => string |
   async function pollHttp(): Promise<void> {
     const id = resolveJobId();
     if (!id || connected.value) return;
+    const gen = fetchGen;
     try {
       const { chunk, offset } = await api.jobLogs(id, httpOffset);
+      if (gen !== fetchGen) return; // job switched during the await — discard this result
       if (chunk && !connected.value) {
         appendBoundedLogChunk(chunks.value, charCount, chunk);
       }
       httpOffset = offset;
     } catch (e) {
+      if (gen !== fetchGen) return;
       streamError.value = e instanceof Error ? e.message : "Could not load log";
     }
-    if (!connected.value) {
+    if (gen === fetchGen && !connected.value) {
       pollTimer = setTimeout(pollHttp, 2000);
     }
   }
 
   function disconnect(): void {
+    fetchGen++;
     stopPolling();
     if (ws) {
       ws.onclose = null;

@@ -90,11 +90,9 @@ class ExportRecoveryAction(Enum):
 
 
 def _dist_module():
-    try:
-        from deepspeed import comm as dist
-        return dist
-    except ImportError:
-        return None
+    from rengu_flow import distributed as dist
+
+    return dist
 
 
 def _broadcast_object_list(values: list, src: int = 0) -> list:
@@ -236,6 +234,9 @@ def _consume_export_recovery_signal(run_dir: Path, action: ExportRecoveryAction)
 def wait_for_export_recovery(run_dir: str | Path) -> ExportRecoveryAction:
     """Block all ranks until rank 0 sees a recovery signal; broadcast the chosen action."""
     root = Path(run_dir)
+    polls_without_signal = 0
+    # Log a reminder every ~60s (30 polls * 2s) so operators know training is alive and waiting.
+    _REMINDER_EVERY_POLLS = 30
     while True:
         found: ExportRecoveryAction | None = None
         if is_main_process():
@@ -247,5 +248,12 @@ def wait_for_export_recovery(run_dir: str | Path) -> ExportRecoveryAction:
         if payload[0] is not None:
             return ExportRecoveryAction(payload[0])
         if is_main_process():
+            polls_without_signal += 1
+            if polls_without_signal % _REMINDER_EVERY_POLLS == 0:
+                minutes = (polls_without_signal * _EXPORT_RECOVERY_POLL_SEC) / 60
+                print(
+                    f"[export wait] Still waiting for recovery signal ({minutes:.0f}m elapsed). "
+                    f"Touch '{root / 'continue'}' to retry, or '{root / 'quit'}' to abort."
+                )
             time.sleep(_EXPORT_RECOVERY_POLL_SEC)
         _sync_ranks_after_rank0()

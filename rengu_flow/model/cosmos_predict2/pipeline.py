@@ -334,7 +334,9 @@ class CosmosPredict2Pipeline(BasePipeline):
         cross_attn_lr = self.model_config.get("cross_attn_lr", base_lr)
         mlp_lr = self.model_config.get("mlp_lr", base_lr)
         mod_lr = self.model_config.get("mod_lr", base_lr)
-        llm_adapter_lr = self.model_config.get("llm_adapter_lr", base_lr)
+        # Freeze the embedded Qwen3 LLM adapter by default; it has outsized influence on
+        # conditioning and degrades easily. Set llm_adapter_lr explicitly to train it.
+        llm_adapter_lr = self.model_config.get("llm_adapter_lr", 0)
 
         if is_main_process():
             print(

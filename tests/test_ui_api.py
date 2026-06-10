@@ -147,6 +147,29 @@ def test_validate_only_endpoint(ui_client) -> None:
     assert body2.get("error")
 
 
+def test_validate_only_endpoint_times_out_gracefully(
+    ui_client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A hung validator subprocess must yield a graceful error, not hang the request."""
+    import subprocess
+
+    import rengu_flow_ui.app as app_mod
+
+    def fake_run(*args, **kwargs):
+        raise subprocess.TimeoutExpired(cmd=["validate"], timeout=kwargs.get("timeout", 120))
+
+    monkeypatch.setattr(app_mod.subprocess, "run", fake_run)
+
+    example = (
+        Path(__file__).resolve().parents[1] / "examples" / "minimal_config_lora_sdxl.toml"
+    ).read_text(encoding="utf-8")
+    r = ui_client.post("/api/v1/validate-only", json={"content": example})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is False
+    assert "timed out" in body["error"].lower()
+
+
 def test_validate_adamw8bit_ok_without_optimizer_dependency_errors(ui_client) -> None:
     """Validate must not fail on missing bitsandbytes; extras install at train start."""
     content = MINIMAL_TOML.replace('type = "adamw"', 'type = "adamw8bit"')

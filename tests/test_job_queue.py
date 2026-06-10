@@ -1,5 +1,8 @@
 """Tests for UI job queue helpers."""
 
+import threading
+import time
+
 import pytest
 
 from rengu_flow_ui import db, job_queue
@@ -53,6 +56,49 @@ def test_enqueue_two_pending_sorted(ui_data_tmp, monkeypatch: pytest.MonkeyPatch
     pending = [j for j in job_queue.list_jobs_sorted() if j.state == "pending"]
     assert len(pending) == 1
     assert pending[0].id == j2.id
+
+
+def test_try_start_next_serializes_concurrent_callers(
+    ui_data_tmp, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two concurrent try_start_next callers must start exactly one runner, not two."""
+    start_calls: list[str] = []
+    calls_lock = threading.Lock()
+
+    def fake_start(job: db.JobRecord) -> int:
+        with calls_lock:
+            start_calls.append(job.id)
+        # Widen the check-then-act window so an unguarded version would race here.
+        time.sleep(0.05)
+        db.update_job(job.id, state="running", pid=99999)
+        return 99999
+
+    monkeypatch.setattr("rengu_flow_ui.jobs.start_job", fake_start)
+    monkeypatch.setattr("rengu_flow_ui.jobs.poll_job", lambda job_id: db.get_job(job_id))
+
+    for num_gpus in (1, 2):
+        job_queue.enqueue_job(
+            content=_CFG,
+            num_gpus=num_gpus,
+            resume_from=None,
+            output_dir=None,
+            extra_args="",
+            reset_dataloader=False,
+            reset_optimizer=False,
+        )
+
+    def worker() -> None:
+        job_queue.try_start_next()
+
+    threads = [threading.Thread(target=worker) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert len(start_calls) == 1, "exactly one runner should have been started"
+    running = [j for j in job_queue.list_jobs_sorted() if j.state == "running"]
+    assert len(running) == 1
 
 
 def test_update_pending_job(ui_data_tmp, monkeypatch: pytest.MonkeyPatch) -> None:

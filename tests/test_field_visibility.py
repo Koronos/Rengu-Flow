@@ -92,6 +92,19 @@ def test_llm_adapter_fields_hidden_until_set() -> None:
     assert field_visible(lr_field, with_path, caps) is True
 
 
+def test_llm_adapter_lr_shown_for_cosmos_finetune() -> None:
+    schema = get_schema()
+    caps = schema["registries"]["model_capabilities"]
+    lr_field = next(
+        f for s in schema["sections"] if s["id"] == "model" for f in s["fields"] if f["path"] == "model.llm_adapter_lr"
+    )
+    base = {"model.type": "cosmos_predict2", "model.llm_path": "/l"}
+    # Finetune (no adapter network): LLM adapter LR is controllable.
+    assert field_visible(lr_field, {**base, "_has_adapter": False}, caps) is True
+    # LoRA/LoKr: get_param_groups isn't used, so the knob is hidden even with a text encoder set.
+    assert field_visible(lr_field, {**base, "_has_adapter": True}, caps) is False
+
+
 def test_prune_drops_other_model_paths() -> None:
     form = {
         "model.type": "sdxl",

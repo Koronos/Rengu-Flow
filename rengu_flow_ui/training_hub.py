@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 from pathlib import Path
 from typing import Any
 
@@ -97,6 +98,18 @@ def _run_folder_name(run_dir: Path | None) -> str | None:
 def _read_run_limits(run_dir: Path | None) -> dict[str, Any]:
     if run_dir is None or not run_dir.is_dir():
         return {}
+    return _read_run_limits_cached(run_dir)
+
+
+@functools.lru_cache(maxsize=64)
+def _read_run_limits_cached(run_dir: Path) -> dict[str, Any]:
+    """Parse limits from the run config TOML (cached by resolved path).
+
+    The cache is unbounded per-process but limited to 64 entries (most recent LRU).
+    A run's config never changes mid-run so staleness is not a concern for active runs.
+    For the paginated list (terminal runs), the cache avoids re-reading the same TOML
+    across consecutive page loads.
+    """
     try:
         cfg = read_run_config_dict(run_dir)
     except RunConfigError:
@@ -223,21 +236,16 @@ def _config_run_name(config_content: str | None) -> str | None:
     return name.strip() if isinstance(name, str) and name.strip() else None
 
 
-def _job_to_training_run(job: db.JobRecord) -> dict[str, Any]:
-    run_dir = resolve_job_run_dir(job)
-    progress = compute_run_progress(run_dir)
-    # Prefer the run folder name; fall back to the config's run_name so queued/draft runs
-    # (which have no folder yet) still show a meaningful name instead of "—".
-    run_name = _run_folder_name(run_dir) or _config_run_name(job.config_content)
-    label = (progress or {}).get("run_name_label") or run_name
+def _job_to_training_run_stub(job: db.JobRecord) -> dict[str, Any]:
+    """Cheap metadata for sorting, filtering, and pagination — no filesystem I/O."""
+    run_name = _config_run_name(job.config_content)
     return {
         "key": f"job:{job.id}",
         "kind": "job",
         "job_id": job.id,
         "state": job.state,
-        "run_dir": str(run_dir) if run_dir else job.run_dir,
         "run_name": run_name,
-        "label": label,
+        "label": run_name,
         "output_dir": job.output_dir,
         "num_gpus": job.num_gpus,
         "resume_from": job.resume_from,
@@ -248,9 +256,29 @@ def _job_to_training_run(job: db.JobRecord) -> dict[str, Any]:
         "cache_only": job.cache_only,
         "trust_cache": job.trust_cache,
         "regenerate_cache": job.regenerate_cache,
-        "progress": progress,
-        "has_tensorboard": bool(run_dir and list(run_dir.glob("events.out.tfevents.*"))),
+        # Deferred — filled by _enrich_training_run.
+        "_job": job,
     }
+
+
+def _enrich_training_run(stub: dict[str, Any]) -> dict[str, Any]:
+    """Fill in progress, run_dir, tensorboard — requires filesystem access."""
+    job: db.JobRecord = stub.pop("_job")
+    run_dir = resolve_job_run_dir(job)
+    progress = compute_run_progress(run_dir)
+    run_name = (_run_folder_name(run_dir) or stub["run_name"])
+    label = (progress or {}).get("run_name_label") or run_name
+    stub["run_dir"] = str(run_dir) if run_dir else job.run_dir
+    stub["run_name"] = run_name
+    stub["label"] = label
+    stub["progress"] = progress
+    stub["has_tensorboard"] = bool(run_dir and list(run_dir.glob("events.out.tfevents.*")))
+    return stub
+
+
+def _job_to_training_run(job: db.JobRecord) -> dict[str, Any]:
+    """Full training-run dict (stub + enrichment). Used by single-item callers."""
+    return _enrich_training_run(_job_to_training_run_stub(job))
 
 
 def _sort_runs(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -277,7 +305,6 @@ def _matches_query(row: dict[str, Any], term: str) -> bool:
             row.get("run_name"),
             row.get("label"),
             row.get("state"),
-            (row.get("progress") or {}).get("model_type"),
         )
     ).lower()
     return term in hay
@@ -290,35 +317,43 @@ def list_training_runs(
     page_size: int = 20,
     state_filter: str | None = None,
 ) -> dict[str, Any]:
-    """Train hub list: UI database jobs only (no filesystem scanning)."""
+    """Train hub list: UI database jobs only (no filesystem scanning).
+
+    Pagination is applied BEFORE computing progress (expensive filesystem I/O), so only
+    the items on the requested page incur that cost.
+    """
     page = max(1, page)
     page_size = max(1, min(100, page_size))
     term = (q or "").strip().lower()
 
-    items: list[dict[str, Any]] = [_job_to_training_run(job) for job in list_jobs_sorted()]
+    # Phase 1: cheap stubs (no filesystem I/O) for filtering + sorting + pagination.
+    stubs: list[dict[str, Any]] = [_job_to_training_run_stub(job) for job in list_jobs_sorted()]
 
     if state_filter:
         sf = state_filter.strip().lower()
         if sf == "active":
-            items = [r for r in items if r["state"] in ACTIVE_STATES]
+            stubs = [r for r in stubs if r["state"] in ACTIVE_STATES]
         elif sf == "queued":
-            items = [r for r in items if r["state"] in QUEUED_STATES]
+            stubs = [r for r in stubs if r["state"] in QUEUED_STATES]
         elif sf == "new":
-            items = [r for r in items if r["state"] in NEW_STATES]
+            stubs = [r for r in stubs if r["state"] in NEW_STATES]
         elif sf == "finished":
-            items = [r for r in items if r["state"] in TERMINAL_STATES]
+            stubs = [r for r in stubs if r["state"] in TERMINAL_STATES]
 
     if term:
-        items = [r for r in items if _matches_query(r, term)]
+        stubs = [r for r in stubs if _matches_query(r, term)]
 
-    items = _sort_runs(items)
-    total = len(items)
+    stubs = _sort_runs(stubs)
+    total = len(stubs)
     offset = (page - 1) * page_size
-    page_items = items[offset : offset + page_size]
+    page_stubs = stubs[offset : offset + page_size]
 
-    running = sum(1 for r in items if r["state"] in ACTIVE_STATES)
-    pending = sum(1 for r in items if r["state"] in QUEUED_STATES)
-    saved = sum(1 for r in items if r["state"] in NEW_STATES)
+    # Phase 2: enrich only the page items with progress / run_dir (filesystem I/O).
+    page_items = [_enrich_training_run(s) for s in page_stubs]
+
+    running = sum(1 for r in stubs if r["state"] in ACTIVE_STATES)
+    pending = sum(1 for r in stubs if r["state"] in QUEUED_STATES)
+    saved = sum(1 for r in stubs if r["state"] in NEW_STATES)
 
     return {
         "items": page_items,

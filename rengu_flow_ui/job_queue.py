@@ -3,12 +3,18 @@
 from __future__ import annotations
 
 import shlex
+import threading
 from pathlib import Path
 from typing import Any
 import toml
 
 from rengu_flow_ui import db, jobs, run_staging
 from rengu_flow_ui.settings import logs_dir
+
+# Serializes the check-then-act in try_start_next so two concurrent callers (e.g. an HTTP
+# endpoint and the job-finish reconciliation thread) can't both pass has_active_runner()
+# and start a second runner.
+_start_lock = threading.Lock()
 
 
 def _resolve_run_content(content: str | None, source_run_dir: str | None) -> str:
@@ -95,17 +101,18 @@ def next_queue_position() -> int:
 
 def try_start_next() -> db.JobRecord | None:
     """Start the first pending job if nothing is running."""
-    if has_active_runner():
-        return None
-    pending = _pending_sorted()
-    if not pending:
-        return None
-    job = pending[0]
-    if not job.config_path or not Path(job.config_path).is_file():
-        db.update_job(job.id, state="failed", finished_at=_now(), exit_code=-1)
+    with _start_lock:
+        if has_active_runner():
+            return None
+        pending = _pending_sorted()
+        if not pending:
+            return None
+        job = pending[0]
+        if not job.config_path or not Path(job.config_path).is_file():
+            db.update_job(job.id, state="failed", finished_at=_now(), exit_code=-1)
+            return db.get_job(job.id)
+        jobs.start_job(job)
         return db.get_job(job.id)
-    jobs.start_job(job)
-    return db.get_job(job.id)
 
 
 def merge_job_cli_args(

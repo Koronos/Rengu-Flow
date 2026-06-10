@@ -319,7 +319,10 @@ def create_app() -> FastAPI:
                 cwd=str(repo_root()),
                 capture_output=True,
                 text=True,
+                timeout=120,
             )
+        except subprocess.TimeoutExpired:
+            return {"ok": False, "error": "Validation timed out after 120s"}
         finally:
             shutil.rmtree(run_staging.staging_dir() / temp_id, ignore_errors=True)
 
@@ -888,6 +891,14 @@ def create_app() -> FastAPI:
 
     @app.websocket(f"{API_PREFIX}/jobs/{{job_id}}/logs/ws")
     async def logs_ws(websocket: WebSocket, job_id: str):
+        token = ui_token()
+        if token:
+            # Check token from query param (?token=...) since WS headers are unreliable
+            # across browsers. Falls back to Sec-WebSocket-Protocol for clients that use it.
+            qs_token = websocket.query_params.get("token", "")
+            if qs_token != token:
+                await websocket.close(code=4401, reason="Invalid token")
+                return
         await websocket.accept()
         offset = 0
         try:
@@ -899,13 +910,29 @@ def create_app() -> FastAPI:
                 except KeyError:
                     await websocket.send_text("[error] job not found\n")
                     break
-                jobs.poll_job(job_id)
+                job = jobs.poll_job(job_id)
+                if job.state not in ("running", "stopping"):
+                    # Job reached a terminal state — flush any trailing output and close,
+                    # rather than tailing a dead job forever until the client disconnects.
+                    try:
+                        chunk, offset = jobs.tail_log(job_id, offset)
+                        if chunk:
+                            await websocket.send_text(chunk)
+                    except KeyError:
+                        pass
+                    break
                 await asyncio.sleep(1.0)
         except WebSocketDisconnect:
             pass
 
     @app.websocket(f"{API_PREFIX}/jobs/{{job_id}}/live/ws")
     async def job_live_ws(websocket: WebSocket, job_id: str):
+        token = ui_token()
+        if token:
+            qs_token = websocket.query_params.get("token", "")
+            if qs_token != token:
+                await websocket.close(code=4401, reason="Invalid token")
+                return
         await websocket.accept()
 
         async def send_json(payload: dict[str, Any]) -> None:

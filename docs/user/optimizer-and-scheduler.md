@@ -51,6 +51,8 @@ You can use these names (case-insensitive) for `optimizer.type`:
 | **schedulefree** | Schedule-Free AdamW (iterate averaging; no LR schedule needed — pair with `lr_scheduler` `none`) (`kaon`) | [K-Optimizers](https://github.com/Koronos/K-Optimizers), [ScheduleFree docs](https://github.com/Koronos/K-Optimizers/blob/main/docs/schedulefree.md) |
 | **lookahead** | k-step slow-weight averaging wrapper over Adakaon; inner Adakaon kwargs pass through (`kaon`) | [K-Optimizers](https://github.com/Koronos/K-Optimizers), [Lookahead docs](https://github.com/Koronos/K-Optimizers/blob/main/docs/lookahead.md) |
 | **sam** | Sharpness-Aware Minimization (two-pass flat-minima) wrapper over Adakaon; `rho` is the neighborhood radius (`kaon`) | [K-Optimizers](https://github.com/Koronos/K-Optimizers), [SAM docs](https://github.com/Koronos/K-Optimizers/blob/main/docs/sam.md) |
+| **msam** | Momentum-SAM (Becker et al. 2024): SAM's flat-minima bias along the stored momentum — **no second forward/backward, no extra state** (wrapper over Adakaon). `rho` is the radius (`rho < 0` probes the downhill direction). Needs `eval()`/`train()` bracketing for sampling/checkpoints (`kaon`) | [K-Optimizers](https://github.com/Koronos/K-Optimizers), [MSAM source](https://github.com/Koronos/K-Optimizers/blob/main/src/kaon/msam.py) |
+| **nekaon** | Adakaon + k-step negative momentum-lookahead — the in-house flat-minima flagship: gradient evaluated `k` steps ahead at **zero extra passes and zero extra state**. `k` is the loss↔gap dial (`0` = Adakaon); `betas[0]` is the regime knob (`0.5` default, `0.2` anti-memorization for small-data LoRA, `0.9` fidelity). Default `momentum_dtype` `4bit`. Needs `eval()`/`train()` bracketing (`kaon`) | [K-Optimizers](https://github.com/Koronos/K-Optimizers), [Nekaon docs](https://github.com/Koronos/K-Optimizers/blob/main/docs/nekaon.md) |
 
 Install optional optimizer dependencies:
 
@@ -58,7 +60,7 @@ Install optional optimizer dependencies:
 pip install -e ".[optim]"
 ```
 
-`adakaon`, `adamuon`, `kprodigy`, `autokaon`, `lion`, `adapnm`, `adabelief`, `adamp`, `adopt`, `schedulefree`, `lookahead`, and `sam` come from the git-backed [`kaon`](https://github.com/Koronos/K-Optimizers) package and are installed on demand via the **kaon** install profile when you select one of these types.
+`adakaon`, `adamuon`, `kprodigy`, `autokaon`, `lion`, `adapnm`, `adabelief`, `adamp`, `adopt`, `schedulefree`, `lookahead`, `sam`, `msam`, and `nekaon` come from the git-backed [`kaon`](https://github.com/Koronos/K-Optimizers) package and are installed on demand via the **kaon** install profile when you select one of these types.
 
 ### Form pre-fill (optimizer KV)
 
@@ -86,6 +88,8 @@ When you pick a built-in name in the form, common keys are pre-filled (edit as n
 | **schedulefree** | `lr` → `2.5e-3`, `betas` → `[0.9, 0.999]`, `weight_decay` → `0.0`, `warmup_steps` → `0`, `cautious` → `true`, `momentum_dtype` → `"bfloat16"`, `bf16_method` → `"stochastic_rounding"` (pair with `lr_scheduler` `none`) |
 | **lookahead** | `lr` → `1e-4`, `k` → `5`, `alpha` → `0.5`, `betas` → `[0.9, 0.999]`, `momentum_dtype` → `"bfloat16"`, `bf16_method` → `"stochastic_rounding"` (inner Adakaon kwargs pass through) |
 | **sam** | `lr` → `1e-4`, `rho` → `0.05`, `betas` → `[0.9, 0.999]`, `momentum_dtype` → `"bfloat16"`, `bf16_method` → `"stochastic_rounding"` (inner Adakaon kwargs pass through) |
+| **msam** | `lr` → `1e-4`, `rho` → `0.3` (`rho < 0` probes the downhill direction), `betas` → `[0.9, 0.999]`, `momentum_dtype` → `"bfloat16"`, `bf16_method` → `"stochastic_rounding"` (inner Adakaon kwargs pass through) |
+| **nekaon** | `lr` → `1e-4`, `k` → `1.5` (lookahead steps; loss↔gap dial), `betas` → `[0.5, 0.999]` (`beta1` regime knob, must be `> 0`), `weight_decay` → `0.1`, `cautious` → `true`, `momentum_dtype` → `"4bit"` (~0.56 B/param; the optimizer's deliberate default, flat-within-noise vs bf16), `bf16_method` → `"stochastic_rounding"` (inner Adakaon kwargs pass through) |
 | Custom class path | (empty list until you add rows) |
 
 ### Common parameters (by family)
@@ -118,6 +122,8 @@ When you pick a built-in name in the form, common keys are pre-filled (edit as n
 | **warmup_steps** | **schedulefree** | Linearly ramp the LR over the first N optimizer steps (default `0`). ScheduleFree needs no external LR scheduler — use `lr_scheduler` `none` |
 | **k**, **alpha** | **lookahead** | `k` = slow-weight sync period (default `5`); `alpha` ∈ [0,1] = slow-weight step size (default `0.5`). Inner Adakaon kwargs (`lr`, `betas`, …) pass through |
 | **rho**, **adaptive** | **sam** | `rho` = sharpness neighborhood radius (default `0.05`); `adaptive` toggles element-wise scaling. Inner Adakaon kwargs pass through. **Two forward/backward passes per step** (≈2× compute) |
+| **rho**, **norm** | **msam** | `rho` = perturbation radius (default `0.3`); **negative `rho` probes the downhill/Nesterov direction** (the sign is an empirical choice). `norm` ∈ `"global"`/`"tensor"`/`"none"` scales by the momentum norm (default `"global"`). Inner Adakaon kwargs pass through. **One** forward/backward per step (no extra pass) |
+| **k**, **betas** | **nekaon** | `k` = lookahead distance in optimizer steps (default `1.5`; `0` = plain Adakaon). `betas[0]` is the regime knob (**must be `> 0`** — the lookahead rides the momentum): `0.5` default, `0.2` anti-memorization (small-data LoRA), `0.9` fidelity (abundant data). `weight_decay` default `0.1`. Inner Adakaon kwargs pass through. **No extra forward/backward** |
 
 For the full kaon parameter set (e.g. `foreach` batching, `momentum_4bit_block`, `momentum_dtype` quantization blocks, AdamP's `nesterov`, Autokaon's `lr_freeze`/`scale_cap`), see the [kaon docs](https://github.com/Koronos/K-Optimizers/tree/main/docs). Any key under `[optimizer]` is forwarded to the constructor, so unlisted kwargs work too.
 

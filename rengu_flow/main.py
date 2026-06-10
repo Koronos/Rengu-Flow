@@ -53,11 +53,20 @@ def parse_args(argv: list[str] | None = None):
     parser.add_argument("--master_port", type=int, default=29500)
     parser.add_argument("--dump_dataset", type=Path, default=None)
     parser.add_argument("--validate-only", action="store_true", help="Load config, apply defaults, validate, then exit (no dataset load, no training).")
-    try:
-        import deepspeed
-        parser = deepspeed.add_config_arguments(parser)
-    except ImportError:
-        pass
+    # ``deepspeed.add_config_arguments`` only registers the args the DeepSpeed launcher injects at
+    # train time (``--deepspeed`` etc., none of which this code reads) — but importing DeepSpeed for
+    # it costs ~17s. The lightweight modes (``--validate-only`` / ``--dump_dataset``) are run
+    # directly, never via the launcher, so they never see those args: skip the import for them.
+    import sys
+
+    argv_to_scan = sys.argv[1:] if argv is None else argv
+    if not any(flag in argv_to_scan for flag in ("--validate-only", "--dump_dataset")):
+        try:
+            import deepspeed
+
+            parser = deepspeed.add_config_arguments(parser)
+        except ImportError:
+            pass
     return parser.parse_args(argv)
 
 
@@ -65,7 +74,7 @@ def _distributed_init(args):
     world_size = int(os.environ.get("WORLD_SIZE", "1"))
     rank = int(os.environ.get("RANK", "0"))
     local_rank = args.local_rank
-    os.environ.setdefault("MASTER_ADDR", os.environ.get("MASTER_ADDR", "localhost"))
+    os.environ.setdefault("MASTER_ADDR", "localhost")
     # Keep MASTER_PORT from deepspeed.launcher when already set.
     os.environ.setdefault("MASTER_PORT", str(args.master_port))
     return world_size, rank, local_rank
@@ -329,9 +338,9 @@ def _setup_compile_disk_cache(config, is_main):
 def _run_training(args, config):
     import torch
     import deepspeed
-    from deepspeed import comm as dist
     from torch.utils.tensorboard import SummaryWriter
 
+    from rengu_flow import distributed as dist
     from rengu_flow.utils.common import empty_cuda_cache
     import time
 

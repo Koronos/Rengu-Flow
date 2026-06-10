@@ -7,13 +7,13 @@ import diffusers
 import torch
 from torch import nn
 import torch.nn.functional as F
-from deepspeed.utils.logging import logger
 import safetensors
 
 from rengu_flow.data.preprocess_media import PreprocessMediaFile
 from rengu_flow.model.base import BasePipeline, make_contiguous
 from rengu_flow.registry.models import register_model
 from rengu_flow.utils.common import cuda_autocast, is_main_process
+from rengu_flow.utils.logging import logger
 from rengu_flow.utils.save_io import atomic_save_safetensors
 from rengu_flow.utils.diffusers_tf5_compat import apply_diffusers_transformers_v5_single_file_patch
 

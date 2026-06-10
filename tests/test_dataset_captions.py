@@ -138,7 +138,7 @@ def test_metadata_map_fn_reads_txt_multiple_lines(tmp_path, img_dir):
         "sdxl",
         skip_dataset_validation=True,
     )
-    fn = dd._metadata_map_fn()
+    fn, _ = dd._metadata_map_fn()
     batch = {
         "image_spec": [[None, str(img)]],
         "caption_file": [str(txt)],
@@ -156,7 +156,7 @@ def test_metadata_map_fn_uses_embedded_json_caption_field(tmp_path, img_dir):
         "sdxl",
         skip_dataset_validation=True,
     )
-    fn = dd._metadata_map_fn()
+    fn, _ = dd._metadata_map_fn()
     batch = {
         "image_spec": [[None, str(img)]],
         "caption_file": [""],
@@ -183,7 +183,7 @@ def test_cache_shuffle_ignored_when_shuffle_tags_off(tmp_path, img_dir):
         skip_dataset_validation=True,
     )
     assert dd.shuffle == 0
-    fn = dd._metadata_map_fn()
+    fn, _ = dd._metadata_map_fn()
     batch = {
         "image_spec": [[None, str(img)]],
         "caption_file": [str(img_dir / "tags.txt")],
@@ -192,6 +192,41 @@ def test_cache_shuffle_ignored_when_shuffle_tags_off(tmp_path, img_dir):
     out = fn(batch)
     assert len(out["caption"][0]) == 1
     assert out["caption"][0][0] == "alpha, beta, gamma"
+
+
+def test_metadata_map_fn_tracks_tar_handles_for_cleanup(tmp_path, img_dir):
+    """The tar handles opened while building metadata are tracked so the caller can close them."""
+    import tarfile
+
+    img = _copy_fixture_image(img_dir, "intar")
+    tar_path = tmp_path / "shard.tar"
+    with tarfile.open(tar_path, "w") as tar:
+        tar.add(img, arcname="intar.jpg")
+
+    dd = DirectoryDataset(
+        {"path": str(img_dir), "num_repeats": 1},
+        MINIMAL_DATASET_CONFIG,
+        "sdxl",
+        skip_dataset_validation=True,
+    )
+    fn, tarfile_map = dd._metadata_map_fn()
+    assert tarfile_map == {}
+
+    batch = {
+        "image_spec": [[str(tar_path), "intar.jpg"]],
+        "caption_file": [""],
+        "mask_file": [None],
+        "caption": [["a caption"]],
+    }
+    fn(batch)
+    # The handle is opened and registered, still open (the map is mid-flight).
+    assert str(tar_path) in tarfile_map
+    assert not tarfile_map[str(tar_path)].closed
+
+    # Simulate the caller's finally-block cleanup.
+    for tar_f in tarfile_map.values():
+        tar_f.close()
+    assert tarfile_map[str(tar_path)].closed
 
 
 def test_cache_shuffle_defaults_to_one_when_shuffle_tags_on(tmp_path, img_dir):
@@ -226,7 +261,7 @@ def test_cache_shuffle_applied_when_shuffle_tags_on(tmp_path, img_dir):
         skip_dataset_validation=True,
     )
     assert dd.shuffle == 2
-    fn = dd._metadata_map_fn()
+    fn, _ = dd._metadata_map_fn()
     batch = {
         "image_spec": [[None, str(img)]],
         "caption_file": [str(img_dir / "shuffled.txt")],
@@ -249,7 +284,7 @@ def test_metadata_map_fn_directory_caption_fallback(tmp_path, img_dir):
         "sdxl",
         skip_dataset_validation=True,
     )
-    fn = dd._metadata_map_fn()
+    fn, _ = dd._metadata_map_fn()
     batch = {
         "image_spec": [[None, str(img)]],
         "caption_file": [""],

@@ -7,10 +7,7 @@ import threading
 
 import torch
 
-try:
-    from deepspeed import comm as dist
-except Exception:
-    dist = None
+from rengu_flow import distributed as dist
 
 _SENTINEL = object()
 

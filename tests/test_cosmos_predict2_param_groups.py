@@ -47,6 +47,27 @@ def test_llm_adapter_lr_zero_freezes_adapter_params(monkeypatch):
     assert groups[0]["lr"] == 1e-4
 
 
+def test_llm_adapter_lr_defaults_to_frozen(monkeypatch):
+    """Omitting llm_adapter_lr freezes the adapter (default 0), not train at base_lr."""
+    config = _pipeline_config()
+    del config["model"]["llm_adapter_lr"]
+    monkeypatch.setattr(
+        CosmosPredict2Pipeline,
+        "__init__",
+        lambda self, cfg: setattr(self, "config", cfg) or setattr(self, "model_config", cfg["model"]),
+    )
+    pipe = CosmosPredict2Pipeline(config)
+    params = [
+        _param("blocks.0.self_attn.q_proj.weight"),
+        _param("llm_adapter.out_proj.weight"),
+    ]
+    groups = pipe.get_param_groups(params)
+    assert params[1].requires_grad is False
+    assert params[0].requires_grad is True
+    assert len(groups) == 1
+    assert groups[0]["lr"] == 1e-4
+
+
 def test_llm_adapter_lr_positive_includes_group(monkeypatch):
     config = _pipeline_config()
     config["model"]["llm_adapter_lr"] = 2e-5
