@@ -1302,7 +1302,37 @@ def _run_training(args, config):
                 config.get("run_name", "bench"),
                 run_dir,
             )
+        if config.get("compile"):
+            _print_compile_cache_stats()
         print("Training complete.")
+
+
+def _print_compile_cache_stats() -> None:
+    """Summarize Inductor disk-cache effectiveness for this run.
+
+    Misses on a config that ran before mean the cache got re-keyed: the key
+    hashes the compile-relevant config (activation_checkpointing mode,
+    activation_memory_budget, compile_mode, torch version) plus every tensor
+    shape in the graph (resolution buckets, micro-batch, adapter rank/factor).
+    Optimizer settings are NOT part of the key (the optimizer step is not
+    compiled)."""
+    try:
+        from torch._dynamo.utils import counters
+
+        hits = counters["inductor"].get("fxgraph_cache_hit", 0)
+        misses = counters["inductor"].get("fxgraph_cache_miss", 0)
+    except Exception:
+        return
+    if hits or misses:
+        msg = f"[compile-cache] fxgraph disk cache: {hits} hits / {misses} misses this run."
+        if misses and not hits:
+            msg += (
+                " All misses on a config you ran before means the cache was re-keyed —"
+                " caused by changing activation_checkpointing/activation_memory_budget/"
+                "compile_mode, adapter rank/factor, micro_batch size, resolutions, or a"
+                " torch upgrade. Optimizer changes do NOT re-key it."
+            )
+        print(msg, flush=True)
 
 
 def run_prepared(args) -> None:
