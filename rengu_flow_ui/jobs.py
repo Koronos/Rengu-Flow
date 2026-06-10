@@ -209,6 +209,26 @@ def read_raw_log(job_id: str) -> str:
     return path.read_bytes().decode("utf-8", errors="replace")
 
 
+def read_raw_log_tail(job_id: str, tail_bytes: int = 65536) -> str:
+    """Read only the last ``tail_bytes`` of the raw log (for progress-marker parsing).
+
+    Much cheaper than ``read_raw_log`` for long-running jobs whose logs grow to tens of
+    MB. The progress marker is emitted at most ~1/s and is <200 bytes, so 64 KB always
+    contains the most recent one.
+    """
+    job = db.get_job(job_id)
+    path = Path(job.log_path)
+    if not path.is_file():
+        return ""
+    size = path.stat().st_size
+    if size <= tail_bytes:
+        return path.read_bytes().decode("utf-8", errors="replace")
+    with path.open("rb") as f:
+        f.seek(-tail_bytes, 2)
+        data = f.read()
+    return data.decode("utf-8", errors="replace")
+
+
 def tail_log(job_id: str, offset: int = 0) -> tuple[str, int]:
     job = db.get_job(job_id)
     path = Path(job.log_path)

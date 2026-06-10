@@ -6,9 +6,8 @@ import time
 from pathlib import Path
 
 import torch
-from deepspeed import comm as dist
-from deepspeed.utils.logging import logger
 
+from rengu_flow import distributed as dist
 from rengu_flow.utils.async_model_export import (
     AsyncModelExportWriter,
     ModelExportJob,
@@ -17,6 +16,7 @@ from rengu_flow.utils.async_model_export import (
     format_byte_size,
 )
 from rengu_flow.utils.common import is_main_process
+from rengu_flow.utils.logging import logger
 from rengu_flow.utils.save_io import (
     cleanup_export_dir,
     global_step_sort_key,

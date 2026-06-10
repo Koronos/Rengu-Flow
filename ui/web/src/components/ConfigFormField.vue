@@ -192,7 +192,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, onUnmounted, ref, watch } from "vue";
 import {
   adapterOptionsForModel,
   datasetFieldVisible,
@@ -422,6 +422,10 @@ const widthClass = computed(() => {
 
 const resolveHint = ref<ResolveHint | null>(null);
 let probeTimer: ReturnType<typeof setTimeout> | null = null;
+
+onUnmounted(() => {
+  if (probeTimer) clearTimeout(probeTimer);
+});
 
 function formatDefault(val: unknown): string {
   return formatDefaultValue(val);

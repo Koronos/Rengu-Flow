@@ -14,12 +14,8 @@ except ImportError:
     import multiprocessing as mp  # type: ignore[no-redef]
 
 from rengu_flow.data.cache_paths import caption_cache_key
-from rengu_flow.utils.common import is_main_process
-
-try:
-    from deepspeed import comm as dist
-except Exception:
-    dist = None
+from rengu_flow.distributed import is_main_process
+from rengu_flow import distributed as dist
 
 
 def _cache_fn(

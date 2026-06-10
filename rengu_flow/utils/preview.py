@@ -171,12 +171,9 @@ def _flush_wandb_preview_images(wandb_images: dict[str, Any], step: int) -> None
 
 
 def _dist_barrier() -> None:
-    try:
-        from deepspeed import comm as dist
-    except ImportError:
-        return
-    if dist.is_initialized():
-        dist.barrier()
+    from rengu_flow import distributed
+
+    distributed.barrier()
 
 
 def run_previews(

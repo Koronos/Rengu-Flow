@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rengu-flow"
-version = "0.1.19"
+version = "0.1.20"
 description = "TOML-driven diffusion training: DeepSpeed, LoRA/LoKr/full finetune (SDXL, Cosmos Predict2), optional web UI."
 readme = "README.md"
 license = "GPL-3.0-or-later"
@@ -31,6 +31,9 @@ dependencies = [
     "imageio>=2.31.0",
     "numpy>=1.24.0",
     "ninja>=1.11",
+    # Scientific-Python SPEC 1 lazy submodule loading: keeps package __init__ files (utils, data)
+    # from eager-importing heavy submodules (e.g. pipeline -> DeepSpeed's ~17s import) until used.
+    "lazy-loader>=0.4",
 ]
 
 [project.optional-dependencies]
@@ -51,6 +54,9 @@ optim = [
 dev = [
     "pytest>=7.0",
     "httpx>=0.27.0",
+    # Parallel test execution. The suite is dominated by heavy per-process imports (torch/diffusers),
+    # so 4 workers is the sweet spot here — more oversubscribe RAM and re-pay import startup. See addopts.
+    "pytest-xdist>=3.5",
 ]
 ui = [
     "fastapi>=0.110.0",
@@ -76,6 +82,10 @@ include = ["rengu_flow*", "rengu_flow_ui*"]
 "rengu_flow.model.cosmos_predict2" = ["assets/**/*"]
 
 [tool.pytest.ini_options]
+# Run in parallel by default (pytest-xdist). 4 workers is the measured sweet spot: the suite is
+# import-bound (torch/diffusers per worker), so more workers re-pay that startup and contend for RAM
+# rather than going faster. Override for a single-test debug run with `-n0` (serial).
+addopts = "-n 4"
 markers = [
     "no_ui_db: skip the autouse UI sqlite fixture (for tests that don't touch the UI store)",
 ]

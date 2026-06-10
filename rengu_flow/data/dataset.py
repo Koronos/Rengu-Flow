@@ -1222,21 +1222,33 @@ class DirectoryDataset:
 
         print("Loading intermediate metadata dataset.")
         metadata_dataset = datasets.load_from_disk(str(metadata_cache_1))
-        metadata_map_fn = self._metadata_map_fn()
+        metadata_map_fn, tarfile_map = self._metadata_map_fn()
         print("Caching ungrouped metadata.")
-        metadata_dataset = metadata_dataset.map(
-            metadata_map_fn,
-            cache_file_name=str(metadata_cache_2),
-            load_from_cache_file=(not regenerate_cache and trust_cache),
-            batched=True,
-            batch_size=1,
-            num_proc=metadata_num_proc,
-            remove_columns=metadata_dataset.column_names,
-        )
+        try:
+            metadata_dataset = metadata_dataset.map(
+                metadata_map_fn,
+                cache_file_name=str(metadata_cache_2),
+                load_from_cache_file=(not regenerate_cache and trust_cache),
+                batched=True,
+                batch_size=1,
+                num_proc=metadata_num_proc,
+                remove_columns=metadata_dataset.column_names,
+            )
+        finally:
+            # Close any tar handles opened during the in-process map so we don't leak FDs
+            # across cache builds. With num_proc > 1 the map runs in forked workers whose
+            # handles are reclaimed on process exit, so this covers the in-process path.
+            for tar_f in tarfile_map.values():
+                tar_f.close()
+            tarfile_map.clear()
         return metadata_dataset
 
     def _metadata_map_fn(self):
         tarfile_map = {}
+
+        # Initialize the shuffle flag once, up front — not per-example inside the closure.
+        if self.directory_config.get("shuffle_tags") and self.shuffle == 0:
+            self.shuffle = 1
 
         def fn(example):
             caption_file = example["caption_file"][0]
@@ -1261,8 +1273,6 @@ class DirectoryDataset:
                         "No caption for %s; using empty caption.",
                         image_file,
                     )
-            if self.directory_config.get("shuffle_tags") and self.shuffle == 0:
-                self.shuffle = 1
             captions = shuffle_captions(
                 captions,
                 self.shuffle,
@@ -1364,7 +1374,7 @@ class DirectoryDataset:
                     ret["control_file"].append(example["control_file"][0])
             return ret
 
-        return fn
+        return fn, tarfile_map
 
     def _find_closest_ar_bucket(self, log_ar, frames, is_video):
         i = np.argmin(np.abs(log_ar - self.log_ars))
