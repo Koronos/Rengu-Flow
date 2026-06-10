@@ -224,13 +224,20 @@ def _register_builtin_capabilities() -> None:
                     "path": "model.llm_adapter_lr",
                     "label": "LLM adapter LR",
                     "type": "number",
+                    "default": 0,
                     "visibility": {
-                        "any": [
-                            {"form_nonempty": "model.llm_adapter_path"},
-                            {"form_nonempty": "model.llm_adapter_lr", "exclude_zero": True},
+                        "all": [
+                            {"not": {"field": "_has_adapter", "equals": True}},
+                            {
+                                "any": [
+                                    {"form_nonempty": "model.llm_path"},
+                                    {"form_nonempty": "model.llm_adapter_path"},
+                                    {"form_nonempty": "model.llm_adapter_lr", "exclude_zero": True},
+                                ],
+                            },
                         ],
                     },
-                    "description": "Set 0 to freeze LLM adapter.",
+                    "description": "Finetune only. The embedded Qwen3 LLM adapter is frozen by default (0); set a value to train it.",
                 },
                 {
                     "path": "model.cache_text_embeddings",

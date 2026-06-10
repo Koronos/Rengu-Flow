@@ -117,7 +117,7 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "doc": "docs/user/training-cosmos-predict2-lora-lokr-finetune.md",
     },
     "model.llm_adapter_lr": {
-        "summary": "Learning rate for LLM adapter; 0 freezes it.",
+        "summary": "Finetune-only LR for the embedded Qwen3 LLM adapter; frozen by default (0), set a value to train it.",
         "doc": "docs/user/training-cosmos-predict2-lora-lokr-finetune.md",
     },
     "model.cache_text_embeddings": {

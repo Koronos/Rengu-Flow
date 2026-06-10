@@ -84,7 +84,9 @@ Optional per-block LRs in `[model]`:
 
 - `self_attn_lr`, `cross_attn_lr`, `mlp_lr`, `mod_lr`, `llm_adapter_lr`
 
-Set `llm_adapter_lr = 0` to freeze the LLM adapter submodule when present.
+The LLM adapter submodule is **frozen by default** (`llm_adapter_lr = 0`) — it has outsized
+influence on conditioning and degrades easily. Set `llm_adapter_lr` to a positive value only
+if you intentionally want to train it.
 
 ## Dataset and cache
 
