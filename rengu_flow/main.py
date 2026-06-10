@@ -647,6 +647,9 @@ def _run_training(args, config):
         model,
         **_loader_kwargs,
     )
+    # With compile on, the first step on each latent shape pays a one-time
+    # kernel compile; announce each new shape so the stall is explained.
+    train_dataloader.announce_new_shapes = bool(config.get("compile")) and is_main_process()
     eval_gradient_accumulation_steps = config.get("eval_gradient_accumulation_steps", 1)
     eval_dataloaders = {
         name: PipelineDataLoader(

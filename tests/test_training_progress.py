@@ -225,3 +225,29 @@ def test_compute_run_progress_merges_marker_speed(tmp_path: Path) -> None:
     assert prog["steps_per_second_ema"] == 0.5
     assert prog["eta"] == "2m"
     assert prog["steps_remaining"] == 60
+
+
+def test_loader_announces_new_latent_shapes_once(capsys):
+    """With announce_new_shapes on, each distinct latent shape prints one heads-up."""
+    import torch
+
+    from rengu_flow.data.loader import PipelineDataLoader
+
+    loader = object.__new__(PipelineDataLoader)
+    loader.announce_new_shapes = True
+    loader._seen_latent_shapes = set()
+
+    def batch(h, w, b=1):
+        return ((torch.zeros(b, 16, 1, h, w), torch.zeros(b)), (torch.zeros(b), None))
+
+    loader._maybe_announce_shape(batch(64, 64))
+    loader._maybe_announce_shape(batch(64, 64))      # repeat -> silent
+    loader._maybe_announce_shape(batch(64, 64, b=2))  # batch dim ignored -> silent
+    loader._maybe_announce_shape(batch(128, 96))      # new shape -> printed
+    out = capsys.readouterr().out
+    assert out.count("[compile] new latent shape") == 2
+    assert "1x16x1x64x64" in out and "(2 seen)" in out
+
+    loader.announce_new_shapes = False
+    loader._maybe_announce_shape(batch(32, 32))
+    assert "[compile]" not in capsys.readouterr().out

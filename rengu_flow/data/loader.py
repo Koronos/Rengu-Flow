@@ -66,6 +66,10 @@ class PipelineDataLoader:
         self.num_batches_pulled = 0
         self.next_micro_batch = None
         self.recreate_dataloader = False
+        # Opt-in (main.py, compile runs): announce the first batch of each new
+        # latent shape so the per-shape compile stall is explained in the log.
+        self.announce_new_shapes = False
+        self._seen_latent_shapes: set = set()
         self._prefetch_thread: threading.Thread | None = None
         self._prefetch_queue: queue.Queue | None = None
         self._prefetch_error: list[BaseException] = []
@@ -95,6 +99,7 @@ class PipelineDataLoader:
         if self.next_micro_batch is None:
             self.next_micro_batch = next(self.data)
         ret = self.next_micro_batch
+        self._maybe_announce_shape(ret)
         try:
             self.next_micro_batch = next(self.data)
         except StopIteration:
@@ -110,6 +115,33 @@ class PipelineDataLoader:
             self.num_batches_pulled = 0
             self.next_micro_batch = None
         return ret
+
+    def _maybe_announce_shape(self, micro_batch) -> None:
+        """Print a one-time heads-up when a not-yet-seen latent shape is about to be fed.
+
+        With compile on, the first step on each shape compiles its kernels — a
+        one-time stall that can look like a hang. Announced here (data side)
+        because the loader sees the shape *before* the stall starts.
+        """
+        if not self.announce_new_shapes:
+            return
+        try:
+            features = micro_batch[0]
+            latents = features[0] if isinstance(features, (tuple, list)) else features
+            shape = tuple(latents.shape)
+        except Exception:
+            return
+        key = shape[1:]  # ignore micro-batch dim; (C, T, H, W) identifies the graph
+        if key in self._seen_latent_shapes:
+            return
+        self._seen_latent_shapes.add(key)
+        print(
+            f"[compile] new latent shape {'x'.join(str(d) for d in shape)} "
+            f"({len(self._seen_latent_shapes)} seen) — first step on this shape "
+            "compiles its kernels: expect a one-time slow step (disk-cached for "
+            "later runs), not a hang.",
+            flush=True,
+        )
 
     def _refresh_dataset_epoch(self) -> None:
         """Tell the dataset which epoch we are on (no-op for datasets without set_epoch)."""
