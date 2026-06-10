@@ -144,10 +144,14 @@ def test_base_train_command_python_fallback(tmp_path, monkeypatch):
 def test_ui_job_command_uses_module(tmp_path, monkeypatch):
     """The web UI launcher must share the same --module contract as the CLI (RF-01/RF-02)."""
     from rengu_flow.cli import train_launcher
+    from rengu_flow_ui import jobs as ui_jobs
     from rengu_flow_ui.jobs import build_train_command as ui_build
 
     monkeypatch.setattr(train_launcher, "which", lambda _: "/usr/bin/deepspeed")
-    monkeypatch.setattr(train_launcher, "_pick_master_port", lambda _req: 29500)
+    # jobs.py binds _pick_master_port by direct import — patch THAT binding, not the
+    # train_launcher attribute, or the real picker runs and the asserted port drifts
+    # whenever 29500 is busy (e.g. a live training run).
+    monkeypatch.setattr(ui_jobs, "_pick_master_port", lambda _req: 29500)
     cmd = ui_build(tmp_path / "train.toml", num_gpus=2)
     assert cmd[0].endswith("deepspeed")
     assert "--num_gpus=2" in cmd
