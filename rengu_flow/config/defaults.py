@@ -81,6 +81,7 @@ def set_config_defaults(config: dict[str, Any]) -> None:
             preview_cfg.setdefault("width", 1024)
             preview_cfg.setdefault("height", 1024)
             preview_cfg.setdefault("preview_offload_text_encoder", True)
+            preview_cfg.setdefault("preview_offload_dit_for_decode", False)
 
     if "adapter" in config:
         adapter_config = config["adapter"]

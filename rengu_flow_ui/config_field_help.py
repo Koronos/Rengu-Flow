@@ -364,6 +364,12 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "summary": "DiT blocks on CPU between preview steps (Cosmos only).",
         "doc": "docs/user/previews.md",
     },
+    "preview.preview_offload_dit_for_decode": {
+        "summary": "Move the DiT to CPU during the VAE decode to save VRAM (Cosmos only). "
+        "Off by default — unsafe on DeepSpeed/compiled runs (crashes the next NCCL op); "
+        "only enable on a tight GPU that OOMs at decode.",
+        "doc": "docs/user/previews.md",
+    },
     "preview.preview_save_png": {
         "summary": "Write PNG files under the run preview/ folder.",
         "doc": "docs/user/previews.md",

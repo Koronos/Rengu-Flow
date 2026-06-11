@@ -444,6 +444,11 @@ class CosmosPredict2Pipeline(BasePipeline):
         if self.transformer is None:
             self.load_diffusion_model()
         target = torch.device(device)
+        if target.type == "cuda" and target.index is None:
+            # "cuda" (no index) != "cuda:0" as device objects; resolve to the current device so an
+            # already-resident DiT is recognized and we skip a needless .to() (which on a DeepSpeed /
+            # compiled module would reassign param storage). See offload_transformer_for_decode.
+            target = torch.device("cuda", torch.cuda.current_device())
         param = next(self.transformer.parameters())
         if param.device != target:
             if is_main_process():
@@ -467,7 +472,7 @@ class CosmosPredict2Pipeline(BasePipeline):
         state["transformer_was_training"] = self.transformer.training
         self._preview_restore_state = state
 
-    def offload_transformer_for_decode(self) -> None:
+    def offload_transformer_for_decode(self, preview_cfg: dict | None = None) -> None:
         """Move the DiT to CPU before the VAE decode so the decoder's conv3d has contiguous VRAM.
 
         The decode does not use the DiT, and on a tight GPU the DiT (fully resident for sampling)
@@ -475,8 +480,17 @@ class CosmosPredict2Pipeline(BasePipeline):
         already manages residency (it would fight the streamed layout). The next prompt's
         ``euler_sample_latents`` re-ensures the DiT on GPU; ``restore_after_preview`` returns it to
         the training device for the resumed step.
+
+        Off by default (``preview_offload_dit_for_decode``): the CPU<->GPU round-trip reassigns every
+        parameter's ``.data`` to fresh storage, which a DeepSpeed engine / fused optimizer (and any
+        ``torch.compile`` graph) still references at the old GPU addresses — ``empty_cache`` then frees
+        those, so the next NCCL collective (the post-preview barrier) dereferences dangling buffers and
+        raises ``cudaErrorIllegalAddress``. Only opt in on a tight GPU that OOMs at decode *and* is not
+        DeepSpeed-managed/compiled.
         """
         if self.transformer is None:
+            return
+        if not (preview_cfg or {}).get("preview_offload_dit_for_decode", False):
             return
         if getattr(self, "_preview_offloader", None) is not None:
             return

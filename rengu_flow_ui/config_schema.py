@@ -299,6 +299,13 @@ def _preview_section() -> dict[str, Any]:
                 when=WHEN_COSMOS_PREVIEW,
             ),
             _field(
+                "preview.preview_offload_dit_for_decode",
+                "Offload DiT to CPU for VAE decode",
+                "boolean",
+                default=False,
+                when=WHEN_COSMOS_PREVIEW,
+            ),
+            _field(
                 "preview.preview_save_png",
                 "Save preview PNGs",
                 "boolean",

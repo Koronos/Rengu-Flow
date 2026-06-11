@@ -278,8 +278,10 @@ def generate_preview_image(
     )
     print("rengu_flow: VAE decode for preview...", flush=True)
     # Free the DiT from VRAM before decoding — the VAE decoder's conv3d needs a large contiguous
-    # block and the DiT is not used here. No-op when block swap manages residency.
-    pipeline.offload_transformer_for_decode()
+    # block and the DiT is not used here. Off by default (opt-in via preview_offload_dit_for_decode):
+    # the CPU<->GPU round-trip corrupts DeepSpeed/compiled param storage. No-op when block swap
+    # manages residency.
+    pipeline.offload_transformer_for_decode(preview_cfg)
     image = decode_latents_to_pil(pipeline, latents)
     print("rengu_flow: preview image ready.", flush=True)
     return image

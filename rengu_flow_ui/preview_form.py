@@ -89,6 +89,13 @@ def get_preview_entry_fields() -> list[dict[str, Any]]:
             when=WHEN_COSMOS_PREVIEW,
         ),
         _entry_field(
+            "preview_offload_dit_for_decode",
+            "Offload DiT for VAE decode",
+            "boolean",
+            default=False,
+            when=WHEN_COSMOS_PREVIEW,
+        ),
+        _entry_field(
             "preview_save_png",
             "Save PNG to run folder",
             "boolean",
@@ -114,6 +121,7 @@ PREVIEW_GLOBAL_PATHS: frozenset[str] = frozenset(
         "disable_block_swap_for_preview",
         "preview.preview_offload_text_encoder",
         "preview.preview_blocks_to_swap",
+        "preview.preview_offload_dit_for_decode",
         "preview.preview_save_png",
     }
 )
