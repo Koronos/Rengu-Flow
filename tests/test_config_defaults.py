@@ -87,3 +87,19 @@ def test_set_config_defaults_degrades_retired_ac_modes(minimal_config_copy, lega
     assert minimal_config_copy["activation_checkpointing"] is True
     out = capsys.readouterr().out
     assert "retired" in out and "auto" in out
+
+
+def test_micro_batch_dict_keys_normalized_from_toml(minimal_config_copy):
+    # TOML always parses table keys as strings; the resolution->batch lookups
+    # compare numerically, so defaults must normalize { "512": 2 } -> { 512: 2 }.
+    minimal_config_copy["micro_batch_size_per_gpu"] = {"512": 2, "1024": 1}
+    minimal_config_copy["image_micro_batch_size_per_gpu"] = {"768": 4}
+    set_config_defaults(minimal_config_copy)
+    assert minimal_config_copy["micro_batch_size_per_gpu"] == {512: 2, 1024: 1}
+    assert minimal_config_copy["image_micro_batch_size_per_gpu"] == {768: 4}
+
+
+def test_micro_batch_int_untouched(minimal_config_copy):
+    minimal_config_copy["micro_batch_size_per_gpu"] = 2
+    set_config_defaults(minimal_config_copy)
+    assert minimal_config_copy["micro_batch_size_per_gpu"] == 2
