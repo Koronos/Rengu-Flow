@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import os
 from pathlib import Path
 
 import torch
@@ -49,6 +50,10 @@ def bench_record(
         alloc = torch.cuda.memory_allocated() / 1e9
         reserved = torch.cuda.memory_reserved() / 1e9
         peak = torch.cuda.max_memory_allocated() / 1e9
+        if os.environ.get("RENGU_BENCH_PEAK_PER_STEP") == "1":
+            # Opt-in: report each step's own peak instead of the cumulative
+            # high-water mark (which is dominated by the cold compile step).
+            torch.cuda.reset_peak_memory_stats()
     sps = batch_size / iter_sec if iter_sec > 0 else 0.0
     with csv_path.open("a", newline="") as f:
         csv.writer(f).writerow(

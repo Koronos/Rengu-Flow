@@ -142,6 +142,14 @@ def set_config_defaults(config: dict[str, Any]) -> None:
     config.setdefault("val_gap_enable", True)
     config.setdefault("val_gap_probe_batches", 8)
     config.setdefault("cache_dedup_text_embeddings", False)
+    # Stream saved activations to pinned CPU RAM over side streams (see
+    # training/activation_offload.py). Pairs with a raised
+    # activation_memory_budget: the budget picks save-vs-recompute, the
+    # offloader moves the saved ones off the GPU.
+    config.setdefault("activation_offload", False)
+    config.setdefault("activation_offload_min_tensor_mb", 4.0)
+    config.setdefault("activation_offload_max_ram_gb", None)
+    config.setdefault("activation_offload_prefetch_mb", 512.0)
     config.setdefault("compile", False)
     # TorchInductor/Triton disk cache for torch.compile. "auto" enables the cache
     # only when compile is on AND compile_dynamic is off (with dynamic shapes the

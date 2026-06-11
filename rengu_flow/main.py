@@ -1,6 +1,7 @@
 """Entry point for Rengu Flow. Load config, validate; run training loop when not dry-run."""
 
 import argparse
+import contextlib
 import functools
 import glob
 import os
@@ -591,6 +592,21 @@ def _run_training(args, config):
     if config.get("blocks_to_swap", 0):
         model.prepare_block_swap_training()
 
+    # Saved-activation offload to pinned CPU RAM (None when disabled). Wraps each
+    # train_batch below; previews/eval run under no_grad and save nothing.
+    from rengu_flow.training.activation_offload import ActivationOffloader
+
+    act_offloader = ActivationOffloader.from_config(
+        config, params_provider=pipeline_model.parameters
+    )
+    if act_offloader is not None and is_main_process():
+        print(
+            "[act-offload] activation_offload enabled: saved activations stream to "
+            "pinned CPU RAM over side streams (per-step volume logged after the "
+            "first step).",
+            flush=True,
+        )
+
     from rengu_flow.training.ema import TrainingEMA
 
     training_ema = TrainingEMA.from_config(config, parameters_to_train)
@@ -1070,9 +1086,13 @@ def _run_training(args, config):
             iterator = get_data_iterator_for_step(train_dataloader, model_engine)
             t0 = time.perf_counter()
             skipped_oom = False
+            act_offload_ctx = (
+                act_offloader.step() if act_offloader is not None else contextlib.nullcontext()
+            )
             if oom_skip_enabled:
                 try:
-                    loss = model_engine.train_batch(iterator).item()
+                    with act_offload_ctx:
+                        loss = model_engine.train_batch(iterator).item()
                 except Exception as e:
                     if not is_cuda_oom(e):
                         raise
@@ -1087,7 +1107,8 @@ def _run_training(args, config):
                     train_dataloader.sync_epoch()
                     skipped_oom = True
             else:
-                loss = model_engine.train_batch(iterator).item()
+                with act_offload_ctx:
+                    loss = model_engine.train_batch(iterator).item()
             iter_sec = time.perf_counter() - t0
             if _prof is not None:
                 _prof.step()

@@ -92,6 +92,18 @@ the current block computes, to hide transfer latency. **On the 8 GB WSL box it i
 ≥2 resident blocks (bigger GPUs, or native Linux without WSL2 sysmem paging). Needs Linux/large-GPU
 validation.
 
+### 8. `activation_offload = true` (saved activations to pinned RAM — parked, measured net-negative here)
+Stream the activations that *are* saved (after the checkpointing decision) to pinned CPU RAM over
+side CUDA streams during the forward, prefetching them back in reverse order during the backward
+([`ActivationOffloader`](../../rengu_flow/training/activation_offload.py)). Trades PCIe bandwidth
+for VRAM instead of checkpointing's recompute FLOPs. **Measured on the 4080/Cosmos target it does
+not beat the `activation_memory_budget` dial on either axis** — see the graveyard entry
+("Async pinned-buffer activation offload") for the numbers and root causes before considering it;
+it remains correct and off by default, for hardware where the host link is much faster than PCIe
+4.0. Knobs: `activation_offload_min_tensor_mb`, `activation_offload_max_ram_gb`,
+`activation_offload_prefetch_mb`. Not compatible with `compile_mode = "reduce-overhead"` or double
+backward; non-contiguous saved tensors stay in VRAM.
+
 ## How they interact
 
 - **gradient_release + block swap are a pair** for full fine-tuning: the swap removes weights, the
