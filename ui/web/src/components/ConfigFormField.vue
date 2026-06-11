@@ -41,6 +41,12 @@
       @update:model-value="onEvalDatasetsInput"
     />
 
+    <MicroBatchField
+      v-else-if="field.path === 'micro_batch_size_per_gpu'"
+      :model-value="effectiveValue"
+      @update:model-value="onMicroBatchInput"
+    />
+
     <el-autocomplete
       v-else-if="field.type === 'select' && field.allow_custom"
       v-model="editableText"
@@ -213,6 +219,7 @@ import {
   trainingDatasetFormValue,
 } from "../lib/datasetLibraryRef";
 import EvalDatasetsField, { type EvalDatasetEntry } from "./EvalDatasetsField.vue";
+import MicroBatchField from "./MicroBatchField.vue";
 import NumericListField from "./NumericListField.vue";
 import SizeBucketsField from "./SizeBucketsField.vue";
 import ResolutionScheduleField from "./ResolutionScheduleField.vue";
@@ -438,6 +445,11 @@ function onInput(val: string | number | undefined | null): void {
 
 function onKvInput(val: unknown): void {
   emit("update:path", { path: props.field.path, value: val });
+}
+
+function onMicroBatchInput(val: number | Record<string, number> | undefined): void {
+  // undefined = nothing usable filled in -> clear the field (form treats "" as unset).
+  emit("update:path", { path: props.field.path, value: val === undefined ? "" : val });
 }
 
 function onBooleanInput(val: boolean): void {
