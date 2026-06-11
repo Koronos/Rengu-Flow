@@ -140,3 +140,34 @@ def test_loader_applies_per_shape_budget(capsys):
         assert capsys.readouterr().out == ""
     finally:
         fc.activation_memory_budget = before
+
+
+def test_nominal_micro_batch():
+    from rengu_flow.training.activation_budget import nominal_micro_batch
+
+    assert nominal_micro_batch(2) == 2
+    assert nominal_micro_batch({512: 2, 1024: 1}) == 2  # mean 1.5 rounds to 2
+    assert nominal_micro_batch({512: 4, 768: 2, 1024: 1}) == 2  # mean 2.33 -> 2
+    assert nominal_micro_batch({}) == 1
+    # Unlike first-dict-value, key order must not matter.
+    assert nominal_micro_batch({1024: 1, 512: 4, 768: 2}) == nominal_micro_batch(
+        {512: 4, 768: 2, 1024: 1}
+    )
+
+
+def test_dataset_avg_examples_per_step():
+    from rengu_flow.data.dataset import Dataset
+
+    class _Bucket:
+        def __init__(self, images, steps):
+            self.iteration_order = list(range(images))
+            self._steps = steps
+
+        def __len__(self):
+            return self._steps
+
+    ds = Dataset.__new__(Dataset)
+    ds.post_init_called = True
+    # 512-bucket: 96 images at global batch 2 -> 48 steps; 1024: 40 at 1 -> 40 steps.
+    ds.buckets = [_Bucket(96, 48), _Bucket(40, 40)]
+    assert ds.avg_examples_per_step() == (96 + 40) / (48 + 40)

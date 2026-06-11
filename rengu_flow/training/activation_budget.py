@@ -75,6 +75,21 @@ def scale_budget_for_area(base: float, latent_area: int, max_latent_area: int) -
     return min(1.0, base * max_latent_area / latent_area)
 
 
+def nominal_micro_batch(value) -> int:
+    """One representative integer for a micro-batch config that may be a dict.
+
+    Used where a single number is needed before the dataset can report the real
+    per-step average (DeepSpeed config, optimizer batch-size scaling): the mean
+    of the per-resolution values, rounded — unlike the first dict entry, it does
+    not depend on key order. Step/example accounting should prefer the
+    dataset's ``avg_examples_per_step`` once available.
+    """
+    if isinstance(value, dict):
+        values = [int(v) for v in value.values()]
+        return max(1, round(sum(values) / len(values))) if values else 1
+    return int(value)
+
+
 def micro_batch_for_size_bucket(
     size_bucket: tuple,
     micro_batch_dict: dict,
