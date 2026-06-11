@@ -3,7 +3,25 @@
 import pytest
 import torch
 
-from rengu_flow.utils.oom_skip import OomSkipState, handle_oom_skip, is_cuda_oom
+from rengu_flow.utils.oom_skip import (
+    OomSkipState,
+    handle_oom_skip,
+    is_cuda_oom,
+    reset_engine_timers,
+)
+
+
+class _FakeTimer:
+    def __init__(self):
+        self.started_ = True
+
+    def reset(self):
+        self.started_ = False
+
+
+class _FakeTimerGroup:
+    def __init__(self):
+        self.timers = {"train_batch": _FakeTimer(), "fwd_microstep": _FakeTimer()}
 
 
 def test_is_cuda_oom_out_of_memory_error():
@@ -44,3 +62,23 @@ def test_handle_oom_skip_zeros_grad():
     state = OomSkipState(max_consecutive=3)
     handle_oom_skip(state, engine, clear_cache=False)
     assert engine.optimizer.zeroed is True
+
+
+def test_reset_engine_timers_clears_started_state():
+    engine = type("E", (), {})()
+    engine.timers = _FakeTimerGroup()
+    reset_engine_timers(engine)
+    assert all(not t.started_ for t in engine.timers.timers.values())
+
+
+def test_reset_engine_timers_tolerates_engines_without_timers():
+    reset_engine_timers(type("E", (), {})())  # must not raise
+
+
+def test_handle_oom_skip_resets_timers():
+    engine = type("E", (), {})()
+    engine.optimizer = type("O", (), {})()
+    engine.optimizer.zero_grad = lambda set_to_none=True: None
+    engine.timers = _FakeTimerGroup()
+    handle_oom_skip(OomSkipState(max_consecutive=3), engine, clear_cache=False)
+    assert all(not t.started_ for t in engine.timers.timers.values())
