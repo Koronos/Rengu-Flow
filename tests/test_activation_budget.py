@@ -60,6 +60,49 @@ def test_scale_budget_for_area():
     # Degenerate inputs fall back to the base.
     assert scale_budget_for_area(0.3, 0, 128 * 128) == 0.3
     assert scale_budget_for_area(0.3, 64 * 64, 0) == 0.3
+    # Tokens include the batch dim: batch 4 @ quarter-area == the largest
+    # bucket's bytes, so it must keep the base budget, not scale up 4x.
+    assert scale_budget_for_area(0.1, 4 * 64 * 64, 128 * 128) == pytest.approx(0.1)
+
+
+def test_micro_batch_for_size_bucket():
+    from rengu_flow.training.activation_budget import micro_batch_for_size_bucket
+
+    # None key = all resolutions; image buckets (frames == 1) read the image dict.
+    assert micro_batch_for_size_bucket((512, 512, 1), {None: 2}, {None: 4}) == 4
+    assert micro_batch_for_size_bucket((512, 512, 8), {None: 2}, {None: 4}) == 2
+    # Nearest numeric key to sqrt(w*h) wins (the dataset's rule).
+    per_res = {512: 4, 1024: 1}
+    assert micro_batch_for_size_bucket((512, 512, 1), {None: 1}, per_res) == 4
+    assert micro_batch_for_size_bucket((1024, 1024, 1), {None: 1}, per_res) == 1
+    assert micro_batch_for_size_bucket((704, 704, 1), {None: 1}, per_res) == 4  # closer to 512
+
+
+def test_loader_scales_budget_by_batch_dim(capsys):
+    """Batch 4 at quarter-area must NOT scale the budget up (same bytes as max bucket)."""
+    import torch
+    import torch._functorch.config as fc
+
+    from rengu_flow.data.loader import PipelineDataLoader
+
+    loader = object.__new__(PipelineDataLoader)
+    loader.announce_new_shapes = False
+    loader._seen_latent_shapes = set()
+    loader.auto_budget_base = 0.1
+    loader.auto_budget_max_latent_tokens = 4 * 1 * 64 * 64  # batch 4 @ 512 is the binding bucket
+
+    def batch(bs, h, w):
+        return ((torch.zeros(bs, 16, 1, h, w), torch.zeros(bs)), (torch.zeros(bs), None))
+
+    before = fc.activation_memory_budget
+    try:
+        loader._maybe_announce_shape(batch(4, 64, 64))  # binding bucket -> base
+        assert fc.activation_memory_budget == pytest.approx(0.1)
+        loader._seen_latent_shapes.clear()
+        loader._maybe_announce_shape(batch(1, 64, 64))  # quarter tokens -> 4x
+        assert fc.activation_memory_budget == pytest.approx(0.4)
+    finally:
+        fc.activation_memory_budget = before
 
 
 def test_loader_applies_per_shape_budget(capsys):
@@ -72,7 +115,7 @@ def test_loader_applies_per_shape_budget(capsys):
     loader.announce_new_shapes = True
     loader._seen_latent_shapes = set()
     loader.auto_budget_base = 0.1
-    loader.auto_budget_max_latent_area = 1 * 128 * 128  # T*H*W of the largest bucket
+    loader.auto_budget_max_latent_tokens = 1 * 128 * 128  # T*H*W of the largest bucket
 
     def batch(h, w):
         return ((torch.zeros(1, 16, 1, h, w), torch.zeros(1)), (torch.zeros(1), None))
@@ -91,7 +134,7 @@ def test_loader_applies_per_shape_budget(capsys):
         loader2.announce_new_shapes = False
         loader2._seen_latent_shapes = set()
         loader2.auto_budget_base = 0.1
-        loader2.auto_budget_max_latent_area = 1 * 128 * 128
+        loader2.auto_budget_max_latent_tokens = 1 * 128 * 128
         loader2._maybe_announce_shape(batch(32, 32))
         assert fc.activation_memory_budget == 1.0  # capped
         assert capsys.readouterr().out == ""

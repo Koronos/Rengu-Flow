@@ -74,7 +74,7 @@ class PipelineDataLoader:
         # budget. Set on EVERY rank — the functorch config is per process and is
         # read when the shape's graph compiles (its first step).
         self.auto_budget_base: float | None = None
-        self.auto_budget_max_latent_area: int | None = None
+        self.auto_budget_max_latent_tokens: int | None = None
         self._prefetch_thread: threading.Thread | None = None
         self._prefetch_queue: queue.Queue | None = None
         self._prefetch_error: list[BaseException] = []
@@ -149,11 +149,14 @@ class PipelineDataLoader:
                 scale_budget_for_area,
             )
 
-            # Dims after channel (T, H, W / H, W) ∝ tokens; the upcoming compile
-            # of this shape's graph reads the budget we set here.
-            latent_area = math.prod(shape[2:])
+            # Batch x dims-after-channel (T, H, W / H, W) ∝ tokens this step
+            # actually feeds the model; the upcoming compile of this shape's
+            # graph reads the budget we set here. The batch dim matters: with a
+            # per-resolution micro_batch_size_per_gpu dict, a small-resolution/
+            # large-batch shape has the same activation bytes as a large shape.
+            latent_tokens = shape[0] * math.prod(shape[2:])
             budget = scale_budget_for_area(
-                self.auto_budget_base, latent_area, self.auto_budget_max_latent_area or 0
+                self.auto_budget_base, latent_tokens, self.auto_budget_max_latent_tokens or 0
             )
             apply_activation_memory_budget(budget)
             budget_note = f", activation budget {budget:.2f}"

@@ -62,7 +62,36 @@ def scale_budget_for_area(base: float, latent_area: int, max_latent_area: int) -
     ``base x (no-checkpoint bytes of the largest shape)``, so the peak is
     unchanged while small shapes run with little or no recompute (budget
     capped at 1.0). Applied per shape just before its first (compiling) step.
+
+    "Area" here must be the **effective token count of the whole micro-batch**
+    (batch x T x H x W of the latents): activation bytes scale with the batch
+    dimension exactly like they scale with resolution, so a per-resolution
+    ``micro_batch_size_per_gpu`` dict (e.g. batch 4 @512 + batch 1 @1024)
+    would otherwise let a small-resolution/large-batch shape blow past the
+    peak the budget was chosen for.
     """
     if max_latent_area <= 0 or latent_area <= 0:
         return base
     return min(1.0, base * max_latent_area / latent_area)
+
+
+def micro_batch_for_size_bucket(
+    size_bucket: tuple,
+    micro_batch_dict: dict,
+    image_micro_batch_dict: dict,
+) -> int:
+    """Per-GPU micro batch a (w, h, frames) bucket will be fed with.
+
+    Mirrors the dataset's resolution->batch rule (``dataset.py post_init``):
+    image buckets (frames == 1) read the image dict, video buckets the main
+    dict; a ``None`` key means "all resolutions", otherwise the numerically
+    closest key to sqrt(w*h) wins.
+    """
+    import math
+
+    w, h, frames = size_bucket[-3:]
+    bs_dict = image_micro_batch_dict if frames == 1 else micro_batch_dict
+    if None in bs_dict:
+        return int(bs_dict[None])
+    bucket_size = math.sqrt(w * h)
+    return int(min(bs_dict.items(), key=lambda kv: abs(kv[0] - bucket_size))[1])
