@@ -553,9 +553,13 @@ def _run_training(args, config):
         pipeline_model.compile(**compile_plan.kwargs)
     parameters_to_train = [p for p in pipeline_model.parameters() if p.requires_grad]
 
-    micro_batch = config.get("micro_batch_size_per_gpu", 1)
-    if isinstance(micro_batch, dict):
-        micro_batch = list(micro_batch.values())[0]
+    # With a per-resolution dict, a single representative number is still needed
+    # here (DeepSpeed config, optimizer batch scaling): the mean of the values —
+    # example/step accounting below switches to the dataset's real per-step
+    # average once post_init has sized every bucket.
+    from rengu_flow.training.activation_budget import nominal_micro_batch
+
+    micro_batch = nominal_micro_batch(config.get("micro_batch_size_per_gpu", 1))
     gradient_accumulation_steps = config.get("gradient_accumulation_steps", 1)
     world_size_for_opt = int(os.environ.get("WORLD_SIZE", "1"))
     global_batch_size_for_opt = micro_batch * gradient_accumulation_steps * world_size_for_opt
@@ -829,6 +833,18 @@ def _run_training(args, config):
     global_batch_size = micro_batch * gradient_accumulation_steps
     if hasattr(dist, "get_world_size"):
         global_batch_size *= dist.get_world_size()
+    if isinstance(config.get("micro_batch_size_per_gpu"), dict) and hasattr(
+        train_data, "avg_examples_per_step"
+    ):
+        # Per-resolution batches: the per-step batch varies by bucket, so the
+        # example accounting (examples counter, eval/save_every_n_examples)
+        # uses the dataset's real weighted average instead of the nominal mean.
+        global_batch_size = max(1, round(train_data.avg_examples_per_step()))
+        if is_main_process():
+            print(
+                f"Per-resolution micro batch: example accounting uses the real "
+                f"average of {global_batch_size} examples/step."
+            )
     if config.get("eval_every_n_examples") is not None:
         config["eval_every_n_steps"] = config["eval_every_n_examples"] // global_batch_size
         if is_main_process():
@@ -969,6 +985,10 @@ def _run_training(args, config):
         else None
     )
     per_step_batch = micro_batch * gradient_accumulation_steps
+    if isinstance(config.get("micro_batch_size_per_gpu"), dict):
+        # Keep bench samples/s honest under per-resolution batches (per-rank share
+        # of the real per-step average).
+        per_step_batch = max(1, global_batch_size // max(1, world_size_for_opt))
 
     if resume_from_checkpoint:
         load_lr = "force_constant_lr" not in config and not args.reset_optimizer and not args.reset_optimizer_params

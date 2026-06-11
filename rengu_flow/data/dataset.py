@@ -1785,6 +1785,20 @@ class Dataset:
         assert self.post_init_called
         return len(self.iteration_order)
 
+    def avg_examples_per_step(self) -> float:
+        """Mean images consumed per optimizer step across the full epoch.
+
+        With a per-resolution ``micro_batch_size_per_gpu`` dict the per-step
+        batch varies by bucket, so example accounting (x-axis examples,
+        eval/save_every_n_examples) needs the weighted average: total images
+        per epoch over total steps per epoch. Equals the uniform global batch
+        when the config is a plain integer.
+        """
+        assert self.post_init_called
+        total_images = sum(len(b.iteration_order) for b in self.buckets)
+        total_steps = sum(len(b) for b in self.buckets)
+        return total_images / max(1, total_steps)
+
     def __getitem__(self, idx):
         assert self.post_init_called
         i, j = self.iteration_order[idx]
