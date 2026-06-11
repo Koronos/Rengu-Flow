@@ -58,6 +58,7 @@ def handle_oom_skip(
         model_engine.zero_grad()
     elif getattr(model_engine, "optimizer", None) is not None:
         model_engine.optimizer.zero_grad(set_to_none=True)
+    reset_engine_timers(model_engine)
 
     if clear_cache and torch.cuda.is_available():
         empty_cuda_cache()
