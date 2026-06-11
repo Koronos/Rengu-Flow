@@ -26,6 +26,22 @@ Legend: ⛔ REJECTED (measured net-negative) · ⏸ PARKED (dead here, viable on
 - **Where the code was:** `rengu_flow/utils/unsloth_utils.py` (deleted; git history has it).
 - **Revisit when:** never as-is; an *async pinned-buffer* offload overlapping PCIe with compute would be a different experiment. *(Update 2026-06: that experiment was run — see "Async pinned-buffer activation offload" below. Also rejected.)*
 
+### ↩ Per-shape activation-budget scaling — `scale_budget_for_area` (retired 2026-06)
+- **What:** with `activation_checkpointing="auto"` and multi-resolution buckets, scale the
+  configured budget up for small shapes (toward 1.0 at "constant peak") by latent area, applied by
+  the dataloader just before each shape's first compile.
+- **Why retired:** two field bombs. (1) Under `compile_dynamic` ONE graph serves every shape and
+  the partitioner reads the budget once — at the first shape's compile — so the scaling **baked a
+  small bucket's ~1.0 budget into the graph and the largest bucket OOMed at any configured base**
+  (reported in production on a 512-first schedule @1024). (2) The area math ignored the batch
+  dimension, so a per-resolution `micro_batch_size_per_gpu` dict turned the scaled budget into an
+  OOM trap (fixed batch-aware first, then the whole feature retired). Superseded by: **global
+  budget** (one value, one meaning, both compile modes) + **`BudgetBackoff`** (on CUDA OOM, lower
+  the budget and recompile instead of crashing — `activation_budget_backoff`, default on).
+- **Where the code was:** `training/activation_budget.py` + loader/main wiring (git history).
+- **Revisit when:** never as-is. If small-shape recompute overhead ever matters again, it must be
+  static-compile-only and batch-aware by construction — and prove it can't out-OOM the base.
+
 ### ⛔ Async pinned-buffer activation offload — `activation_offload` (branch `worktree-activation-offload`)
 - **What:** the "different experiment" the unsloth entry pointed at, done properly:
   `saved_tensors_hooks` streaming each large contiguous saved activation to a pooled **pinned** CPU

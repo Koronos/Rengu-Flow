@@ -18,6 +18,14 @@ with full checkpointing at 0.974 s / 5.76 GB and SAC at 0.932 s / 6.56 GB:
     budget 0.1 -> 0.881 s /  6.37 GB   (faster AND smaller than SAC)
     budget 0.3 -> 0.822 s /  8.99 GB
     budget 0.5 -> 0.774 s / 11.32 GB   (speed plateau; 0.8 gains nothing)
+
+The budget is GLOBAL: one value, read at compile time by every graph in both
+compile modes. (A per-shape scaling variant was retired — see
+docs/EXPERIMENTS_GRAVEYARD.md: under compile_dynamic the single graph baked the
+first shape's scaled-up budget in and the largest bucket OOMed at any
+configured base.) Because the budget is a *fraction* of the saved set, its
+byte translation can still overshoot on a new model/resolution/batch
+combination — ``BudgetBackoff`` makes that survivable instead of fatal.
 """
 
 DEFAULT_BUDGET = 0.3
@@ -52,33 +60,43 @@ def apply_activation_memory_budget(budget: float) -> None:
     functorch_config.activation_memory_budget = budget
 
 
-def scale_budget_for_area(base: float, latent_area: int, max_latent_area: int) -> float:
-    """Per-shape budget: ``base`` applies to the largest bucket; smaller shapes scale up.
+class BudgetBackoff:
+    """Make ``activation_memory_budget`` OOM-proof: lower it and recompile.
 
-    The VRAM constraint comes from the largest shape only — a uniform budget
-    makes the partitioner recompute just as aggressively on small shapes where
-    activations are a fraction of the peak, slowing them for nothing. Scaling
-    by area keeps the saved-activation bytes of every shape at or below
-    ``base x (no-checkpoint bytes of the largest shape)``, so the peak is
-    unchanged while small shapes run with little or no recompute (budget
-    capped at 1.0). Applied per shape just before its first (compiling) step.
-
-    "Area" here must be the **effective token count of the whole micro-batch**
-    (batch x T x H x W of the latents): activation bytes scale with the batch
-    dimension exactly like they scale with resolution, so a per-resolution
-    ``micro_batch_size_per_gpu`` dict (e.g. batch 4 @512 + batch 1 @1024)
-    would otherwise let a small-resolution/large-batch shape blow past the
-    peak the budget was chosen for.
-
-    Requires per-shape compiles (``compile_dynamic = false``): a single dynamic
-    graph reads the budget ONCE at its compile — on whichever shape arrives
-    first — so per-shape scaling would bake a small bucket's near-1.0 budget
-    into the graph and OOM the largest bucket. ``main`` disables the scaling
-    and applies the base budget globally when ``compile_dynamic`` is on.
+    The budget is a *fraction* of the partitioner's no-recompute saved set, so
+    its translation to bytes depends on model, resolution, batch and whatever
+    else lives on the GPU — no static computation is honest across all of
+    them. The empirical guarantee instead: when a training step (or its
+    compile) hits CUDA OOM under ``activation_checkpointing = "auto"``, lower
+    the budget by ``factor``, reset dynamo and retry; the configured value
+    becomes a desired ceiling, not a crash. The settled value is logged so the
+    config can be updated for the next run.
     """
-    if max_latent_area <= 0 or latent_area <= 0:
-        return base
-    return min(1.0, base * max_latent_area / latent_area)
+
+    def __init__(self, base: float, *, factor: float = 0.66, max_retries: int = 4) -> None:
+        self.base = base
+        self.current = base
+        self.factor = factor
+        self.max_retries = max_retries
+        self.retries = 0
+
+    def on_oom(self) -> float | None:
+        """Return the next (lower) budget to try, or None when exhausted."""
+        if self.retries >= self.max_retries or self.current <= 0.0:
+            return None
+        self.retries += 1
+        nxt = round(self.current * self.factor, 3)
+        # Below ~0.05 the partitioner is effectively at full checkpointing;
+        # jump straight to 0.0 so the last retry is the true floor.
+        self.current = 0.0 if nxt < 0.05 else nxt
+        return self.current
+
+    def describe(self) -> str:
+        return (
+            f"activation_memory_budget backed off {self.base} -> {self.current} "
+            f"(retry {self.retries}/{self.max_retries}); update the config to "
+            "start there next run and skip the failed compiles."
+        )
 
 
 def nominal_micro_batch(value) -> int:
@@ -94,25 +112,3 @@ def nominal_micro_batch(value) -> int:
         values = [int(v) for v in value.values()]
         return max(1, round(sum(values) / len(values))) if values else 1
     return int(value)
-
-
-def micro_batch_for_size_bucket(
-    size_bucket: tuple,
-    micro_batch_dict: dict,
-    image_micro_batch_dict: dict,
-) -> int:
-    """Per-GPU micro batch a (w, h, frames) bucket will be fed with.
-
-    Mirrors the dataset's resolution->batch rule (``dataset.py post_init``):
-    image buckets (frames == 1) read the image dict, video buckets the main
-    dict; a ``None`` key means "all resolutions", otherwise the numerically
-    closest key to sqrt(w*h) wins.
-    """
-    import math
-
-    w, h, frames = size_bucket[-3:]
-    bs_dict = image_micro_batch_dict if frames == 1 else micro_batch_dict
-    if None in bs_dict:
-        return int(bs_dict[None])
-    bucket_size = math.sqrt(w * h)
-    return int(min(bs_dict.items(), key=lambda kv: abs(kv[0] - bucket_size))[1])

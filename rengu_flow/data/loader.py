@@ -66,15 +66,12 @@ class PipelineDataLoader:
         self.num_batches_pulled = 0
         self.next_micro_batch = None
         self.recreate_dataloader = False
-        # Opt-in (main.py, compile runs): announce the first batch of each new
-        # latent shape so the per-shape compile stall is explained in the log.
+        # Opt-in (main.py, STATIC compile runs): announce the first batch of each
+        # new latent shape so the per-shape compile stall is explained in the log.
+        # (Under compile_dynamic shapes share one graph per micro-batch signature,
+        # so per-shape announces would be noise — main leaves this off there.)
         self.announce_new_shapes = False
         self._seen_latent_shapes: set = set()
-        # Opt-in (main.py, activation_checkpointing="auto"): per-shape activation
-        # budget. Set on EVERY rank — the functorch config is per process and is
-        # read when the shape's graph compiles (its first step).
-        self.auto_budget_base: float | None = None
-        self.auto_budget_max_latent_tokens: int | None = None
         self._prefetch_thread: threading.Thread | None = None
         self._prefetch_queue: queue.Queue | None = None
         self._prefetch_error: list[BaseException] = []
@@ -128,7 +125,7 @@ class PipelineDataLoader:
         one-time stall that can look like a hang. Announced here (data side)
         because the loader sees the shape *before* the stall starts.
         """
-        if not (self.announce_new_shapes or self.auto_budget_base is not None):
+        if not self.announce_new_shapes:
             return
         try:
             features = micro_batch[0]
@@ -140,34 +137,13 @@ class PipelineDataLoader:
         if key in self._seen_latent_shapes:
             return
         self._seen_latent_shapes.add(key)
-        budget_note = ""
-        if self.auto_budget_base is not None:
-            import math
-
-            from rengu_flow.training.activation_budget import (
-                apply_activation_memory_budget,
-                scale_budget_for_area,
-            )
-
-            # Batch x dims-after-channel (T, H, W / H, W) ∝ tokens this step
-            # actually feeds the model; the upcoming compile of this shape's
-            # graph reads the budget we set here. The batch dim matters: with a
-            # per-resolution micro_batch_size_per_gpu dict, a small-resolution/
-            # large-batch shape has the same activation bytes as a large shape.
-            latent_tokens = shape[0] * math.prod(shape[2:])
-            budget = scale_budget_for_area(
-                self.auto_budget_base, latent_tokens, self.auto_budget_max_latent_tokens or 0
-            )
-            apply_activation_memory_budget(budget)
-            budget_note = f", activation budget {budget:.2f}"
-        if self.announce_new_shapes:
-            print(
-                f"[compile] new latent shape {'x'.join(str(d) for d in shape)} "
-                f"({len(self._seen_latent_shapes)} seen{budget_note}) — first step "
-                "on this shape compiles its kernels: expect a one-time slow step "
-                "(disk-cached for later runs), not a hang.",
-                flush=True,
-            )
+        print(
+            f"[compile] new latent shape {'x'.join(str(d) for d in shape)} "
+            f"({len(self._seen_latent_shapes)} seen) — first step on this shape "
+            "compiles its kernels: expect a one-time slow step (disk-cached for "
+            "later runs), not a hang.",
+            flush=True,
+        )
 
     def _refresh_dataset_epoch(self) -> None:
         """Tell the dataset which epoch we are on (no-op for datasets without set_epoch)."""

@@ -31,6 +31,20 @@ class OomSkipState:
             )
 
 
+def reset_engine_timers(model_engine) -> None:
+    """Reset DeepSpeed engine timers after train_batch aborted mid-step.
+
+    An OOM inside train_batch leaves TRAIN_BATCH_TIMER (and, with
+    wall_clock_breakdown, the micro-step timers) started; the retrying
+    train_batch would then die on "timer has already been started".
+    """
+    group = getattr(model_engine, "timers", None)
+    timers = getattr(group, "timers", None)
+    if isinstance(timers, dict):
+        for timer in timers.values():
+            timer.reset()
+
+
 def handle_oom_skip(
     state: OomSkipState,
     model_engine,
