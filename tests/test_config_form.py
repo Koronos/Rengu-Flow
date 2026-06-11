@@ -437,3 +437,23 @@ betas = [0, 0.999]
 
     rendered = form_to_toml(form, legacy)
     assert toml.loads(rendered)["optimizer"]["betas"] == [0.0, 0.999]
+
+
+def test_parse_keeps_micro_batch_resolution_map() -> None:
+    """The per-resolution micro batch dict must round-trip the form unchanged
+    (TOML keys stay strings here; set_config_defaults normalizes them to int)."""
+    toml_in = """
+dataset = "x.toml"
+micro_batch_size_per_gpu = { 512 = 2, 1024 = 1 }
+[model]
+type = "sdxl"
+dtype = "bfloat16"
+checkpoint_path = "/t"
+[optimizer]
+type = "adamw"
+"""
+    form = parse_toml(toml_in)
+    assert form["micro_batch_size_per_gpu"] == {"512": 2, "1024": 1}
+    out = form_to_toml(form)
+    reparsed = parse_toml(out)
+    assert reparsed["micro_batch_size_per_gpu"] == {"512": 2, "1024": 1}

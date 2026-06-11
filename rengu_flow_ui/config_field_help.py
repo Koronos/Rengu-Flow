@@ -550,10 +550,12 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "doc": "docs/user/training-loop-and-eval.md",
     },
     "micro_batch_size_per_gpu": {
-        "summary": "Samples per GPU per forward/backward micro-step.",
+        "summary": "Samples per GPU per forward/backward micro-step; integer or per-resolution map.",
         "detail": (
-            "Anima/Cosmos LoKR on 16 GB: 1 is the practical default; higher micro-batch raised VRAM "
-            "and slowed per-step time in tuning — prefer grad accumulation for effective batch size."
+            "Per-resolution mode (e.g. 512 -> 2, 1024 -> 1) lets low resolutions batch up where the "
+            "GPU is under-filled while the detail resolution stays at what fits: measured on a 16 GB "
+            "4080, batching pays at 512 (bs1->bs2 is -18% per sample) and nothing at 1024 (GEMM-"
+            "saturated). Buckets pick the numerically closest configured resolution."
         ),
         "doc": "docs/user/training-cosmos-predict2-lora-lokr-finetune.md",
     },

@@ -67,11 +67,19 @@ def _dtype_to_str(obj: Any) -> Any:
     return obj
 
 
+# Paths whose value IS a dict (e.g. a resolution->batch map): kept as a single
+# form value instead of being flattened into dotted per-key paths, so the form
+# widget receives the whole map.
+_LEAF_DICT_PATHS = frozenset({"micro_batch_size_per_gpu", "image_micro_batch_size_per_gpu"})
+
+
 def flatten_config(config: dict[str, Any], prefix: str = "") -> dict[str, Any]:
     out: dict[str, Any] = {}
     for key, value in config.items():
         path = f"{prefix}.{key}" if prefix else key
-        if isinstance(value, dict):
+        if isinstance(value, dict) and path in _LEAF_DICT_PATHS:
+            out[path] = {str(k): v for k, v in value.items()}
+        elif isinstance(value, dict):
             out.update(flatten_config(value, path))
         else:
             out[path] = value

@@ -479,6 +479,10 @@ def get_sections() -> list[dict[str, Any]]:
                     default=1,
                     min_value=1,
                     recommended=True,
+                    description=(
+                        "Uniform integer, or per-resolution (e.g. 512 -> 2, 1024 -> 1) to batch "
+                        "up low resolutions where the GPU is under-filled."
+                    ),
                 ),
                 _field(
                     "image_micro_batch_size_per_gpu",
