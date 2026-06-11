@@ -11,7 +11,7 @@ import torch
 
 from rengu_flow.model.cosmos_predict2.layers import NoopOffloader
 from rengu_flow.model.cosmos_predict2.text import compute_text_embeddings, tokenize
-from rengu_flow.model.cosmos_predict2.vae import vae_decode
+from rengu_flow.model.cosmos_predict2.vae import vae_decode_tiled
 from rengu_flow.utils.common import round_to_nearest_multiple
 
 # Wan VAE spatial compression (three stride-2 downsamples in the encoder).
@@ -234,7 +234,10 @@ def decode_latents_to_pil(pipeline, latents: torch.Tensor):
     pipeline.vae.model.to(device)
     latent = latents[0].to(dtype=dtype)
     with torch.inference_mode():
-        decoded = vae_decode(latent, pipeline.vae)
+        # Tiled decode bounds the conv3d activation peak so the decode fits next to the
+        # resident DiT + training state (the DiT can no longer be offloaded for the decode —
+        # see offload_transformer_for_decode). Single-tile latents decode exactly as before.
+        decoded = vae_decode_tiled(latent, pipeline.vae)
     frame = decoded[:, 0].cpu()
     frame = (frame + 1.0) * 0.5
     frame = (frame * 255.0).round().byte()

@@ -366,8 +366,8 @@ FIELD_HELP: dict[str, dict[str, str]] = {
     },
     "preview.preview_offload_dit_for_decode": {
         "summary": "Move the DiT to CPU during the VAE decode to save VRAM (Cosmos only). "
-        "Off by default — unsafe on DeepSpeed/compiled runs (crashes the next NCCL op); "
-        "only enable on a tight GPU that OOMs at decode.",
+        "Off by default — unsafe on DeepSpeed/compiled runs (crashes the next NCCL op). "
+        "Rarely needed: the preview decode is tiled, so it fits next to a resident DiT.",
         "doc": "docs/user/previews.md",
     },
     "preview.preview_save_png": {
