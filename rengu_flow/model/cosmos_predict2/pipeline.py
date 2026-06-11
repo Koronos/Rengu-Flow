@@ -520,6 +520,13 @@ class CosmosPredict2Pipeline(BasePipeline):
         rest = getattr(self, "_preview_te_rest_device", None) or torch.device("cpu")
         try:
             next(self.text_encoder.parameters())
+            if rest.type == "cuda":
+                # Release the decode's cached blocks first: this restore also runs from the
+                # preview's finally-path after an OOM, where moving ~GBs back onto a full
+                # allocator would OOM again and turn a failed preview into a dead process.
+                from rengu_flow.utils.common import empty_cuda_cache
+
+                empty_cuda_cache()
             self.text_encoder.to(rest)
         except StopIteration:
             pass
