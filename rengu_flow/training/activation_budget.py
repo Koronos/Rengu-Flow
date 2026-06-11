@@ -69,6 +69,12 @@ def scale_budget_for_area(base: float, latent_area: int, max_latent_area: int) -
     ``micro_batch_size_per_gpu`` dict (e.g. batch 4 @512 + batch 1 @1024)
     would otherwise let a small-resolution/large-batch shape blow past the
     peak the budget was chosen for.
+
+    Requires per-shape compiles (``compile_dynamic = false``): a single dynamic
+    graph reads the budget ONCE at its compile — on whichever shape arrives
+    first — so per-shape scaling would bake a small bucket's near-1.0 budget
+    into the graph and OOM the largest bucket. ``main`` disables the scaling
+    and applies the base budget globally when ``compile_dynamic`` is on.
     """
     if max_latent_area <= 0 or latent_area <= 0:
         return base

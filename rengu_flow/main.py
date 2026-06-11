@@ -659,28 +659,44 @@ def _run_training(args, config):
         and config.get("compile")
         and train_data is not None
     ):
-        # Per-shape activation budget: the configured budget belongs to the
-        # bucket with the most effective latent tokens — batch x T x H x W,
-        # the VRAM-binding one; smaller shapes scale up toward 1.0 at constant
-        # peak (see activation_budget.scale_budget_for_area). The micro batch
-        # is part of the token count so a per-resolution batch dict (e.g.
-        # batch 4 @512 + batch 1 @1024) keeps the peak constraint honest.
-        from rengu_flow.training.activation_budget import (
-            micro_batch_for_size_bucket,
-            resolve_auto_ac_budget,
-        )
-
-        _factor = getattr(model, "vae_spatial_compression", 8)
-        _buckets = train_data.distinct_size_buckets()
-        if _buckets:
-            train_dataloader.auto_budget_base = resolve_auto_ac_budget(config)
-            train_dataloader.auto_budget_max_latent_tokens = max(
-                (w // _factor) * (h // _factor) * frames
-                * micro_batch_for_size_bucket(
-                    (w, h, frames), micro_batch_dict, image_micro_batch_dict
+        if config.get("compile_dynamic") is True:
+            # ONE dynamic graph serves every shape, and the partitioner reads the
+            # budget once, at that graph's compile — which happens on whatever
+            # shape arrives first. Per-shape scaling would bake the FIRST shape's
+            # scaled-up budget (≈1.0 for a small bucket) into the graph and the
+            # largest bucket would then run essentially un-checkpointed -> OOM.
+            # Under dynamic the base budget therefore applies globally: small
+            # shapes recompute a bit more than optimal, the peak stays honest.
+            if is_main_process():
+                print(
+                    "[checkpoint] compile_dynamic: activation_memory_budget applies "
+                    "to ALL shapes (per-shape scaling needs per-shape compiles; the "
+                    "single dynamic graph bakes in one budget).",
+                    flush=True,
                 )
-                for (w, h, frames) in (b[-3:] for b in _buckets)
+        else:
+            # Per-shape activation budget: the configured budget belongs to the
+            # bucket with the most effective latent tokens — batch x T x H x W,
+            # the VRAM-binding one; smaller shapes scale up toward 1.0 at constant
+            # peak (see activation_budget.scale_budget_for_area). The micro batch
+            # is part of the token count so a per-resolution batch dict (e.g.
+            # batch 4 @512 + batch 1 @1024) keeps the peak constraint honest.
+            from rengu_flow.training.activation_budget import (
+                micro_batch_for_size_bucket,
+                resolve_auto_ac_budget,
             )
+
+            _factor = getattr(model, "vae_spatial_compression", 8)
+            _buckets = train_data.distinct_size_buckets()
+            if _buckets:
+                train_dataloader.auto_budget_base = resolve_auto_ac_budget(config)
+                train_dataloader.auto_budget_max_latent_tokens = max(
+                    (w // _factor) * (h // _factor) * frames
+                    * micro_batch_for_size_bucket(
+                        (w, h, frames), micro_batch_dict, image_micro_batch_dict
+                    )
+                    for (w, h, frames) in (b[-3:] for b in _buckets)
+                )
     eval_gradient_accumulation_steps = config.get("eval_gradient_accumulation_steps", 1)
     eval_dataloaders = {
         name: PipelineDataLoader(
