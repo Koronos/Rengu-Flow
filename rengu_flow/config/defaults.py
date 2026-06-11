@@ -111,6 +111,17 @@ def set_config_defaults(config: dict[str, Any]) -> None:
     config.setdefault("epochs", 1)
     config.setdefault("gradient_accumulation_steps", 1)
     config.setdefault("micro_batch_size_per_gpu", 1)
+    # Per-resolution micro batch (e.g. { 512 = 2, 1024 = 1 }): TOML always parses
+    # table keys as strings, but the resolution->batch lookup (dataset post_init,
+    # activation_budget.micro_batch_for_size_bucket) compares keys numerically.
+    # Normalize here so the dict form actually works from a TOML file.
+    for _mb_key in ("micro_batch_size_per_gpu", "image_micro_batch_size_per_gpu"):
+        _mb = config.get(_mb_key)
+        if isinstance(_mb, dict):
+            config[_mb_key] = {
+                (int(k) if isinstance(k, str) and k.isdigit() else k): int(v)
+                for k, v in _mb.items()
+            }
     config.setdefault("partition_method", "parameters")
     config.setdefault("partition_split", None)
     config.setdefault("lr_scheduler", "constant")
