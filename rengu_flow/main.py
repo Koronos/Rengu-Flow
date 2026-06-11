@@ -672,16 +672,25 @@ def _run_training(args, config):
         and train_data is not None
     ):
         # Per-shape activation budget: the configured budget belongs to the
-        # LARGEST bucket (the VRAM-binding one); smaller shapes scale up toward
-        # 1.0 at constant peak (see activation_budget.scale_budget_for_area).
-        from rengu_flow.training.activation_budget import resolve_auto_ac_budget
+        # bucket with the most effective latent tokens — batch x T x H x W,
+        # the VRAM-binding one; smaller shapes scale up toward 1.0 at constant
+        # peak (see activation_budget.scale_budget_for_area). The micro batch
+        # is part of the token count so a per-resolution batch dict (e.g.
+        # batch 4 @512 + batch 1 @1024) keeps the peak constraint honest.
+        from rengu_flow.training.activation_budget import (
+            micro_batch_for_size_bucket,
+            resolve_auto_ac_budget,
+        )
 
         _factor = getattr(model, "vae_spatial_compression", 8)
         _buckets = train_data.distinct_size_buckets()
         if _buckets:
             train_dataloader.auto_budget_base = resolve_auto_ac_budget(config)
-            train_dataloader.auto_budget_max_latent_area = max(
+            train_dataloader.auto_budget_max_latent_tokens = max(
                 (w // _factor) * (h // _factor) * frames
+                * micro_batch_for_size_bucket(
+                    (w, h, frames), micro_batch_dict, image_micro_batch_dict
+                )
                 for (w, h, frames) in (b[-3:] for b in _buckets)
             )
     eval_gradient_accumulation_steps = config.get("eval_gradient_accumulation_steps", 1)

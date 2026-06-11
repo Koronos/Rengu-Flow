@@ -237,7 +237,7 @@ def test_loader_announces_new_latent_shapes_once(capsys):
     loader.announce_new_shapes = True
     loader._seen_latent_shapes = set()
     loader.auto_budget_base = None
-    loader.auto_budget_max_latent_area = None
+    loader.auto_budget_max_latent_tokens = None
 
     def batch(h, w, b=1):
         return ((torch.zeros(b, 16, 1, h, w), torch.zeros(b)), (torch.zeros(b), None))
