@@ -24,7 +24,36 @@ Legend: ⛔ REJECTED (measured net-negative) · ⏸ PARKED (dead here, viable on
 - **What:** custom autograd.Function offloading each block's input hidden_states to CPU during forward, restoring on backward (`utils/unsloth_utils.py`).
 - **Why superseded:** measured **+2.6% step time for only −0.5 GB** vs full checkpointing @1024 (non-pinned, effectively synchronous transfers). Dominated by `true` (simpler) and `auto` (faster).
 - **Where the code was:** `rengu_flow/utils/unsloth_utils.py` (deleted; git history has it).
-- **Revisit when:** never as-is; an *async pinned-buffer* offload overlapping PCIe with compute would be a different experiment.
+- **Revisit when:** never as-is; an *async pinned-buffer* offload overlapping PCIe with compute would be a different experiment. *(Update 2026-06: that experiment was run — see "Async pinned-buffer activation offload" below. Also rejected.)*
+
+### ⛔ Async pinned-buffer activation offload — `activation_offload` (branch `worktree-activation-offload`)
+- **What:** the "different experiment" the unsloth entry pointed at, done properly:
+  `saved_tensors_hooks` streaming each large contiguous saved activation to a pooled **pinned** CPU
+  buffer on a side CUDA stream during the forward (GPU storage released on the GPU timeline via
+  `record_stream`), reverse-order prefetched H2D on a second stream during the backward. Composes
+  with `activation_memory_budget` (budget picks save-vs-recompute, offloader moves the saved share).
+- **Why rejected** (Cosmos LoKr @1024, 24-step bench, steady per-step peaks, PCIe 4.0 x16 measured
+  25.5 GB/s/dir):
+  - budget 0.3 + offload: 0.830 s / **8.77 GB** vs plain 0.3 at 0.810 s / 8.97 GB → **−0.2 GB for
+    +2.5 % time**, strictly dominated by just lowering the budget (0.1 → 6.24 GB @ 0.854 s).
+  - budget 0.5 + offload: ~1.03 s / 11.03 GB vs 0.748 s / 11.25 GB → **+35 % time for −0.2 GB**
+    (bus-saturated: 5.21 GB/step each way no longer fits the step).
+  - budget 1.0 + offload: **still OOM** — the cold/compile step can't stream past its own peak, so
+    no previously-impossible operating point is unlocked.
+  - Root causes: at useful budgets the partitioner's saved set is dominated by (a) residual-stream
+    tensors the ongoing forward keeps alive anyway (offload copies them but frees nothing) and
+    (b) **non-contiguous views** (fused-QKV chunks) that cannot round-trip (the compiled backward
+    asserts exact sizes/strides) — the *freeable* share measured ~0.2 GB of an 8.97 GB peak; where
+    the saved set IS large (high budgets), its volume exceeds what the bus can drain inside a step.
+- **Hard-won facts for whoever revisits:** hooks DO fire under torch.compile (AOT routes compiled
+  saves through them); side-stream staging tensors must be allocated *inside* the owning stream's
+  context (cross-stream allocator race → NaN losses otherwise); frees must happen on the GPU
+  timeline (`record_stream`) because under compile Python runs a full forward ahead of the GPU, so
+  Python-side frees hold the whole saved set until backward.
+- **Where the code is:** branch `worktree-activation-offload` —
+  `rengu_flow/training/activation_offload.py` + tests + main-loop wiring, off by default.
+- **Revisit when:** a host link ≥4× PCIe 4.0 (NVLink/Grace class), or a model whose saved set is
+  mostly large contiguous tensors that are not alive in the residual stream.
 
 ### ⏸ fp8 matmul for the frozen DiT base — `feat/cosmos-quant`
 - **What:** `torch._scaled_mm` row-wise fp8 GEMM for the ~280 frozen DiT linears (`transformer_fp8_matmul`), with a custom `_Fp8ScaledMatmul` autograd.Function (scaled_mm has no derivative) and LoKr-on-quantized-base composition.
