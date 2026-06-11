@@ -35,8 +35,11 @@ trainable. *Side effect:* very slightly noisier updates than fp32; negligible in
 Recompute activations in the backward instead of storing them. Big activation-memory cut. *Side
 effect:* ~20-30% more compute (one extra forward). Essentially mandatory at low VRAM. With
 `compile = true`, `"auto"` lets Inductor's memory-budget partitioner pick the save/recompute split
-(`activation_memory_budget`) — faster than full checkpointing at a chosen VRAM point. (`"unsloth"`
-was retired — see `docs/EXPERIMENTS_GRAVEYARD.md`.)
+(`activation_memory_budget`) — faster than full checkpointing at a chosen VRAM point. The budget is
+**global** (one value for every resolution, both compile modes; the per-shape scaling variant was
+retired — see the graveyard) and **OOM-proof by default**: on a CUDA OOM the budget backs off and
+recompiles instead of crashing (`activation_budget_backoff`), logging the settled value.
+(`"unsloth"` was retired — see `docs/EXPERIMENTS_GRAVEYARD.md`.)
 
 ### 3. `optimizer.gradient_release = true` (fused backward)
 Runs each parameter's optimizer step **inside the backward** (`register_post_accumulate_grad_hook`)

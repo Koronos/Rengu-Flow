@@ -594,14 +594,16 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "doc": "docs/user/training-loop-and-eval.md",
     },
     "activation_memory_budget": {
-        "summary": "VRAM/speed dial for activation_checkpointing='auto' (0.0-1.0).",
+        "summary": "VRAM/speed dial for activation_checkpointing='auto' (0.0-1.0, global).",
         "detail": (
             "Fraction of activation memory the compile partitioner may keep instead of recomputing: "
             "0.0 ~ full-checkpoint VRAM, 1.0 ~ no-checkpoint speed; gains plateau around 0.5. "
-            "Recompute is exact (same math, no precision cost). Measured on Cosmos LoKr @1024 "
-            "(RTX 4080, vs full checkpointing at 0.97 s / 5.8 GB): 0.1 = -9.5% step time / 6.4 GB "
-            "(faster AND smaller than SAC), 0.3 = -16% / 9.0 GB (default), 0.5 = -21% / 11.3 GB. "
-            "Requires compile = true."
+            "One global value for every resolution/shape in both compile modes. Recompute is exact "
+            "(same math, no precision cost). Measured on Cosmos LoKr @1024 (RTX 4080, vs full "
+            "checkpointing at 0.97 s / 5.8 GB): 0.1 = -9.5% step time / 6.4 GB, 0.3 = -16% / 9.0 GB "
+            "(default), 0.5 = -21% / 11.3 GB. Requires compile = true. If a step OOMs, the budget "
+            "backs off and recompiles instead of crashing (activation_budget_backoff, default on); "
+            "the settled value is logged."
         ),
         "doc": "docs/user/training-loop-and-eval.md",
     },

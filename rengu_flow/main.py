@@ -531,21 +531,32 @@ def _run_training(args, config):
         cache_enabled, cache_dir = _setup_compile_disk_cache(config, is_main_process())
         if is_main_process():
             print(f"pipeline_model.compile({compile_plan.kwargs or 'defaults'})", flush=True)
-            msg = (
-                f"[compile] torch.compile enabled (mode={config.get('compile_mode') or 'default'}, "
-                f"dynamic={compile_dynamic}). The FIRST training step per resolution/shape "
-                "compiles kernels and may take ~1-4 min - this is NORMAL, not a hang."
-            )
-            if cache_enabled:
-                msg += (
-                    f" Disk cache: {cache_dir} (subsequent runs with the same static "
-                    "shapes skip recompile)."
-                )
             if compile_dynamic:
-                msg += (
-                    " (dynamic shapes: each new resolution/AR-bucket recompiles; disk "
-                    "cache does not help dynamic.)"
+                # One graph per distinct micro-batch size: PyTorch always
+                # specializes size-1 dims, so e.g. {512 = 2, 1024 = 1} costs two
+                # cold compiles; resolutions/AR buckets share those graphs.
+                _mb_cfg = config.get("micro_batch_size_per_gpu", 1)
+                _signatures = sorted(
+                    set(_mb_cfg.values()) if isinstance(_mb_cfg, dict) else {_mb_cfg}
                 )
+                msg = (
+                    f"[compile] torch.compile enabled (mode={config.get('compile_mode') or 'default'}, "
+                    f"dynamic=True). Expect {len(_signatures)} cold compile(s) of ~1-4 min "
+                    f"(one per distinct micro-batch size: {_signatures}); after that, shapes "
+                    "share the graph(s) and only the occasional unusual geometry recompiles "
+                    "once. Disk cache does not apply to dynamic graphs."
+                )
+            else:
+                msg = (
+                    f"[compile] torch.compile enabled (mode={config.get('compile_mode') or 'default'}, "
+                    f"dynamic=False). The FIRST training step per resolution/shape "
+                    "compiles kernels and may take ~1-4 min - this is NORMAL, not a hang."
+                )
+                if cache_enabled:
+                    msg += (
+                        f" Disk cache: {cache_dir} (subsequent runs with the same static "
+                        "shapes skip recompile)."
+                    )
             print(msg, flush=True)
             for note in compile_plan.notes:
                 print(f"[compile] {note}", flush=True)
@@ -651,52 +662,19 @@ def _run_training(args, config):
         model,
         **_loader_kwargs,
     )
-    # With compile on, the first step on each latent shape pays a one-time
-    # kernel compile; announce each new shape so the stall is explained.
-    train_dataloader.announce_new_shapes = bool(config.get("compile")) and is_main_process()
-    if (
-        config.get("activation_checkpointing") == "auto"
-        and config.get("compile")
-        and train_data is not None
-    ):
-        if config.get("compile_dynamic") is True:
-            # ONE dynamic graph serves every shape, and the partitioner reads the
-            # budget once, at that graph's compile — which happens on whatever
-            # shape arrives first. Per-shape scaling would bake the FIRST shape's
-            # scaled-up budget (≈1.0 for a small bucket) into the graph and the
-            # largest bucket would then run essentially un-checkpointed -> OOM.
-            # Under dynamic the base budget therefore applies globally: small
-            # shapes recompute a bit more than optimal, the peak stays honest.
-            if is_main_process():
-                print(
-                    "[checkpoint] compile_dynamic: activation_memory_budget applies "
-                    "to ALL shapes (per-shape scaling needs per-shape compiles; the "
-                    "single dynamic graph bakes in one budget).",
-                    flush=True,
-                )
-        else:
-            # Per-shape activation budget: the configured budget belongs to the
-            # bucket with the most effective latent tokens — batch x T x H x W,
-            # the VRAM-binding one; smaller shapes scale up toward 1.0 at constant
-            # peak (see activation_budget.scale_budget_for_area). The micro batch
-            # is part of the token count so a per-resolution batch dict (e.g.
-            # batch 4 @512 + batch 1 @1024) keeps the peak constraint honest.
-            from rengu_flow.training.activation_budget import (
-                micro_batch_for_size_bucket,
-                resolve_auto_ac_budget,
-            )
-
-            _factor = getattr(model, "vae_spatial_compression", 8)
-            _buckets = train_data.distinct_size_buckets()
-            if _buckets:
-                train_dataloader.auto_budget_base = resolve_auto_ac_budget(config)
-                train_dataloader.auto_budget_max_latent_tokens = max(
-                    (w // _factor) * (h // _factor) * frames
-                    * micro_batch_for_size_bucket(
-                        (w, h, frames), micro_batch_dict, image_micro_batch_dict
-                    )
-                    for (w, h, frames) in (b[-3:] for b in _buckets)
-                )
+    # Per-shape compile announces are only true in STATIC mode (each shape
+    # really compiles there). Under compile_dynamic one graph per micro-batch
+    # signature serves every shape — announcing each data shape as "compiling"
+    # was measured to be pure noise (most new shapes run in ~1-2 s).
+    # The activation budget is GLOBAL in both modes (applied at startup): the
+    # retired per-shape scaling is in docs/EXPERIMENTS_GRAVEYARD.md — it baked
+    # the first shape's budget into the single dynamic graph (OOM at any
+    # configured base) and needed batch-aware token math to not OOM static.
+    train_dataloader.announce_new_shapes = (
+        bool(config.get("compile"))
+        and config.get("compile_dynamic") is not True
+        and is_main_process()
+    )
     eval_gradient_accumulation_steps = config.get("eval_gradient_accumulation_steps", 1)
     eval_dataloaders = {
         name: PipelineDataLoader(
@@ -1070,13 +1048,49 @@ def _run_training(args, config):
     # Emergency checkpoint on an otherwise-fatal CUDA OOM (e.g. during a preview/eval) so the run is
     # resumable instead of lost. Best-effort: a failed save never masks the original error.
     save_on_oom = bool(config.get("train", {}).get("save_checkpoint_on_oom", True))
-    from rengu_flow.utils.oom_skip import is_cuda_oom
+    from rengu_flow.utils.oom_skip import is_cuda_oom, reset_engine_timers
 
     oom_skip_state = None
     if oom_skip_enabled:
         from rengu_flow.utils.oom_skip import OomSkipState, handle_oom_skip
 
         oom_skip_state = OomSkipState(max_consecutive=int(oom_skip_cfg.get("max_consecutive", 3)))
+
+    # Budget backoff: activation_memory_budget is a fraction of the saved set,
+    # so its byte translation can overshoot on any new model/resolution/batch
+    # combination. Instead of crashing the run, lower the budget and recompile
+    # until it fits (the configured value is a desired ceiling, not a promise).
+    budget_backoff = None
+    if (
+        config.get("activation_checkpointing") == "auto"
+        and config.get("compile")
+        and config.get("activation_budget_backoff", True)
+    ):
+        from rengu_flow.training.activation_budget import (
+            BudgetBackoff,
+            apply_activation_memory_budget,
+            resolve_auto_ac_budget,
+        )
+
+        budget_backoff = BudgetBackoff(resolve_auto_ac_budget(config))
+
+    def _apply_budget_backoff(new_budget: float) -> None:
+        """Zero grads, drop every compiled graph, re-arm the (lower) budget."""
+        # Must precede any `torch.` use: importing the submodule binds `torch`
+        # as a local for the whole function, shadowing the enclosing import.
+        import torch._dynamo
+
+        if hasattr(model_engine, "zero_grad"):
+            model_engine.zero_grad()
+        reset_engine_timers(model_engine)
+        empty_cuda_cache()
+        torch.cuda.ipc_collect()
+        torch._dynamo.reset()
+        apply_activation_memory_budget(new_budget)
+        if is_main_process():
+            print(f"[checkpoint] CUDA OOM -> {budget_backoff.describe()}", flush=True)
+        if tb_writer is not None:
+            tb_writer.add_scalar("train/activation_budget", new_budget, step)
 
     train_seed = int(config.get("train_seed", 42))
     import random as _random
@@ -1115,22 +1129,34 @@ def _run_training(args, config):
             iterator = get_data_iterator_for_step(train_dataloader, model_engine)
             t0 = time.perf_counter()
             skipped_oom = False
-            if oom_skip_enabled:
+            if oom_skip_enabled or budget_backoff is not None:
                 try:
                     loss = model_engine.train_batch(iterator).item()
                 except Exception as e:
                     if not is_cuda_oom(e):
                         raise
-                    handle_oom_skip(
-                        oom_skip_state,
-                        model_engine,
-                        clear_cache=bool(oom_skip_cfg.get("clear_cache_on_skip", True)),
-                        step=step,
-                        tb_writer=tb_writer,
-                    )
-                    oom_skip_state.record_skip()
-                    train_dataloader.sync_epoch()
-                    skipped_oom = True
+                    # Budget backoff first: with activation_checkpointing="auto" an
+                    # OOM usually means the budget's byte translation overshot on
+                    # this hardware/config — lowering it and recompiling fixes the
+                    # RUN, while oom_skip would just re-OOM every large step.
+                    new_budget = budget_backoff.on_oom() if budget_backoff is not None else None
+                    if new_budget is not None:
+                        _apply_budget_backoff(new_budget)
+                        train_dataloader.sync_epoch()
+                        skipped_oom = True
+                    elif oom_skip_enabled:
+                        handle_oom_skip(
+                            oom_skip_state,
+                            model_engine,
+                            clear_cache=bool(oom_skip_cfg.get("clear_cache_on_skip", True)),
+                            step=step,
+                            tb_writer=tb_writer,
+                        )
+                        oom_skip_state.record_skip()
+                        train_dataloader.sync_epoch()
+                        skipped_oom = True
+                    else:
+                        raise
             else:
                 loss = model_engine.train_batch(iterator).item()
             iter_sec = time.perf_counter() - t0

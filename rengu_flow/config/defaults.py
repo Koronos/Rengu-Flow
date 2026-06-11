@@ -112,9 +112,9 @@ def set_config_defaults(config: dict[str, Any]) -> None:
     config.setdefault("gradient_accumulation_steps", 1)
     config.setdefault("micro_batch_size_per_gpu", 1)
     # Per-resolution micro batch (e.g. { 512 = 2, 1024 = 1 }): TOML always parses
-    # table keys as strings, but the resolution->batch lookup (dataset post_init,
-    # activation_budget.micro_batch_for_size_bucket) compares keys numerically.
-    # Normalize here so the dict form actually works from a TOML file.
+    # table keys as strings, but the dataset's resolution->batch lookup
+    # (dataset.py post_init) compares keys numerically. Normalize here so the
+    # dict form actually works from a TOML file.
     for _mb_key in ("micro_batch_size_per_gpu", "image_micro_batch_size_per_gpu"):
         _mb = config.get(_mb_key)
         if isinstance(_mb, dict):
@@ -154,6 +154,9 @@ def set_config_defaults(config: dict[str, Any]) -> None:
     config.setdefault("val_gap_probe_batches", 8)
     config.setdefault("cache_dedup_text_embeddings", False)
     config.setdefault("compile", False)
+    # OOM-proof activation budget: on CUDA OOM with activation_checkpointing
+    # = "auto", lower the budget and recompile instead of crashing the run.
+    config.setdefault("activation_budget_backoff", True)
     # TorchInductor/Triton disk cache for torch.compile. "auto" enables the cache
     # only when compile is on AND compile_dynamic is off (with dynamic shapes the
     # shape guards never match, so the cache misses and adds a cold-population
