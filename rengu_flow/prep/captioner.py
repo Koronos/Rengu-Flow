@@ -221,6 +221,21 @@ DEFAULT_PROMPT_BASE = "descriptive-long"
 DEFAULT_PROMPT_MODIFIERS = ("demographics",)
 
 
+def _character_canon_text(name: str, canon: str) -> str:
+    # Variant-aware mode: characters appear off-model (aged-up, alternate hairstyle,
+    # meme body forms). Absorb only the canonical look into the trigger; deviations
+    # MUST be described or they get wrongly absorbed and pollute the trigger.
+    return (
+        f"There is a specific character in this image: you MUST refer to them as "
+        f"'{name}'. {name}'s canonical look is: {canon}. STRICT RULE: never "
+        f"describe a trait that matches this canonical look — the name '{name}' "
+        f"already implies it. However, if {name}'s appearance in THIS image "
+        "deviates from the canonical look — a different hairstyle or hair color, "
+        "an older or younger appearance, a different body type, an alternate "
+        "form — you MUST describe that deviation explicitly."
+    )
+
+
 def _character_trigger_text(name: str) -> str:
     # Mirrors JoyCaption's trained options ("you must refer to them as {name}" and
     # "do NOT include information about people that cannot be changed"): inherent
@@ -307,6 +322,7 @@ def compose_prompt(
     modifiers: tuple[str, ...] | list[str] = DEFAULT_PROMPT_MODIFIERS,
     *,
     character_name: str = "",
+    character_canon: str = "",
     outfit: str = "describe",
     image_key: str | None = None,
 ) -> str:
@@ -334,9 +350,12 @@ def compose_prompt(
         if outfit == "mixed":
             resolved = "describe" if _stable_choice(image_key or "") else "omit"
         parts.append(_OUTFIT_DESCRIBE if resolved == "describe" else _OUTFIT_OMIT)
-        # Last constraint wins with instruction-tuned VLMs: the trait prohibition
-        # goes after everything else so nothing re-licenses describing appearance.
-        parts.append(_character_trigger_text(character_name.strip()))
+        # Last constraint wins with instruction-tuned VLMs: the trait rule goes
+        # after everything else so nothing re-licenses describing appearance.
+        if character_canon.strip():
+            parts.append(_character_canon_text(character_name.strip(), character_canon.strip()))
+        else:
+            parts.append(_character_trigger_text(character_name.strip()))
     parts.append(_NO_META)
     return " ".join(parts)
 
@@ -372,7 +391,16 @@ class CaptionerConfig:
     prompt_base: str = DEFAULT_PROMPT_BASE
     prompt_modifiers: tuple[str, ...] = DEFAULT_PROMPT_MODIFIERS
     character_name: str = ""             # trigger name; inherent traits stay in it
+    # Canonical look (e.g. "aqua twin-tail hair, blue eyes, slim teenage build").
+    # When set, only canon-matching traits are absorbed and DEVIATIONS from it are
+    # described (aged-up, alternate hairstyle, meme forms); the hard trait scrubber
+    # is disabled in this mode since it cannot tell deviation from canon.
+    character_canon: str = ""
     outfit: str = "describe"             # describe | omit | mixed (needs character_name)
+    # 1-based caption line to write (2 = the standard NL caption line). Use 3+ to add
+    # extra caption VARIANTS (rengu treats each line as one) — e.g. line 2 absorbed
+    # trigger caption + line 3 full description from a second job.
+    target_line: int = 2
     max_new_tokens: int = 512
     temperature: float = 0.6
     top_p: float = 0.9
@@ -409,6 +437,7 @@ def build_prompt(
         config.prompt_base,
         config.prompt_modifiers,
         character_name=config.character_name,
+        character_canon=config.character_canon,
         outfit=config.outfit,
         image_key=image_key,
     )
@@ -685,12 +714,15 @@ def caption_folder(
     backend: Optional[CaptionBackend] = None
 
     all_keys = cs.keys()
+    # 1-based target line -> 0-based index; line 1 is the tag line, so captions
+    # start at index 1. Higher targets add caption variants (one per line).
+    target_idx = max(1, config.target_line - 1)
     # Partition into to-caption / skipped
     to_caption: list[str] = []
     skipped = 0
     for key in all_keys:
         lines = cs.get_lines(key)
-        if not config.overwrite and len(lines) >= 2 and lines[1]:
+        if not config.overwrite and len(lines) > target_idx and lines[target_idx]:
             skipped += 1
         else:
             to_caption.append(key)
@@ -799,11 +831,16 @@ def caption_folder(
             # Write captions (collapse multi-line model output to one line as safety net)
             for key, caption in zip(valid_keys, captions):
                 caption = _collapse_to_one_line(caption)
-                if config.character_name.strip() and not config.prompt:
+                if (
+                    config.character_name.strip()
+                    and not config.character_canon.strip()
+                    and not config.prompt
+                ):
                     # Guarantee trigger absorption even when the (quantized) VLM
-                    # leaks an inherent trait despite the instruction.
+                    # leaks an inherent trait despite the instruction. Skipped in
+                    # canon mode: deviations from canon MUST survive the caption.
                     caption = scrub_trait_clauses(caption)
-                cs.set_line(key, 1, caption)
+                cs.set_line(key, target_idx, caption)
                 captioned += 1
 
             # Incremental save after every batch

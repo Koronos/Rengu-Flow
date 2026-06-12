@@ -36,7 +36,9 @@ class CaptionStageConfig:
     prompt_base: str = "descriptive-long"
     prompt_modifiers: list[str] = field(default_factory=lambda: ["demographics"])
     character_name: str = ""  # trigger name (inherent traits absorbed into it)
+    character_canon: str = ""  # canonical look; deviations from it get described
     outfit: str = "describe"  # describe | omit | mixed (only with character_name)
+    target_line: int = 2  # 1-based caption line; 3+ adds caption variants
     max_new_tokens: int = 512
     temperature: float = 0.6
     top_p: float = 0.9

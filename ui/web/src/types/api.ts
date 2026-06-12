@@ -761,7 +761,9 @@ export interface PrepCaptionConfig {
   prompt_base: string;
   prompt_modifiers: string[];
   character_name: string;
+  character_canon: string;
   outfit: "describe" | "omit" | "mixed";
+  target_line: number;
   max_new_tokens: number;
   temperature: number;
   top_p: number;

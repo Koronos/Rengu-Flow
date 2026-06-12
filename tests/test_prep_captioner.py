@@ -621,3 +621,62 @@ class TestTraitScrubber:
         )
         line2 = (img_dir / "a.txt").read_text().splitlines()[1]
         assert "brown hair" in line2
+
+
+class TestCharacterVariantsAndTargetLine:
+    def test_canon_mode_prompt_describes_deviations(self):
+        from rengu_flow.prep.captioner import compose_prompt
+
+        text = compose_prompt(
+            character_name="hatsune miku",
+            character_canon="aqua twin-tail hair, blue eyes, slim teenage build",
+        )
+        assert "canonical look is: aqua twin-tail hair" in text
+        assert "deviates from the canonical look" in text
+        assert "describe that deviation explicitly" in text
+        # Plain trigger text is replaced, not stacked.
+        assert "Wherever you would normally describe" not in text
+
+    def test_canon_mode_disables_scrubber(self, tmp_path):
+        from rengu_flow.prep.captioner import CaptionerConfig, caption_folder
+
+        img_dir = _make_img_dir(tmp_path, ["a.jpg"])
+        _write_txt(img_dir, "a", "tags")
+        deviation = FakeBackend(
+            lambda _: "miku appears aged-up with short pink hair instead of her usual look."
+        )
+        caption_folder(
+            img_dir,
+            CaptionerConfig(
+                character_name="miku",
+                character_canon="aqua twintails, blue eyes",
+                overwrite=True,
+            ),
+            backend_factory=_make_factory(deviation),
+        )
+        line2 = (img_dir / "a.txt").read_text().splitlines()[1]
+        assert "short pink hair" in line2  # deviation survived (no scrubbing)
+
+    def test_target_line_3_adds_a_variant(self, tmp_path):
+        from rengu_flow.prep.captioner import CaptionerConfig, caption_folder
+
+        img_dir = _make_img_dir(tmp_path, ["a.jpg"])
+        _write_txt(img_dir, "a", "tags", "Absorbed caption.")
+
+        fb = FakeBackend(lambda _: "Full description caption.")
+        report = caption_folder(
+            img_dir,
+            CaptionerConfig(target_line=3),
+            backend_factory=_make_factory(fb),
+        )
+        assert report["captioned"] == 1
+        lines = (img_dir / "a.txt").read_text().splitlines()
+        assert lines == ["tags", "Absorbed caption.", "Full description caption."]
+
+        # Re-run without overwrite: line 3 exists -> skipped.
+        report = caption_folder(
+            img_dir,
+            CaptionerConfig(target_line=3),
+            backend_factory=_make_factory(fb),
+        )
+        assert report["skipped"] == 1 and report["captioned"] == 0

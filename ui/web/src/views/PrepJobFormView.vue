@@ -201,6 +201,36 @@
               </el-form-item>
             </div>
 
+            <el-form-item
+              v-if="captionForm.character_name.trim()"
+              label="Canonical look (optional — for datasets with character variants)"
+            >
+              <el-input
+                v-model="captionForm.character_canon"
+                type="textarea"
+                :rows="2"
+                placeholder="e.g. aqua twin-tail hair, blue eyes, slim teenage build — deviations (aged-up, alternate hairstyle, meme forms) get described instead of absorbed"
+                class="w-full"
+              />
+              <el-text v-if="captionForm.character_canon.trim()" size="small" type="warning">
+                Canon mode trusts the model to separate canon from deviation; the hard
+                trait scrubber is disabled.
+              </el-text>
+            </el-form-item>
+
+            <el-form-item label="Caption line">
+              <el-input-number
+                v-model="captionForm.target_line"
+                :min="2"
+                :max="9"
+                controls-position="right"
+              />
+              <el-text size="small" type="info" class="ml-8">
+                Line 2 = standard caption. Use 3+ to ADD a caption variant (e.g. queue a
+                second job: line 2 trigger-absorbed, line 3 full description).
+              </el-text>
+            </el-form-item>
+
             <el-form-item label="Custom prompt (overrides the composition)">
               <el-input
                 v-model="captionForm.prompt"
@@ -356,7 +386,9 @@ const captionForm = reactive({
   prompt_base: "descriptive-long",
   prompt_modifiers: ["demographics"] as string[],
   character_name: "",
+  character_canon: "",
   outfit: "describe" as "describe" | "omit" | "mixed",
+  target_line: 2,
   max_new_tokens: 512,
   temperature: 0.6,
   top_p: 0.9,
@@ -467,7 +499,9 @@ function buildConfig() {
         prompt_base: captionForm.prompt_base,
         prompt_modifiers: [...captionForm.prompt_modifiers],
         character_name: captionForm.character_name,
+        character_canon: captionForm.character_canon,
         outfit: captionForm.outfit,
+        target_line: captionForm.target_line,
         max_new_tokens: captionForm.max_new_tokens,
         temperature: captionForm.temperature,
         top_p: captionForm.top_p,
@@ -528,7 +562,9 @@ async function submit(startNow: boolean): Promise<void> {
             prompt_base: captionForm.prompt_base,
             prompt_modifiers: [...captionForm.prompt_modifiers],
             character_name: captionForm.character_name,
+            character_canon: captionForm.character_canon,
             outfit: captionForm.outfit,
+            target_line: captionForm.target_line,
             max_new_tokens: captionForm.max_new_tokens,
             temperature: captionForm.temperature,
             top_p: captionForm.top_p,

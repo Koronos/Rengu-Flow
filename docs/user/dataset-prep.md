@@ -76,7 +76,18 @@ thumbnails can be skipped (`min_image_side`).
     euphemisms.
 - **Character trigger** (`character_name`) — the caption refers to the character by
   this name and never describes their inherent traits (hair, eyes, face, body):
-  those get absorbed into the trigger token at training time.
+  those get absorbed into the trigger token at training time. A deterministic
+  post-pass scrubs any trait clause the (quantized) VLM leaks anyway, so absorption
+  holds by construction.
+- **Canonical look** (`character_canon`, optional) — for datasets with character
+  VARIANTS (aged-up versions, alternate hairstyles, meme body forms). Describe the
+  canon ("aqua twin-tail hair, blue eyes, slim teenage build") and the rule flips
+  to: absorb what matches the canon, **describe what deviates from it** — so the
+  deviation stays promptable instead of polluting the trigger. The hard scrubber is
+  disabled in this mode (it cannot tell deviation from canon).
+- **Caption line** (`target_line`, default 2) — write the caption to a higher line
+  to ADD caption variants (rengu treats each line as one): e.g. queue two caption
+  jobs, line 2 trigger-absorbed + line 3 full description.
 - **Outfit policy** (`outfit`, only with a `character_name`):
   - `describe` — the outfit is captioned, so it stays swappable at generation time.
   - `omit` — the outfit is never captioned, so the default outfit is absorbed into
