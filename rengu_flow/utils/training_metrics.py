@@ -1,4 +1,4 @@
-"""Training-step metrics for TensorBoard and WandB (aligned with diffusion-pipe train.py)."""
+"""Training-step metrics, routed through the tracking sink (aligned with diffusion-pipe train.py)."""
 
 from __future__ import annotations
 
@@ -29,8 +29,7 @@ def get_automagic_lrs(optimizer) -> tuple[torch.Tensor, float]:
 
 def log_training_step(
     *,
-    tb_writer: Any,
-    wandb_enable: bool,
+    sink: Any,
     optimizer: Any,
     loss: float,
     x_axis: int,
@@ -38,44 +37,21 @@ def log_training_step(
     logging_steps: int,
     is_main: bool,
 ) -> None:
-    """Log scalars (and automagic histogram) on logging_steps boundaries."""
+    """Log scalars (and automagic histogram) on logging_steps boundaries via the tracking sink."""
     if not is_main or step % logging_steps != 0:
         return
 
-    if tb_writer is not None:
-        tb_writer.add_scalar("train/loss", loss, x_axis)
-    _wandb_log(wandb_enable, {"train/loss": loss, "step": x_axis})
+    sink.scalar("train/loss", loss, x_axis)
 
     if hasattr(optimizer, "_grad_norm"):
-        if tb_writer is not None:
-            tb_writer.add_scalar("train/grad_norm", optimizer._grad_norm, x_axis)
-        _wandb_log(wandb_enable, {"train/grad_norm": optimizer._grad_norm, "step": x_axis})
+        sink.scalar("train/grad_norm", optimizer._grad_norm, x_axis)
 
     opt_name = type(optimizer).__name__
     if opt_name == "Prodigy":
-        prodigy_d = get_prodigy_d(optimizer)
-        if tb_writer is not None:
-            tb_writer.add_scalar("train/prodigy_d", prodigy_d, x_axis)
-        _wandb_log(wandb_enable, {"train/prodigy_d": prodigy_d, "step": x_axis})
+        sink.scalar("train/prodigy_d", get_prodigy_d(optimizer), x_axis)
 
     if opt_name in ("Automagic", "GenericOptim") and hasattr(optimizer, "_get_lr"):
         lrs, avg_lr = get_automagic_lrs(optimizer)
         if avg_lr > 0:
-            if tb_writer is not None:
-                tb_writer.add_histogram("train/automagic_lrs", lrs, x_axis)
-                tb_writer.add_scalar("train/automagic_avg_lr", avg_lr, x_axis)
-            _wandb_log(
-                wandb_enable,
-                {"train/automagic_avg_lr": avg_lr, "step": x_axis},
-            )
-
-
-def _wandb_log(wandb_enable: bool, metrics: dict[str, Any]) -> None:
-    if not wandb_enable:
-        return
-    try:
-        import wandb
-
-        wandb.log(metrics)
-    except ImportError:
-        pass
+            sink.histogram("train/automagic_lrs", lrs, x_axis)
+            sink.scalar("train/automagic_avg_lr", avg_lr, x_axis)

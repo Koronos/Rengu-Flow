@@ -45,7 +45,37 @@ def _sync_config_to_run_folder(run_dir: str | None, staged_config: str | Path | 
     from rengu_flow_ui import runs_scanner
 
     target = runs_scanner.pick_main_config_path(folder) or (folder / "train.toml")
-    target.write_text(staged.read_text(encoding="utf-8"), encoding="utf-8")
+    old_text = target.read_text(encoding="utf-8") if target.is_file() else ""
+    new_text = staged.read_text(encoding="utf-8")
+    target.write_text(new_text, encoding="utf-8")
+    _record_config_edit(run_dir, old_text, new_text)
+
+
+def _record_config_edit(run_dir: str, old_text: str, new_text: str) -> None:
+    """Append a `config_edited` event to the run timeline when the UI changes a run's config.
+
+    The UI mutates config while the trainer may not be running, so it records the change itself
+    (the trainer records `resumed`/`run_started` on the subsequent relaunch). No-op on the first
+    sync (no prior config to diff) or when nothing actually changed.
+    """
+    if not old_text:
+        return
+    try:
+        import tomlkit
+
+        old_cfg = tomlkit.parse(old_text).unwrap()
+        new_cfg = tomlkit.parse(new_text).unwrap()
+    except Exception:
+        return
+    from rengu_track import EVENT_CONFIG_EDITED, append_event, config_diff
+
+    diff = config_diff(old_cfg, new_cfg)
+    if not (diff["added"] or diff["removed"] or diff["changed"]):
+        return
+    try:
+        append_event(run_dir, EVENT_CONFIG_EDITED, payload={"diff": diff}, source="ui")
+    except OSError:
+        pass
 
 
 def _job_sort_key(job: db.JobRecord) -> tuple:

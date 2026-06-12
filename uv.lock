@@ -2689,7 +2689,7 @@ wheels = [
 
 [[package]]
 name = "rengu-flow"
-version = "0.1.24"
+version = "0.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "datasets" },
@@ -2702,7 +2702,9 @@ dependencies = [
     { name = "numpy" },
     { name = "peft" },
     { name = "pillow" },
+    { name = "psutil" },
     { name = "safetensors" },
+    { name = "tensorboard" },
     { name = "toml" },
     { name = "tomlkit" },
     { name = "torch" },
@@ -2746,8 +2748,6 @@ prep = [
 ]
 ui = [
     { name = "fastapi" },
-    { name = "psutil" },
-    { name = "tensorboard" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
@@ -2775,12 +2775,12 @@ requires-dist = [
     { name = "optimum-quanto", marker = "extra == 'optim'" },
     { name = "peft", specifier = ">=0.10.0" },
     { name = "pillow", specifier = ">=9.0.0" },
-    { name = "psutil", marker = "extra == 'ui'", specifier = ">=5.9.0" },
+    { name = "psutil", specifier = ">=5.9.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },
     { name = "pytest-xdist", marker = "extra == 'dev'", specifier = ">=3.5" },
     { name = "pytorch-optimizer", marker = "extra == 'optim'" },
     { name = "safetensors", specifier = ">=0.4.0" },
-    { name = "tensorboard", marker = "extra == 'ui'", specifier = ">=2.14.0" },
+    { name = "tensorboard", specifier = ">=2.14.0" },
     { name = "toml", specifier = ">=0.10.2" },
     { name = "tomlkit", specifier = ">=0.12.0" },
     { name = "torch", specifier = "==2.12.0", index = "https://download.pytorch.org/whl/cu130" },

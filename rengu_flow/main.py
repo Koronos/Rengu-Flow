@@ -339,7 +339,6 @@ def _setup_compile_disk_cache(config, is_main):
 def _run_training(args, config):
     import torch
     import deepspeed
-    from torch.utils.tensorboard import SummaryWriter
 
     from rengu_flow import distributed as dist
     from rengu_flow.utils.common import empty_cuda_cache
@@ -873,22 +872,30 @@ def _run_training(args, config):
         pipeline_model,
         steps_per_epoch=steps_per_epoch,
     )
-    tb_writer = SummaryWriter(log_dir=run_dir) if is_main_process() else None
-    wandb_enable = config.get("monitoring", {}).get("enable_wandb", False)
-    if wandb_enable and is_main_process():
-        try:
-            import wandb
-            mon = config.get("monitoring", {})
-            if mon.get("wandb_api_key"):
-                wandb.login(key=mon["wandb_api_key"])
-            wandb.init(
-                project=mon.get("wandb_tracker_name", "rengu-flow"),
-                name=mon.get("wandb_run_name", run_dir),
-                config=config,
-                dir=run_dir,
-            )
-        except ImportError:
-            wandb_enable = False
+    # Centralized tracking client: one sink fans out to the configured backends (manifest /
+    # tensorboard / optional wandb). Built only on rank 0; other ranks get a no-op NullSink so
+    # the loop stays identical without per-call rank guards. Connect/disconnect = [tracking].enabled.
+    from rengu_track import (
+        EVENT_FAILED,
+        EVENT_FINISHED,
+        EVENT_RESTARTED_FROM_SCRATCH,
+        EVENT_RESUMED,
+        EVENT_RUN_STARTED,
+        EVENT_STOP_REQUESTED,
+        NullSink,
+        build_sink,
+        read_events,
+    )
+
+    sink = build_sink(config, run_dir) if is_main_process() else NullSink()
+    tracking_cfg = config.get("tracking", {})
+    if is_main_process() and tracking_cfg.get("enabled", True) and tracking_cfg.get(
+        "capture_lineage", True
+    ):
+        from rengu_track import lineage
+
+        sink.set_lineage(lineage.capture())
+        sink.set_hardware(lineage.hardware())
     disable_block_swap_for_eval = config.get("disable_block_swap_for_eval", False)
     x_axis_examples = config.get("x_axis_examples", False)
     eval_every_n_steps = config.get("eval_every_n_steps")
@@ -903,6 +910,22 @@ def _run_training(args, config):
 
     step = 1
     examples = global_batch_size
+
+    # Background system-metrics sampler (rank 0): pushes system/* scalars (GPU util/VRAM/temp/
+    # power, CPU/RAM) at a fixed interval, tagged with the live `step`. Daemon thread; stopped on
+    # both exit paths so the peak/mean aggregates flush to the manifest.
+    sampler = None
+    sampler_cfg = tracking_cfg.get("system_sampler", {})
+    if is_main_process() and tracking_cfg.get("enabled", True) and sampler_cfg.get("enabled", True):
+        from rengu_track.sampler import SystemSampler
+
+        sampler = SystemSampler(
+            sink,
+            interval_sec=sampler_cfg.get("interval_sec", 10),
+            step_fn=lambda: step,
+        )
+        sampler.start()
+
     from rengu_flow.training_progress import (
         EpochSchedule,
         TrainingProgressTracker,
@@ -1029,6 +1052,34 @@ def _run_training(args, config):
             if is_main_process():
                 print(f"Resuming from checkpoint at epoch {epoch}, step {step}")
 
+    # Lifecycle event (rank 0): one per process start. `resumed` carries the restored step; a
+    # restart from step 1 in a folder that already saw a prior run is `restarted_from_scratch`
+    # (the timeline itself tells them apart); a genuinely fresh run is `run_started`.
+    if is_main_process():
+        prior = read_events(run_dir)
+        had_prior_run = any(
+            e.get("type") in (EVENT_RUN_STARTED, EVENT_RESUMED, EVENT_RESTARTED_FROM_SCRATCH)
+            for e in prior
+        )
+        if resume_from_checkpoint and step > 1:
+            sink.event(
+                EVENT_RESUMED,
+                step=step,
+                payload={"checkpoint_tag": resume_tag, "examples": examples},
+            )
+        elif had_prior_run:
+            sink.event(
+                EVENT_RESTARTED_FROM_SCRATCH,
+                step=step,
+                payload={"resume_requested": bool(resume_from_checkpoint)},
+            )
+        else:
+            sink.event(
+                EVENT_RUN_STARTED,
+                step=step,
+                payload={"resume_requested": bool(resume_from_checkpoint)},
+            )
+
     if eval_before_first_step and not resume_from_checkpoint and eval_dataloaders:
         empty_cuda_cache()
         if hasattr(optimizer, "train") and callable(optimizer.train):
@@ -1037,12 +1088,11 @@ def _run_training(args, config):
             model,
             model_engine,
             eval_dataloaders,
-            tb_writer,
+            sink,
             0,
             eval_gradient_accumulation_steps,
             disable_block_swap_for_eval,
             optimizer=optimizer,
-            wandb_enable=wandb_enable,
         )
         if val_probe_dataloader is not None:
             last_val_metrics = generalization_probe(
@@ -1050,13 +1100,12 @@ def _run_training(args, config):
                 model_engine,
                 val_probe_dataloader,
                 train_probe_dataloader,
-                tb_writer,
+                sink,
                 0,
                 eval_gradient_accumulation_steps,
                 disable_block_swap_for_eval,
                 probe_batches=val_gap_probe_batches,
                 optimizer=optimizer,
-                wandb_enable=wandb_enable,
             )
 
     if (
@@ -1067,11 +1116,10 @@ def _run_training(args, config):
         run_previews(
             model,
             config,
-            tb_writer,
+            sink,
             0,
             disable_block_swap=disable_block_swap_for_preview,
             optimizer=optimizer,
-            wandb_enable=wandb_enable,
         )
 
     oom_skip_cfg = config.get("train", {}).get("oom_skip", {})
@@ -1120,8 +1168,7 @@ def _run_training(args, config):
         apply_activation_memory_budget(new_budget)
         if is_main_process():
             print(f"[checkpoint] CUDA OOM -> {budget_backoff.describe()}", flush=True)
-        if tb_writer is not None:
-            tb_writer.add_scalar("train/activation_budget", new_budget, step)
+        sink.scalar("train/activation_budget", new_budget, step)
 
     train_seed = int(config.get("train_seed", 42))
     import random as _random
@@ -1185,7 +1232,7 @@ def _run_training(args, config):
                             model_engine,
                             clear_cache=bool(oom_skip_cfg.get("clear_cache_on_skip", True)),
                             step=step,
-                            tb_writer=tb_writer,
+                            sink=sink,
                         )
                         oom_skip_state.record_skip()
                         train_dataloader.sync_epoch()
@@ -1262,8 +1309,7 @@ def _run_training(args, config):
                     force=is_final or finished_epoch or saved,
                 )
             log_training_step(
-                tb_writer=tb_writer,
-                wandb_enable=wandb_enable,
+                sink=sink,
                 optimizer=optimizer,
                 loss=loss,
                 x_axis=x_axis,
@@ -1279,12 +1325,11 @@ def _run_training(args, config):
                     model,
                     model_engine,
                     eval_dataloaders,
-                    tb_writer,
+                    sink,
                     x_axis,
                     eval_gradient_accumulation_steps,
                     disable_block_swap_for_eval,
                     optimizer=optimizer,
-                    wandb_enable=wandb_enable,
                 )
                 if val_probe_dataloader is not None:
                     last_val_metrics = generalization_probe(
@@ -1292,13 +1337,12 @@ def _run_training(args, config):
                         model_engine,
                         val_probe_dataloader,
                         train_probe_dataloader,
-                        tb_writer,
+                        sink,
                         x_axis,
                         eval_gradient_accumulation_steps,
                         disable_block_swap_for_eval,
                         probe_batches=val_gap_probe_batches,
                         optimizer=optimizer,
-                        wandb_enable=wandb_enable,
                     )
                     # Re-emit a fresh marker so the UI surfaces the new val/gap promptly
                     # (the per-step emit above ran before this probe).
@@ -1317,14 +1361,7 @@ def _run_training(args, config):
             if finished_epoch:
                 if is_main_process() and num_steps > 0:
                     avg_epoch_loss = epoch_loss / num_steps
-                    if tb_writer is not None:
-                        tb_writer.add_scalar("train/epoch_loss", avg_epoch_loss, epoch)
-                    if wandb_enable:
-                        try:
-                            import wandb
-                            wandb.log({"train/epoch_loss": avg_epoch_loss, "epoch": epoch})
-                        except ImportError:
-                            pass
+                    sink.scalar("train/epoch_loss", avg_epoch_loss, epoch)
                 epoch_loss = 0.0
                 num_steps = 0
 
@@ -1339,7 +1376,7 @@ def _run_training(args, config):
             # signal (edit the TOML, then signal). Applies live to the checks below; only
             # [preview] is reloaded — model/optimizer/dataset can't change mid-run.
             if step_signals.should_reload_config:
-                reload_preview_config(config, args.config)
+                reload_preview_config(config, args.config, sink=sink, step=step)
 
             preview_x_axis = examples if x_axis_examples else step
             forced_preview = step_signals.should_preview
@@ -1353,11 +1390,10 @@ def _run_training(args, config):
                 run_previews(
                     model,
                     config,
-                    tb_writer,
+                    sink,
                     preview_x_axis,
                     disable_block_swap=disable_block_swap_for_preview,
                     optimizer=optimizer,
-                    wandb_enable=wandb_enable,
                 )
             elif forced_preview and is_main_process():
                 # A preview was explicitly requested but there are no prompts to render. Don't
@@ -1375,6 +1411,15 @@ def _run_training(args, config):
                 break
             step += 1
             examples += global_batch_size
+    except SystemExit:
+        # Graceful stop: the saver received save_quit/export_quit, already checkpointed and
+        # printed the reason, then sys.exit(0). Record it on the timeline and flush tracking
+        # before the process exits (SystemExit is not caught by the `except Exception` below).
+        if sampler is not None:
+            sampler.stop()
+        sink.event(EVENT_STOP_REQUESTED, step=step)
+        sink.close(status="stopped")
+        raise
     except Exception as exc:
         # Last-ditch checkpoint on a fatal CUDA OOM (commonly during a preview/eval) so the run can
         # resume instead of being lost. Best-effort and rank-0 gated logging; the original error is
@@ -1403,6 +1448,10 @@ def _run_training(args, config):
                         f"rengu_flow: emergency checkpoint FAILED after OOM: {save_exc}",
                         flush=True,
                     )
+        if sampler is not None:
+            sampler.stop()
+        sink.event(EVENT_FAILED, step=step, payload={"error": str(exc)[:500]})
+        sink.close(status="failed")
         raise
 
     # End-of-run saves (decision is the unit-tested plan_final_saves): always write a final
@@ -1430,6 +1479,11 @@ def _run_training(args, config):
         if config.get("compile"):
             _print_compile_cache_stats()
         print("Training complete.")
+
+    if sampler is not None:
+        sampler.stop()
+    sink.event(EVENT_FINISHED, step=step)
+    sink.close(status="finished")
 
 
 def _print_compile_cache_stats() -> None:

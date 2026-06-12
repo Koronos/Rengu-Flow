@@ -377,20 +377,25 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "summary": "Write PNG files under the run preview/ folder.",
         "doc": "docs/user/previews.md",
     },
-    "monitoring.enable_wandb": {
-        "summary": "Log metrics to Weights & Biases.",
+    "tracking.enabled": {
+        "summary": "Master switch for experiment tracking (run.json + TB + timeline).",
+        "detail": "When off, the run trains with a no-op sink and writes no tracking artifacts.",
         "doc": "docs/user/training-loop-and-eval.md",
     },
-    "monitoring.wandb_tracker_name": {
-        "summary": "WandB project (entity/project) name.",
+    "tracking.system_sampler.enabled": {
+        "summary": "Sample GPU/CPU/RAM metrics over the run as system/* scalars.",
         "doc": "docs/user/training-loop-and-eval.md",
     },
-    "monitoring.wandb_run_name": {
+    "tracking.wandb.project": {
+        "summary": "WandB project name (only used when 'wandb' is in tracking.backends).",
+        "doc": "docs/user/training-loop-and-eval.md",
+    },
+    "tracking.wandb.run_name": {
         "summary": "Display name for this run in WandB.",
-        "detail": "Defaults to the run directory path if omitted.",
+        "detail": "Defaults to the run directory name if omitted.",
         "doc": "docs/user/training-loop-and-eval.md",
     },
-    "monitoring.wandb_api_key": {
+    "tracking.wandb.api_key": {
         "summary": "WandB API key (prefer WANDB_API_KEY env var).",
         "doc": "docs/user/training-loop-and-eval.md",
     },

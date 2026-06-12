@@ -166,21 +166,37 @@ def compute_run_progress(
     step = m.get("step")
     loss = m.get("loss")
     epoch = m.get("epoch")
+    # Generalization probe (held-out val loss + train-val gap). Prefer the live marker.
+    val_loss = m.get("val_loss")
+    val_gap = m.get("val_gap")
 
+    # Prefer the cheap manifest scalar index (run.json: last value per tag + last step) over
+    # parsing TensorBoard event files — this is what keeps the runs list fast as runs accumulate.
+    if has_dir and None in (step, loss, val_loss, val_gap):
+        from rengu_track import read_manifest
+
+        _man = read_manifest(run_dir)
+        if _man is not None:
+            last = _man.last_scalars or {}
+            if step is None:
+                step = _man.last_step
+            if loss is None and "train/loss" in last:
+                loss = last["train/loss"]
+            if val_loss is None and "val/loss" in last:
+                val_loss = last["val/loss"]
+            if val_gap is None and "val/gap" in last:
+                val_gap = last["val/gap"]
+
+    # TB fallback only for runs without a manifest (trained before tracking) or missing the value
+    # there. Downsampled to the endpoints so we read the last point without loading the full series.
     if (step is None or loss is None) and has_dir:
-        scalars = metrics_tb.read_scalars(run_dir)
-        series = scalars.get("train/loss") or []
+        series = metrics_tb.read_scalars(run_dir, max_points=2).get("train/loss") or []
         if series:
             last = series[-1]
             step = step if step is not None else last.get("step")
             loss = loss if loss is not None else last.get("value")
-
-    # Generalization probe (held-out val loss + train-val gap). Prefer the live marker; fall
-    # back to the last TensorBoard scalars for finished/imported runs.
-    val_loss = m.get("val_loss")
-    val_gap = m.get("val_gap")
     if (val_loss is None or val_gap is None) and has_dir:
-        scalars = metrics_tb.read_scalars(run_dir, tag_prefix="")
+        scalars = metrics_tb.read_scalars(run_dir, tag_prefix="", max_points=2)
         if val_loss is None:
             vseries = scalars.get("val/loss") or []
             if vseries:
@@ -372,7 +388,7 @@ def get_active_training_run() -> dict[str, Any] | None:
         run_dir = run.get("run_dir")
         if run_dir:
             path = Path(run_dir)
-            run["scalars"] = metrics_tb.read_scalars(path)
+            run["scalars"] = metrics_tb.read_scalars(path, max_points=1000)
             run["preview_images"] = list_run_preview_images(path)
         else:
             run["scalars"] = {}
@@ -381,24 +397,15 @@ def get_active_training_run() -> dict[str, Any] | None:
     return None
 
 
-def list_run_preview_images(run_dir: str | Path, *, limit: int = 2000) -> list[dict[str, str]]:
-    root = Path(run_dir).resolve()
-    preview = root / "preview"
-    if not preview.is_dir():
-        return []
-    images = sorted(
-        (
-            p
-            for p in preview.iterdir()
-            if p.is_file() and p.suffix.lower() in (".png", ".jpg", ".jpeg", ".webp")
-        ),
-        key=lambda p: p.stat().st_mtime,
-        reverse=True,
-    )
-    out: list[dict[str, str]] = []
-    for path in images[:limit]:
-        out.append({"name": path.name, "run_dir": str(root)})
-    return out
+def list_run_preview_images(run_dir: str | Path, *, limit: int = 2000) -> list[dict[str, Any]]:
+    """Preview frames for a run — delegated to rengu_track so the panel reads through one source.
+
+    Each item carries the parsed ``step``/``prompt`` (see ``rengu_track.reader.preview_images``),
+    letting the UI lay frames out along steps instead of a flat grid.
+    """
+    from rengu_track import reader
+
+    return reader.preview_images(run_dir, limit=limit)
 
 
 def resolve_preview_image(run_dir: str, name: str) -> Path:

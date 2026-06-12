@@ -1,4 +1,4 @@
-# Example: training with evaluation and WandB monitoring.
+# Example: training with evaluation and experiment tracking (local by default; optional WandB).
 # Run: deepspeed --num_gpus=1 -m rengu_flow.main --config examples/config_with_eval_and_monitoring.toml
 #
 # Requires a real dataset (remove synthetic_num_batches and set dataset path).
@@ -41,11 +41,19 @@ eval_before_first_step = true
 eval_gradient_accumulation_steps = 1
 # disable_block_swap_for_eval = false   # set true for full-GPU eval when using block swap
 
-# Optional: WandB (install wandb; set WANDB_API_KEY or monitoring.wandb_api_key)
-[monitoring]
-enable_wandb = false
-# wandb_tracker_name = "rengu-flow"
-# wandb_run_name = "sdxl-lora-eval-example"
+# Experiment tracking (rengu_track). Defaults already log locally: TensorBoard event files +
+# run.json (hparams/lineage/hardware) + run_events.jsonl (lifecycle/config timeline), all under
+# the run directory. No external service needed.
+[tracking]
+enabled = true
+backends = ["manifest", "tensorboard"]  # add "wandb" to also mirror to Weights & Biases
+[tracking.system_sampler]
+enabled = true
+interval_sec = 10
+# Optional WandB mirror (install wandb; set WANDB_API_KEY or tracking.wandb.api_key):
+# [tracking.wandb]
+# project = "rengu-flow"
+# run_name = "sdxl-lora-eval-example"
 
 # Resume from latest or specific run:
 # --resume_from_checkpoint

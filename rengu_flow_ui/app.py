@@ -34,7 +34,7 @@ from rengu_flow_ui.config_schema import get_schema
 from rengu_flow_ui.docs_reader import DocNotFoundError, DocPathError, read_doc
 from rengu_flow_ui import tensorboard_server
 from rengu_flow_ui.paths import PathError, resolve_example_path, resolve_repo_path
-from rengu_flow_ui.system_stats import collect_system_stats
+from rengu_track.system_stats import collect_system_stats
 from rengu_flow_ui.settings import (
     ensure_data_dirs,
     repo_root,
@@ -1125,6 +1125,43 @@ def create_app() -> FastAPI:
             return {"run": None}
         return {"run": runs[-1]}
 
+    # Registered before /runs/{run_name} so the literal path wins over the {run_name} param.
+    @app.get(f"{API_PREFIX}/runs/compare")
+    def compare_fs_runs(runs: str = "", output_dir: str = "output") -> dict[str, Any]:
+        """Cross-run comparison: manifest rows + hparam columns + scalar series + timelines.
+
+        ``runs`` is a comma-separated list of run folder names; empty selects all tracked runs.
+        """
+        from rengu_track import reader
+
+        root = resolve_repo_path(output_dir)
+        names = [n.strip() for n in runs.split(",") if n.strip()]
+        if names:
+            run_dirs: list[Path] = [root / n for n in names]
+        else:
+            # Discover ALL run folders (by config/event files), not just manifest ones, so runs
+            # trained before tracking still show up.
+            run_dirs = [Path(r["path"]) for r in runs_scanner.scan_output_runs(root)]
+        return reader.compare_runs(run_dirs, config_fallback=_compare_config_row)
+
+    # On-demand per-metric series for the comparison view (lazy-loaded as each chart scrolls in).
+    @app.get(f"{API_PREFIX}/runs/series")
+    def fs_runs_series(
+        runs: str = "",
+        tag: str = "",
+        max_points: int = 500,
+        output_dir: str = "output",
+    ) -> dict[str, Any]:
+        from rengu_track import reader
+
+        if not tag:
+            raise HTTPException(400, "tag is required")
+        root = resolve_repo_path(output_dir)
+        names = [n.strip() for n in runs.split(",") if n.strip()]
+        run_dirs = [root / n for n in names] if names else reader.list_run_dirs(root)
+        cap = max_points if max_points and max_points > 0 else None
+        return {"tag": tag, "series": reader.series_for(run_dirs, tag, max_points=cap)}
+
     @app.get(f"{API_PREFIX}/runs/{{run_name}}")
     def get_fs_run(run_name: str, output_dir: str = "output") -> dict[str, Any]:
         path = resolve_repo_path(output_dir) / run_name
@@ -1331,8 +1368,45 @@ def _run_metrics_payload(run_dir) -> dict[str, Any]:
     from rengu_flow_ui import training_hub
 
     return {
-        "scalars": metrics_tb.read_scalars(run_dir),
+        "scalars": metrics_tb.read_scalars(run_dir, max_points=1000),
         "preview_images": training_hub.list_run_preview_images(run_dir),
+    }
+
+
+def _compare_config_row(run_dir) -> dict[str, Any] | None:
+    """Build a comparison row for a run that has no run.json (trained before tracking).
+
+    Hyperparameters come from the run's config TOML; summary/lineage are empty (the trainer never
+    recorded them). Returns None for a folder that is neither a config-bearing nor TB-bearing run.
+    """
+    from rengu_track.run import flatten_hparams
+
+    rd = Path(run_dir)
+    cfg_path = runs_scanner.pick_main_config_path(rd)
+    has_tb = any(rd.glob("events.out.tfevents.*"))
+    if cfg_path is None and not has_tb:
+        return None
+    config: dict[str, Any] = {}
+    if cfg_path is not None:
+        try:
+            import tomlkit
+
+            config = tomlkit.parse(cfg_path.read_text(encoding="utf-8")).unwrap()
+        except Exception:
+            config = {}
+    return {
+        "run_id": rd.name,
+        "name": config.get("run_name") or rd.name,
+        "status": "imported",
+        "created_at": "",
+        "updated_at": "",
+        "hparams": flatten_hparams(config),
+        "summary": {},
+        "system_summary": {},
+        "lineage": {},
+        "hardware": {},
+        "tags": [],
+        "last_scalars": {},
     }
 
 

@@ -74,17 +74,17 @@ def test_run_previews_cosmos_dispatches_to_generate_preview_image():
         "pipeline_stages": 1,
         "preview": {"prompts": ["test scene"], "seed": 0},
     }
-    tb = MagicMock()
+    sink = MagicMock()
 
     with patch("rengu_flow.utils.preview.is_main_process", return_value=True):
         with patch("rengu_flow.utils.preview._dist_barrier"):
             with patch("rengu_flow.utils.preview.empty_cuda_cache"):
-                run_previews(model, config, tb, step=5)
+                run_previews(model, config, sink, step=5)
 
     model.prepare_preview_memory.assert_called_once()
     model.generate_preview_image.assert_called_once()
     model.restore_after_preview.assert_called_once()
-    tb.add_image.assert_called_once()
+    sink.image.assert_called_once()
 
 
 def test_run_previews_cosmos_skips_when_pipeline_stages_not_one(capsys):
@@ -142,16 +142,16 @@ def test_save_preview_png_names_step_first_zero_padded(tmp_path):
             self.saved_to = path
             Path(path).write_bytes(b"\x89PNG")
 
-    class _Writer:
-        log_dir = str(tmp_path)
+    class _Sink:
+        run_dir = tmp_path
 
     img = _Img()
-    _save_preview_png(img, _Writer(), {"preview_save_png": True}, "portrait", 500)
+    _save_preview_png(img, _Sink(), {"preview_save_png": True}, "portrait", 500)
     saved = Path(img.saved_to)
     assert saved.name == "step00000500_portrait.png"
     assert saved.parent == tmp_path / "preview"
 
     # Larger step keeps a name that sorts after the smaller one lexicographically.
     img2 = _Img()
-    _save_preview_png(img2, _Writer(), {"preview_save_png": True}, "portrait", 1000)
+    _save_preview_png(img2, _Sink(), {"preview_save_png": True}, "portrait", 1000)
     assert Path(img.saved_to).name < Path(img2.saved_to).name

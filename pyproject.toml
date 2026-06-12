@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rengu-flow"
-version = "0.1.24"
+version = "0.2.0"
 description = "TOML-driven diffusion training: DeepSpeed, LoRA/LoKr/full finetune (SDXL, Cosmos Predict2), optional web UI."
 readme = "README.md"
 license = "GPL-3.0-or-later"
@@ -34,6 +34,10 @@ dependencies = [
     # Scientific-Python SPEC 1 lazy submodule loading: keeps package __init__ files (utils, data)
     # from eager-importing heavy submodules (e.g. pipeline -> DeepSpeed's ~17s import) until used.
     "lazy-loader>=0.4",
+    # Experiment tracking (rengu_track) is core, used by the trainer: the default TensorBoard
+    # backend writes event files, and the system-metrics sampler reads CPU/RAM via psutil.
+    "tensorboard>=2.14.0",
+    "psutil>=5.9.0",
 ]
 
 [project.optional-dependencies]
@@ -77,8 +81,6 @@ dev = [
 ui = [
     "fastapi>=0.110.0",
     "uvicorn[standard]>=0.27.0",
-    "tensorboard>=2.14.0",
-    "psutil>=5.9.0",
 ]
 # Git-backed; resolved from [tool.uv.sources] below. uv locks the commit in uv.lock, and
 # `rengu update` re-resolves it to the latest commit (uv sync --upgrade-package kaon) only
@@ -92,7 +94,7 @@ rengu-flow-ui = "rengu_flow_ui.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["rengu_flow*", "rengu_flow_ui*"]
+include = ["rengu_flow*", "rengu_flow_ui*", "rengu_track*"]
 
 [tool.setuptools.package-data]
 "rengu_flow.model.cosmos_predict2" = ["assets/**/*"]

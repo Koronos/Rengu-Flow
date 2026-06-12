@@ -3,6 +3,7 @@ import DatasetsListView from "./views/DatasetsListView.vue";
 import DocsView from "./views/DocsView.vue";
 import MaintenanceView from "./views/MaintenanceView.vue";
 import JobsView from "./views/JobsView.vue";
+import RunComparisonView from "./views/RunComparisonView.vue";
 import RunDetailView from "./views/RunDetailView.vue";
 import RunFormView from "./views/RunFormView.vue";
 import TagEditorView from "./views/TagEditorView.vue";
@@ -20,6 +21,7 @@ const router = createRouter({
     { path: "/runs/jobs/:id/continue", name: "run-continue", component: RunFormView },
     { path: "/runs/jobs/:id", name: "job-detail", component: RunDetailView, props: { mode: "job" } },
     { path: "/runs", name: "jobs", component: JobsView },
+    { path: "/compare", name: "run-comparison", component: RunComparisonView },
     {
       path: "/runs/:name",
       name: "run-detail",

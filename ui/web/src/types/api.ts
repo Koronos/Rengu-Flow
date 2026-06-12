@@ -605,12 +605,58 @@ export interface ScalarMetricPoint {
 export interface RunPreviewImageRef {
   run_dir: string;
   name: string;
+  /** Parsed by rengu_track from the filename; null when the name doesn't follow step{N}_{prompt}. */
+  step?: number | null;
+  prompt?: string;
 }
 
 export interface JobMetricsResult {
   scalars?: Record<string, ScalarMetricPoint[]>;
   preview_images?: RunPreviewImageRef[];
   previews?: { name: string; path?: string }[];
+}
+
+// --- Cross-run comparison (rengu_track) ---
+
+export interface CompareRunRow {
+  run_id: string;
+  name: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+  hparams: Record<string, string | number | boolean | null>;
+  summary: Record<string, number | string | null>;
+  system_summary: Record<string, number | string | null>;
+  lineage: Record<string, unknown>;
+  hardware: Record<string, unknown>;
+  tags: string[];
+  last_scalars: Record<string, number>;
+}
+
+export interface CompareColumn {
+  key: string;
+  varies: boolean;
+}
+
+export interface TimelineEvent {
+  ts: string;
+  type: string;
+  step: number | null;
+  source: string;
+  payload: Record<string, unknown>;
+}
+
+/** Metadata-only comparison payload — no series (those load on demand via runSeries). */
+export interface CompareRunsResult {
+  runs: CompareRunRow[];
+  columns: CompareColumn[];
+  metrics: string[];
+  timelines: Record<string, TimelineEvent[]>;
+}
+
+export interface RunSeriesResult {
+  tag: string;
+  series: Record<string, ScalarMetricPoint[]>;
 }
 
 // --- Maintenance ---

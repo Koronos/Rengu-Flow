@@ -176,13 +176,21 @@ def set_config_defaults(config: dict[str, Any]) -> None:
     config.setdefault("compile_cache_dir", None)
     config.setdefault("x_axis_examples", False)
     config.setdefault("steps_per_print", 1)
-    config.setdefault("monitoring", {})
-    mon = config["monitoring"]
-    mon.setdefault("enable_wandb", False)
-    mon.setdefault("enable_status_file", False)
-    mon.setdefault("wandb_api_key", None)
-    mon.setdefault("wandb_tracker_name", "rengu-flow")
-    mon.setdefault("wandb_run_name", None)
+    # Experiment tracking (rengu_track). The sink fans out to the selected backends; the local
+    # store is the run_dir (TB event files + run.json + run_events.jsonl). `enabled=false` is the
+    # full disconnect (no-op sink). wandb is opt-in by adding "wandb" to `backends`.
+    config.setdefault("tracking", {})
+    tracking = config["tracking"]
+    tracking.setdefault("enabled", True)
+    tracking.setdefault("backends", ["manifest", "tensorboard"])
+    tracking.setdefault("capture_lineage", True)
+    sampler = tracking.setdefault("system_sampler", {})
+    sampler.setdefault("enabled", True)
+    sampler.setdefault("interval_sec", 10)
+    wandb_cfg = tracking.setdefault("wandb", {})
+    wandb_cfg.setdefault("project", "rengu-flow")
+    wandb_cfg.setdefault("run_name", None)
+    wandb_cfg.setdefault("api_key", None)
 
     train_cfg = config.setdefault("train", {})
     oom_skip = train_cfg.setdefault("oom_skip", {})

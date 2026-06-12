@@ -98,6 +98,8 @@ import {
 export interface RunPreviewImage {
   run_dir: string;
   name: string;
+  step?: number | null;
+  prompt?: string;
 }
 
 const props = defineProps({

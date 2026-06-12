@@ -3,6 +3,7 @@ import { filenameFromContentDisposition } from "./lib/downloadBlob";
 import type { FormValues } from "./types/forms";
 import type {
   CheckpointsResult,
+  CompareRunsResult,
   ConfigSchemaResponse,
   ContinueRunBody,
   DatasetComposeResult,
@@ -38,6 +39,7 @@ import type {
   RegistryProbeResult,
   RenderTomlResult,
   RunConfigResult,
+  RunSeriesResult,
   SystemStatsResponse,
   TensorboardStartBody,
   TensorboardStartResult,
@@ -270,6 +272,23 @@ export const api = {
   fsMetrics: (name: string, outputDir = "output") =>
     request<JobMetricsResult>(
       `/runs/${encodeURIComponent(name)}/metrics?output_dir=${encodeURIComponent(outputDir)}`
+    ),
+
+  /** Cross-run comparison: manifest rows + hparam columns + scalar series + timelines.
+   *  `runs` is a list of run folder names; empty selects all tracked runs. */
+  compareRuns: (runs: string[] = [], outputDir = "output") =>
+    request<CompareRunsResult>(
+      `/runs/compare?runs=${encodeURIComponent(runs.join(","))}&output_dir=${encodeURIComponent(
+        outputDir
+      )}`
+    ),
+
+  /** On-demand series for ONE metric across runs (lazy-loaded per chart in the comparison view). */
+  runSeries: (runs: string[], tag: string, maxPoints = 500, outputDir = "output") =>
+    request<RunSeriesResult>(
+      `/runs/series?runs=${encodeURIComponent(runs.join(","))}&tag=${encodeURIComponent(
+        tag
+      )}&max_points=${maxPoints}&output_dir=${encodeURIComponent(outputDir)}`
     ),
 
   getSchema: () => request<ConfigSchemaResponse>("/schema"),

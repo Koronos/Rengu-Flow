@@ -29,13 +29,12 @@ def test_get_automagic_lrs_mean():
 
 
 def test_log_training_step_prodigy_scalar():
-    tb = MagicMock()
+    sink = MagicMock()
     opt = MagicMock()
     opt.__class__.__name__ = "Prodigy"
     opt.param_groups = [{"d": 1.0}]
     log_training_step(
-        tb_writer=tb,
-        wandb_enable=False,
+        sink=sink,
         optimizer=opt,
         loss=0.1,
         x_axis=10,
@@ -43,12 +42,12 @@ def test_log_training_step_prodigy_scalar():
         logging_steps=10,
         is_main=True,
     )
-    tb.add_scalar.assert_any_call("train/loss", 0.1, 10)
-    tb.add_scalar.assert_any_call("train/prodigy_d", 1.0, 10)
+    sink.scalar.assert_any_call("train/loss", 0.1, 10)
+    sink.scalar.assert_any_call("train/prodigy_d", 1.0, 10)
 
 
 def test_log_training_step_automagic_histogram_when_avg_positive():
-    tb = MagicMock()
+    sink = MagicMock()
 
     class GenericOptim:
         def __init__(self):
@@ -61,8 +60,7 @@ def test_log_training_step_automagic_histogram_when_avg_positive():
 
     opt = GenericOptim()
     log_training_step(
-        tb_writer=tb,
-        wandb_enable=False,
+        sink=sink,
         optimizer=opt,
         loss=0.1,
         x_axis=5,
@@ -70,21 +68,20 @@ def test_log_training_step_automagic_histogram_when_avg_positive():
         logging_steps=5,
         is_main=True,
     )
-    tb.add_histogram.assert_called_once()
+    sink.histogram.assert_called_once()
     avg_calls = [
-        c for c in tb.add_scalar.call_args_list if c[0][0] == "train/automagic_avg_lr"
+        c for c in sink.scalar.call_args_list if c[0][0] == "train/automagic_avg_lr"
     ]
     assert len(avg_calls) == 1
     assert avg_calls[0][0][2] == 5
 
 
 def test_log_training_step_skips_when_not_logging_step():
-    tb = MagicMock()
+    sink = MagicMock()
     opt = MagicMock()
     opt.__class__.__name__ = "AdamW"
     log_training_step(
-        tb_writer=tb,
-        wandb_enable=False,
+        sink=sink,
         optimizer=opt,
         loss=0.1,
         x_axis=1,
@@ -92,4 +89,4 @@ def test_log_training_step_skips_when_not_logging_step():
         logging_steps=10,
         is_main=True,
     )
-    tb.add_scalar.assert_not_called()
+    sink.scalar.assert_not_called()

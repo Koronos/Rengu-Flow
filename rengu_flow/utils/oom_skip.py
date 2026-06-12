@@ -51,7 +51,7 @@ def handle_oom_skip(
     *,
     clear_cache: bool = True,
     step: int | None = None,
-    tb_writer=None,
+    sink=None,
 ) -> None:
     """Zero gradients and optionally clear CUDA cache after an OOM skip."""
     if hasattr(model_engine, "zero_grad"):
@@ -73,6 +73,6 @@ def handle_oom_skip(
         if step is not None:
             print(f"step={step} (skipped, no loss logged)")
 
-    if tb_writer is not None:
-        tb_writer.add_scalar("train/oom_skip", state.total_skips, step or 0)
-        tb_writer.add_scalar("train/consecutive_oom", state.consecutive, step or 0)
+    if sink is not None:
+        sink.scalar("train/oom_skip", state.total_skips, step or 0)
+        sink.scalar("train/consecutive_oom", state.consecutive, step or 0)
