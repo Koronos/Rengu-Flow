@@ -1,0 +1,131 @@
+"""API routes for the dataset-prep section (tag editor sessions, backups, quarantine)."""
+
+from __future__ import annotations
+
+from contextlib import contextmanager
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException, Query
+from pydantic import BaseModel, Field
+
+from rengu_flow.prep.caption_store import CaptionStore
+from rengu_flow_ui.dataset_image_preview import issue_image_token
+from rengu_flow_ui.tag_sessions import TagSessionStore
+
+API_PREFIX = "/api/v1"
+
+tag_sessions = TagSessionStore()
+
+
+@contextmanager
+def _prep_http_errors():
+    try:
+        yield
+    except KeyError:
+        raise HTTPException(404, "Session not found")
+    except FileNotFoundError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+class OpenSessionBody(BaseModel):
+    path: str
+    format: str = "sidecar"
+    ext: str = ".txt"
+
+
+class StageOpsBody(BaseModel):
+    ops: list[dict] = Field(default_factory=list)
+
+
+class QueryBody(BaseModel):
+    filter: dict = Field(default_factory=dict)
+    scope: str = "tag_lines"
+
+
+class RestoreBackupBody(BaseModel):
+    path: str
+    backup: str
+
+
+class RestoreQuarantineBody(BaseModel):
+    path: str
+    batch: str
+
+
+def register_prep_routes(app: FastAPI) -> None:
+    @app.post(f"{API_PREFIX}/prep/tags/sessions")
+    def open_tag_session(body: OpenSessionBody):
+        with _prep_http_errors():
+            session = tag_sessions.open(body.path, fmt=body.format, ext=body.ext)
+            return session.summary()
+
+    @app.get(f"{API_PREFIX}/prep/tags/sessions/{{session_id}}")
+    def tag_session_summary(session_id: str):
+        with _prep_http_errors():
+            return tag_sessions.get(session_id).summary()
+
+    @app.get(f"{API_PREFIX}/prep/tags/sessions/{{session_id}}/stats")
+    def tag_session_stats(session_id: str, scope: str = Query("line1")):
+        with _prep_http_errors():
+            return tag_sessions.stats(session_id, scope=scope)
+
+    @app.post(f"{API_PREFIX}/prep/tags/sessions/{{session_id}}/query")
+    def tag_session_query(session_id: str, body: QueryBody):
+        with _prep_http_errors():
+            result = tag_sessions.query(session_id, body.filter, scope=body.scope)
+            folder = Path(tag_sessions.get(session_id).captions.folder).resolve()
+            result["previews"] = {
+                key: issue_image_token(0, key, folder) for key in result["keys"]
+            }
+            return result
+
+    @app.post(f"{API_PREFIX}/prep/tags/sessions/{{session_id}}/ops")
+    def tag_session_stage_ops(session_id: str, body: StageOpsBody):
+        with _prep_http_errors():
+            if not body.ops:
+                raise ValueError("No ops provided")
+            return tag_sessions.stage_ops(session_id, body.ops)
+
+    @app.post(f"{API_PREFIX}/prep/tags/sessions/{{session_id}}/undo")
+    def tag_session_undo(session_id: str):
+        with _prep_http_errors():
+            return tag_sessions.undo(session_id)
+
+    @app.get(f"{API_PREFIX}/prep/tags/sessions/{{session_id}}/diff")
+    def tag_session_diff(session_id: str, limit: int | None = Query(None, ge=1)):
+        with _prep_http_errors():
+            return tag_sessions.diff(session_id, limit=limit)
+
+    @app.post(f"{API_PREFIX}/prep/tags/sessions/{{session_id}}/commit")
+    def tag_session_commit(session_id: str):
+        with _prep_http_errors():
+            return tag_sessions.commit(session_id)
+
+    @app.delete(f"{API_PREFIX}/prep/tags/sessions/{{session_id}}")
+    def tag_session_close(session_id: str):
+        tag_sessions.close(session_id)
+        return {"ok": True}
+
+    @app.get(f"{API_PREFIX}/prep/tags/backups")
+    def tag_backups(path: str = Query(...)):
+        with _prep_http_errors():
+            return {"backups": CaptionStore.list_backups(path)}
+
+    @app.post(f"{API_PREFIX}/prep/tags/restore")
+    def tag_restore(body: RestoreBackupBody):
+        with _prep_http_errors():
+            restored = CaptionStore.restore_snapshot(body.path, body.backup)
+            return {"restored": restored}
+
+    @app.get(f"{API_PREFIX}/prep/tags/quarantine")
+    def tag_quarantine_list(path: str = Query(...)):
+        with _prep_http_errors():
+            return {"batches": CaptionStore.list_quarantine(path)}
+
+    @app.post(f"{API_PREFIX}/prep/tags/quarantine/restore")
+    def tag_quarantine_restore(body: RestoreQuarantineBody):
+        with _prep_http_errors():
+            restored = CaptionStore.restore_quarantine(body.path, body.batch)
+            return {"restored": restored}

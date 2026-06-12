@@ -264,6 +264,10 @@ def create_app() -> FastAPI:
             status_code=500, content={"detail": f"{type(exc).__name__}: {exc}"}
         )
 
+    from rengu_flow_ui.prep_routes import register_prep_routes
+
+    register_prep_routes(app)
+
     # --- Training config TOML: validation + export (no standalone library) ---
     def _training_export_response(content: str, bundle_stem: str) -> Response:
         from rengu_flow_ui.training_export import build_training_export_zip
