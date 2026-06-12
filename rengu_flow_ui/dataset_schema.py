@@ -21,6 +21,7 @@ def _field(
     show_if_set: bool = False,
     show_when_field: str = "",
     min: Any = None,
+    example: Any = None,
 ) -> dict[str, Any]:
     imp = "required" if required else ("recommended" if recommended else "advanced")
     out: dict[str, Any] = {
@@ -37,6 +38,8 @@ def _field(
         out["default"] = default
     if min is not None:
         out["min"] = min
+    if example is not None:
+        out["example"] = example
     if option_values is not None:
         out["option_values"] = option_values
     if show_if_set:
@@ -55,6 +58,7 @@ def get_directory_fields() -> list[dict[str, Any]]:
             "string",
             required=True,
             description="Absolute or relative path to images (and optional .txt / captions.json).",
+            example="/path/to/your/images",
         ),
         _field(
             "num_repeats",
@@ -69,6 +73,7 @@ def get_directory_fields() -> list[dict[str, Any]]:
             "Caption prefix / fallback",
             "string",
             description="Prepended to per-image captions, or used when an image has no caption file.",
+            example="style: ",
         ),
         _field(
             "shuffle_metadata",
@@ -161,6 +166,7 @@ def get_directory_fields() -> list[dict[str, Any]]:
             show_if_set=True,
             description="Absolute cap of images from this folder per epoch (per size bucket). "
             "Mutually exclusive with 'Subsample ratio'.",
+            example=10,
         ),
         _field(
             "subsample_shuffle",
@@ -172,9 +178,9 @@ def get_directory_fields() -> list[dict[str, Any]]:
             "eventually used; off = same images every epoch. Applies to whichever "
             "limiter is set (subsample ratio or max images).",
         ),
-        _field("mask_path", "Mask folder", "string", show_if_set=True),
-        _field("control_path", "Control folder", "string", show_if_set=True),
-        _field("default_mask_file", "Default mask file", "string", show_if_set=True),
+        _field("mask_path", "Mask folder", "string", show_if_set=True, example="datasets/my_set/masks"),
+        _field("control_path", "Control folder", "string", show_if_set=True, example="datasets/edit_set/sources"),
+        _field("default_mask_file", "Default mask file", "string", show_if_set=True, example="masks/default_mask.png"),
     ]
 
 
@@ -329,6 +335,7 @@ def get_dataset_schema() -> dict[str, Any]:
                     description="Default absolute image cap per folder per epoch (per size bucket); "
                     "rotates each epoch while 'subsample_shuffle' is on. Folders may override it. "
                     "Mutually exclusive with 'subsample_ratio'.",
+                    example=10,
                 ),
                 _field(
                     "subsample_shuffle",

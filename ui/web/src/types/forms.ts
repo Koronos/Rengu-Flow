@@ -31,6 +31,7 @@ export interface SchemaField {
   doc_path?: string;
   label?: string;
   placeholder?: string;
+  example?: unknown;
   string_list_hint?: string;
   min?: number;
   max?: number;

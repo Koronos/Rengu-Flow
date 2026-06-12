@@ -58,6 +58,7 @@ def _field(
     when: dict[str, Any] | None = None,
     min_value: float | None = None,
     placeholder: str = "",
+    example: Any = None,
     options_from_model: bool = False,
     options_key: str | None = None,
     when_model_has_adapter: bool = False,
@@ -90,6 +91,7 @@ def _field(
         "when": when,
         "min": min_value,
         "placeholder": placeholder,
+        "example": example,
     }
     if options_from_model:
         out["options_from_model"] = True
@@ -137,6 +139,7 @@ def _field_from_template(spec: dict[str, Any], when: dict[str, Any] | None) -> d
         when=when or spec.get("when"),
         min_value=spec.get("min"),
         placeholder=spec.get("placeholder", ""),
+        example=spec.get("example"),
         when_model_has_adapter=spec.get("when_model_has_adapter", False),
         when_capability=spec.get("when_capability"),
         show_if_set=spec.get("show_if_set", False),
@@ -253,6 +256,7 @@ def _preview_section() -> dict[str, Any]:
                 min_value=1,
                 when=when_preview,
                 importance="recommended",
+                example=500,
             ),
             _field(
                 "preview.preview_every_n_epochs",
@@ -261,6 +265,7 @@ def _preview_section() -> dict[str, Any]:
                 min_value=1,
                 when=when_preview,
                 importance="recommended",
+                example=1,
             ),
             _field(
                 "preview.preview_before_first_step",
@@ -276,7 +281,7 @@ def _preview_section() -> dict[str, Any]:
                 when=when_preview,
                 when_capability="block_swap",
             ),
-            _field("preview.negative_prompt", "Negative prompt", "string", when=when_preview),
+            _field("preview.negative_prompt", "Negative prompt", "string", when=when_preview, example="blurry, low quality, watermark"),
             _field("preview.width", "Width", "integer", default=1024, when=when_preview),
             _field("preview.height", "Height", "integer", default=1024, when=when_preview),
             _field("preview.num_inference_steps", "Inference steps", "integer", default=20, when=when_preview),
@@ -375,6 +380,7 @@ def get_sections() -> list[dict[str, Any]]:
                     "string",
                     importance="advanced",
                     description="Optional suffix for timestamped run folder.",
+                    example="sdxl-lora-v1",
                 ),
                 _field(
                     "resume_from_checkpoint",
@@ -471,6 +477,7 @@ def get_sections() -> list[dict[str, Any]]:
                     min_value=1,
                     importance="advanced",
                     description="Optional cap; stops after N optimizer steps.",
+                    example=1000,
                 ),
                 _field(
                     "micro_batch_size_per_gpu",
@@ -495,6 +502,7 @@ def get_sections() -> list[dict[str, Any]]:
                         "falls back to micro_batch_size_per_gpu. For an advanced per-modality "
                         "dict, edit it in the TOML tab."
                     ),
+                    example=2,
                 ),
                 _field(
                     "gradient_accumulation_steps",
@@ -537,6 +545,7 @@ def get_sections() -> list[dict[str, Any]]:
                     "Synthetic batches (debug)",
                     "integer",
                     importance="advanced",
+                    example=50,
                 ),
                 _field(
                     "pipeline_stages",
@@ -688,6 +697,7 @@ def get_sections() -> list[dict[str, Any]]:
                     "number",
                     importance="advanced",
                     description="Optional; CPU shadow weights updated each step. No auto-export yet.",
+                    example=0.999,
                 ),
                 _field("dataloader_num_workers", "Train DataLoader workers", "integer", default=0, min_value=0),
                 _field("dataloader_prefetch", "Prefetch next batch (thread)", "boolean", default=True),
@@ -705,11 +715,11 @@ def get_sections() -> list[dict[str, Any]]:
             "id": "checkpoint",
             "title": "Checkpoints & export",
             "fields": [
-                _field("checkpoint_every_n_epochs", "Checkpoint every N epochs", "integer", min_value=1),
-                _field("checkpoint_every_n_minutes", "Checkpoint every N minutes", "number", min_value=0),
-                _field("max_checkpoints_to_keep", "Max checkpoints to keep", "integer", min_value=1),
-                _field("max_model_exports_to_keep", "Max model exports to keep", "integer", min_value=1),
-                _field("keep_exports_from_step", "Keep exports from step", "integer", min_value=0),
+                _field("checkpoint_every_n_epochs", "Checkpoint every N epochs", "integer", min_value=1, example=1),
+                _field("checkpoint_every_n_minutes", "Checkpoint every N minutes", "number", min_value=0, example=30),
+                _field("max_checkpoints_to_keep", "Max checkpoints to keep", "integer", min_value=1, example=3),
+                _field("max_model_exports_to_keep", "Max model exports to keep", "integer", min_value=1, example=5),
+                _field("keep_exports_from_step", "Keep exports from step", "integer", min_value=0, example=500),
                 _field(
                     "save_every_n_epochs",
                     "Save model every N epochs",
@@ -717,8 +727,8 @@ def get_sections() -> list[dict[str, Any]]:
                     default=1,
                     min_value=1,
                 ),
-                _field("save_every_n_steps", "Save model every N steps", "integer", min_value=1),
-                _field("save_every_n_examples", "Save every N examples", "integer", min_value=1),
+                _field("save_every_n_steps", "Save model every N steps", "integer", min_value=1, example=500),
+                _field("save_every_n_examples", "Save every N examples", "integer", min_value=1, example=1000),
                 _field("save_dtype", "Save dtype", "select", options=DTYPE_OPTIONS),
             ],
         },
@@ -732,9 +742,9 @@ def get_sections() -> list[dict[str, Any]]:
                     "json",
                     description='List of paths or [{name, config}] tables.',
                 ),
-                _field("eval_every_n_steps", "Eval every N steps", "integer", min_value=1),
-                _field("eval_every_n_epochs", "Eval every N epochs", "integer", min_value=1),
-                _field("eval_every_n_examples", "Eval every N examples", "integer", min_value=1),
+                _field("eval_every_n_steps", "Eval every N steps", "integer", min_value=1, example=100),
+                _field("eval_every_n_epochs", "Eval every N epochs", "integer", min_value=1, example=1),
+                _field("eval_every_n_examples", "Eval every N examples", "integer", min_value=1, example=500),
                 _field("eval_before_first_step", "Eval before first step", "boolean", default=True),
                 _field("eval_gradient_accumulation_steps", "Eval grad accum", "integer", default=1),
                 _field(
@@ -773,7 +783,7 @@ def get_sections() -> list[dict[str, Any]]:
                     default=True,
                 ),
                 _field("tracking.wandb.project", "WandB project", "string", default="rengu-flow"),
-                _field("tracking.wandb.run_name", "WandB run name", "string"),
+                _field("tracking.wandb.run_name", "WandB run name", "string", example="sdxl-lora-v1"),
                 _field("tracking.wandb.api_key", "WandB API key", "string"),
             ],
         },

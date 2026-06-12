@@ -15,15 +15,6 @@
           aria-hidden="true"
           title="Required"
         >*</span>
-        <span v-if="isOptionalField" class="rf-label-optional-hint">(optional)</span>
-        <el-text
-          v-if="hasDefault"
-          type="info"
-          size="small"
-          class="default-hint"
-        >
-          default: {{ formatDefault(field.default) }}
-        </el-text>
         <FieldHelpIcon v-if="!hideLabelHelp" :field="field" />
       </span>
       <FieldPathTag v-if="pathTagPlacement === 'label'" :path="fieldPathTag" />
@@ -88,6 +79,7 @@
       :model-value="numberValue"
       :min="field.min ?? undefined"
       :step="1"
+      :placeholder="effectivePlaceholder"
       controls-position="right"
       class="field-narrow"
       @update:model-value="onInput"
@@ -100,6 +92,7 @@
       :max="numberMax"
       :step="numberStep"
       :value-on-clear="null"
+      :placeholder="effectivePlaceholder"
       controls-position="right"
       class="field-narrow"
       @update:model-value="onInput"
@@ -110,7 +103,7 @@
       integer
       :model-value="listModelValue"
       :preset-options="(field.options || []) as Array<string | number>"
-      :placeholder="field.placeholder || 'Pick or type a number, then Enter'"
+      :placeholder="effectivePlaceholder || 'Pick or type a number, then Enter'"
       :min="field.min ?? 1"
       @update:model-value="onListInput"
     />
@@ -119,7 +112,7 @@
       v-else-if="field.type === 'number_list'"
       :model-value="listModelValue"
       :preset-options="(field.options || []) as Array<string | number>"
-      :placeholder="field.placeholder || 'Type a number, then Enter'"
+      :placeholder="effectivePlaceholder || 'Type a number, then Enter'"
       :min="field.min"
       :max="field.max"
       :max-length="field.max_length"
@@ -130,7 +123,7 @@
       v-else-if="field.type === 'string_list' && !stringListUseJson"
       :model-value="stringListModel"
       :preset-options="(field.options || []) as Array<string | number>"
-      :placeholder="field.placeholder || 'Type text, then Enter'"
+      :placeholder="effectivePlaceholder || 'Type text, then Enter'"
       :hint="field.string_list_hint || ''"
       @update:model-value="onListInput"
     />
@@ -168,7 +161,7 @@
     <el-input
       v-else
       :model-value="displayValue"
-      :placeholder="field.placeholder"
+      :placeholder="effectivePlaceholder"
       clearable
       :class="widthClass"
       @update:model-value="onInput"
@@ -281,6 +274,20 @@ const hasDefault = computed(
     props.field.default !== null &&
     props.field.default !== ""
 );
+
+// Form-field convention (docs/developer/documentation-conventions.md): the
+// placeholder always means "what you get if you leave this empty" — the literal
+// default when one exists, otherwise an `e.g.`-prefixed example (the prefix keeps
+// it from reading as a default).
+const effectivePlaceholder = computed(() => {
+  if (props.field.placeholder) return props.field.placeholder;
+  if (hasDefault.value) return formatDefault(props.field.default);
+  const example = (props.field as { example?: unknown }).example;
+  if (example !== undefined && example !== null && example !== "") {
+    return `e.g. ${formatDefault(example)}`;
+  }
+  return "";
+});
 
 const isOptionalField = computed(() => {
   const f = props.field;
