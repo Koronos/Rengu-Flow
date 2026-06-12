@@ -34,6 +34,28 @@ def build_train_command(
     return cmd
 
 
+def build_prep_command(config_path: Path, *, stage: str, job_dir: Path) -> list[str]:
+    """Argv for a dataset-prep job: the same `rengu prep <stage>` the CLI runs.
+
+    The prep CLI installs its own extras on demand (uv sync --extra prep), so no
+    ensure_training_extras here. ``--job-dir`` points signals + report.json at the
+    job's own folder.
+    """
+    import sys
+
+    return [
+        sys.executable,
+        "-m",
+        "rengu_flow.cli",
+        "prep",
+        stage,
+        "--config",
+        str(config_path),
+        "--job-dir",
+        str(job_dir),
+    ]
+
+
 def start_job(
     job: db.JobRecord,
     *,
@@ -43,14 +65,22 @@ def start_job(
     log_path.parent.mkdir(parents=True, exist_ok=True)
     from rengu_flow_ui import settings
 
-    ensure_training_extras(Path(job.config_path), root=settings.repo_root())
-    extra = shlex.split(job.extra_args) if job.extra_args else []
-    cmd = build_train_command(
-        Path(job.config_path),
-        num_gpus=job.num_gpus,
-        resume_from=job.resume_from,
-        extra_args=extra,
-    )
+    if job.kind == "prep":
+        # extra_args holds the stage name; run_dir was pre-set to the job folder.
+        cmd = build_prep_command(
+            Path(job.config_path),
+            stage=(job.extra_args or "tag").strip(),
+            job_dir=Path(job.run_dir or log_path.parent),
+        )
+    else:
+        ensure_training_extras(Path(job.config_path), root=settings.repo_root())
+        extra = shlex.split(job.extra_args) if job.extra_args else []
+        cmd = build_train_command(
+            Path(job.config_path),
+            num_gpus=job.num_gpus,
+            resume_from=job.resume_from,
+            extra_args=extra,
+        )
     # Apply [training.env] from rengu.local.toml (PYTORCH_CUDA_ALLOC_CONF, NCCL_*, TF32, ...) the
     # same way the `rengu train` CLI does — otherwise UI-launched jobs silently ignore it and only
     # inherit the UI process environment. respect_existing keeps any var already exported to the UI.
@@ -101,7 +131,7 @@ def poll_job(job_id: str) -> db.JobRecord:
     # Trust the trainer's own `Run dir:` (from THIS run's log segment) as authoritative: it fixes a
     # stale run_dir (e.g. a from-scratch continue whose record still pointed at the source folder),
     # which otherwise sent signals to the wrong folder and showed the wrong progress/previews.
-    rd = _parse_run_dir_from_log(job)
+    rd = _parse_run_dir_from_log(job) if job.kind != "prep" else None
     if rd and rd != job.run_dir:
         db.update_job(job_id, run_dir=rd)
         job = db.get_job(job_id)

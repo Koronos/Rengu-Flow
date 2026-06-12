@@ -138,3 +138,79 @@ def test_errors(ui_client, img_dir):
         ).status_code
         == 400
     )
+
+
+# --- prep jobs -------------------------------------------------------------------
+
+
+def test_create_prep_job_enqueues_kind_prep(ui_client, img_dir):
+    res = ui_client.post(
+        "/api/v1/prep/jobs",
+        json={"stage": "tag", "config": {"path": str(img_dir)}, "start_now": False},
+    )
+    assert res.status_code == 200, res.text
+    job = res.json()
+    assert job["kind"] == "prep"
+    assert job["state"] == "pending"
+    assert job["extra_args"] == "tag"
+    assert Path(job["config_path"]).is_file()
+    assert "path = " in Path(job["config_path"]).read_text()
+    assert job["run_dir"] and Path(job["run_dir"]).is_dir()
+
+    # Prep jobs don't pollute the Runs queue (default kind=train)...
+    train_jobs = ui_client.get("/api/v1/jobs").json()["jobs"]
+    assert all(j["kind"] == "train" for j in train_jobs)
+    # ...but show up under kind=prep.
+    prep_jobs = ui_client.get("/api/v1/jobs", params={"kind": "prep"}).json()["jobs"]
+    assert [j["id"] for j in prep_jobs] == [job["id"]]
+
+
+def test_create_prep_job_validates_stage_and_path(ui_client, img_dir):
+    bad_stage = ui_client.post(
+        "/api/v1/prep/jobs", json={"stage": "explode", "config": {"path": str(img_dir)}}
+    )
+    assert bad_stage.status_code == 400
+    bad_path = ui_client.post(
+        "/api/v1/prep/jobs", json={"stage": "tag", "config": {"path": "/nope/missing"}}
+    )
+    assert bad_path.status_code == 404
+
+
+def test_prep_job_stays_pending_while_train_runs(ui_client, img_dir, monkeypatch):
+    from rengu_flow_ui import db
+
+    # Simulate an active training run holding the single-runner queue.
+    train = db.create_job(config_path="/tmp/x.toml", log_path="/tmp/x.log", state="running")
+    started = []
+    monkeypatch.setattr("rengu_flow_ui.jobs.start_job", lambda job, **k: started.append(job.id))
+
+    res = ui_client.post(
+        "/api/v1/prep/jobs",
+        json={"stage": "tag", "config": {"path": str(img_dir)}, "start_now": True},
+    )
+    assert res.status_code == 200
+    assert res.json()["state"] == "pending"
+    assert started == []  # the queue gate held: nothing launched
+    db.delete_job(train.id)
+
+
+def test_build_prep_command_shape(tmp_path):
+    from rengu_flow_ui.jobs import build_prep_command
+
+    cmd = build_prep_command(tmp_path / "prep.toml", stage="caption", job_dir=tmp_path / "j")
+    assert cmd[1:4] == ["-m", "rengu_flow.cli", "prep"]
+    assert "caption" in cmd
+    assert "--job-dir" in cmd and str(tmp_path / "j") in cmd
+
+
+def test_prep_job_report_endpoint(ui_client, img_dir):
+    import json as _json
+
+    job = ui_client.post(
+        "/api/v1/prep/jobs", json={"stage": "tag", "config": {"path": str(img_dir)}}
+    ).json()
+    res = ui_client.get(f"/api/v1/prep/jobs/{job['id']}/report")
+    assert res.json() == {"report": None}
+    Path(job["run_dir"], "report.json").write_text(_json.dumps({"tagged": 3}))
+    res = ui_client.get(f"/api/v1/prep/jobs/{job['id']}/report")
+    assert res.json()["report"]["tagged"] == 3

@@ -41,14 +41,20 @@ def _latest_marker(job_id: str) -> dict[str, Any] | None:
 def snapshot_job_live(job_id: str, *, log_offset: int = 0) -> dict[str, Any]:
     """One poll cycle: progress, optional log chunk, job state (sync, for tests)."""
     job = jobs.poll_job(job_id)
-    run_dir = training_hub.resolve_job_run_dir(job)
     marker = _latest_marker(job_id)
-    progress = training_hub.compute_run_progress(run_dir, marker=marker)
+    if job.kind == "prep":
+        # Prep jobs have no run folder / TB metrics: the marker payload IS the progress.
+        run_dir = Path(job.run_dir) if job.run_dir else None
+        progress = marker
+    else:
+        run_dir = training_hub.resolve_job_run_dir(job)
+        progress = training_hub.compute_run_progress(run_dir, marker=marker)
     chunk, new_offset = jobs.tail_log(job_id, log_offset)
     out: dict[str, Any] = {
         "job_id": job_id,
         "state": job.state,
         "run_dir": str(run_dir) if run_dir else job.run_dir,
+        "kind": job.kind,
         "progress": progress,
         "log_offset": new_offset,
     }
@@ -112,7 +118,12 @@ async def run_job_live_ws(send_json, job_id: str) -> None:
             )
 
         tick += 1
-        if tick % _METRICS_EVERY_TICKS == 0 and run_dir is not None and run_dir.is_dir():
+        if (
+            tick % _METRICS_EVERY_TICKS == 0
+            and snap.get("kind") != "prep"
+            and run_dir is not None
+            and run_dir.is_dir()
+        ):
             metrics = await asyncio.to_thread(_metrics_payload, run_dir)
             await send_json({"type": "metrics", **metrics})
 

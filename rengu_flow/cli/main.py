@@ -11,7 +11,7 @@ from rengu_flow.config.local_config import (
     ensure_local_config_file,
     load_local_config,
 )
-from rengu_flow.cli import init_cmd, platform, train_cmd, ui_cmd, update_cmd
+from rengu_flow.cli import init_cmd, platform, prep_cmd, train_cmd, ui_cmd, update_cmd
 
 
 def _warn_deprecated_invocation(argv: list[str]) -> None:
@@ -31,7 +31,7 @@ def _warn_deprecated_invocation(argv: list[str]) -> None:
 def _looks_like_legacy_train(argv: list[str]) -> bool:
     if not argv:
         return False
-    if argv[0] in ("init", "update", "train", "validate", "cache", "dump-dataset", "ui"):
+    if argv[0] in ("init", "update", "train", "validate", "cache", "dump-dataset", "ui", "prep"):
         return False
     train_flags = (
         "--config",
@@ -68,6 +68,7 @@ def _build_parser() -> argparse.ArgumentParser:
     init_cmd.add_parser(sub)
     update_cmd.add_parser(sub)
     train_cmd.add_parser(sub)
+    prep_cmd.add_parser(sub)
     ui_cmd.add_parser(sub)
     sub.add_parser("version", help="Show the rengu version, git commit, and installed kaon")
     return parser
@@ -126,6 +127,8 @@ def main(argv: list[str] | None = None) -> None:
         update_cmd.run(args)
     elif args.command in ("train", "validate", "cache", "dump-dataset"):
         train_cmd.run(args, args.command)
+    elif args.command == "prep":
+        prep_cmd.run(args)
     elif args.command == "ui":
         ui_cmd.run(args)
     else:

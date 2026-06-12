@@ -448,6 +448,7 @@ def run_ensemble(
     max_tags: int = 255,
     batch_size: int = 16,
     on_progress: Callable[[int, int, str], None] | None = None,
+    should_stop: Callable[[], bool] | None = None,
     infer_factory: Callable[[TaggerModelSpec], Callable] | None = None,
 ) -> dict[str, str]:
     """Run an ensemble of ONNX taggers over ``image_paths``.
@@ -491,7 +492,12 @@ def run_ensemble(
         model_result: dict[str, dict[str, float]] = {}
 
         done = 0
+        stopped = False
         for batch_start in range(0, total, batch_size):
+            if should_stop is not None and should_stop():
+                logger.info("run_ensemble: stop requested during %s", phase)
+                stopped = True
+                break
             batch_paths = image_paths[batch_start : batch_start + batch_size]
             tag_dicts = infer(batch_paths)
             for path, tag_dict in zip(batch_paths, tag_dicts):
@@ -501,6 +507,10 @@ def run_ensemble(
                 on_progress(done, total, phase)
 
         per_model_dicts.append(model_result)
+        if stopped:
+            # Merge what we have: max-prob merging tolerates a model that only covered a
+            # prefix of the images (those images just get fewer votes).
+            break
 
     return merge_model_results(
         per_model_dicts,

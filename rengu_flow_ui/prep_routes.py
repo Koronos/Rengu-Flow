@@ -54,7 +54,64 @@ class RestoreQuarantineBody(BaseModel):
     batch: str
 
 
+class CreatePrepJobBody(BaseModel):
+    stage: str
+    config: dict = Field(default_factory=dict)
+    start_now: bool = False
+
+
+class DownloadModelBody(BaseModel):
+    stage: str
+    model_id: str
+
+
 def register_prep_routes(app: FastAPI) -> None:
+    @app.post(f"{API_PREFIX}/prep/jobs")
+    def create_prep_job(body: CreatePrepJobBody):
+        import toml
+
+        from rengu_flow.prep.config import parse_prep_config
+        from rengu_flow_ui.app import _job_dict
+        from rengu_flow_ui.prep_jobs import enqueue_prep_job
+
+        with _prep_http_errors():
+            config = parse_prep_config(body.config)
+            config.validate_for_stage(body.stage)
+            job = enqueue_prep_job(
+                body.stage, toml.dumps(body.config), start_now=body.start_now
+            )
+            return _job_dict(job)
+
+    @app.get(f"{API_PREFIX}/prep/jobs/{{job_id}}/report")
+    def prep_job_report(job_id: str):
+        import json
+
+        from rengu_flow_ui import db
+
+        try:
+            job = db.get_job(job_id)
+        except KeyError:
+            raise HTTPException(404, "Job not found")
+        report = Path(job.run_dir or "") / "report.json"
+        if not report.is_file():
+            return {"report": None}
+        return {"report": json.loads(report.read_text(encoding="utf-8"))}
+
+    @app.get(f"{API_PREFIX}/prep/models")
+    def prep_models(stage: str = Query(...)):
+        from rengu_flow.prep.models import list_models
+
+        with _prep_http_errors():
+            return {"models": list_models(stage)}
+
+    @app.post(f"{API_PREFIX}/prep/models/download")
+    def prep_model_download(body: DownloadModelBody):
+        from rengu_flow.prep.models import ensure_model
+
+        with _prep_http_errors():
+            path = ensure_model(body.model_id, body.stage)
+            return {"ok": True, "path": str(path)}
+
     @app.post(f"{API_PREFIX}/prep/tags/sessions")
     def open_tag_session(body: OpenSessionBody):
         with _prep_http_errors():

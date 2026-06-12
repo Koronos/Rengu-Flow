@@ -31,6 +31,11 @@ _HF_REPO_ID = "fancyfeast/joycaption-watermark-detection"
 _HF_FILENAME = "yolo11x-train28-best.pt"
 _HF_REPO_TYPE = "space"
 
+# LaMa inpainting as ONNX: same inference runtime as the taggers, no extra package
+# (the simple-lama-inpainting wrapper pins a Pillow 9.x that doesn't build on 3.13).
+_LAMA_REPO_ID = "Carve/LaMa-ONNX"
+_LAMA_FILENAME = "lama_fp32.onnx"
+
 CLEANUP_ORIGINALS_DIR = "cleanup_originals"
 
 
@@ -133,23 +138,58 @@ class WatermarkDetector:
 
 
 class LamaInpainter:
-    """LaMa-based inpainter.  simple_lama_inpainting is imported lazily."""
+    """LaMa inpainting via ONNX (Carve/LaMa-ONNX); onnxruntime is imported lazily.
 
-    def __init__(self) -> None:
-        self._lama: Any = None
+    LaMa's FFC blocks need mod-8 spatial dims, so image and mask are padded
+    (reflect) to the next multiple of 8 and the output is cropped back.
+    """
+
+    def __init__(self, model_path: str | Path | None = None) -> None:
+        self._model_path = model_path
+        self._session: Any = None
 
     def _load(self) -> None:
-        if self._lama is not None:
+        if self._session is not None:
             return
-        from simple_lama_inpainting import SimpleLama  # noqa: PLC0415
+        if self._model_path is None:
+            from huggingface_hub import hf_hub_download  # noqa: PLC0415
 
-        self._lama = SimpleLama()
+            self._model_path = hf_hub_download(repo_id=_LAMA_REPO_ID, filename=_LAMA_FILENAME)
+        import onnxruntime as ort  # noqa: PLC0415
+
+        providers = []
+        if "CUDAExecutionProvider" in ort.get_available_providers():
+            providers.append("CUDAExecutionProvider")
+        else:
+            logger.warning("CUDAExecutionProvider unavailable for LaMa — running on CPU.")
+        providers.append("CPUExecutionProvider")
+        self._session = ort.InferenceSession(str(self._model_path), providers=providers)
 
     def inpaint(self, pil_image: Image.Image, mask_pil: Image.Image) -> Image.Image:
         """Inpaint *pil_image* at the white regions of *mask_pil*."""
         self._load()
-        result = self._lama(pil_image.convert("RGB"), mask_pil.convert("L"))
-        return result
+
+        rgb = pil_image.convert("RGB")
+        w, h = rgb.size
+        pad_w = (8 - w % 8) % 8
+        pad_h = (8 - h % 8) % 8
+
+        img = np.asarray(rgb, dtype=np.float32).transpose(2, 0, 1) / 255.0  # (3,H,W) 0..1
+        mask = np.asarray(mask_pil.convert("L"), dtype=np.float32)[None, :, :]
+        mask = (mask > 127).astype(np.float32)  # (1,H,W) {0,1}
+        if pad_w or pad_h:
+            img = np.pad(img, ((0, 0), (0, pad_h), (0, pad_w)), mode="reflect")
+            mask = np.pad(mask, ((0, 0), (0, pad_h), (0, pad_w)), mode="reflect")
+
+        inputs = self._session.get_inputs()
+        feed = {inputs[0].name: img[None], inputs[1].name: mask[None]}
+        out = np.asarray(self._session.run(None, feed)[0])[0]  # (3,H',W')
+
+        # Exports differ on output scale (0..1 vs 0..255); normalize to 0..255.
+        if out.max() <= 1.5:
+            out = out * 255.0
+        out = np.clip(out, 0, 255).astype(np.uint8).transpose(1, 2, 0)
+        return Image.fromarray(out[:h, :w])
 
 
 # ---------------------------------------------------------------------------

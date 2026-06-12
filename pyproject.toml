@@ -51,6 +51,22 @@ optim = [
     "optimum-quanto",
     "transformers>=4.0",
 ]
+# Dataset preparation (rengu prep): ONNX taggers, VLM captioners, watermark cleanup.
+# Isolated from the training path — installed on demand via the `prep` profile. If a
+# dep here ever conflicts with the training lock (e.g. onnxruntime-gpu vs the torch
+# cu130 pin), resolve it with uv runtime isolation in the prep subprocess, not by
+# downgrading.
+prep = [
+    # LaMa inpainting also runs on onnxruntime (Carve/LaMa-ONNX) — one inference
+    # runtime for taggers, inpainting; no extra LaMa package (simple-lama-inpainting
+    # pins a Pillow 9.x that doesn't build on Python 3.13).
+    "onnxruntime-gpu>=1.20",
+    "huggingface-hub>=0.23",
+    "transformers>=4.51.0",
+    "accelerate>=0.30.0",
+    "bitsandbytes",
+    "ultralytics>=8.3",
+]
 dev = [
     "pytest>=7.0",
     "httpx>=0.27.0",

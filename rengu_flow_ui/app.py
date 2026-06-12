@@ -595,10 +595,14 @@ def create_app() -> FastAPI:
 
     # --- Jobs / runs ---
     @app.get(f"{API_PREFIX}/jobs")
-    def list_jobs() -> dict[str, Any]:
+    def list_jobs(kind: str = Query("train")) -> dict[str, Any]:
         from rengu_flow_ui import job_queue
 
+        # Default to training jobs so prep jobs don't pollute the Runs queue view;
+        # the Prep section asks for kind=prep, and kind=all returns everything.
         job_list = job_queue.list_jobs_sorted()
+        if kind != "all":
+            job_list = [j for j in job_list if j.kind == kind]
         running = sum(1 for j in job_list if j.state in ("running", "stopping"))
         pending = sum(1 for j in job_list if j.state == "pending")
         return {
@@ -1378,4 +1382,5 @@ def _job_dict(job: db.JobRecord) -> dict[str, Any]:
         "cache_only": job.cache_only,
         "trust_cache": job.trust_cache,
         "regenerate_cache": job.regenerate_cache,
+        "kind": job.kind,
     }

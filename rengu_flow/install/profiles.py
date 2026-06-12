@@ -14,6 +14,7 @@ PROFILE_EXTRAS: dict[str, str | None] = {
     # Git-backed extra: the `kaon` package is declared in pyproject with a [tool.uv.sources]
     # git source, so uv installs and version-manages it like any other extra (lockfile-pinned).
     "kaon": "kaon",
+    "prep": "prep",
 }
 
 PROFILE_LABELS: dict[str, str] = {
@@ -25,6 +26,7 @@ PROFILE_LABELS: dict[str, str] = {
     "lycoris": "LyCORIS adapters",
     "dev": "Development (pytest, httpx)",
     "kaon": "K-Optimizers (Adakaon, AdaMuon, KProdigy, Autokaon, Lion, AdaPNM, AdaBelief, AdamP, ADOPT, ScheduleFree, Lookahead, SAM, MSAM, Nekaon)",
+    "prep": "Dataset preparation (taggers, captioners, watermark cleanup)",
 }
 
 PROFILE_DESCRIPTIONS: dict[str, str] = {
@@ -36,9 +38,10 @@ PROFILE_DESCRIPTIONS: dict[str, str] = {
     "lycoris": "LyCORIS-style adapter backend.",
     "dev": "pytest and httpx for development.",
     "kaon": "Memory-efficient optimizers (Adakaon, AdaMuon, KProdigy, Autokaon, Lion, AdaPNM, AdaBelief, AdamP, ADOPT, ScheduleFree, Lookahead, SAM, MSAM, Nekaon) from github.com/Koronos/K-Optimizers.",
+    "prep": "ONNX taggers, JoyCaption/ToriiGate captioners, YOLO+LaMa watermark cleanup for `rengu prep`.",
 }
 
-ALL_PROFILE_NAMES = ("base", "ui", "cosmos", "optim", "lycoris", "dev", "kaon")
+ALL_PROFILE_NAMES = ("base", "ui", "cosmos", "optim", "lycoris", "dev", "kaon", "prep")
 
 # Profile -> modules that must import for the profile to count as installed. Used by the manager
 # to decide whether anything needs installing (on-demand) and to verify success afterwards.
@@ -50,6 +53,7 @@ PROFILE_IMPORT_CHECKS: dict[str, tuple[str, ...]] = {
     "optim": ("bitsandbytes",),
     "dev": ("pytest",),
     "kaon": ("kaon",),
+    "prep": ("onnxruntime", "transformers", "ultralytics"),
 }
 
 # Profile -> pip/git requirement specs that uv cannot install via pyproject extras. Installed

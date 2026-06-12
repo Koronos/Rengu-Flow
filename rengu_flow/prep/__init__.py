@@ -10,6 +10,8 @@ __getattr__, __dir__, __all__ = lazy.attach(
     __name__,
     submod_attrs={
         "caption_store": ["CaptionSet", "CaptionStore"],
+        "config": ["PrepConfig", "load_prep_config", "parse_prep_config"],
+        "runner": ["run_stage"],
         "captioner": [
             "CaptionBackend",
             "CaptionerConfig",

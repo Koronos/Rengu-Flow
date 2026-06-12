@@ -60,13 +60,13 @@ CLEANUP_MODELS: dict[str, dict] = {
             "Loaded as a single .pt file; used via ultralytics."
         ),
     },
-    "biglama": {
-        "repo_id": "smartywu/big-lama",
+    "lama-onnx": {
+        "repo_id": "Carve/LaMa-ONNX",
         "repo_type": "model",
-        "filename": None,
+        "filename": "lama_fp32.onnx",
         "notes": (
-            "Big-LaMa inpainting model. Compatible with simple-lama-inpainting. "
-            "Full model directory download required."
+            "Big-LaMa inpainting exported to ONNX — runs on the same onnxruntime "
+            "as the taggers (no extra inpainting package)."
         ),
     },
 }

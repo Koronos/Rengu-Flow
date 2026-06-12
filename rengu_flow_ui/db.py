@@ -59,6 +59,9 @@ class JobRecord:
     cache_only: bool = False
     trust_cache: bool = False
     regenerate_cache: bool = False
+    # 'train' or 'prep' (dataset preparation). Both kinds share the table and the
+    # single-runner queue so a prep job never overlaps a training run on the GPU.
+    kind: str = "train"
 
 
 def _connect() -> sqlite3.Connection:
@@ -87,6 +90,7 @@ _JOBS_ADDITIVE_COLUMNS: dict[str, str] = {
     "cache_only": "INTEGER NOT NULL DEFAULT 0",
     "trust_cache": "INTEGER NOT NULL DEFAULT 0",
     "regenerate_cache": "INTEGER NOT NULL DEFAULT 0",
+    "kind": "TEXT NOT NULL DEFAULT 'train'",
 }
 
 
@@ -128,7 +132,8 @@ def init_db() -> None:
                 config_content TEXT NOT NULL DEFAULT '',
                 cache_only INTEGER NOT NULL DEFAULT 0,
                 trust_cache INTEGER NOT NULL DEFAULT 0,
-                regenerate_cache INTEGER NOT NULL DEFAULT 0
+                regenerate_cache INTEGER NOT NULL DEFAULT 0,
+                kind TEXT NOT NULL DEFAULT 'train'
             )
             """
         )
@@ -195,6 +200,7 @@ def _row_to_job(row: sqlite3.Row) -> JobRecord:
         cache_only=bool(row["cache_only"]) if "cache_only" in keys else False,
         trust_cache=bool(row["trust_cache"]) if "trust_cache" in keys else False,
         regenerate_cache=bool(row["regenerate_cache"]) if "regenerate_cache" in keys else False,
+        kind=(row["kind"] if "kind" in keys and row["kind"] else "train"),
     )
 
 
@@ -265,6 +271,7 @@ def create_job(
     cache_only: bool = False,
     trust_cache: bool = False,
     regenerate_cache: bool = False,
+    kind: str = "train",
 ) -> JobRecord:
     now = datetime.now(timezone.utc).isoformat()
     with _cursor() as cur:
@@ -273,8 +280,9 @@ def create_job(
             INSERT INTO jobs (
                 config_path, state, pid, run_dir, output_dir,
                 num_gpus, resume_from, log_path, started_at, extra_args, queue_position,
-                source_run_dir, config_content, cache_only, trust_cache, regenerate_cache
-            ) VALUES (?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                source_run_dir, config_content, cache_only, trust_cache, regenerate_cache,
+                kind
+            ) VALUES (?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 config_path,
@@ -291,6 +299,7 @@ def create_job(
                 int(cache_only),
                 int(trust_cache),
                 int(regenerate_cache),
+                kind,
             ),
         )
         job_id = int(cur.lastrowid)

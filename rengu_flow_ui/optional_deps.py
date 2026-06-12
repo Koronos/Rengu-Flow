@@ -13,7 +13,7 @@ from rengu_flow.install.profiles import (
 )
 from rengu_flow.install.profiles import normalize_profiles as normalize_install_profiles
 
-OPTIONAL_PROFILE_IDS: tuple[str, ...] = ("cosmos_predict2", "lycoris", "optim")
+OPTIONAL_PROFILE_IDS: tuple[str, ...] = ("cosmos_predict2", "lycoris", "optim", "prep")
 
 _PROFILE_ID_TO_SYNC_KEY: dict[str, str] = {
     "cosmos_predict2": "cosmos",
