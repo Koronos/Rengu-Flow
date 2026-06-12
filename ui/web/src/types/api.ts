@@ -823,8 +823,9 @@ export interface PrepCaptionConfig {
   outfit: "describe" | "omit" | "mixed";
   target_line: number;
   max_new_tokens: number;
-  temperature: number;
-  top_p: number;
+  temperature: number | null;
+  top_p: number | null;
+  exact_generation: boolean;
   batch_size: number;
   use_tags_as_grounding: boolean;
   overwrite: boolean;

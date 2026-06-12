@@ -62,14 +62,15 @@ Two models, both selectable per job:
   trained on FIXED prompt formats, so it does not take the composable instruction
   prompt: the base maps to its native format (`concise` → short, everything else →
   long), grounding/character name use its official blocks, and the modifiers ride an
-  extra-requirements section. It also generates one image at a time (its hybrid
-  linear-attention layers don't tolerate padded batches — that's what made captions
-  start fine and then repeat/derail) and inputs are capped at ~1 Mpx (its training
-  resolution). The "fast path not available" startup note is expected and harmless: the
-  optional fused kernels (flash-linear-attention + causal-conv1d) were benchmarked
-  (cu13torch2.10 wheel runs fine on torch 2.12) and give **no speedup** for this
-  short-decode captioning workload — they target long-sequence prefill. The torch
-  fallback is correct.
+  extra-requirements section. Inputs are capped at ~1 Mpx (its training resolution)
+  and sampling defaults to its official parameters (temperature 0.5, top_p 1.0 —
+  leave the form fields blank to use them). Its hybrid linear-attention layers are
+  not perfectly padding-invariant: batched generation (the default — ~2.5x faster)
+  may paraphrase slightly versus single-image; `exact_generation = true` switches to
+  unpadded per-image generation when bit-exact reproducibility matters. The "fast
+  path not available" startup note is expected and harmless: the optional fused
+  kernels were benchmarked (the cu13torch2.10 wheel runs fine on torch 2.12) and
+  give **no speedup** for this short-decode workload; the torch fallback is correct.
 
 The model loads once per job and generates in true batches; on OOM the batch halves
 and stays halved. Captions save incrementally after every batch, so a stop never

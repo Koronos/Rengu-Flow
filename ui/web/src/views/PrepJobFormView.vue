@@ -359,13 +359,27 @@
             </div>
 
             <div class="form-row-2">
-              <el-form-item label="Temperature">
-                <el-input-number v-model="captionForm.temperature" :min="0" :max="2" :step="0.05" :precision="2" controls-position="right" class="w-full" />
+              <el-form-item>
+                <template #label>
+                  Temperature <FieldHelpIcon :field="help('Sampling temperature. Leave blank for the model\'s own recommended value (JoyCaption 0.6, ToriiGate 0.5). 0 = greedy/deterministic.')" />
+                </template>
+                <el-input-number v-model="captionForm.temperature" :min="0" :max="2" :step="0.05" :precision="2" :value-on-clear="null" placeholder="model default" controls-position="right" class="w-full" />
               </el-form-item>
-              <el-form-item label="Top-p">
-                <el-input-number v-model="captionForm.top_p" :min="0" :max="1" :step="0.05" :precision="2" controls-position="right" class="w-full" />
+              <el-form-item>
+                <template #label>
+                  Top-p <FieldHelpIcon :field="help('Nucleus sampling cutoff. Leave blank for the model default (JoyCaption 0.9, ToriiGate 1.0).')" />
+                </template>
+                <el-input-number v-model="captionForm.top_p" :min="0" :max="1" :step="0.05" :precision="2" :value-on-clear="null" placeholder="model default" controls-position="right" class="w-full" />
               </el-form-item>
             </div>
+
+            <el-form-item v-if="captionForm.model === 'toriigate-0.5'">
+              <el-switch v-model="captionForm.exact_generation" />
+              <el-text class="ml-8" size="small">
+                Exact (unpadded) generation
+                <el-text type="info"> — ToriiGate's hybrid attention paraphrases slightly under batched padding; exact mode generates per image (~2.5x slower)</el-text>
+              </el-text>
+            </el-form-item>
 
             <el-form-item>
               <el-switch v-model="captionForm.use_tags_as_grounding" />
@@ -520,8 +534,9 @@ const captionForm = reactive({
   outfit: "describe" as "describe" | "omit" | "mixed",
   target_line: 2,
   max_new_tokens: 512,
-  temperature: 0.6,
-  top_p: 0.9,
+  temperature: null as number | null,
+  top_p: null as number | null,
+  exact_generation: false,
   batch_size: 4,
   use_tags_as_grounding: true,
   overwrite: false,
@@ -639,6 +654,7 @@ function buildConfig() {
         max_new_tokens: captionForm.max_new_tokens,
         temperature: captionForm.temperature,
         top_p: captionForm.top_p,
+        exact_generation: captionForm.exact_generation,
         batch_size: captionForm.batch_size,
         use_tags_as_grounding: captionForm.use_tags_as_grounding,
         overwrite: captionForm.overwrite,
@@ -702,6 +718,7 @@ async function submit(startNow: boolean): Promise<void> {
             max_new_tokens: captionForm.max_new_tokens,
             temperature: captionForm.temperature,
             top_p: captionForm.top_p,
+            exact_generation: captionForm.exact_generation,
             batch_size: captionForm.batch_size,
             use_tags_as_grounding: captionForm.use_tags_as_grounding,
             overwrite: captionForm.overwrite,

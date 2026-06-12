@@ -35,11 +35,17 @@ _BACKENDS: dict[str, dict] = {
         "cls": "JoyCaptionBackend",
         "repo_id": "fancyfeast/llama-joycaption-beta-one-hf-llava",
         "default_prompt": "Write a long descriptive caption for this image in a formal tone.",
+        # Model-card recommended sampling.
+        "default_temperature": 0.6,
+        "default_top_p": 0.9,
     },
     "toriigate-0.5": {
         "cls": "ToriiGateBackend",
         "repo_id": "Minthy/ToriiGate-0.5",
         "default_prompt": "Give a long and detailed description of the picture.",
+        # Official batch script: temperature 0.5, top_p left at 1.0.
+        "default_temperature": 0.5,
+        "default_top_p": 1.0,
     },
 }
 
@@ -402,9 +408,14 @@ class CaptionerConfig:
     # trigger caption + line 3 full description from a second job.
     target_line: int = 2
     max_new_tokens: int = 512
-    temperature: float = 0.6
-    top_p: float = 0.9
+    # None = the model's own recommended sampling (per-model defaults in _BACKENDS).
+    temperature: float | None = None
+    top_p: float | None = None
     batch_size: int = 4
+    # ToriiGate's hybrid linear-attention layers are not padding-invariant: padded
+    # batches produce slightly different (still coherent) captions for the shorter
+    # sequences. True = generate one image at a time (exact, ~2.5x slower).
+    exact_generation: bool = False
     use_tags_as_grounding: bool = True   # only ToriiGate uses it
     overwrite: bool = False              # if False, skip images that already have line 2
     # The trainer's bucketing does the real resize later, so raw datasets can carry
@@ -563,10 +574,11 @@ class _HFVisionBackend(CaptionBackend):
     """
 
     model_key: str = ""
-    # Hybrid linear-attention/conv models (ToriiGate's Qwen3.5 base) don't mask left
-    # padding through their conv state — batched padded generation makes the shorter
-    # sequences repeat/derail. True = generate one image at a time (no padding).
-    single_image_generation: bool = False
+    # Hybrid linear-attention/conv models (ToriiGate's Qwen3.5 base) are not
+    # padding-invariant: greedy A/B showed padded batches paraphrase the shorter
+    # sequences (coherent, just not identical). When True, config.exact_generation
+    # switches to per-image generation (no padding, ~2.5x slower).
+    padding_sensitive: bool = False
     # Resize cap in pixels applied right before the processor (None = off). ToriiGate
     # was trained at ~1.0 Mpx (model card known issues).
     max_pixels: int | None = None
@@ -615,7 +627,7 @@ class _HFVisionBackend(CaptionBackend):
     ) -> list[str]:
         assert self._processor is not None and self._model is not None, "Call load() first"
         images = [self._prepare_image(img) for img in images]
-        if self.single_image_generation:
+        if self.padding_sensitive and self.config.exact_generation:
             results: list[str] = []
             for image, prompt in zip(images, prompts):
                 results.extend(self._generate([image], [prompt]))
@@ -637,12 +649,19 @@ class _HFVisionBackend(CaptionBackend):
         if tokenizer is not None and tokenizer.pad_token_id is not None:
             # Explicit pad id silences the per-batch "setting pad_token_id" notice.
             gen_kwargs["pad_token_id"] = tokenizer.pad_token_id
-        if self.config.temperature > 0:
-            gen_kwargs.update(
-                do_sample=True,
-                temperature=self.config.temperature,
-                top_p=self.config.top_p,
-            )
+        backend_defaults = _BACKENDS.get(self.model_key, {})
+        temperature = (
+            self.config.temperature
+            if self.config.temperature is not None
+            else backend_defaults.get("default_temperature", 0.6)
+        )
+        top_p = (
+            self.config.top_p
+            if self.config.top_p is not None
+            else backend_defaults.get("default_top_p", 0.9)
+        )
+        if temperature > 0:
+            gen_kwargs.update(do_sample=True, temperature=temperature, top_p=top_p)
         else:
             gen_kwargs["do_sample"] = False
 
@@ -717,10 +736,7 @@ class ToriiGateBackend(_HFVisionBackend):
     """Qwen3.5-based anime-specialist backend (Minthy/ToriiGate-0.5, ~5B)."""
 
     model_key = "toriigate-0.5"
-    # Hybrid linear-attention arch: padded batches corrupt the conv state of shorter
-    # sequences (captions start fine, then repeat/derail) — generate per image, like
-    # the model's own batch script does.
-    single_image_generation = True
+    padding_sensitive = True  # see _HFVisionBackend: exact_generation opts out of padding
     max_pixels = 1_000_000  # trained at ~1.0 Mpx (official scripts resize to this)
 
     def _load_model_and_processor(self):

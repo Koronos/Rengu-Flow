@@ -46,8 +46,9 @@ class CaptionStageConfig:
     outfit: str = "describe"  # describe | omit | mixed (only with character_name)
     target_line: int = 2  # 1-based caption line; 3+ adds caption variants
     max_new_tokens: int = 512
-    temperature: float = 0.6
-    top_p: float = 0.9
+    temperature: float | None = None  # None = the model's recommended sampling
+    top_p: float | None = None
+    exact_generation: bool = False  # ToriiGate: per-image (unpadded), exact but ~2.5x slower
     batch_size: int = 4
     use_tags_as_grounding: bool = True
     overwrite: bool = False

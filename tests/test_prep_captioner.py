@@ -706,3 +706,55 @@ class TestCharacterVariantsAndTargetLine:
             backend_factory=_make_factory(fb),
         )
         assert report["skipped"] == 1 and report["captioned"] == 0
+
+
+class TestSamplingDefaultsAndExactMode:
+    def test_model_default_sampling_resolution(self):
+        from rengu_flow.prep.captioner import _BACKENDS
+
+        assert _BACKENDS["toriigate-0.5"]["default_temperature"] == 0.5
+        assert _BACKENDS["toriigate-0.5"]["default_top_p"] == 1.0
+        assert _BACKENDS["joycaption-beta-one"]["default_temperature"] == 0.6
+
+    def test_exact_generation_routes_per_image(self):
+        from rengu_flow.prep.captioner import CaptionerConfig, ToriiGateBackend
+
+        calls = []
+
+        class Probe(ToriiGateBackend):
+            def _generate(self, images, prompts):
+                calls.append(len(images))
+                return ["cap"] * len(images)
+
+            def _prepare_image(self, image):
+                return image
+
+        def armed(b):
+            b._processor = object()
+            b._model = object()
+            return b
+
+        # exact off (default): one batched call.
+        backend = armed(Probe(CaptionerConfig(model="toriigate-0.5")))
+        backend.caption_batch([object()] * 3, ["p"] * 3)
+        assert calls == [3]
+        calls.clear()
+        # exact on: one call per image.
+        backend = armed(Probe(CaptionerConfig(model="toriigate-0.5", exact_generation=True)))
+        backend.caption_batch([object()] * 3, ["p"] * 3)
+        assert calls == [1, 1, 1]
+        calls.clear()
+        # JoyCaption ignores the knob (padding-safe full attention).
+        from rengu_flow.prep.captioner import JoyCaptionBackend
+
+        class JoyProbe(JoyCaptionBackend):
+            def _generate(self, images, prompts):
+                calls.append(len(images))
+                return ["cap"] * len(images)
+
+            def _prepare_image(self, image):
+                return image
+
+        backend = armed(JoyProbe(CaptionerConfig(exact_generation=True)))
+        backend.caption_batch([object()] * 3, ["p"] * 3)
+        assert calls == [3]

@@ -127,6 +127,7 @@ def _run_caption(config: PrepConfig, on_progress, should_stop) -> dict:
         max_new_tokens=stage.max_new_tokens,
         temperature=stage.temperature,
         top_p=stage.top_p,
+        exact_generation=stage.exact_generation,
         batch_size=stage.batch_size,
         use_tags_as_grounding=stage.use_tags_as_grounding,
         overwrite=stage.overwrite,
