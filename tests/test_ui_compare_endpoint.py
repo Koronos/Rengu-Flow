@@ -64,6 +64,21 @@ def test_series_endpoint(ui_client, tmp_path: Path) -> None:
     assert set(data["series"]) == {"run-a", "run-b"}
 
 
+def test_run_previews_endpoint(ui_client, tmp_path: Path) -> None:
+    run = tmp_path / "run-a"
+    (run / "preview").mkdir(parents=True)
+    (run / "preview" / "step00000100_portrait.png").write_bytes(b"x")
+
+    assert ui_client.get(f"/api/v1/runs/nope/previews?output_dir={tmp_path}").status_code == 404
+
+    resp = ui_client.get(f"/api/v1/runs/run-a/previews?output_dir={tmp_path}")
+    assert resp.status_code == 200
+    previews = resp.json()["previews"]
+    assert len(previews) == 1
+    assert previews[0]["step"] == 100
+    assert previews[0]["prompt"] == "portrait"
+
+
 def test_compare_endpoint_discovers_unmanifested_runs(ui_client, tmp_path: Path) -> None:
     # A run with no run.json — just a config TOML (trained before tracking) — must still appear.
     legacy = tmp_path / "20260101_10-00-00_legacy"

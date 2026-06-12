@@ -659,6 +659,10 @@ export interface RunSeriesResult {
   series: Record<string, ScalarMetricPoint[]>;
 }
 
+export interface RunPreviewsResult {
+  previews: RunPreviewImageRef[];
+}
+
 // --- Maintenance ---
 
 export interface MaintenanceEnabledResult {
