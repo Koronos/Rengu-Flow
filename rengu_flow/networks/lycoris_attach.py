@@ -128,8 +128,10 @@ def iter_attached_adapters(module):
             yield path, sub
 
 
-def _flat_name(kohya_prefix, module_path):
-    return kohya_prefix + module_path.replace(".", "_")
+def _module_name(prefix, module_path, flat):
+    """Exported per-module name: kohya-flat (dots -> underscores, SDXL convention)
+    or dotted (Comfy DiT convention, e.g. ``diffusion_model.blocks.0...``)."""
+    return prefix + (module_path.replace(".", "_") if flat else module_path)
 
 
 def _sorted_list_params(collected, list_name):
@@ -138,7 +140,7 @@ def _sorted_list_params(collected, list_name):
     return [collected.pop(k) for k in keys]
 
 
-def save_transform(state_dict, adapter_config, prefix_map):
+def save_transform(state_dict, adapter_config, prefix_map, *, flat=True):
     """Snapshot ({original_name: tensor}) -> kohya-flat lycoris state dict.
 
     Replicates each module's ``custom_state_dict``: per-module ``alpha`` (rank, or
@@ -161,11 +163,11 @@ def save_transform(state_dict, adapter_config, prefix_map):
         root = next((p for p in prefix_map if module_path.startswith(p)), None)
         if root is None:
             raise RuntimeError(f"Adapter key {key} matches no known root prefix")
-        flat = _flat_name(prefix_map[root], module_path[len(root):])
-        per_module.setdefault(flat, {})[param_name] = tensor
+        name = _module_name(prefix_map[root], module_path[len(root):], flat)
+        per_module.setdefault(name, {})[param_name] = tensor
 
     out = {}
-    for flat, collected in per_module.items():
+    for mod_name, collected in per_module.items():
         if algo == "dylora":
             ups = _sorted_list_params(collected, "up_list")
             downs = _sorted_list_params(collected, "down_list")
@@ -179,33 +181,34 @@ def save_transform(state_dict, adapter_config, prefix_map):
                 if target in collected:
                     collected[target] = collected[target] * scalar.to(collected[target].dtype)
         for param_name, tensor in collected.items():
-            out[f"{flat}.{param_name}"] = tensor.contiguous()
-        out[f"{flat}.alpha"] = torch.tensor(alpha_value)
+            out[f"{mod_name}.{param_name}"] = tensor.contiguous()
+        out[f"{mod_name}.alpha"] = torch.tensor(alpha_value)
     return out
 
 
-def load_into(roots, state_dict):
-    """Load a kohya-flat lycoris state dict into already-attached adapters.
+def load_into(roots, state_dict, *, flat=True):
+    """Load an exported lycoris state dict into already-attached adapters.
 
-    ``roots`` is a list of ``(module, kohya_prefix)``. Strict: every attached
-    param must be fed from the file, except ``scalar`` (folded away at export —
-    reset to 1 like the upstream load hook) — and every consumed key is tracked so
-    leftovers raise instead of silently not loading.
+    ``roots`` is a list of ``(module, prefix)``; ``flat`` selects the same naming
+    style used at save time. Strict: every attached param must be fed from the
+    file, except ``scalar`` (folded away at export — reset to 1 like the upstream
+    load hook) — and every consumed key is tracked so leftovers raise instead of
+    silently not loading.
     """
     consumed = set()
     missing = []
-    for module, kohya_prefix in roots:
+    for module, prefix in roots:
         for module_path, lora in iter_attached_adapters(module):
-            flat = _flat_name(kohya_prefix, module_path)
-            consumed.add(f"{flat}.alpha")
+            flat_name = _module_name(prefix, module_path, flat)
+            consumed.add(f"{flat_name}.alpha")
             if type(lora).__name__ == "DyLoraModule":
-                _load_dylora(lora, flat, state_dict, consumed, missing)
+                _load_dylora(lora, flat_name, state_dict, consumed, missing)
                 continue
             for pname, p in lora.named_parameters():
                 if pname == "scalar":
                     p.data.copy_(torch.ones_like(p.data))
                     continue
-                key = f"{flat}.{pname}"
+                key = f"{flat_name}.{pname}"
                 tensor = state_dict.get(key)
                 if tensor is None:
                     missing.append(key)

@@ -72,6 +72,26 @@ factor = -1
 
 Example: `examples/minimal_config_cosmos_predict2_lokr.toml`.
 
+### LyCORIS networks
+
+Four LyCORIS algorithms are available for the DiT (same library backend as SDXL, see the
+type reference in `training-sdxl-lora-lokr.md` for what each one is):
+
+```toml
+[adapter]
+type = "lycoris_loha"   # or lycoris_locon / lycoris_lokr / lycoris_dora
+rank = 8
+```
+
+- Targets the same Linears as `lora`/`lokr` (every Linear inside the DiT blocks).
+- `alpha` is derived from `rank` (do not set `alpha` in TOML). Saves use the same
+  Comfy-style keys as cosmos LoKr: `diffusion_model.<module path>.<weight>` plus a
+  per-module `.alpha`.
+- Per-type extras match the SDXL table (`dora_wd`, LoKr's `factor`/`full_matrix`/…).
+- DyLoRA and the OFT family are exposed for SDXL only: DyLoRA conflicts with
+  `activation_checkpointing` (standard in cosmos configs), and Diag-OFT/BOFT's staged
+  weight rebuild does not fit the DiT on 16 GB cards.
+
 ### Full finetune
 
 Omit the `[adapter]` section. All DiT parameters with `requires_grad` are trained; use `save_model` export (not `adapter_model.safetensors`).

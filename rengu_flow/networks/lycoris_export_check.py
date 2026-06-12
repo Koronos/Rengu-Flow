@@ -34,26 +34,49 @@ EXPECTED_MODULE_CLASS = {
     "lycoris_boft": "ButterflyOFTModule",
 }
 
-KNOWN_PREFIXES = ("lora_unet_", "lora_te1_", "lora_te2_")
+# Per export style: required module prefix and all accepted prefixes. "kohya"
+# (SDXL) modules are flat (no dots), so keys split at the first dot; "cosmos"
+# modules keep dotted paths, so keys split by matching known weight-name suffixes.
+STYLE_PREFIXES = {
+    "kohya": ("lora_unet_", ("lora_unet_", "lora_te1_", "lora_te2_")),
+    "cosmos": ("diffusion_model.", ("diffusion_model.",)),
+}
 
 
-def check_export(path, adapter_type):
+def _family_weight_names(fam):
+    names = {"alpha", *fam["required"], *fam["optional"]}
+    for group in fam["either"]:
+        for alt in group:
+            names.update(alt)
+    return names
+
+
+def check_export(path, adapter_type, style="kohya"):
     """Return a list of failure messages (empty = file passes)."""
     fam = WEIGHT_KEY_FAMILIES[adapter_type]
+    required_prefix, known_prefixes = STYLE_PREFIXES[style]
     state = safetensors.torch.load_file(path)
     failures = []
 
+    weight_names = sorted(_family_weight_names(fam), key=len, reverse=True)
     per_module: dict[str, dict[str, torch.Tensor]] = {}
     for key, tensor in state.items():
-        module_name, _, sub = key.partition(".")
-        if not sub:
-            failures.append(f"key without module prefix: {key}")
+        if style == "kohya":
+            module_name, _, sub = key.partition(".")
+        else:
+            module_name = sub = ""
+            for w in weight_names:
+                if key.endswith("." + w):
+                    module_name, sub = key[: -len(w) - 1], w
+                    break
+        if not sub or not module_name:
+            failures.append(f"key matches no known module/weight split: {key}")
             continue
         per_module.setdefault(module_name, {})[sub] = tensor
 
-    if not any(m.startswith("lora_unet_") for m in per_module):
-        failures.append("no lora_unet_* modules in file")
-    unknown_prefix = [m for m in per_module if not m.startswith(KNOWN_PREFIXES)]
+    if not any(m.startswith(required_prefix) for m in per_module):
+        failures.append(f"no {required_prefix}* modules in file")
+    unknown_prefix = [m for m in per_module if not m.startswith(known_prefixes)]
     if unknown_prefix:
         failures.append(f"unknown module prefixes: {unknown_prefix[:3]}")
 
@@ -122,6 +145,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("file", type=Path)
     parser.add_argument("--algo", required=True, choices=LYCORIS_ADAPTER_TYPES)
+    parser.add_argument("--style", default="kohya", choices=sorted(STYLE_PREFIXES))
     parser.add_argument("--base-checkpoint", type=Path, default=None)
     args = parser.parse_args(argv)
 
@@ -132,7 +156,7 @@ def main(argv=None):
         print(f"FAIL: file metadata declares {declared}, checking as {args.algo}")
         return 1
 
-    failures, n_modules = check_export(args.file, args.algo)
+    failures, n_modules = check_export(args.file, args.algo, style=args.style)
     for failure in failures:
         print(f"FAIL: {failure}")
     if failures:

@@ -22,23 +22,37 @@ MODEL="${1:-}"
 IS_LYCORIS=0
 IS_LYCORIS_ALL=0
 ALGO=""
+# Per family: fixture stem, export-check key style, and the algos the _all case loops.
+SDXL_LYCORIS_STEM="train_sdxl_lycoris"
+COSMOS_LYCORIS_STEM="train_cosmos_predict2_lycoris"
+SDXL_LYCORIS_ALGOS="locon loha lokr dora dylora glora diag_oft boft"
+COSMOS_LYCORIS_ALGOS="locon loha lokr dora"
+LYCORIS_STYLE="kohya"
+LYCORIS_STEM="${SDXL_LYCORIS_STEM}"
+LYCORIS_ALGOS="${SDXL_LYCORIS_ALGOS}"
 
 case "${MODEL}" in
   sdxl)        CONFIG="${REPO_ROOT}/tests/fixtures/smoke/train_sdxl.toml" ;;
   sdxl_lokr)   CONFIG="${REPO_ROOT}/tests/fixtures/smoke/train_sdxl_lokr.toml" ;;
   cosmos)      CONFIG="${REPO_ROOT}/tests/fixtures/smoke/train_cosmos_predict2.toml" ;;
   cosmos_lokr) CONFIG="${REPO_ROOT}/tests/fixtures/smoke/train_cosmos_predict2_lokr.toml" ;;
-  sdxl_lycoris_locon)     IS_LYCORIS=1; ALGO="locon";     CONFIG="${REPO_ROOT}/tests/fixtures/smoke/train_sdxl_lycoris_locon.toml" ;;
-  sdxl_lycoris_loha)      IS_LYCORIS=1; ALGO="loha";      CONFIG="${REPO_ROOT}/tests/fixtures/smoke/train_sdxl_lycoris_loha.toml" ;;
-  sdxl_lycoris_lokr)      IS_LYCORIS=1; ALGO="lokr";      CONFIG="${REPO_ROOT}/tests/fixtures/smoke/train_sdxl_lycoris_lokr.toml" ;;
-  sdxl_lycoris_dora)      IS_LYCORIS=1; ALGO="dora";      CONFIG="${REPO_ROOT}/tests/fixtures/smoke/train_sdxl_lycoris_dora.toml" ;;
-  sdxl_lycoris_dylora)    IS_LYCORIS=1; ALGO="dylora";    CONFIG="${REPO_ROOT}/tests/fixtures/smoke/train_sdxl_lycoris_dylora.toml" ;;
-  sdxl_lycoris_glora)     IS_LYCORIS=1; ALGO="glora";     CONFIG="${REPO_ROOT}/tests/fixtures/smoke/train_sdxl_lycoris_glora.toml" ;;
-  sdxl_lycoris_diag_oft)  IS_LYCORIS=1; ALGO="diag_oft";  CONFIG="${REPO_ROOT}/tests/fixtures/smoke/train_sdxl_lycoris_diag_oft.toml" ;;
-  sdxl_lycoris_boft)      IS_LYCORIS=1; ALGO="boft";      CONFIG="${REPO_ROOT}/tests/fixtures/smoke/train_sdxl_lycoris_boft.toml" ;;
-  sdxl_lycoris_all)       IS_LYCORIS_ALL=1; CONFIG="${REPO_ROOT}/tests/fixtures/smoke/train_sdxl_lycoris_locon.toml" ;;
+  sdxl_lycoris_locon|sdxl_lycoris_loha|sdxl_lycoris_lokr|sdxl_lycoris_dora|sdxl_lycoris_dylora|sdxl_lycoris_glora|sdxl_lycoris_diag_oft|sdxl_lycoris_boft)
+    IS_LYCORIS=1; ALGO="${MODEL#sdxl_lycoris_}"
+    CONFIG="${REPO_ROOT}/tests/fixtures/smoke/${SDXL_LYCORIS_STEM}_${ALGO}.toml" ;;
+  cosmos_lycoris_locon|cosmos_lycoris_loha|cosmos_lycoris_lokr|cosmos_lycoris_dora)
+    IS_LYCORIS=1; ALGO="${MODEL#cosmos_lycoris_}"; LYCORIS_STYLE="cosmos"
+    CONFIG="${REPO_ROOT}/tests/fixtures/smoke/${COSMOS_LYCORIS_STEM}_${ALGO}.toml" ;;
+  sdxl_lycoris_all)
+    IS_LYCORIS_ALL=1
+    CONFIG="${REPO_ROOT}/tests/fixtures/smoke/${SDXL_LYCORIS_STEM}_locon.toml" ;;
+  cosmos_lycoris_all)
+    IS_LYCORIS_ALL=1; LYCORIS_STYLE="cosmos"
+    LYCORIS_STEM="${COSMOS_LYCORIS_STEM}"; LYCORIS_ALGOS="${COSMOS_LYCORIS_ALGOS}"
+    CONFIG="${REPO_ROOT}/tests/fixtures/smoke/${COSMOS_LYCORIS_STEM}_locon.toml" ;;
   *)
-    echo "Usage: $0 sdxl|sdxl_lokr|cosmos|cosmos_lokr|sdxl_lycoris_locon|sdxl_lycoris_loha|sdxl_lycoris_lokr|sdxl_lycoris_dora|sdxl_lycoris_dylora|sdxl_lycoris_glora|sdxl_lycoris_diag_oft|sdxl_lycoris_boft|sdxl_lycoris_all" >&2
+    echo "Usage: $0 sdxl|sdxl_lokr|cosmos|cosmos_lokr|sdxl_lycoris_<algo>|sdxl_lycoris_all|cosmos_lycoris_<algo>|cosmos_lycoris_all" >&2
+    echo "  sdxl lycoris algos:   ${SDXL_LYCORIS_ALGOS// /|}" >&2
+    echo "  cosmos lycoris algos: ${COSMOS_LYCORIS_ALGOS// /|}" >&2
     exit 1
     ;;
 esac
@@ -101,8 +115,9 @@ lycoris_export_check() {
     echo "ERROR: no adapter_model.safetensors found in ${SMOKE_OUTPUT_DIR} after lycoris_${algo} run." >&2
     return 1
   fi
-  echo "=== export check: ${adapter_file} (algo=lycoris_${algo}) ==="
-  "${VENV}/bin/python" -m rengu_flow.networks.lycoris_export_check "${adapter_file}" --algo "lycoris_${algo}"
+  echo "=== export check: ${adapter_file} (algo=lycoris_${algo}, style=${LYCORIS_STYLE}) ==="
+  "${VENV}/bin/python" -m rengu_flow.networks.lycoris_export_check "${adapter_file}" \
+    --algo "lycoris_${algo}" --style "${LYCORIS_STYLE}"
 }
 
 if [[ "${KEEP_SMOKE_ARTIFACTS:-0}" != "1" ]]; then
@@ -116,14 +131,14 @@ LOG_FILE="${SMOKE_LOG_DIR}/smoke_${MODEL}_${TS}.log"
 SMOKE_EXIT=0
 
 if [[ "${IS_LYCORIS_ALL}" == "1" ]]; then
-  LYCORIS_ALGOS=(locon loha lokr dora dylora glora diag_oft boft)
-  echo "Smoke sdxl_lycoris_all (cache_only once + 8 algos x 12 steps) -> ${LOG_FILE}"
+  read -r -a ALGOS <<< "${LYCORIS_ALGOS}"
+  echo "Smoke ${MODEL} (cache_only once + ${#ALGOS[@]} algos x 12 steps) -> ${LOG_FILE}"
   {
     echo "=== cache_only (shared) ==="
     "${DEEPSPEED}" --num_gpus=1 --master_port="${MASTER_PORT}" --module rengu_flow.main \
-      --config "${REPO_ROOT}/tests/fixtures/smoke/train_sdxl_lycoris_locon.toml" --cache_only
-    for algo in "${LYCORIS_ALGOS[@]}"; do
-      algo_config="${REPO_ROOT}/tests/fixtures/smoke/train_sdxl_lycoris_${algo}.toml"
+      --config "${CONFIG}" --cache_only
+    for algo in "${ALGOS[@]}"; do
+      algo_config="${REPO_ROOT}/tests/fixtures/smoke/${LYCORIS_STEM}_${algo}.toml"
       echo "=== train lycoris_${algo} max_steps=12 ==="
       "${DEEPSPEED}" --num_gpus=1 --master_port="${MASTER_PORT}" --module rengu_flow.main \
         --config "${algo_config}" --trust_cache

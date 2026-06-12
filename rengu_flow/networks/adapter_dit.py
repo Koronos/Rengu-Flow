@@ -29,8 +29,13 @@ def _collect_target_linears(transformer, target_module_names):
 
 
 def configure(transformer, adapter_config):
-    target_linear_modules = _collect_target_linears(transformer, ADAPTER_TARGET_MODULES)
     adapter_type = adapter_config["type"]
+    if adapter_type.startswith("lycoris_"):
+        from rengu_flow.networks import lycoris_dit
+
+        lycoris_dit.configure(transformer, adapter_config)
+        return None, adapter_type
+    target_linear_modules = _collect_target_linears(transformer, ADAPTER_TARGET_MODULES)
     if adapter_type == "lora":
         peft_config = peft.LoraConfig(
             r=adapter_config["rank"],
@@ -62,6 +67,11 @@ def configure(transformer, adapter_config):
 
 def save(save_dir, state_dict, adapter_config, peft_config=None):
     save_dir = Path(save_dir)
+    if adapter_config["type"].startswith("lycoris_"):
+        from rengu_flow.networks import lycoris_dit
+
+        lycoris_dit.save(save_dir, state_dict, adapter_config)
+        return
     if adapter_config["type"] == "lokr":
         lokr_modules = set()
         for k in list(state_dict.keys()):

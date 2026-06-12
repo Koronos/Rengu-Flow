@@ -178,7 +178,13 @@ class CosmosPredict2Pipeline(BasePipeline):
         )
 
     def load_adapter_weights(self, adapter_path):
-        adapter_dit.load_weights(self.transformer, adapter_path)
+        adapter_type = getattr(self, "adapter_type", None) or (self.config.get("adapter") or {}).get("type")
+        if adapter_type and adapter_type.startswith("lycoris_"):
+            from rengu_flow.networks import lycoris_dit
+
+            lycoris_dit.load(self.transformer, adapter_path)
+        else:
+            adapter_dit.load_weights(self.transformer, adapter_path)
 
     def load_and_fuse_adapter(self, path):
         raise NotImplementedError("load_and_fuse_adapter is not implemented for cosmos_predict2")
