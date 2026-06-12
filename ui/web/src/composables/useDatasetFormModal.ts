@@ -13,12 +13,14 @@ const visible = ref(false);
 const mode = ref<"create" | "edit">("create");
 const editId = ref<string | null>(null);
 const onSavedCb = shallowRef<OnSaved | null>(null);
+const initialToml = ref<string | null>(null);
 
 export function useDatasetFormModal() {
-  function openCreate(opts: { onSaved?: OnSaved } = {}) {
+  function openCreate(opts: { onSaved?: OnSaved; initialToml?: string } = {}) {
     mode.value = "create";
     editId.value = null;
     onSavedCb.value = opts.onSaved ?? null;
+    initialToml.value = opts.initialToml ?? null;
     visible.value = true;
   }
 
@@ -26,6 +28,7 @@ export function useDatasetFormModal() {
     mode.value = "edit";
     editId.value = String(id);
     onSavedCb.value = opts.onSaved ?? null;
+    initialToml.value = null;
     visible.value = true;
   }
 
@@ -37,5 +40,5 @@ export function useDatasetFormModal() {
     onSavedCb.value?.(payload);
   }
 
-  return { visible, mode, editId, openCreate, openEdit, close, notifySaved };
+  return { visible, mode, editId, initialToml, openCreate, openEdit, close, notifySaved };
 }

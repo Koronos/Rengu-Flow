@@ -119,7 +119,7 @@ import { formatDatasetLibraryRef } from "../lib/datasetLibraryRef";
 const vLoading = ElLoadingDirective;
 const editor = useDatasetEditorStore();
 const modal = useDatasetFormModal();
-const { visible, mode, editId } = modal;
+const { visible, mode, editId, initialToml } = modal;
 const { datasetId, isNew, content, name, form, formVersion, loading, saving, syncing, error, message, parseError } =
   storeToRefs(editor);
 
@@ -140,8 +140,14 @@ watch(visible, async (open) => {
   if (!open) return;
   formTab.value = "global";
   try {
-    if (mode.value === "create") await editor.openNew();
-    else if (editId.value) await editor.openExisting(editId.value);
+    if (mode.value === "create") {
+      await editor.openNew();
+      if (initialToml.value) {
+        await editor.applyToml(initialToml.value);
+      }
+    } else if (editId.value) {
+      await editor.openExisting(editId.value);
+    }
   } catch {
     /* store surfaces the error */
   }

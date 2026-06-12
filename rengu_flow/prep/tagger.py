@@ -53,6 +53,9 @@ class TaggerModelSpec:
     # Ratings are near-mutually-exclusive, so they resolve by argmax (one rating tag per
     # image, kept only if it clears rating_threshold) instead of per-tag thresholding.
     include_rating: bool = True
+    # Character (4) and copyright/series (3) tags — taggers are weakest at character
+    # names, so users can drop the whole category and rely on their own trigger tags.
+    include_character: bool = True
     # Input convention — verified against each export's reference inference code:
     #   "wd":           pad-square white + resize, BGR uint8-range float, NHWC (WD v3 line)
     #   "norm05_rgb":   plain resize, RGB /255 normalized (mean=std=0.5), NCHW
@@ -403,7 +406,10 @@ class OnnxTagger:
         cats = self._categories[:n_tags]
         general_mask = cats == 0
         # Copyright (series) tags ride the character threshold: same name-like nature.
-        character_mask = (cats == 4) | (cats == 3)
+        if spec.include_character:
+            character_mask = (cats == 4) | (cats == 3)
+        else:
+            character_mask = np.zeros_like(general_mask)
         rating_idx = np.flatnonzero(cats == 9)
 
         results: list[dict[str, float]] = []

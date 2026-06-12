@@ -246,3 +246,53 @@ def test_size_query_and_quarantine_by_keys(ui_client, img_dir):
     commit = ui_client.post(f"/api/v1/prep/tags/sessions/{sid}/commit").json()
     assert commit["quarantined"] == ["tiny.jpg"]
     assert not (img_dir / "tiny.jpg").exists()
+
+
+def test_prep_jobs_hidden_from_train_history_and_active(ui_client, img_dir):
+    from rengu_flow_ui import db
+
+    job = ui_client.post(
+        "/api/v1/prep/jobs", json={"stage": "tag", "config": {"path": str(img_dir)}}
+    ).json()
+    db.update_job(job["id"], state="running", pid=999999)
+
+    runs = ui_client.get("/api/v1/train/runs").json()
+    assert all(str(r.get("id")) != str(job["id"]) for r in runs["items"])
+    assert runs["stats"]["running"] == 0  # the running prep job doesn't count
+
+    active = ui_client.get("/api/v1/train/active").json()
+    assert not active or active.get("run") in (None, {})
+    db.update_job(job["id"], state="stopped", pid=None)
+
+
+def test_requeue_terminal_prep_job(ui_client, img_dir, monkeypatch):
+    from pathlib import Path as P
+
+    from rengu_flow.utils.signal_files import SIGNAL_SAVE_QUIT
+    from rengu_flow_ui import db
+
+    job = ui_client.post(
+        "/api/v1/prep/jobs", json={"stage": "tag", "config": {"path": str(img_dir)}}
+    ).json()
+    # Pending -> cannot requeue.
+    assert ui_client.post(f"/api/v1/prep/jobs/{job['id']}/requeue").status_code == 400
+
+    db.update_job(job["id"], state="stopped", exit_code=1, finished_at="2026-01-01")
+    P(job["run_dir"], SIGNAL_SAVE_QUIT).touch()  # leftover stop signal
+
+    started = []
+    monkeypatch.setattr("rengu_flow_ui.jobs.start_job", lambda j, **k: started.append(j.id))
+    res = ui_client.post(
+        f"/api/v1/prep/jobs/{job['id']}/requeue", json={"start_now": True}
+    )
+    assert res.status_code == 200, res.text
+    requeued = res.json()
+    assert requeued["state"] in ("pending", "running")
+    assert requeued["exit_code"] is None and requeued["finished_at"] is None
+    assert not P(job["run_dir"], SIGNAL_SAVE_QUIT).exists()  # signal cleared
+    assert started == [job["id"]]
+
+    # Train jobs are rejected.
+    train = db.create_job(config_path="/tmp/x.toml", log_path="/tmp/x.log", state="stopped")
+    assert ui_client.post(f"/api/v1/prep/jobs/{train.id}/requeue").status_code == 400
+    db.delete_job(train.id)

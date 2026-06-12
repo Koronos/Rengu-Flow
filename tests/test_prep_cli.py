@@ -162,3 +162,33 @@ def test_tagger_should_stop_breaks_between_batches(img_dir):
     )
     assert len(seen_batches) == 1  # stopped before the second batch
     assert len(result) == 1
+
+
+def test_global_confidence_controls_fold_into_overrides(img_dir, tmp_path, monkeypatch):
+    captured = {}
+
+    def fake_run_ensemble(paths, specs, **kwargs):
+        captured["overrides"] = kwargs.get("overrides")
+        return {}
+
+    monkeypatch.setattr("rengu_flow.prep.tagger.run_ensemble", fake_run_ensemble)
+    config = parse_prep_config(
+        {
+            "path": str(img_dir),
+            "tag": {
+                "general_threshold": 0.5,
+                "character_threshold": 0.9,
+                "include_character_tags": False,
+                "include_rating": False,
+                "overrides": {"pixai-v0.9": {"general_threshold": 0.2}},
+            },
+        }
+    )
+    run_stage(config, "tag", tmp_path / "job")
+    ov = captured["overrides"]
+    # Per-model override wins over the global value.
+    assert ov["pixai-v0.9"]["general_threshold"] == 0.2
+    assert ov["pixai-v0.9"]["character_threshold"] == 0.9
+    assert ov["pixai-v0.9"]["include_character"] is False
+    assert ov["pixai-v0.9"]["include_rating"] is False
+    assert ov["cl-tagger-1.02"]["general_threshold"] == 0.5

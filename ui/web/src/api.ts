@@ -67,6 +67,7 @@ import type {
   PrepJobStartBody,
   PrepJobListResult,
   PrepJobReportResult,
+  PrepJobRequeueBody,
   PrepModelsResult,
   PrepPromptOptions,
   PrepModelDownloadResult,
@@ -595,5 +596,12 @@ export const api = {
     request<PrepModelDownloadResult>("/prep/models/download", {
       method: "POST",
       body: JSON.stringify({ stage, model_id: modelId }),
+    }),
+
+  /** Re-queue a stopped/failed/finished prep job. */
+  requeuePrepJob: (id: string, body: PrepJobRequeueBody) =>
+    request<JobRecord>(`/prep/jobs/${encodeURIComponent(id)}/requeue`, {
+      method: "POST",
+      body: JSON.stringify(body),
     }),
 };

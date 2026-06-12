@@ -26,6 +26,12 @@ class TagStageConfig:
     max_tags: int = 255
     batch_size: int = 16
     overwrite: bool = False  # False: skip images whose line 1 already has tags
+    # Global confidence floors applied to every selected model (None/0 = per-model
+    # defaults); per-model [tag.overrides.<id>] entries still win.
+    general_threshold: float | None = None
+    character_threshold: float | None = None
+    include_character_tags: bool = True  # character + series names (taggers' weak spot)
+    include_rating: bool = True  # one argmax rating tag (general/sensitive/...)
 
 
 @dataclass

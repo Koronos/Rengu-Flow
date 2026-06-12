@@ -19,7 +19,7 @@
           </el-menu-item>
           <el-menu-item index="/prep">
             <el-icon><MagicStick /></el-icon>
-            <span>Prep</span>
+            <span>Studio</span>
           </el-menu-item>
         </el-menu>
         <div v-if="versionLabel" class="app-brand-version">
@@ -96,7 +96,7 @@
           </el-menu-item>
           <el-menu-item index="/prep">
             <el-icon><MagicStick /></el-icon>
-            <span>Prep</span>
+            <span>Studio</span>
           </el-menu-item>
         </el-menu>
         <div class="app-menu-bottom">
@@ -186,9 +186,9 @@ const pageTitle = computed(() => {
     "run-continue": "Continue training",
     "datasets-list": "Datasets",
     "run-detail": "Run detail",
-    "prep-jobs": "Dataset prep",
-    "prep-new": "New prep job",
-    "prep-tags": "Dataset prep · Tag editor",
+    "prep-jobs": "Dataset Studio",
+    "prep-new": "Dataset Studio · New job",
+    "prep-tags": "Dataset Studio · Tag editor",
   };
   return names[routeName.value] || "Rengu Flow UI";
 });

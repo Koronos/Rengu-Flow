@@ -51,3 +51,43 @@ def enqueue_prep_job(stage: str, config_toml: str, *, start_now: bool = False) -
         jobs.start_job(job)
         job = db.get_job(job.id)
     return job
+
+
+def requeue_prep_job(job_id: str | int, *, start_now: bool = False) -> db.JobRecord:
+    """Put a terminal prep job back on the queue (same record, same config).
+
+    Re-running is also how a stopped job RESUMES: tag/caption skip images that
+    already have their line written (unless the job was configured to overwrite),
+    so only the remaining work runs.
+    """
+    job = db.get_job(job_id)
+    if job.kind != "prep":
+        raise ValueError("Only prep jobs can be re-queued here")
+    if job.state not in ("stopped", "failed", "finished"):
+        raise ValueError(f"Job is {job.state}; only stopped/failed/finished jobs can be re-queued")
+
+    # Clear any leftover stop signals so the rerun doesn't exit immediately.
+    if job.run_dir:
+        from rengu_flow.utils.signal_files import SIGNAL_QUIT, SIGNAL_SAVE_QUIT
+
+        for name in (SIGNAL_SAVE_QUIT, SIGNAL_QUIT):
+            sig = Path(job.run_dir) / name
+            try:
+                sig.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+    job = db.update_job(
+        job.id,
+        state="pending",
+        finished_at=None,
+        exit_code=None,
+        pid=None,
+        queue_position=job_queue.next_queue_position(),
+    )
+    if start_now and not job_queue.has_active_runner():
+        from rengu_flow_ui import jobs
+
+        jobs.start_job(job)
+        job = db.get_job(job.id)
+    return job

@@ -343,7 +343,13 @@ def list_training_runs(
     term = (q or "").strip().lower()
 
     # Phase 1: cheap stubs (no filesystem I/O) for filtering + sorting + pagination.
-    stubs: list[dict[str, Any]] = [_job_to_training_run_stub(job) for job in list_jobs_sorted()]
+    # Training jobs only — dataset-prep jobs share the table/queue but belong to the
+    # Studio section, not the Runs history.
+    stubs: list[dict[str, Any]] = [
+        _job_to_training_run_stub(job)
+        for job in list_jobs_sorted()
+        if job.kind == "train"
+    ]
 
     if state_filter:
         sf = state_filter.strip().lower()
@@ -382,7 +388,7 @@ def list_training_runs(
 
 def get_active_training_run() -> dict[str, Any] | None:
     for job in list_jobs_sorted():
-        if job.state not in ACTIVE_STATES:
+        if job.state not in ACTIVE_STATES or job.kind != "train":
             continue
         run = _job_to_training_run(job)
         run_dir = run.get("run_dir")

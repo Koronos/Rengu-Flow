@@ -70,6 +70,10 @@ class DownloadModelBody(BaseModel):
     model_id: str
 
 
+class RequeueBody(BaseModel):
+    start_now: bool = False
+
+
 def register_prep_routes(app: FastAPI) -> None:
     @app.post(f"{API_PREFIX}/prep/jobs")
     def create_prep_job(body: CreatePrepJobBody):
@@ -85,6 +89,18 @@ def register_prep_routes(app: FastAPI) -> None:
             job = enqueue_prep_job(
                 body.stage, toml.dumps(body.config), start_now=body.start_now
             )
+            return _job_dict(job)
+
+    @app.post(f"{API_PREFIX}/prep/jobs/{{job_id}}/requeue")
+    def requeue_prep_job_route(job_id: str, body: RequeueBody | None = None):
+        from rengu_flow_ui.app import _job_dict
+        from rengu_flow_ui.prep_jobs import requeue_prep_job
+
+        with _prep_http_errors():
+            try:
+                job = requeue_prep_job(job_id, start_now=bool(body and body.start_now))
+            except KeyError:
+                raise HTTPException(404, "Job not found")
             return _job_dict(job)
 
     @app.get(f"{API_PREFIX}/prep/jobs/{{job_id}}/report")

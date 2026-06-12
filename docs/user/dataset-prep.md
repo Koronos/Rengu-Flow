@@ -1,10 +1,14 @@
-# Dataset preparation (`rengu prep` / Prep section)
+# Dataset Studio (`rengu prep`)
 
-The prep module prepares image datasets **outside** of training: danbooru-style
+Dataset Studio prepares image datasets **outside** of training: danbooru-style
 tagging, natural-language captioning, watermark cleanup, and a safe bulk tag editor.
 It never runs as part of `rengu train` — each stage is its own process, launched from
-the CLI or from the **Prep** section of the web UI. Prep jobs share the single-runner
-queue with training, so a prep job never competes with a training run for the GPU.
+the CLI or from the **Studio** section of the web UI. Studio jobs share the
+single-runner queue with training, so a prep job never competes with a training run
+for the GPU. Stopped/failed jobs can be **re-queued** from the job list — a re-run
+resumes where it stopped, because already-processed images are skipped (unless
+Overwrite is on). Finished jobs offer **Generate dataset**, which opens the dataset
+editor pre-filled with the job's folder (the cleaned-copies folder for clean jobs).
 
 Bucketing and multi-resolution handling are **not** part of prep: the trainer's
 aspect-ratio buckets and per-resolution caching already cover that at cache time.
@@ -37,6 +41,13 @@ rengu prep tag --config prep.toml --model wd-eva02-large-v3 --overwrite
 ```
 
 Images that already have a tag line are skipped unless `--overwrite`.
+
+Output tags are **ordered by confidence** (most certain first). Confidence controls:
+`general_threshold` / `character_threshold` set a global floor for every selected
+model (higher = fewer but surer tags; per-model `[tag.overrides.<id>]` entries still
+win), `include_character_tags = false` drops character/series name tags entirely
+(taggers are weakest at character names — combine with `prepend_tags` for your own
+trigger), and `include_rating = false` drops the rating tag.
 
 ### Captioning — `rengu prep caption`
 
@@ -148,6 +159,10 @@ prepend_tags = ["my_trigger_word"]
 max_tags = 255
 batch_size = 16
 overwrite = false
+# general_threshold = 0.5        # global confidence floor (omit = model defaults)
+# character_threshold = 0.9
+include_character_tags = true    # false: drop character/series name tags
+include_rating = true            # false: drop the rating tag
 
 [tag.overrides.pixai-v0.9]      # per-model threshold overrides
 general_threshold = 0.35
@@ -168,7 +183,7 @@ in_place = false
 output_dir = ""                 # empty = <path>/cleaned
 ```
 
-## Tag editor (web UI → Prep → Tag editor)
+## Tag editor (web UI → Studio → Tag editor)
 
 Bulk tag operations over a whole folder with a **staged → diff → commit** safety
 model: nothing touches disk until you commit, and every commit first snapshots all

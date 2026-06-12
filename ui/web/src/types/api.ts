@@ -798,6 +798,14 @@ export interface PrepTagConfig {
   max_tags: number;
   batch_size: number;
   overwrite: boolean;
+  general_threshold: number | null;
+  character_threshold: number | null;
+  include_character_tags: boolean;
+  include_rating: boolean;
+}
+
+export interface PrepJobRequeueBody {
+  start_now: boolean;
 }
 
 export interface PrepCaptionConfig {

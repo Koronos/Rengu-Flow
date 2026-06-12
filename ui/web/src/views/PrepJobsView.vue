@@ -2,7 +2,7 @@
   <div class="prep-jobs-page page-shell">
     <div class="page-head">
       <div class="page-head-text">
-        <p class="page-subtitle">Launch and monitor dataset prep jobs</p>
+        <p class="page-subtitle">Prepare datasets: tagging, captioning, watermark cleanup, tag editing</p>
         <el-text v-if="stats.running || stats.pending" type="info" class="page-head-meta stats-line">
           <span v-if="stats.running" class="stat-running">{{ stats.running }} running</span>
           <span v-if="stats.pending">{{ stats.pending }} in queue</span>
@@ -30,14 +30,14 @@
     <el-card shadow="never" class="page-section">
       <template #header>
         <div class="card-header-row">
-          <span>Prep jobs</span>
+          <span>Dataset Studio</span>
           <el-button size="small" :icon="Refresh" circle :loading="loading" @click="refresh" />
         </div>
       </template>
 
       <el-empty
         v-if="!loading && !jobs.length"
-        description="No prep jobs yet. Use the buttons above to launch one."
+        description="No jobs yet. Use the buttons above to launch one."
         :image-size="56"
       />
 
@@ -51,7 +51,7 @@
           <div class="job-row__main" @click="toggleExpand(job)">
             <el-tag :type="stateTag(job.state)" size="small" effect="dark">{{ job.state }}</el-tag>
             <el-tag size="small" type="info" effect="plain">{{ jobStage(job) }}</el-tag>
-            <span class="job-row__label">{{ jobLabel(job) }}</span>
+            <span class="job-row__label" :title="jobLabelFull(job)">{{ jobLabel(job) }}</span>
             <span class="job-row__time">{{ formatTime(job.started_at || job.finished_at) }}</span>
           </div>
           <el-space class="job-row__actions" @click.stop>
@@ -65,7 +65,21 @@
                 @click.stop="stopJob(job)"
               />
             </el-tooltip>
-            <el-tooltip v-if="isTerminal(job)" content="Delete" :show-after="300">
+            <el-tooltip v-if="isTerminal(job)" content="Re-queue job" :show-after="300">
+              <el-button
+                size="small"
+                :icon="RefreshRight"
+                @click.stop="requeueJob(job)"
+              >Re-queue</el-button>
+            </el-tooltip>
+            <el-tooltip content="Create a training dataset from this folder" :show-after="300">
+              <el-button
+                size="small"
+                :icon="Files"
+                @click.stop="openDatasetFromJob(job)"
+              >Generate dataset</el-button>
+            </el-tooltip>
+            <el-tooltip v-if="isTerminal(job)" content="Delete job" :show-after="300">
               <el-button
                 size="small"
                 circle
@@ -127,18 +141,23 @@ import {
   ChatLineRound,
   Delete,
   Edit,
+  Files,
   MagicStick,
   Refresh,
+  RefreshRight,
   VideoPause,
 } from "@element-plus/icons-vue";
 import { api } from "../api";
 import PrepJobLivePanel from "../components/PrepJobLivePanel.vue";
 import { useBreakpoint } from "../composables/useBreakpoint";
+import { useDatasetFormModal } from "../composables/useDatasetFormModal";
 import { formatError } from "../lib/formatError";
+import { DEFAULT_DATASET_TOML } from "../stores/datasetEditor";
 import type { JobRecord, PrepStage } from "../types/api";
 
 const router = useRouter();
 const { isMobile } = useBreakpoint();
+const modal = useDatasetFormModal();
 
 const jobs = ref<JobRecord[]>([]);
 const stats = ref({ running: 0, pending: 0 });
@@ -158,11 +177,29 @@ function jobStage(job: JobRecord): PrepStage {
   return "tag";
 }
 
+/** Extract dataset path from TOML config content (^path = "..." multiline). */
+function datasetPathFromConfig(content: string | undefined): string {
+  if (!content) return "";
+  const m = content.match(/^path\s*=\s*"(.*)"/m);
+  return m ? m[1] : "";
+}
+
+function pathBasename(p: string): string {
+  if (!p) return "";
+  return p.replace(/\\/g, "/").replace(/\/+$/, "").split("/").pop() || p;
+}
+
 function jobLabel(job: JobRecord): string {
   const stage = jobStage(job);
-  const path = job.run_dir || job.config_path || "";
-  if (path) return `${stage} · ${path}`;
+  const datasetPath = datasetPathFromConfig(job.config_content);
+  const base = datasetPath ? pathBasename(datasetPath) : (job.run_dir ? pathBasename(job.run_dir) : "");
+  if (base) return `${base} · ${stage}`;
   return `${stage} job #${job.id}`;
+}
+
+function jobLabelFull(job: JobRecord): string {
+  const datasetPath = datasetPathFromConfig(job.config_content) || job.run_dir || job.config_path || "";
+  return datasetPath || `job #${job.id}`;
 }
 
 function isActive(job: JobRecord): boolean {
@@ -260,8 +297,8 @@ async function stopJob(job: JobRecord): Promise<void> {
 async function deleteJob(job: JobRecord): Promise<void> {
   try {
     await ElMessageBox.confirm(
-      "Delete this prep job from the list?",
-      "Delete prep job",
+      "Delete this job from the list?",
+      "Delete job",
       { type: "warning", confirmButtonText: "Delete", cancelButtonText: "Cancel" }
     );
   } catch {
@@ -275,6 +312,42 @@ async function deleteJob(job: JobRecord): Promise<void> {
   } catch (e) {
     ElMessage.error(formatError(e));
   }
+}
+
+async function requeueJob(job: JobRecord): Promise<void> {
+  try {
+    await api.requeuePrepJob(job.id, { start_now: false });
+    ElMessage.success(
+      "Job re-queued — it resumes where it stopped (already-processed images are skipped unless Overwrite was on)"
+    );
+    await refresh();
+  } catch (e) {
+    ElMessage.error(formatError(e));
+  }
+}
+
+function buildDatasetToml(folderPath: string): string {
+  return DEFAULT_DATASET_TOML + `\n[[directory]]\npath = "${folderPath}"\nnum_repeats = 1\n`;
+}
+
+async function openDatasetFromJob(job: JobRecord): Promise<void> {
+  // The report wins: a clean job's dataset is its OUTPUT folder (cleaned copies),
+  // which only the report knows. Fall back to the job config's source path.
+  let report = reports.value[job.id];
+  if (!report && isTerminal(job)) {
+    try {
+      const res = await api.prepJobReport(job.id);
+      reports.value = { ...reports.value, [job.id]: res.report };
+      report = res.report;
+    } catch {
+      // ignore — config fallback below
+    }
+  }
+  let folder = report ? String(report.output_dir ?? report.path ?? "") : "";
+  if (!folder) {
+    folder = datasetPathFromConfig(job.config_content);
+  }
+  modal.openCreate({ initialToml: buildDatasetToml(folder || "") });
 }
 
 function goNewJob(stage: PrepStage): void {
@@ -328,6 +401,10 @@ onUnmounted(() => {
   background: var(--el-bg-color);
   margin-bottom: 6px;
   overflow: hidden;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
 }
 .job-row--active {
   border-color: var(--el-color-success-light-5);
@@ -339,7 +416,8 @@ onUnmounted(() => {
   gap: 8px;
   padding: 8px 12px;
   cursor: pointer;
-  flex-wrap: wrap;
+  flex: 1;
+  min-width: 0;
 }
 .job-row__main:hover {
   background: var(--el-fill-color-light);
@@ -358,11 +436,11 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 .job-row__actions {
-  margin-left: auto;
   flex-shrink: 0;
   padding-right: 8px;
 }
 .job-row__expanded-panel {
+  flex-basis: 100%;
   padding: 12px 16px 16px;
   border-top: 1px solid var(--el-border-color-lighter);
   background: var(--el-fill-color-blank);

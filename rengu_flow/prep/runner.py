@@ -58,6 +58,22 @@ def _run_tag(config: PrepConfig, on_progress, should_stop) -> dict:
         raise ValueError(f"Unknown tagger model(s): {unknown}. Known: {list(KNOWN_TAGGERS)}")
     specs = [KNOWN_TAGGERS[m] for m in stage.models]
 
+    # Global confidence/category controls become per-model overrides; explicit
+    # [tag.overrides.<id>] entries from the config still win over the global values.
+    global_overrides: dict = {}
+    if stage.general_threshold:
+        global_overrides["general_threshold"] = float(stage.general_threshold)
+    if stage.character_threshold:
+        global_overrides["character_threshold"] = float(stage.character_threshold)
+    if not stage.include_character_tags:
+        global_overrides["include_character"] = False
+    if not stage.include_rating:
+        global_overrides["include_rating"] = False
+    overrides = {
+        spec.id: {**global_overrides, **(stage.overrides.get(spec.id) or {})}
+        for spec in specs
+    } if (global_overrides or stage.overrides) else None
+
     to_tag = [
         key
         for key in cs.keys()
@@ -69,7 +85,7 @@ def _run_tag(config: PrepConfig, on_progress, should_stop) -> dict:
     results = run_ensemble(
         paths,
         specs,
-        overrides=stage.overrides or None,
+        overrides=overrides,
         exclude_tags=stage.exclude_tags,
         prepend_tags=stage.prepend_tags,
         max_tags=stage.max_tags,
