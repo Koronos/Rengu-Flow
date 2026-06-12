@@ -25,7 +25,13 @@ def previews_configured(config: dict[str, Any]) -> bool:
     return preview_cfg.get("enabled", True)
 
 
-def reload_preview_config(config: dict[str, Any], config_path: str | Path) -> bool:
+def reload_preview_config(
+    config: dict[str, Any],
+    config_path: str | Path,
+    *,
+    sink: Any = None,
+    step: int | None = None,
+) -> bool:
     """Hot-reload the ``[preview]`` section from ``config_path`` into ``config`` in place.
 
     Used by the ``reload_config`` signal so a running job can change previews live (edit
@@ -56,6 +62,16 @@ def reload_preview_config(config: dict[str, Any], config_path: str | Path) -> bo
     (new_preview,) = _broadcast_object_list([new_preview])
     if new_preview is None:
         return False
+    # Record the live config mutation on the run timeline (rank 0): what [preview] keys changed.
+    if sink is not None and is_main_process():
+        from rengu_track import EVENT_CONFIG_RELOADED, config_diff
+
+        diff = config_diff({"preview": config.get("preview", {})}, {"preview": new_preview})
+        sink.event(
+            EVENT_CONFIG_RELOADED,
+            step=step,
+            payload={"section": "preview", "diff": diff},
+        )
     config["preview"] = new_preview
     return True
 

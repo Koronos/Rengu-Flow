@@ -844,7 +844,17 @@ def _run_training(args, config):
     # Centralized tracking client: one sink fans out to the configured backends (manifest /
     # tensorboard / optional wandb). Built only on rank 0; other ranks get a no-op NullSink so
     # the loop stays identical without per-call rank guards. Connect/disconnect = [tracking].enabled.
-    from rengu_track import NullSink, build_sink
+    from rengu_track import (
+        EVENT_FAILED,
+        EVENT_FINISHED,
+        EVENT_RESTARTED_FROM_SCRATCH,
+        EVENT_RESUMED,
+        EVENT_RUN_STARTED,
+        EVENT_STOP_REQUESTED,
+        NullSink,
+        build_sink,
+        read_events,
+    )
 
     sink = build_sink(config, run_dir) if is_main_process() else NullSink()
     tracking_cfg = config.get("tracking", {})
@@ -1010,6 +1020,34 @@ def _run_training(args, config):
             epoch = epoch_schedule.current(step)
             if is_main_process():
                 print(f"Resuming from checkpoint at epoch {epoch}, step {step}")
+
+    # Lifecycle event (rank 0): one per process start. `resumed` carries the restored step; a
+    # restart from step 1 in a folder that already saw a prior run is `restarted_from_scratch`
+    # (the timeline itself tells them apart); a genuinely fresh run is `run_started`.
+    if is_main_process():
+        prior = read_events(run_dir)
+        had_prior_run = any(
+            e.get("type") in (EVENT_RUN_STARTED, EVENT_RESUMED, EVENT_RESTARTED_FROM_SCRATCH)
+            for e in prior
+        )
+        if resume_from_checkpoint and step > 1:
+            sink.event(
+                EVENT_RESUMED,
+                step=step,
+                payload={"checkpoint_tag": resume_tag, "examples": examples},
+            )
+        elif had_prior_run:
+            sink.event(
+                EVENT_RESTARTED_FROM_SCRATCH,
+                step=step,
+                payload={"resume_requested": bool(resume_from_checkpoint)},
+            )
+        else:
+            sink.event(
+                EVENT_RUN_STARTED,
+                step=step,
+                payload={"resume_requested": bool(resume_from_checkpoint)},
+            )
 
     if eval_before_first_step and not resume_from_checkpoint and eval_dataloaders:
         empty_cuda_cache()
@@ -1302,7 +1340,7 @@ def _run_training(args, config):
             # signal (edit the TOML, then signal). Applies live to the checks below; only
             # [preview] is reloaded — model/optimizer/dataset can't change mid-run.
             if step_signals.should_reload_config:
-                reload_preview_config(config, args.config)
+                reload_preview_config(config, args.config, sink=sink, step=step)
 
             preview_x_axis = examples if x_axis_examples else step
             forced_preview = step_signals.should_preview
@@ -1337,6 +1375,15 @@ def _run_training(args, config):
                 break
             step += 1
             examples += global_batch_size
+    except SystemExit:
+        # Graceful stop: the saver received save_quit/export_quit, already checkpointed and
+        # printed the reason, then sys.exit(0). Record it on the timeline and flush tracking
+        # before the process exits (SystemExit is not caught by the `except Exception` below).
+        if sampler is not None:
+            sampler.stop()
+        sink.event(EVENT_STOP_REQUESTED, step=step)
+        sink.close(status="stopped")
+        raise
     except Exception as exc:
         # Last-ditch checkpoint on a fatal CUDA OOM (commonly during a preview/eval) so the run can
         # resume instead of being lost. Best-effort and rank-0 gated logging; the original error is
@@ -1367,6 +1414,7 @@ def _run_training(args, config):
                     )
         if sampler is not None:
             sampler.stop()
+        sink.event(EVENT_FAILED, step=step, payload={"error": str(exc)[:500]})
         sink.close(status="failed")
         raise
 
@@ -1398,6 +1446,7 @@ def _run_training(args, config):
 
     if sampler is not None:
         sampler.stop()
+    sink.event(EVENT_FINISHED, step=step)
     sink.close(status="finished")
 
 
