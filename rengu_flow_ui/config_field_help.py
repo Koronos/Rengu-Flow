@@ -198,7 +198,13 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "doc": "docs/user/training-sdxl-lora-lokr.md",
     },
     "adapter.factor": {
-        "summary": "LoKr factorization hint (-1 = automatic).",
+        "summary": "Shapes the LoKr Kronecker split per layer; -1 (default) picks the most balanced pair.",
+        "detail": (
+            "-1 splits each dimension into near-square factors (128 -> 8x16, 512 -> 16x32). "
+            "A positive value forces that factor when it divides the dimension (factor 4: 128 -> 4x32) — "
+            "smaller factors shrink the adapter at some capacity cost. Leave at -1 unless you are "
+            "matching a known recipe or chasing a smaller file."
+        ),
         "doc": "docs/user/training-sdxl-lora-lokr.md",
     },
     "adapter.decompose_both": {
@@ -347,7 +353,7 @@ FIELD_HELP: dict[str, dict[str, str]] = {
     },
     "preview.prompts": {
         "summary": "Preview configurations (one prompt or table per row in TOML).",
-        "detail": "Each entry becomes one item in preview.prompts — use Add preview to manage the list.",
+        "detail": "Each entry becomes one item in preview.prompts — use the Add sampling button to manage the list.",
         "doc": "docs/user/previews.md",
     },
     "preview.negative_prompt": {
@@ -492,8 +498,12 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "doc": "docs/user/optimizer-and-scheduler.md",
     },
     "image_micro_batch_size_per_gpu": {
-        "summary": "Micro-batch for image-only steps when mixed with video.",
-        "detail": "Integer or dict keyed by modality; falls back to micro_batch_size_per_gpu.",
+        "summary": "Micro-batch override for image (single-frame) buckets when the run mixes video and images.",
+        "detail": (
+            "Integer or per-resolution map like micro_batch_size_per_gpu (e.g. 512 -> 2, 1024 -> 1); "
+            "unset = image buckets use micro_batch_size_per_gpu. Set it when image steps leave the GPU "
+            "under-filled at the batch size the video buckets need."
+        ),
         "doc": "docs/user/training-loop-and-eval.md",
     },
     "steps_per_print": {
