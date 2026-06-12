@@ -902,6 +902,12 @@ export interface PrepPromptOptions {
   no_meta: string;
   character_trigger_template: string;
   outfit_texts: Record<string, string>;
+  sampling_defaults: Record<string, { temperature: number | null; top_p: number | null }>;
+}
+
+export interface PrepPromptPreviewResult {
+  prompt: string;
+  native_format: boolean;
 }
 
 export interface PrepModelDownloadResult {

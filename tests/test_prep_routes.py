@@ -311,3 +311,41 @@ def test_logs_endpoint_serves_terminal_job_log(ui_client, img_dir):
     res = ui_client.get(f"/api/v1/jobs/{job['id']}/logs", params={"offset": 0})
     assert res.status_code == 200
     assert "boom traceback here" in res.json()["chunk"]
+
+
+def test_caption_prompt_preview_is_model_native(ui_client):
+    # ToriiGate: native trained format, not the instruction composition.
+    res = ui_client.post(
+        "/api/v1/prep/caption-prompts/preview",
+        json={"caption": {"model": "toriigate-0.5", "character_name": "miku"}},
+    )
+    assert res.status_code == 200, res.text
+    data = res.json()
+    assert data["native_format"] is True
+    assert data["prompt"].startswith("# Captioning format:")
+    assert "make sure to use them: [miku]" in data["prompt"]
+    assert "# Booru tags for the image\n[1girl, long hair, smile]" in data["prompt"]
+
+    # JoyCaption: instruction composition.
+    res = ui_client.post(
+        "/api/v1/prep/caption-prompts/preview",
+        json={"caption": {"model": "joycaption-beta-one", "prompt_modifiers": ["medium_neutral"]}},
+    )
+    data = res.json()
+    assert data["native_format"] is False
+    assert "never mention or hint at the medium" in data["prompt"].lower()
+
+    # Custom prompt wins and is shown as-is (plus grounding for toriigate).
+    res = ui_client.post(
+        "/api/v1/prep/caption-prompts/preview",
+        json={"caption": {"model": "toriigate-0.5", "prompt": "My custom."}},
+    )
+    data = res.json()
+    assert data["prompt"].startswith("My custom.")
+    assert data["native_format"] is False
+
+
+def test_caption_prompt_options_expose_sampling_defaults(ui_client):
+    res = ui_client.get("/api/v1/prep/caption-prompts").json()
+    assert res["sampling_defaults"]["toriigate-0.5"] == {"temperature": 0.5, "top_p": 1.0}
+    assert res["sampling_defaults"]["joycaption-beta-one"] == {"temperature": 0.6, "top_p": 0.9}

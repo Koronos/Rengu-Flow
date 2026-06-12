@@ -209,6 +209,15 @@
               </el-radio-group>
             </el-form-item>
 
+            <el-alert
+              v-if="captionForm.model === 'toriigate-0.5'"
+              type="info"
+              :closable="false"
+              show-icon
+              class="mt-8 mb-12"
+              title="ToriiGate is trained on fixed prompt formats — the prompt base maps to its native format ('Concise' → short, others → long) and modifiers ride an extra-requirements section. Check the prompt preview below for the exact text."
+            />
+
             <el-form-item>
               <template #label>
                 Quantization <FieldHelpIcon :field="help('Precision for model weights. Lower precision uses less VRAM at a slight quality cost.')" />
@@ -272,6 +281,9 @@
                   placeholder="e.g. hatsune miku — inherent traits stay in the name"
                   class="w-full"
                 />
+                <el-text v-if="captionForm.character_name.trim()" size="small" type="info" class="hint-text">
+                  A deterministic post-pass removes any leaked inherent-trait clauses (disabled when a canonical look is set).
+                </el-text>
               </el-form-item>
               <el-form-item>
                 <template #label>
@@ -329,9 +341,18 @@
                 v-model="captionForm.prompt"
                 type="textarea"
                 :rows="3"
-                :placeholder="composedPreview || 'model default'"
+                :placeholder="previewText || 'model default'"
                 class="w-full"
               />
+              <el-collapse class="prompt-preview-collapse mt-8">
+                <el-collapse-item name="preview">
+                  <template #title>
+                    Prompt preview (exactly what the model receives)
+                    <el-tag v-if="previewNative" size="small" type="warning" class="ml-8">native ToriiGate format</el-tag>
+                  </template>
+                  <pre class="prompt-preview-pre">{{ previewText || '(waiting for model selection…)' }}</pre>
+                </el-collapse-item>
+              </el-collapse>
             </el-form-item>
 
             <div class="form-row-2">
@@ -349,6 +370,9 @@
                   Max image side (px, 0 = no downscale) <FieldHelpIcon :field="help('Downscale images longer than this before sending to the VLM. Default 1536. Bucketing handles the real resize at training time.')" />
                 </template>
                 <el-input-number v-model="captionForm.max_image_side" :min="0" :step="128" controls-position="right" class="w-full" />
+                <el-text v-if="captionForm.model === 'toriigate-0.5'" size="small" type="info" class="hint-text">
+                  ToriiGate additionally caps inputs at ~1.0 Mpx (its training resolution).
+                </el-text>
               </el-form-item>
               <el-form-item>
                 <template #label>
@@ -361,15 +385,35 @@
             <div class="form-row-2">
               <el-form-item>
                 <template #label>
-                  Temperature <FieldHelpIcon :field="help('Sampling temperature. Leave blank for the model\'s own recommended value (JoyCaption 0.6, ToriiGate 0.5). 0 = greedy/deterministic.')" />
+                  Temperature <FieldHelpIcon :field="help('Sampling temperature. Leave blank for the model\'s own recommended value. 0 = greedy/deterministic.')" />
                 </template>
-                <el-input-number v-model="captionForm.temperature" :min="0" :max="2" :step="0.05" :precision="2" :value-on-clear="null" placeholder="model default" controls-position="right" class="w-full" />
+                <el-input-number
+                  v-model="captionForm.temperature"
+                  :min="0"
+                  :max="2"
+                  :step="0.05"
+                  :precision="2"
+                  :value-on-clear="null"
+                  :placeholder="samplingDefaultsPlaceholder('temperature')"
+                  controls-position="right"
+                  class="w-full"
+                />
               </el-form-item>
               <el-form-item>
                 <template #label>
-                  Top-p <FieldHelpIcon :field="help('Nucleus sampling cutoff. Leave blank for the model default (JoyCaption 0.9, ToriiGate 1.0).')" />
+                  Top-p <FieldHelpIcon :field="help('Nucleus sampling cutoff. Leave blank for the model default.')" />
                 </template>
-                <el-input-number v-model="captionForm.top_p" :min="0" :max="1" :step="0.05" :precision="2" :value-on-clear="null" placeholder="model default" controls-position="right" class="w-full" />
+                <el-input-number
+                  v-model="captionForm.top_p"
+                  :min="0"
+                  :max="1"
+                  :step="0.05"
+                  :precision="2"
+                  :value-on-clear="null"
+                  :placeholder="samplingDefaultsPlaceholder('top_p')"
+                  controls-position="right"
+                  class="w-full"
+                />
               </el-form-item>
             </div>
 
@@ -478,7 +522,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { ArrowLeft } from "@element-plus/icons-vue";
@@ -561,25 +605,75 @@ const promptOptions = ref<PrepPromptOptions | null>(null);
 const activeBase = computed(() =>
   promptOptions.value?.bases.find((b) => b.id === captionForm.prompt_base)
 );
-const composedPreview = computed(() => {
-  const opts = promptOptions.value;
-  if (!opts || !activeBase.value) return "";
-  const parts = [activeBase.value.prompt];
-  for (const mod of opts.modifiers) {
-    if (captionForm.prompt_modifiers.includes(mod.id)) parts.push(mod.text);
-  }
-  const name = captionForm.character_name.trim();
-  if (name) {
-    parts.push(opts.character_trigger_template.replace("{name}", name));
-    const outfitText =
-      captionForm.outfit === "mixed"
-        ? "(per-image 50/50: describe or omit the outfit)"
-        : opts.outfit_texts[captionForm.outfit] ?? "";
-    if (outfitText) parts.push(outfitText);
-  }
-  parts.push(opts.no_meta);
-  return parts.join(" ");
-});
+
+function samplingDefaultsPlaceholder(field: "temperature" | "top_p"): string {
+  const defaults = promptOptions.value?.sampling_defaults?.[captionForm.model];
+  if (!defaults) return "model default";
+  const val = defaults[field];
+  if (val == null) return "model default";
+  return `model default (${val})`;
+}
+
+// --- server-side prompt preview ---
+const previewText = ref("");
+const previewNative = ref(false);
+let _previewGen = 0;
+let _previewTimer: ReturnType<typeof setTimeout> | null = null;
+
+function captionConfigSnapshot() {
+  return {
+    model: captionForm.model,
+    quantization: captionForm.quantization,
+    prompt: captionForm.prompt,
+    prompt_base: captionForm.prompt_base,
+    prompt_modifiers: [...captionForm.prompt_modifiers],
+    character_name: captionForm.character_name,
+    character_canon: captionForm.character_canon,
+    outfit: captionForm.outfit,
+    target_line: captionForm.target_line,
+    max_new_tokens: captionForm.max_new_tokens,
+    temperature: captionForm.temperature,
+    top_p: captionForm.top_p,
+    exact_generation: captionForm.exact_generation,
+    batch_size: captionForm.batch_size,
+    use_tags_as_grounding: captionForm.use_tags_as_grounding,
+    overwrite: captionForm.overwrite,
+    max_image_side: captionForm.max_image_side,
+    min_image_side: captionForm.min_image_side,
+  };
+}
+
+function schedulePreview() {
+  if (stage.value !== "caption") return;
+  if (_previewTimer !== null) clearTimeout(_previewTimer);
+  _previewTimer = setTimeout(async () => {
+    _previewTimer = null;
+    const gen = ++_previewGen;
+    try {
+      const result = await api.prepCaptionPromptPreview(captionConfigSnapshot());
+      if (gen !== _previewGen) return; // stale
+      previewText.value = result.prompt;
+      previewNative.value = result.native_format;
+    } catch {
+      // preview is best-effort; don't surface errors
+    }
+  }, 400);
+}
+
+watch(
+  () => [
+    captionForm.model,
+    captionForm.prompt,
+    captionForm.prompt_base,
+    captionForm.prompt_modifiers.slice(),
+    captionForm.character_name,
+    captionForm.character_canon,
+    captionForm.outfit,
+    captionForm.use_tags_as_grounding,
+  ],
+  () => schedulePreview(),
+  { deep: true }
+);
 
 async function loadModels(): Promise<void> {
   modelsLoading.value = true;
@@ -827,5 +921,21 @@ onMounted(() => {
 .preset-desc {
   margin-top: 4px;
   display: block;
+}
+.prompt-preview-collapse {
+  width: 100%;
+}
+.prompt-preview-pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+  line-height: 1.5;
+  background: var(--el-fill-color-light);
+  border-radius: 4px;
+  padding: 8px 10px;
+  margin: 0;
+  max-height: 260px;
+  overflow-y: auto;
+  color: var(--el-text-color-secondary);
 }
 </style>

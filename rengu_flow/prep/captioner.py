@@ -55,6 +55,34 @@ def list_caption_models() -> list[str]:
     return list(_BACKENDS.keys())
 
 
+def captioner_config_from_stage(stage) -> "CaptionerConfig":
+    """Map a CaptionStageConfig (TOML/UI shape) onto the engine config.
+
+    Shared by the runner and the UI's prompt-preview endpoint so both always
+    agree on what a job will actually send to the model.
+    """
+    return CaptionerConfig(
+        model=stage.model,
+        quantization=stage.quantization,
+        prompt=stage.prompt or None,
+        prompt_base=stage.prompt_base,
+        prompt_modifiers=tuple(stage.prompt_modifiers),
+        character_name=stage.character_name,
+        character_canon=stage.character_canon,
+        outfit=stage.outfit,
+        target_line=stage.target_line,
+        max_new_tokens=stage.max_new_tokens,
+        temperature=stage.temperature,
+        top_p=stage.top_p,
+        exact_generation=stage.exact_generation,
+        batch_size=stage.batch_size,
+        use_tags_as_grounding=stage.use_tags_as_grounding,
+        overwrite=stage.overwrite,
+        max_image_side=stage.max_image_side,
+        min_image_side=stage.min_image_side,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Composable prompts: one base + stackable modifiers + outfit policy
 # ---------------------------------------------------------------------------
@@ -381,6 +409,15 @@ def list_prompt_options() -> dict:
         "no_meta": _NO_META,
         "character_trigger_template": _character_trigger_text("{name}"),
         "outfit_texts": {"describe": _OUTFIT_DESCRIBE, "omit": _OUTFIT_OMIT},
+        # Per-model sampling used when temperature/top_p are left blank — surfaced
+        # so the UI can show the real numbers instead of a vague "model default".
+        "sampling_defaults": {
+            model_id: {
+                "temperature": entry.get("default_temperature"),
+                "top_p": entry.get("default_top_p"),
+            }
+            for model_id, entry in _BACKENDS.items()
+        },
     }
 
 

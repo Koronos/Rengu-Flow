@@ -74,6 +74,14 @@ class RequeueBody(BaseModel):
     start_now: bool = False
 
 
+class PromptPreviewBody(BaseModel):
+    caption: dict = Field(default_factory=dict)
+    # Example grounding tags so the preview shows the tags block in place.
+    sample_tags: list[str] = Field(
+        default_factory=lambda: ["1girl", "long hair", "smile"]
+    )
+
+
 def register_prep_routes(app: FastAPI) -> None:
     @app.post(f"{API_PREFIX}/prep/jobs")
     def create_prep_job(body: CreatePrepJobBody):
@@ -130,6 +138,30 @@ def register_prep_routes(app: FastAPI) -> None:
         from rengu_flow.prep.captioner import list_prompt_options
 
         return list_prompt_options()
+
+    @app.post(f"{API_PREFIX}/prep/caption-prompts/preview")
+    def prep_caption_prompt_preview(body: PromptPreviewBody):
+        """Render the EXACT prompt a caption job would send for these settings.
+
+        Single source of truth for the form's prompt preview: ToriiGate composes its
+        native trained format, JoyCaption the instruction prompt — the UI never has
+        to replicate that logic.
+        """
+        from rengu_flow.prep.captioner import build_prompt, captioner_config_from_stage
+        from rengu_flow.prep.config import CaptionStageConfig, _fill_dataclass
+
+        with _prep_http_errors():
+            stage = _fill_dataclass(CaptionStageConfig(), body.caption, context="caption")
+            config = captioner_config_from_stage(stage)
+            prompt = build_prompt(
+                config, tags=body.sample_tags or None, image_key="preview"
+            )
+            return {
+                "prompt": prompt,
+                "native_format": (
+                    config.model == "toriigate-0.5" and not (config.prompt or "").strip()
+                ),
+            }
 
     @app.post(f"{API_PREFIX}/prep/models/download")
     def prep_model_download(body: DownloadModelBody):

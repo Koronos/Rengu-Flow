@@ -71,8 +71,10 @@ import type {
   PrepJobRequeueBody,
   PrepModelsResult,
   PrepPromptOptions,
+  PrepPromptPreviewResult,
   PrepModelDownloadResult,
   PrepStage,
+  PrepCaptionConfig,
 } from "./types/api";
 import { withDefaultPagination } from "./types/api";
 
@@ -607,6 +609,13 @@ export const api = {
   /** Trigger download of a prep model. */
   prepCaptionPrompts: () =>
     request<PrepPromptOptions>("/prep/caption-prompts"),
+
+  /** Render the exact prompt text the job will send to the model (server-side composition). */
+  prepCaptionPromptPreview: (caption: Partial<PrepCaptionConfig>, sampleTags?: string[]) =>
+    request<PrepPromptPreviewResult>("/prep/caption-prompts/preview", {
+      method: "POST",
+      body: JSON.stringify({ caption, sample_tags: sampleTags }),
+    }),
 
   prepModelDownload: (stage: PrepStage, modelId: string) =>
     request<PrepModelDownloadResult>("/prep/models/download", {

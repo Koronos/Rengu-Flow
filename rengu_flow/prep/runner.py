@@ -111,29 +111,9 @@ def _run_tag(config: PrepConfig, on_progress, should_stop) -> dict:
 
 
 def _run_caption(config: PrepConfig, on_progress, should_stop) -> dict:
-    from rengu_flow.prep.captioner import CaptionerConfig, caption_folder
+    from rengu_flow.prep.captioner import caption_folder, captioner_config_from_stage
 
-    stage = config.caption
-    captioner_config = CaptionerConfig(
-        model=stage.model,
-        quantization=stage.quantization,
-        prompt=stage.prompt or None,
-        prompt_base=stage.prompt_base,
-        prompt_modifiers=tuple(stage.prompt_modifiers),
-        character_name=stage.character_name,
-        character_canon=stage.character_canon,
-        outfit=stage.outfit,
-        target_line=stage.target_line,
-        max_new_tokens=stage.max_new_tokens,
-        temperature=stage.temperature,
-        top_p=stage.top_p,
-        exact_generation=stage.exact_generation,
-        batch_size=stage.batch_size,
-        use_tags_as_grounding=stage.use_tags_as_grounding,
-        overwrite=stage.overwrite,
-        max_image_side=stage.max_image_side,
-        min_image_side=stage.min_image_side,
-    )
+    captioner_config = captioner_config_from_stage(config.caption)
     return caption_folder(
         config.path,
         captioner_config,
