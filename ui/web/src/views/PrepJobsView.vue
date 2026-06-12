@@ -126,6 +126,23 @@
             <el-text v-else-if="!isActive(job)" size="small" type="info" class="mt-8">
               No report available.
             </el-text>
+
+            <div v-if="!isActive(job)" class="job-log">
+              <el-divider content-position="left">
+                Log
+                <el-button
+                  size="small"
+                  text
+                  :icon="Refresh"
+                  :loading="logLoading[job.id]"
+                  @click="loadJobLog(job.id, true)"
+                />
+              </el-divider>
+              <pre v-if="logs[job.id]" class="job-log__pre">{{ logs[job.id] }}</pre>
+              <el-text v-else size="small" type="info">
+                {{ logLoading[job.id] ? "Loading log…" : "No log captured for this job." }}
+              </el-text>
+            </div>
           </div>
         </div>
       </div>
@@ -165,6 +182,22 @@ const loading = ref(false);
 const error = ref("");
 const expandedId = ref<string | null>(null);
 const reports = ref<Record<string, Record<string, unknown> | null>>({});
+const logs = ref<Record<string, string>>({});
+const logLoading = ref<Record<string, boolean>>({});
+
+async function loadJobLog(jobId: string | number, force = false): Promise<void> {
+  const id = String(jobId);
+  if (!force && logs.value[id]) return;
+  logLoading.value = { ...logLoading.value, [id]: true };
+  try {
+    const { chunk } = await api.jobLogs(id, 0);
+    logs.value = { ...logs.value, [id]: chunk };
+  } catch {
+    // leave empty -> "No log captured" text
+  } finally {
+    logLoading.value = { ...logLoading.value, [id]: false };
+  }
+}
 
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -261,7 +294,10 @@ function toggleExpand(job: JobRecord): void {
     return;
   }
   expandedId.value = job.id;
-  if (isTerminal(job)) void fetchReport(job);
+  if (isTerminal(job)) {
+    void fetchReport(job);
+    void loadJobLog(job.id);
+  }
 }
 
 async function refresh(): Promise<void> {
@@ -462,5 +498,16 @@ onUnmounted(() => {
 }
 .mt-12 {
   margin-bottom: 12px;
+}
+.job-log__pre {
+  max-height: 320px;
+  overflow: auto;
+  background: var(--el-fill-color-darker);
+  border-radius: var(--el-border-radius-base);
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 </style>

@@ -296,3 +296,18 @@ def test_requeue_terminal_prep_job(ui_client, img_dir, monkeypatch):
     train = db.create_job(config_path="/tmp/x.toml", log_path="/tmp/x.log", state="stopped")
     assert ui_client.post(f"/api/v1/prep/jobs/{train.id}/requeue").status_code == 400
     db.delete_job(train.id)
+
+
+def test_logs_endpoint_serves_terminal_job_log(ui_client, img_dir):
+    from rengu_flow_ui import db
+
+    job = ui_client.post(
+        "/api/v1/prep/jobs", json={"stage": "tag", "config": {"path": str(img_dir)}}
+    ).json()
+    Path(job["log_path"]).parent.mkdir(parents=True, exist_ok=True)
+    Path(job["log_path"]).write_text("boom traceback here\nexits with return code = 1\n")
+    db.update_job(job["id"], state="failed", exit_code=1)
+
+    res = ui_client.get(f"/api/v1/jobs/{job['id']}/logs", params={"offset": 0})
+    assert res.status_code == 200
+    assert "boom traceback here" in res.json()["chunk"]
