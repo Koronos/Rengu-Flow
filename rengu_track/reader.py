@@ -11,11 +11,18 @@ tensorboard event accumulator.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
 from rengu_track.events import read_events
 from rengu_track.run import MANIFEST_NAME, read_manifest
+
+# Preview frames are written by the trainer as ``step{NNNNNNNN}_{prompt}.ext`` (step first,
+# zero-padded, so a file browser sorts them chronologically). Parsing here — not in the UI —
+# keeps the step/prompt structure authoritative.
+_PREVIEW_EXTS = (".png", ".jpg", ".jpeg", ".webp")
+_PREVIEW_RE = re.compile(r"^step(\d+)_(.+)\.(?:png|jpe?g|webp)$", re.IGNORECASE)
 
 # run_dir key -> (latest event mtime, parsed scalars)
 _scalar_cache: dict[str, tuple[float, dict[str, list[dict[str, Any]]]]] = {}
@@ -215,3 +222,31 @@ def series_for(
         rid = manifest.run_id if manifest is not None else Path(run_dir).name
         out[rid] = read_scalars(run_dir, max_points=max_points).get(tag, [])
     return out
+
+
+def preview_images(run_dir: str | Path, *, limit: int = 2000) -> list[dict[str, Any]]:
+    """List a run's preview frames with parsed ``step`` and ``prompt`` so the UI can show the
+    evolution along steps (group by prompt, order by step) instead of a flat dump.
+
+    Returns ``[{name, run_dir, step, prompt}]`` — ``step`` is None for files that don't follow the
+    ``step{N}_{prompt}`` convention. Capped to the most recent ``limit`` frames (highest steps).
+    """
+    root = Path(run_dir).resolve()
+    preview = root / "preview"
+    if not preview.is_dir():
+        return []
+    items: list[dict[str, Any]] = []
+    for path in preview.iterdir():
+        if not path.is_file() or path.suffix.lower() not in _PREVIEW_EXTS:
+            continue
+        match = _PREVIEW_RE.match(path.name)
+        if match:
+            step: int | None = int(match.group(1))
+            prompt = match.group(2)
+        else:
+            step = None
+            prompt = path.stem
+        items.append({"name": path.name, "run_dir": str(root), "step": step, "prompt": prompt})
+    # Keep the newest frames when capping (unparsed sort last); the UI re-sorts ascending per prompt.
+    items.sort(key=lambda it: it["step"] if it["step"] is not None else -1, reverse=True)
+    return items[:limit]

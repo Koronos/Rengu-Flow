@@ -397,24 +397,15 @@ def get_active_training_run() -> dict[str, Any] | None:
     return None
 
 
-def list_run_preview_images(run_dir: str | Path, *, limit: int = 2000) -> list[dict[str, str]]:
-    root = Path(run_dir).resolve()
-    preview = root / "preview"
-    if not preview.is_dir():
-        return []
-    images = sorted(
-        (
-            p
-            for p in preview.iterdir()
-            if p.is_file() and p.suffix.lower() in (".png", ".jpg", ".jpeg", ".webp")
-        ),
-        key=lambda p: p.stat().st_mtime,
-        reverse=True,
-    )
-    out: list[dict[str, str]] = []
-    for path in images[:limit]:
-        out.append({"name": path.name, "run_dir": str(root)})
-    return out
+def list_run_preview_images(run_dir: str | Path, *, limit: int = 2000) -> list[dict[str, Any]]:
+    """Preview frames for a run — delegated to rengu_track so the panel reads through one source.
+
+    Each item carries the parsed ``step``/``prompt`` (see ``rengu_track.reader.preview_images``),
+    letting the UI lay frames out along steps instead of a flat grid.
+    """
+    from rengu_track import reader
+
+    return reader.preview_images(run_dir, limit=limit)
 
 
 def resolve_preview_image(run_dir: str, name: str) -> Path:

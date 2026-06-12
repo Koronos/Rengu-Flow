@@ -115,3 +115,29 @@ def test_series_for_single_tag(tmp_path, monkeypatch):
 
     out = reader.series_for([tmp_path / "run-a"], "train/loss")
     assert out["run-a"] == [{"step": 0, "value": 0.5}]
+
+
+def test_preview_images_parses_step_and_prompt(tmp_path):
+    run = tmp_path / "run"
+    (run / "preview").mkdir(parents=True)
+    for fn in (
+        "step00000100_portrait.png",
+        "step00000500_portrait.png",
+        "step00000500_landscape.png",
+        "ungrouped.png",
+    ):
+        (run / "preview" / fn).write_bytes(b"x")
+
+    items = reader.preview_images(run)
+    keyed = {(it["prompt"], it["step"]) for it in items}
+    assert ("portrait", 100) in keyed
+    assert ("portrait", 500) in keyed
+    assert ("landscape", 500) in keyed
+    assert ("ungrouped", None) in keyed  # non-conforming name → step None, prompt = stem
+    # Newest step first; unparsed sorts last (so the cap keeps recent frames).
+    assert items[0]["step"] == 500
+    assert items[-1]["step"] is None
+
+
+def test_preview_images_missing_dir(tmp_path):
+    assert reader.preview_images(tmp_path / "nope") == []

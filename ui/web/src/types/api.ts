@@ -604,6 +604,9 @@ export interface ScalarMetricPoint {
 export interface RunPreviewImageRef {
   run_dir: string;
   name: string;
+  /** Parsed by rengu_track from the filename; null when the name doesn't follow step{N}_{prompt}. */
+  step?: number | null;
+  prompt?: string;
 }
 
 export interface JobMetricsResult {
