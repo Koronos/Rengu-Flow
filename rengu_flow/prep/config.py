@@ -32,8 +32,11 @@ class TagStageConfig:
 class CaptionStageConfig:
     model: str = "joycaption-beta-one"
     quantization: str = "bf16"
-    prompt: str = ""  # custom prompt; overrides prompt_preset
-    prompt_preset: str = "training-balanced"
+    prompt: str = ""  # custom prompt; overrides the composed base+modifiers
+    prompt_base: str = "descriptive-long"
+    prompt_modifiers: list[str] = field(default_factory=lambda: ["demographics"])
+    character_name: str = ""  # trigger name (inherent traits absorbed into it)
+    outfit: str = "describe"  # describe | omit | mixed (only with character_name)
     max_new_tokens: int = 512
     temperature: float = 0.6
     top_p: float = 0.9

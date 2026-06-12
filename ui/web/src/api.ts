@@ -66,7 +66,7 @@ import type {
   PrepJobListResult,
   PrepJobReportResult,
   PrepModelsResult,
-  PrepPromptPresetsResult,
+  PrepPromptOptions,
   PrepModelDownloadResult,
   PrepStage,
 } from "./types/api";
@@ -570,7 +570,7 @@ export const api = {
 
   /** Trigger download of a prep model. */
   prepCaptionPrompts: () =>
-    request<PrepPromptPresetsResult>("/prep/caption-prompts"),
+    request<PrepPromptOptions>("/prep/caption-prompts"),
 
   prepModelDownload: (stage: PrepStage, modelId: string) =>
     request<PrepModelDownloadResult>("/prep/models/download", {

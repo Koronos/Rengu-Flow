@@ -111,9 +111,9 @@ def register_prep_routes(app: FastAPI) -> None:
 
     @app.get(f"{API_PREFIX}/prep/caption-prompts")
     def prep_caption_prompts():
-        from rengu_flow.prep.captioner import DEFAULT_PROMPT_PRESET, list_prompt_presets
+        from rengu_flow.prep.captioner import list_prompt_options
 
-        return {"presets": list_prompt_presets(), "default": DEFAULT_PROMPT_PRESET}
+        return list_prompt_options()
 
     @app.post(f"{API_PREFIX}/prep/models/download")
     def prep_model_download(body: DownloadModelBody):

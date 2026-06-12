@@ -758,7 +758,10 @@ export interface PrepCaptionConfig {
   model: string;
   quantization: "bf16" | "int8" | "nf4";
   prompt: string;
-  prompt_preset: string;
+  prompt_base: string;
+  prompt_modifiers: string[];
+  character_name: string;
+  outfit: "describe" | "omit" | "mixed";
   max_new_tokens: number;
   temperature: number;
   top_p: number;
@@ -815,16 +818,29 @@ export interface PrepModelsResult {
   models: PrepModelInfo[];
 }
 
-export interface PrepPromptPreset {
+export interface PrepPromptBase {
   id: string;
   label: string;
-  prompt: string;
   description: string;
+  prompt: string;
 }
 
-export interface PrepPromptPresetsResult {
-  presets: PrepPromptPreset[];
-  default: string;
+export interface PrepPromptModifier {
+  id: string;
+  label: string;
+  description: string;
+  text: string;
+}
+
+export interface PrepPromptOptions {
+  bases: PrepPromptBase[];
+  modifiers: PrepPromptModifier[];
+  outfit_modes: string[];
+  default_base: string;
+  default_modifiers: string[];
+  no_meta: string;
+  character_trigger_template: string;
+  outfit_texts: Record<string, string>;
 }
 
 export interface PrepModelDownloadResult {

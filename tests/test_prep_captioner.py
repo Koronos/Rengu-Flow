@@ -457,40 +457,167 @@ class TestImageSizeNormalization:
         assert (d / "tiny.txt").read_text() == "tag line\n"
 
 
-class TestPromptPresets:
-    def test_preset_resolution_order(self):
-        from rengu_flow.prep.captioner import CaptionerConfig, build_prompt
+class TestComposablePrompts:
+    def test_compose_default_matches_training_balanced_intent(self):
+        from rengu_flow.prep.captioner import compose_prompt
 
-        # Preset used when no custom prompt.
-        config = CaptionerConfig(prompt_preset="medium-neutral")
-        text = build_prompt(config)
-        assert "never mention or hint at the medium" in text.lower()
-        # Custom prompt wins over preset.
-        config = CaptionerConfig(prompt="My custom.", prompt_preset="medium-neutral")
-        assert build_prompt(config) == "My custom."
-        # Unknown preset falls back to the model default (no silent crash).
-        config = CaptionerConfig(prompt_preset="nope")
-        assert build_prompt(config)
+        text = compose_prompt()
+        assert "long, detailed caption" in text
+        assert "apparent age" in text and "ethnicity" in text  # demographics default
+        assert "avoid useless" in text  # no-meta always appended last
 
-    def test_presets_registry_quality_gates(self):
-        from rengu_flow.prep.captioner import PROMPT_PRESETS, list_prompt_presets
+    def test_medium_neutral_modifier_stacks(self):
+        from rengu_flow.prep.captioner import compose_prompt
 
-        presets = list_prompt_presets()
-        assert {p["id"] for p in presets} == set(PROMPT_PRESETS)
-        for p in presets:
-            assert p["label"] and p["prompt"] and p["description"]
-        # The cross-style preset forbids every medium word that anchors style.
-        neutral = PROMPT_PRESETS["medium-neutral"]["prompt"].lower()
+        text = compose_prompt(modifiers=["demographics", "medium_neutral"])
+        lower = text.lower()
+        assert "never mention or hint at the medium" in lower
         for word in ("photo", "anime", "illustration", "render", "realistic"):
-            assert word in neutral  # listed as forbidden words in the instruction
-        # Training presets ask for age/ethnicity detail.
-        for pid in ("training-balanced", "medium-neutral", "character-focus"):
-            text = PROMPT_PRESETS[pid]["prompt"].lower()
-            assert "age" in text and "ethnicity" in text
+            assert word in lower  # listed as forbidden words in the instruction
+        assert "apparent age" in text
 
-    def test_grounding_appends_after_preset(self):
+    def test_character_trigger_and_outfit_policies(self):
+        from rengu_flow.prep.captioner import compose_prompt
+
+        described = compose_prompt(
+            base="character-focus", character_name="hatsune miku", outfit="describe"
+        )
+        assert "refer to them as 'hatsune miku'" in described
+        assert "never describe hatsune miku's unchangeable physical traits" in described
+        # The trait prohibition is the LAST constraint (recency wins with VLMs).
+        assert described.rindex("unchangeable") > described.rindex("explicitly and in detail")
+        assert "explicitly and in detail" in described  # outfit describable
+
+        omitted = compose_prompt(
+            base="character-focus", character_name="hatsune miku", outfit="omit"
+        )
+        assert "leave it completely unmentioned" in omitted
+
+        # Without a character name the outfit policy adds nothing.
+        plain = compose_prompt(outfit="omit")
+        assert "unmentioned" not in plain and "refer to them" not in plain
+
+    def test_outfit_mixed_is_deterministic_and_split(self):
+        from rengu_flow.prep.captioner import compose_prompt
+
+        keys = [f"img_{i}.jpg" for i in range(40)]
+        sides = {
+            key: "explicitly and in detail"
+            in compose_prompt(character_name="x", outfit="mixed", image_key=key)
+            for key in keys
+        }
+        # Deterministic: same key, same side.
+        for key in keys[:5]:
+            assert (
+                "explicitly and in detail"
+                in compose_prompt(character_name="x", outfit="mixed", image_key=key)
+            ) == sides[key]
+        # Roughly split: both sides present in a 40-image set.
+        assert 5 < sum(sides.values()) < 35
+
+    def test_validation_and_options_listing(self):
+        from rengu_flow.prep.captioner import compose_prompt, list_prompt_options
+
+        with pytest.raises(ValueError):
+            compose_prompt(base="nope")
+        with pytest.raises(ValueError):
+            compose_prompt(modifiers=["nope"])
+        with pytest.raises(ValueError):
+            compose_prompt(outfit="naked")
+
+        options = list_prompt_options()
+        assert {b["id"] for b in options["bases"]} >= {
+            "descriptive-long", "concise", "character-focus", "style-focus"
+        }
+        assert {m["id"] for m in options["modifiers"]} >= {
+            "demographics",
+            "medium_neutral",
+            "plain_language",
+            "objective_only",
+            "composition_camera",
+            "explicit_language",
+        }
+        assert options["outfit_modes"] == ["describe", "omit", "mixed"]
+
+    def test_custom_prompt_overrides_composition(self):
         from rengu_flow.prep.captioner import CaptionerConfig, build_prompt
 
-        config = CaptionerConfig(model="toriigate-0.5", prompt_preset="training-balanced")
+        config = CaptionerConfig(prompt="My custom.", character_name="miku")
+        assert build_prompt(config) == "My custom."
+
+    def test_grounding_appends_after_composed_prompt(self):
+        from rengu_flow.prep.captioner import CaptionerConfig, build_prompt
+
+        config = CaptionerConfig(model="toriigate-0.5")
         text = build_prompt(config, tags=["1girl", "long hair"])
         assert "<tags>1girl, long hair</tags>" in text
+
+
+    def test_register_modifiers_compose(self):
+        from rengu_flow.prep.captioner import compose_prompt
+
+        text = compose_prompt(
+            modifiers=["plain_language", "objective_only", "composition_camera"]
+        )
+        assert "simple, plain English" in text
+        assert "never evaluate" in text
+        assert "shot type" in text
+
+
+class TestTraitScrubber:
+    def test_scrubs_trait_clauses_keeps_rest(self):
+        from rengu_flow.prep.captioner import scrub_trait_clauses
+
+        text = (
+            "Saki stands against a white background, smiling at the camera. "
+            "She has long brown hair and is wearing a pink headband. "
+            "Saki is holding a black smartphone in her right hand."
+        )
+        out = scrub_trait_clauses(text)
+        assert "brown hair" not in out
+        assert "pink headband" in out  # clothing clause in the same sentence survives
+        assert "white background" in out and "smartphone" in out
+
+    def test_scrubs_eye_color_age_and_build(self):
+        from rengu_flow.prep.captioner import scrub_trait_clauses
+
+        out = scrub_trait_clauses(
+            "Miku smiles warmly. She has blue eyes. She appears to be in her "
+            "early twenties. Her slender figure leans against the wall. "
+            "She wears a school uniform."
+        )
+        assert "blue eyes" not in out
+        assert "twenties" not in out
+        assert "slender" not in out
+        assert "school uniform" in out and "smiles warmly" in out
+
+    def test_clean_captions_pass_through(self):
+        from rengu_flow.prep.captioner import scrub_trait_clauses
+
+        text = "Saki is sitting on a bench in a park, holding an umbrella."
+        assert scrub_trait_clauses(text) == text
+
+    def test_caption_folder_scrubs_only_with_trigger(self, tmp_path):
+        from rengu_flow.prep.captioner import CaptionerConfig, caption_folder
+
+        img_dir = _make_img_dir(tmp_path, ["a.jpg"])
+        _write_txt(img_dir, "a", "tags")
+        leaky = FakeBackend(lambda _: "Saki smiles. She has long brown hair.")
+
+        report = caption_folder(
+            img_dir,
+            CaptionerConfig(character_name="Saki", overwrite=True),
+            backend_factory=_make_factory(leaky),
+        )
+        assert report["captioned"] == 1
+        line2 = (img_dir / "a.txt").read_text().splitlines()[1]
+        assert "brown hair" not in line2 and "Saki smiles." in line2
+
+        # Without a trigger the caption is untouched.
+        caption_folder(
+            img_dir,
+            CaptionerConfig(overwrite=True),
+            backend_factory=_make_factory(leaky),
+        )
+        line2 = (img_dir / "a.txt").read_text().splitlines()[1]
+        assert "brown hair" in line2

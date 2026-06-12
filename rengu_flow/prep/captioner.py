@@ -50,15 +50,23 @@ def list_caption_models() -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# Prompt presets
+# Composable prompts: one base + stackable modifiers + outfit policy
 # ---------------------------------------------------------------------------
 
 # Curated for diffusion-training captions. Phrasing leans on JoyCaption's trained
-# instruction set (no-meta-phrases, include-ages options from its model card);
-# ToriiGate is instruction-tuned and follows the same text. The training-critical
-# detail: a caption that names the medium ("anime", "a photo of") anchors the style
-# to the text instead of letting the model learn it — `medium-neutral` exists so
-# anime models can train on realistic data and vice versa.
+# instruction set (base request first, hard constraints appended after — exactly the
+# pattern its "extra options" were trained with); ToriiGate is instruction-tuned and
+# follows the same text.
+#
+# The two training-critical mechanisms encoded here:
+# - A caption that names the medium ("anime", "a photo of") anchors the style to the
+#   text instead of letting the model learn it -> `medium_neutral` modifier.
+# - Trigger absorption: whatever the caption DESCRIBES becomes separable from the
+#   character's trigger name at generation time; whatever it OMITS gets absorbed into
+#   the trigger. Hence `character_name` (never describe inherent traits — they live in
+#   the name) and the `outfit` policy: "omit" bakes the default outfit into the
+#   trigger, "describe" makes it swappable, "mixed" alternates per image so the model
+#   gets both signals (default outfit retrievable AND swappable).
 
 _NO_META = (
     "Your response will be used to train a text-to-image model, so avoid useless "
@@ -66,93 +74,289 @@ _NO_META = (
     "picture'; start directly with the content."
 )
 
-_PEOPLE_DETAIL = (
-    "When people or characters are depicted, include their apparent age (or age "
-    "range), apparent ethnicity or regional origin, and skin tone whenever these "
-    "are perceivable — best-effort estimates are fine for stylized characters."
-)
-
-PROMPT_PRESETS: dict[str, dict] = {
-    "training-balanced": {
-        "label": "Training — balanced (default)",
+PROMPT_BASES: dict[str, dict] = {
+    "descriptive-long": {
+        "label": "Descriptive — long (default)",
+        "description": "Long full-scene caption for t2i training.",
         "prompt": (
             "Write a long, detailed caption for this image as one paragraph. "
             "Describe the subjects and their appearance, clothing and accessories, "
             "expressions, poses and actions, then the setting and background "
-            "elements, lighting, color palette, and composition. "
-            f"{_PEOPLE_DETAIL} Use precise, objective language and describe only "
-            f"what is actually visible. {_NO_META}"
+            "elements, lighting, color palette, and composition. Use precise, "
+            "objective language and describe only what is actually visible."
         ),
-        "description": "Caption largo y completo para entrenamiento t2i.",
     },
-    "medium-neutral": {
-        "label": "Training — medium-neutral (cross-style)",
+    "concise": {
+        "label": "Concise (2-4 sentences)",
+        "description": "Short caption for tight token budgets.",
         "prompt": (
-            "Write a long, detailed caption for this image as one paragraph, "
-            "describing only the content: the subjects and their appearance, "
-            "clothing, expressions, poses and actions, the setting, lighting, "
-            "colors, and composition. "
-            f"{_PEOPLE_DETAIL} "
+            "Write a caption of two to four sentences covering only the most "
+            "important elements of this image: the main subject and their "
+            "appearance, the action or pose, the setting, and the overall "
+            "lighting and mood."
+        ),
+    },
+    "character-focus": {
+        "label": "Character focus",
+        "description": "Centered on the main character (character LoRAs).",
+        "prompt": (
+            "Write a detailed caption for this image centered on the main person "
+            "or character: their appearance, expression, pose, and action, with "
+            "the level of physical detail the constraints below allow. Finish "
+            "with one or two sentences about the setting, lighting, and "
+            "composition. Use precise, objective language."
+        ),
+    },
+    "style-focus": {
+        "label": "Style focus",
+        "description": "Prioritizes artistic style over content (style LoRAs).",
+        "prompt": (
+            "Describe the artistic style of this image in detail: the medium and "
+            "technique, line work, brushwork or rendering, shading and lighting "
+            "treatment, color palette, level of detail, composition, and overall "
+            "aesthetic. Then summarize the subject matter in one or two sentences."
+        ),
+    },
+}
+
+PROMPT_MODIFIERS: dict[str, dict] = {
+    "demographics": {
+        "label": "Age / ethnicity / skin tone",
+        "description": (
+            "Includes apparent age, ethnic/regional origin, and skin tone when "
+            "perceivable."
+        ),
+        "text": (
+            "When people or characters are depicted, include their apparent age "
+            "(or age range), apparent ethnicity or regional origin, and skin tone "
+            "whenever these are perceivable — best-effort estimates are fine for "
+            "stylized characters."
+        ),
+    },
+    "medium_neutral": {
+        "label": "Medium-neutral (cross-style)",
+        "description": (
+            "Never mentions the medium (photo/anime/render): for training anime "
+            "models on realistic data and vice versa. Conceptually incompatible "
+            "with the style-focus base."
+        ),
+        "text": (
             "STRICT RULE: never mention or hint at the medium, style, or rendering "
             "of the image. Do not use words like photo, photograph, photorealistic, "
             "realistic, anime, manga, cartoon, drawing, illustration, painting, "
             "artwork, render, 3D, CGI, screenshot, stylized, or animated, and do "
             "not compare the image to any medium. Describe the scene exactly as if "
-            "the question of how it was made did not exist. "
-            f"{_NO_META}"
+            "the question of how it was made did not exist."
         ),
+    },
+    # Register matching: the model learns to respond to the vocabulary its captions
+    # were written in. Ornate VLM prose trains a model that only "wakes up" for
+    # ornate prompts — plain captions make plain user prompts work.
+    "plain_language": {
+        "label": "Plain English (prompt-register match)",
         "description": (
-            "Sin mencionar el medio (foto/anime/render): para entrenar modelos de "
-            "anime con datos realistas y viceversa."
+            "Simple, direct vocabulary — the way real users (or non-native "
+            "speakers) actually prompt: the model responds to plain prompts "
+            "without LLM embellishment."
+        ),
+        "text": (
+            "Write in simple, plain English: use common everyday words and short, "
+            "direct sentences, like a non-native English speaker would write. Say "
+            "'long brown hair', 'wearing a red dress', 'standing in a kitchen' — "
+            "never literary or ornate vocabulary such as 'cascading tresses', "
+            "'adorned with', 'verdant', or 'a symphony of color'."
         ),
     },
-    "character-focus": {
-        "label": "Character LoRA — physical detail",
-        "prompt": (
-            "Write a detailed caption for this image centered on the main person "
-            "or character. Thoroughly describe their apparent age, apparent "
-            "ethnicity or regional origin, skin tone, face and notable facial "
-            "features, hair color, length and style, eye color and shape, body "
-            "type and build, and any distinguishing marks or accessories. Then "
-            "describe their clothing in detail, their expression, pose, and "
-            "action. Finish with one or two sentences about the setting, lighting, "
-            "and composition. Use precise, objective language. "
-            f"{_NO_META}"
+    "objective_only": {
+        "label": "Objective only (no quality words)",
+        "description": (
+            "No aesthetic judgments (beautiful/stunning/masterpiece): describes, "
+            "never evaluates — avoids depending on quality-word prompts at "
+            "inference."
         ),
-        "description": "Prioriza la descripción física del personaje (LoRA de personaje).",
+        "text": (
+            "Describe, never evaluate: do not use subjective quality or beauty "
+            "words such as beautiful, stunning, gorgeous, breathtaking, "
+            "masterpiece, high quality, or aesthetically pleasing, and do not "
+            "comment on how good the image looks."
+        ),
     },
-    "style-focus": {
-        "label": "Style LoRA — artistic style detail",
-        "prompt": (
-            "Describe the artistic style of this image in detail: the medium and "
-            "technique, line work, brushwork or rendering, shading and lighting "
-            "treatment, color palette, level of detail, composition, and overall "
-            "aesthetic. Then summarize the subject matter in one or two sentences. "
-            f"{_NO_META}"
+    "composition_camera": {
+        "label": "Shot type + camera angle",
+        "description": (
+            "Includes shot type (close-up/medium/wide), camera angle and vantage: "
+            "makes framing promptable at inference."
         ),
-        "description": "Prioriza el estilo artístico sobre el contenido (LoRA de estilo).",
+        "text": (
+            "State the shot type (extreme close-up, close-up, medium close-up, "
+            "medium shot, cowboy shot, medium wide shot, wide shot, or extreme "
+            "wide shot), the camera angle (eye-level, low-angle, high-angle, "
+            "overhead, dutch angle), and the point of view if notable."
+        ),
     },
-    "concise": {
-        "label": "Concise (2-4 sentences)",
-        "prompt": (
-            "Write a caption of two to four sentences covering only the most "
-            "important elements of this image: the main subject and their "
-            "appearance, the action or pose, the setting, and the overall "
-            "lighting and mood. "
-            f"{_PEOPLE_DETAIL} {_NO_META}"
+    "explicit_language": {
+        "label": "Explicit language (NSFW datasets)",
+        "description": (
+            "Direct anatomical language for sexual content, no euphemisms."
         ),
-        "description": "Caption corto para budgets de tokens reducidos.",
+        "text": (
+            "If there is any nudity or sexual content, describe it with direct, "
+            "explicit anatomical language; do not use euphemisms, do not soften "
+            "or skip it, and do not moralize about it."
+        ),
     },
 }
 
-DEFAULT_PROMPT_PRESET = "training-balanced"
+OUTFIT_MODES = ("describe", "omit", "mixed")
+
+_OUTFIT_DESCRIBE = (
+    "Describe their clothing, outfit, and accessories explicitly and in detail."
+)
+_OUTFIT_OMIT = (
+    "Do NOT describe their clothing, outfit, or accessories at all; treat the "
+    "outfit as part of who they are and leave it completely unmentioned."
+)
+
+DEFAULT_PROMPT_BASE = "descriptive-long"
+DEFAULT_PROMPT_MODIFIERS = ("demographics",)
 
 
-def list_prompt_presets() -> list[dict]:
-    return [
-        {"id": preset_id, **{k: v for k, v in preset.items()}}
-        for preset_id, preset in PROMPT_PRESETS.items()
-    ]
+def _character_trigger_text(name: str) -> str:
+    # Mirrors JoyCaption's trained options ("you must refer to them as {name}" and
+    # "do NOT include information about people that cannot be changed"): inherent
+    # traits stay inside the trigger name, everything else stays describable. The
+    # GPU smoke showed the polite phrasing leaks ("She has long brown hair...");
+    # the STRICT RULE pattern is the one the model actually obeys.
+    return (
+        f"There is a specific character in this image: you MUST refer to them as "
+        f"'{name}'. STRICT RULE: never describe {name}'s unchangeable physical "
+        f"traits — say nothing about their hair (color, length, or style), eye "
+        f"color, facial features, skin tone, body type, or age; the name "
+        f"'{name}' already implies all of them. Wherever you would normally "
+        f"describe {name}'s appearance, describe only their expression, pose, "
+        "and action instead."
+    )
+
+
+def _stable_choice(image_key: str) -> bool:
+    """Deterministic per-image coin flip (same key -> same side, ~50/50 overall)."""
+    import zlib
+
+    return zlib.crc32(image_key.encode("utf-8")) % 2 == 0
+
+
+# Inherent-trait clauses to scrub from captions when a character trigger is set.
+# The VLM is told not to describe these, but quantized models still leak the most
+# salient one ("She has long brown hair...") — a deterministic post-pass guarantees
+# the absorption property regardless of model obedience.
+_TRAIT_CLAUSE_RE = None
+
+
+def _trait_clause_re():
+    global _TRAIT_CLAUSE_RE
+    if _TRAIT_CLAUSE_RE is None:
+        import re
+
+        _TRAIT_CLAUSE_RE = re.compile(
+            r"\b("
+            r"hair|hairstyle|bangs|ponytails?|twintails?|braids?|"
+            r"(?:blue|brown|green|hazel|amber|gr[ae]y|red|golden|aqua|violet|"
+            r"purple|pink|crimson|heterochromi\w+) eyes|eye color|eyes? (?:are|is) \w+|"
+            r"skin tone|complexion|skinned|"
+            r"years old|age of|in (?:his|her|their) (?:early |late |mid-?)?"
+            r"(?:teens|twenties|thirties|forties|fifties)|"
+            r"slender|petite|curvy|stocky|muscular|lanky|plump|"
+            r"facial features|face shape"
+            r")\b",
+            re.IGNORECASE,
+        )
+    return _TRAIT_CLAUSE_RE
+
+
+def scrub_trait_clauses(caption: str) -> str:
+    """Remove clauses that describe inherent physical traits.
+
+    Splits sentences into clauses (on commas and ' and ') and drops the clauses that
+    match the trait patterns, keeping the rest of the sentence. Minor grammatical
+    roughness is acceptable in training captions; leaked traits are not — anything
+    the caption describes stops being absorbed into the trigger name.
+    """
+    import re
+
+    pattern = _trait_clause_re()
+    sentences = re.split(r"(?<=[.!?])\s+", caption.strip())
+    kept_sentences = []
+    for sentence in sentences:
+        if not pattern.search(sentence):
+            kept_sentences.append(sentence)
+            continue
+        body = sentence.rstrip(".!?")
+        terminal = sentence[len(body):] or "."
+        clauses = re.split(r",\s+|\s+and\s+", body)
+        kept = [c for c in clauses if c.strip() and not pattern.search(c)]
+        if not kept:
+            continue
+        rebuilt = ", ".join(kept) + terminal
+        rebuilt = rebuilt[0].upper() + rebuilt[1:]
+        kept_sentences.append(rebuilt)
+    return " ".join(kept_sentences)
+
+
+def compose_prompt(
+    base: str = DEFAULT_PROMPT_BASE,
+    modifiers: tuple[str, ...] | list[str] = DEFAULT_PROMPT_MODIFIERS,
+    *,
+    character_name: str = "",
+    outfit: str = "describe",
+    image_key: str | None = None,
+) -> str:
+    """Assemble a caption prompt: base request + stacked constraint sentences.
+
+    ``outfit`` only adds text when a ``character_name`` is set ("describe" is the
+    bases' natural behavior otherwise). "mixed" resolves per image via a stable
+    hash of ``image_key`` so the dataset carries both outfit signals.
+    """
+    if base not in PROMPT_BASES:
+        raise ValueError(f"Unknown prompt base {base!r}; known: {list(PROMPT_BASES)}")
+    if outfit not in OUTFIT_MODES:
+        raise ValueError(f"Unknown outfit mode {outfit!r}; known: {OUTFIT_MODES}")
+    unknown = [m for m in modifiers if m not in PROMPT_MODIFIERS]
+    if unknown:
+        raise ValueError(f"Unknown prompt modifier(s) {unknown}; known: {list(PROMPT_MODIFIERS)}")
+
+    parts = [PROMPT_BASES[base]["prompt"]]
+    # Registry order keeps composition deterministic regardless of input order.
+    parts.extend(
+        PROMPT_MODIFIERS[m]["text"] for m in PROMPT_MODIFIERS if m in set(modifiers)
+    )
+    if character_name.strip():
+        resolved = outfit
+        if outfit == "mixed":
+            resolved = "describe" if _stable_choice(image_key or "") else "omit"
+        parts.append(_OUTFIT_DESCRIBE if resolved == "describe" else _OUTFIT_OMIT)
+        # Last constraint wins with instruction-tuned VLMs: the trait prohibition
+        # goes after everything else so nothing re-licenses describing appearance.
+        parts.append(_character_trigger_text(character_name.strip()))
+    parts.append(_NO_META)
+    return " ".join(parts)
+
+
+def list_prompt_options() -> dict:
+    """Bases + modifiers + outfit modes for the UI/API."""
+    return {
+        "bases": [
+            {"id": base_id, **base} for base_id, base in PROMPT_BASES.items()
+        ],
+        "modifiers": [
+            {"id": mod_id, **mod} for mod_id, mod in PROMPT_MODIFIERS.items()
+        ],
+        "outfit_modes": list(OUTFIT_MODES),
+        "default_base": DEFAULT_PROMPT_BASE,
+        "default_modifiers": list(DEFAULT_PROMPT_MODIFIERS),
+        "no_meta": _NO_META,
+        "character_trigger_template": _character_trigger_text("{name}"),
+        "outfit_texts": {"describe": _OUTFIT_DESCRIBE, "omit": _OUTFIT_OMIT},
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -164,8 +368,11 @@ def list_prompt_presets() -> list[dict]:
 class CaptionerConfig:
     model: str = "joycaption-beta-one"
     quantization: str = "bf16"           # "bf16" | "int8" | "nf4"
-    prompt: Optional[str] = None         # custom prompt; overrides prompt_preset
-    prompt_preset: str = DEFAULT_PROMPT_PRESET
+    prompt: Optional[str] = None         # custom prompt; overrides the composed one
+    prompt_base: str = DEFAULT_PROMPT_BASE
+    prompt_modifiers: tuple[str, ...] = DEFAULT_PROMPT_MODIFIERS
+    character_name: str = ""             # trigger name; inherent traits stay in it
+    outfit: str = "describe"             # describe | omit | mixed (needs character_name)
     max_new_tokens: int = 512
     temperature: float = 0.6
     top_p: float = 0.9
@@ -185,19 +392,25 @@ class CaptionerConfig:
 # ---------------------------------------------------------------------------
 
 
-def build_prompt(config: CaptionerConfig, tags: Optional[list[str]] = None) -> str:
+def build_prompt(
+    config: CaptionerConfig,
+    tags: Optional[list[str]] = None,
+    image_key: Optional[str] = None,
+) -> str:
     """Return the user-facing prompt string for one image.
 
-    Resolution order: explicit custom ``prompt`` > ``prompt_preset`` > the model's
-    bare default. For ToriiGate, if use_tags_as_grounding is True and tags is
+    Resolution order: explicit custom ``prompt`` > composed (base + modifiers +
+    character/outfit policy). ``image_key`` feeds the per-image resolution of
+    ``outfit="mixed"``. For ToriiGate, if use_tags_as_grounding is True and tags is
     non-empty, the tags are appended as a <tags>…</tags> block (JoyCaption ignores
     grounding).
     """
-    preset = PROMPT_PRESETS.get(config.prompt_preset or "")
-    base_prompt = (
-        config.prompt
-        or (preset["prompt"] if preset else None)
-        or _BACKENDS.get(config.model, {}).get("default_prompt", "Describe this image.")
+    base_prompt = config.prompt or compose_prompt(
+        config.prompt_base,
+        config.prompt_modifiers,
+        character_name=config.character_name,
+        outfit=config.outfit,
+        image_key=image_key,
     )
 
     if config.model == "toriigate-0.5" and config.use_tags_as_grounding and tags:
@@ -527,7 +740,7 @@ def caption_folder(
                             Image.LANCZOS,
                         )
                     tags = cs.get_tags(key) if config.use_tags_as_grounding else None
-                    prompt = build_prompt(config, tags)
+                    prompt = build_prompt(config, tags, image_key=key)
                     batch_images.append(img)
                     batch_prompts.append(prompt)
                 except Exception as exc:
@@ -585,7 +798,12 @@ def caption_folder(
 
             # Write captions (collapse multi-line model output to one line as safety net)
             for key, caption in zip(valid_keys, captions):
-                cs.set_line(key, 1, _collapse_to_one_line(caption))
+                caption = _collapse_to_one_line(caption)
+                if config.character_name.strip() and not config.prompt:
+                    # Guarantee trigger absorption even when the (quantized) VLM
+                    # leaks an inherent trait despite the instruction.
+                    caption = scrub_trait_clauses(caption)
+                cs.set_line(key, 1, caption)
                 captioned += 1
 
             # Incremental save after every batch

@@ -153,26 +153,60 @@
               </el-radio-group>
             </el-form-item>
 
-            <el-form-item label="Prompt preset">
-              <el-select v-model="captionForm.prompt_preset" class="w-full">
+            <el-form-item label="Prompt base">
+              <el-select v-model="captionForm.prompt_base" class="w-full">
                 <el-option
-                  v-for="preset in promptPresets"
-                  :key="preset.id"
-                  :label="preset.label"
-                  :value="preset.id"
+                  v-for="base in promptOptions?.bases ?? []"
+                  :key="base.id"
+                  :label="base.label"
+                  :value="base.id"
                 />
               </el-select>
-              <el-text v-if="activePreset" size="small" type="info" class="preset-desc">
-                {{ activePreset.description }}
+              <el-text v-if="activeBase" size="small" type="info" class="preset-desc">
+                {{ activeBase.description }}
               </el-text>
             </el-form-item>
 
-            <el-form-item label="Custom prompt (overrides the preset)">
+            <el-form-item label="Prompt modifiers (stackable)">
+              <el-checkbox-group v-model="captionForm.prompt_modifiers">
+                <el-checkbox
+                  v-for="mod in promptOptions?.modifiers ?? []"
+                  :key="mod.id"
+                  :value="mod.id"
+                >
+                  {{ mod.label }}
+                  <el-text size="small" type="info"> — {{ mod.description }}</el-text>
+                </el-checkbox>
+              </el-checkbox-group>
+            </el-form-item>
+
+            <div class="form-row-2">
+              <el-form-item label="Character trigger name (optional)">
+                <el-input
+                  v-model="captionForm.character_name"
+                  placeholder="e.g. hatsune miku — inherent traits stay in the name"
+                  class="w-full"
+                />
+              </el-form-item>
+              <el-form-item label="Outfit policy (with trigger)">
+                <el-select
+                  v-model="captionForm.outfit"
+                  class="w-full"
+                  :disabled="!captionForm.character_name.trim()"
+                >
+                  <el-option label="Describe — outfit swappable at gen time" value="describe" />
+                  <el-option label="Omit — default outfit absorbed into trigger" value="omit" />
+                  <el-option label="Mixed 50/50 — both signals (recommended)" value="mixed" />
+                </el-select>
+              </el-form-item>
+            </div>
+
+            <el-form-item label="Custom prompt (overrides the composition)">
               <el-input
                 v-model="captionForm.prompt"
                 type="textarea"
                 :rows="3"
-                :placeholder="activePreset ? activePreset.prompt : 'model default'"
+                :placeholder="composedPreview || 'model default'"
                 class="w-full"
               />
             </el-form-item>
@@ -286,7 +320,7 @@ import { ArrowLeft } from "@element-plus/icons-vue";
 import { api } from "../api";
 import PathFieldControl from "../components/PathFieldControl.vue";
 import { formatError } from "../lib/formatError";
-import type { PrepModelInfo, PrepPromptPreset, PrepStage } from "../types/api";
+import type { PrepModelInfo, PrepPromptOptions, PrepStage } from "../types/api";
 
 const route = useRoute();
 const router = useRouter();
@@ -319,7 +353,10 @@ const captionForm = reactive({
   model: "",
   quantization: "bf16" as "bf16" | "int8" | "nf4",
   prompt: "",
-  prompt_preset: "training-balanced",
+  prompt_base: "descriptive-long",
+  prompt_modifiers: ["demographics"] as string[],
+  character_name: "",
+  outfit: "describe" as "describe" | "omit" | "mixed",
   max_new_tokens: 512,
   temperature: 0.6,
   top_p: 0.9,
@@ -343,10 +380,29 @@ const cleanForm = reactive({
 const tagModels = ref<PrepModelInfo[]>([]);
 const captionModels = ref<PrepModelInfo[]>([]);
 const modelsLoading = ref(false);
-const promptPresets = ref<PrepPromptPreset[]>([]);
-const activePreset = computed(() =>
-  promptPresets.value.find((p) => p.id === captionForm.prompt_preset)
+const promptOptions = ref<PrepPromptOptions | null>(null);
+const activeBase = computed(() =>
+  promptOptions.value?.bases.find((b) => b.id === captionForm.prompt_base)
 );
+const composedPreview = computed(() => {
+  const opts = promptOptions.value;
+  if (!opts || !activeBase.value) return "";
+  const parts = [activeBase.value.prompt];
+  for (const mod of opts.modifiers) {
+    if (captionForm.prompt_modifiers.includes(mod.id)) parts.push(mod.text);
+  }
+  const name = captionForm.character_name.trim();
+  if (name) {
+    parts.push(opts.character_trigger_template.replace("{name}", name));
+    const outfitText =
+      captionForm.outfit === "mixed"
+        ? "(per-image 50/50: describe or omit the outfit)"
+        : opts.outfit_texts[captionForm.outfit] ?? "";
+    if (outfitText) parts.push(outfitText);
+  }
+  parts.push(opts.no_meta);
+  return parts.join(" ");
+});
 
 async function loadModels(): Promise<void> {
   modelsLoading.value = true;
@@ -365,8 +421,9 @@ async function loadModels(): Promise<void> {
       const first = captionModels.value[0];
       if (first) captionForm.model = first.id;
       const prompts = await api.prepCaptionPrompts();
-      promptPresets.value = prompts.presets || [];
-      if (prompts.default) captionForm.prompt_preset = prompts.default;
+      promptOptions.value = prompts;
+      if (prompts.default_base) captionForm.prompt_base = prompts.default_base;
+      if (prompts.default_modifiers) captionForm.prompt_modifiers = [...prompts.default_modifiers];
     }
   } catch {
     // models endpoint may not be implemented yet — silently degrade
@@ -407,7 +464,10 @@ function buildConfig() {
         model: captionForm.model,
         quantization: captionForm.quantization,
         prompt: captionForm.prompt,
-        prompt_preset: captionForm.prompt_preset,
+        prompt_base: captionForm.prompt_base,
+        prompt_modifiers: [...captionForm.prompt_modifiers],
+        character_name: captionForm.character_name,
+        outfit: captionForm.outfit,
         max_new_tokens: captionForm.max_new_tokens,
         temperature: captionForm.temperature,
         top_p: captionForm.top_p,
@@ -465,7 +525,10 @@ async function submit(startNow: boolean): Promise<void> {
             model: captionForm.model,
             quantization: captionForm.quantization,
             prompt: captionForm.prompt,
-            prompt_preset: captionForm.prompt_preset,
+            prompt_base: captionForm.prompt_base,
+            prompt_modifiers: [...captionForm.prompt_modifiers],
+            character_name: captionForm.character_name,
+            outfit: captionForm.outfit,
             max_new_tokens: captionForm.max_new_tokens,
             temperature: captionForm.temperature,
             top_p: captionForm.top_p,
