@@ -104,6 +104,14 @@
               <el-switch v-model="tagForm.overwrite" />
               <el-text class="ml-8" size="small">Overwrite existing captions</el-text>
             </el-form-item>
+
+            <el-form-item>
+              <el-switch v-model="chainCaption" />
+              <el-text class="ml-8" size="small">
+                Also queue a caption job after tagging (uses the caption defaults;
+                ToriiGate/JoyCaption can be tuned by queueing it separately)
+              </el-text>
+            </el-form-item>
           </el-form>
         </template>
 
@@ -333,6 +341,7 @@ async function loadModels(): Promise<void> {
 
 // --- submit ---
 const submitting = ref(false);
+const chainCaption = ref(false);
 const formError = ref("");
 
 function buildConfig() {
@@ -405,7 +414,36 @@ async function submit(startNow: boolean): Promise<void> {
       config: buildConfig(),
       start_now: startNow,
     });
-    ElMessage.success(startNow ? "Prep job started" : "Prep job queued");
+    if (stage.value === "tag" && chainCaption.value) {
+      // FIFO queue: the caption job starts automatically when tagging finishes.
+      await api.createPrepJob({
+        stage: "caption",
+        config: {
+          path: form.path,
+          caption_format: form.caption_format,
+          caption_ext: form.caption_ext,
+          caption: {
+            model: captionForm.model,
+            quantization: captionForm.quantization,
+            prompt: captionForm.prompt,
+            max_new_tokens: captionForm.max_new_tokens,
+            temperature: captionForm.temperature,
+            top_p: captionForm.top_p,
+            batch_size: captionForm.batch_size,
+            use_tags_as_grounding: captionForm.use_tags_as_grounding,
+            overwrite: captionForm.overwrite,
+          },
+        },
+        start_now: false,
+      });
+    }
+    ElMessage.success(
+      stage.value === "tag" && chainCaption.value
+        ? "Tag job " + (startNow ? "started" : "queued") + " + caption job queued"
+        : startNow
+          ? "Prep job started"
+          : "Prep job queued"
+    );
     await router.push("/prep");
   } catch (e) {
     formError.value = formatError(e);

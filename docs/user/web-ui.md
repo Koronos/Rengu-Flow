@@ -68,6 +68,7 @@ In Docker, mount that folder (set `data_dir` in `rengu.local.toml` to the mount 
 | **Datasets** | `/datasets` | Dataset TOML library (folders, augmentation, compose) |
 | **Configs** | `/configs` | Training config TOML library (form + raw TOML) |
 | **Runs** | `/runs` | Launch jobs, queue, live monitor, output folders, run detail |
+| **Prep** | `/prep` | Dataset preparation: tagging/captioning/cleanup jobs and the tag editor (`/prep/tags`) — see [dataset prep](dataset-prep.md) |
 
 **Maintenance** (`/maintenance`) appears only when `RENGUFLOW_MAINTENANCE=1` — see [Maintenance](maintenance.md).
 
