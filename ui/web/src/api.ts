@@ -39,6 +39,7 @@ import type {
   RegistryProbeResult,
   RenderTomlResult,
   RunConfigResult,
+  RunPreviewsResult,
   RunSeriesResult,
   SystemStatsResponse,
   TensorboardStartBody,
@@ -277,19 +278,34 @@ export const api = {
 
   /** Cross-run comparison: manifest rows + hparam columns + scalar series + timelines.
    *  `runs` is a list of run folder names; empty selects all tracked runs. */
-  compareRuns: (runs: string[] = [], outputDir = "output") =>
+  compareRuns: (runs: string[] = [], outputDir = "output", signal?: AbortSignal) =>
     request<CompareRunsResult>(
       `/runs/compare?runs=${encodeURIComponent(runs.join(","))}&output_dir=${encodeURIComponent(
         outputDir
-      )}`
+      )}`,
+      { signal }
     ),
 
   /** On-demand series for ONE metric across runs (lazy-loaded per chart in the comparison view). */
-  runSeries: (runs: string[], tag: string, maxPoints = 500, outputDir = "output") =>
+  runSeries: (
+    runs: string[],
+    tag: string,
+    maxPoints = 500,
+    outputDir = "output",
+    signal?: AbortSignal
+  ) =>
     request<RunSeriesResult>(
       `/runs/series?runs=${encodeURIComponent(runs.join(","))}&tag=${encodeURIComponent(
         tag
-      )}&max_points=${maxPoints}&output_dir=${encodeURIComponent(outputDir)}`
+      )}&max_points=${maxPoints}&output_dir=${encodeURIComponent(outputDir)}`,
+      { signal }
+    ),
+
+  /** Lazy preview-frame list for one run (compare view media), abortable on unmount. */
+  runPreviews: (name: string, outputDir = "output", signal?: AbortSignal) =>
+    request<RunPreviewsResult>(
+      `/runs/${encodeURIComponent(name)}/previews?output_dir=${encodeURIComponent(outputDir)}`,
+      { signal }
     ),
 
   getSchema: () => request<ConfigSchemaResponse>("/schema"),

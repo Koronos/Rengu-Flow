@@ -1187,6 +1187,16 @@ def create_app() -> FastAPI:
             raise HTTPException(404, "Run not found")
         return _run_metrics_payload(run_dir)
 
+    @app.get(f"{API_PREFIX}/runs/{{run_name}}/previews")
+    def fs_run_previews(run_name: str, output_dir: str = "output") -> dict[str, Any]:
+        """Lazy preview-frame list for the comparison view (step/prompt parsed; no scalar parse)."""
+        from rengu_track import reader
+
+        run_dir = resolve_repo_path(output_dir) / run_name
+        if not run_dir.is_dir():
+            raise HTTPException(404, "Run not found")
+        return {"previews": reader.preview_images(run_dir)}
+
     @app.get(f"{API_PREFIX}/tensorboard/status")
     def tensorboard_status() -> dict[str, Any]:
         return tensorboard_server.tensorboard_status()
