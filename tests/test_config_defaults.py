@@ -63,20 +63,20 @@ def test_set_config_defaults_adapter_unknown_raises(minimal_config_copy):
     assert "other" in str(exc_info.value)
 
 
-def test_set_config_defaults_eval_and_monitoring(minimal_config_copy):
-    """§1.6: eval and monitoring defaults (eval_before_first_step, disable_block_swap_for_eval, monitoring)."""
+def test_set_config_defaults_eval_and_tracking(minimal_config_copy):
+    """§1.6: eval and tracking defaults (eval_before_first_step, disable_block_swap_for_eval, tracking)."""
     set_config_defaults(minimal_config_copy)
     assert minimal_config_copy.get("eval_before_first_step") is True
     assert minimal_config_copy.get("disable_block_swap_for_eval") is False
     assert minimal_config_copy.get("steps_per_print") == 1
     assert minimal_config_copy.get("x_axis_examples") is False
-    assert "monitoring" in minimal_config_copy
-    mon = minimal_config_copy["monitoring"]
-    assert mon.get("enable_wandb") is False
-    assert mon.get("enable_status_file") is False
-    assert "wandb_tracker_name" in mon
-    assert mon.get("wandb_tracker_name") == "rengu-flow"
-    assert "wandb_run_name" in mon
+    assert "tracking" in minimal_config_copy
+    tracking = minimal_config_copy["tracking"]
+    assert tracking.get("enabled") is True
+    assert tracking.get("backends") == ["manifest", "tensorboard"]
+    assert tracking["system_sampler"].get("enabled") is True
+    assert tracking["wandb"].get("project") == "rengu-flow"
+    assert "run_name" in tracking["wandb"]
 
 
 @pytest.mark.parametrize("legacy", ["selective", "unsloth"])

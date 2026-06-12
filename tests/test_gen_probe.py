@@ -7,6 +7,7 @@ No GPU / DeepSpeed: the model engine and dataloaders are mocked. We verify the g
 from unittest.mock import patch
 
 from rengu_flow.utils.gen_probe import generalization_probe
+from rengu_track import NullSink
 
 
 class _MockEngine:
@@ -64,7 +65,7 @@ def _run(val_loss: float, train_loss: float | None, probe_batches=None):
             _MockEngine(),
             val_loader,
             train_loader,
-            None,  # tb_writer
+            NullSink(),
             step=100,
             eval_gradient_accumulation_steps=1,
             disable_block_swap=False,
@@ -102,7 +103,7 @@ def test_no_val_loader_is_noop():
         _MockEngine(),
         None,
         None,
-        None,
+        NullSink(),
         step=1,
         eval_gradient_accumulation_steps=1,
         disable_block_swap=False,

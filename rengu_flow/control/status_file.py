@@ -31,7 +31,7 @@ def write_status_file(
     phase: str = "training",
     progress: dict[str, Any] | None = None,
 ) -> None:
-    """Atomically write run_dir/status.json (caller gates on monitoring.enable_status_file)."""
+    """Atomically write run_dir/status.json (caller decides when to write)."""
     root = Path(run_dir)
     payload: dict[str, Any] = {
         "step": step,

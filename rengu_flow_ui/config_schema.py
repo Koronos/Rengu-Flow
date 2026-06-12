@@ -762,13 +762,19 @@ def get_sections() -> list[dict[str, Any]]:
         },
         _preview_section(),
         {
-            "id": "monitoring",
-            "title": "Monitoring",
+            "id": "tracking",
+            "title": "Tracking",
             "fields": [
-                _field("monitoring.enable_wandb", "Enable WandB", "boolean", default=False),
-                _field("monitoring.wandb_tracker_name", "WandB project", "string", default="rengu-flow"),
-                _field("monitoring.wandb_run_name", "WandB run name", "string"),
-                _field("monitoring.wandb_api_key", "WandB API key", "string"),
+                _field("tracking.enabled", "Enable tracking", "boolean", default=True),
+                _field(
+                    "tracking.system_sampler.enabled",
+                    "Sample system metrics (GPU/CPU)",
+                    "boolean",
+                    default=True,
+                ),
+                _field("tracking.wandb.project", "WandB project", "string", default="rengu-flow"),
+                _field("tracking.wandb.run_name", "WandB run name", "string"),
+                _field("tracking.wandb.api_key", "WandB API key", "string"),
             ],
         },
     ]

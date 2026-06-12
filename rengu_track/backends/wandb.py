@@ -39,6 +39,12 @@ class WandbBackend(Backend):
         except Exception:
             pass
 
+    def image(self, tag: str, image: Any, step: int) -> None:
+        try:
+            self._wandb.log({tag: self._wandb.Image(image), "step": step})
+        except Exception:
+            pass
+
     def summary(self, metrics: dict[str, Any]) -> None:
         self._wandb.log(metrics)
 

@@ -27,7 +27,6 @@ def test_evaluate_empty_dataloaders_returns_immediately():
         1,
         False,
         optimizer=None,
-        wandb_enable=False,
     )
     # No exception; we did not touch model/engine (no prepare_block_swap_* etc.)
 

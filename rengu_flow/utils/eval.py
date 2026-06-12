@@ -1,4 +1,4 @@
-"""Evaluation over timestep quantiles; metrics to TensorBoard and optional WandB."""
+"""Evaluation over timestep quantiles; metrics routed through the tracking sink."""
 
 from __future__ import annotations
 
@@ -61,10 +61,9 @@ def _evaluate(
     eval_dataloaders: dict[str, Any],
     step: int,
     eval_gradient_accumulation_steps: int,
-    tb_writer: Any,
-    wandb_enable: bool = False,
+    sink: Any,
 ) -> None:
-    """Run evaluate_single per dataset and per quantile; log to TensorBoard and optionally WandB."""
+    """Run evaluate_single per dataset and per quantile; log via the tracking sink."""
     try:
         from tqdm import tqdm
     except ImportError:
@@ -96,45 +95,27 @@ def _evaluate(
             )
             losses.append(loss)
             if is_main_process():
-                if tb_writer is not None:
-                    tb_writer.add_scalar(f"{name}/loss_quantile_{quantile:.2f}", loss, step)
-                if wandb_enable:
-                    _wandb_log({f"{name}/loss_quantile_{quantile:.2f}": loss, "step": step})
+                sink.scalar(f"{name}/loss_quantile_{quantile:.2f}", loss, step)
         avg_loss = sum(losses) / len(losses)
         if is_main_process():
-            if tb_writer is not None:
-                tb_writer.add_scalar(f"{name}/loss", avg_loss, step)
-            if wandb_enable:
-                _wandb_log({f"{name}/loss": avg_loss, "step": step})
+            sink.scalar(f"{name}/loss", avg_loss, step)
 
     duration = time.time() - start
     if is_main_process():
-        if tb_writer is not None:
-            tb_writer.add_scalar("eval/eval_time_sec", duration, step)
-        if wandb_enable:
-            _wandb_log({"eval/eval_time_sec": duration, "step": step})
+        sink.scalar("eval/eval_time_sec", duration, step)
         if pbar is not None:
             pbar.close()
-
-
-def _wandb_log(metrics: dict[str, Any]) -> None:
-    try:
-        import wandb
-        wandb.log(metrics)
-    except ImportError:
-        pass
 
 
 def evaluate(
     model,
     model_engine,
     eval_dataloaders: dict[str, Any],
-    tb_writer: Any,
+    sink: Any,
     step: int,
     eval_gradient_accumulation_steps: int,
     disable_block_swap: bool,
     optimizer: Any = None,
-    wandb_enable: bool = False,
 ) -> None:
     """Run evaluation with block-swap inference setup, isolated RNG, then restore training state."""
     if len(eval_dataloaders) == 0:
@@ -155,8 +136,7 @@ def evaluate(
             eval_dataloaders,
             step,
             eval_gradient_accumulation_steps,
-            tb_writer,
-            wandb_enable=wandb_enable,
+            sink,
         )
     empty_cuda_cache()
     model.prepare_block_swap_training()

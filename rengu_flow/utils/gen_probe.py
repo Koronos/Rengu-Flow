@@ -31,15 +31,6 @@ from rengu_flow.utils.eval import TIMESTEP_QUANTILES_FOR_EVAL, evaluate_single
 from rengu_flow.utils.isolate_rng import isolate_rng
 
 
-def _wandb_log(metrics: dict[str, Any]) -> None:
-    try:
-        import wandb
-
-        wandb.log(metrics)
-    except ImportError:
-        pass
-
-
 def _deterministic_loss(
     model_engine,
     dataloader,
@@ -75,17 +66,16 @@ def generalization_probe(
     model_engine,
     val_dataloader: Any,
     train_probe_dataloader: Any,
-    tb_writer: Any,
+    sink: Any,
     step: int,
     eval_gradient_accumulation_steps: int,
     disable_block_swap: bool,
     *,
     probe_batches: int | None = None,
     optimizer: Any = None,
-    wandb_enable: bool = False,
 ) -> dict[str, float] | None:
     """Run the deterministic generalization probe and log ``val/loss``, ``train/probe`` and
-    ``val/gap`` (= val − train_probe) to TensorBoard / WandB.
+    ``val/gap`` (= val − train_probe) via the tracking sink.
 
     Forward-only, ``torch.no_grad`` + isolated RNG, model put in inference (block-swap) state
     and restored to training after. No-ops gracefully if no val dataloader is available.
@@ -129,18 +119,13 @@ def generalization_probe(
     duration = time.time() - start
     if is_main_process():
         metrics: dict[str, float] = {"val_loss": val_loss}
-        if tb_writer is not None:
-            tb_writer.add_scalar("val/loss", val_loss, step)
-        _wandb_log({"val/loss": val_loss, "step": step})
+        sink.scalar("val/loss", val_loss, step)
         if train_probe is not None:
             gap = val_loss - train_probe
             metrics["train_probe"] = train_probe
             metrics["val_gap"] = gap
-            if tb_writer is not None:
-                tb_writer.add_scalar("train/probe", train_probe, step)
-                tb_writer.add_scalar("val/gap", gap, step)
-            _wandb_log({"train/probe": train_probe, "val/gap": gap, "step": step})
-        if tb_writer is not None:
-            tb_writer.add_scalar("val/probe_time_sec", duration, step)
+            sink.scalar("train/probe", train_probe, step)
+            sink.scalar("val/gap", gap, step)
+        sink.scalar("val/probe_time_sec", duration, step)
         result = metrics
     return result

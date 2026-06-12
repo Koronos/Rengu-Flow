@@ -151,9 +151,9 @@ def test_schema_sections_nonempty() -> None:
     adapter_type = next(f for f in adapter_sec["fields"] if f["path"] == "adapter.type")
     assert adapter_type.get("options_from_model") is True
     eval_sec = next(s for s in schema["sections"] if s["id"] == "eval")
-    mon_sec = next(s for s in schema["sections"] if s["id"] == "monitoring")
+    tracking_sec = next(s for s in schema["sections"] if s["id"] == "tracking")
     assert "flat_optional" not in eval_sec
-    assert "flat_optional" not in mon_sec
+    assert "flat_optional" not in tracking_sec
 
 
 def test_all_config_fields_have_help() -> None:
