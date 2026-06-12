@@ -16,6 +16,14 @@ from rengu_track.reader import read_scalars as _read_scalars
 __all__ = ["read_scalars", "invalidate_scalars_cache"]
 
 
-def read_scalars(run_dir: str | Path, tag_prefix: str = "train/") -> dict[str, list[dict[str, Any]]]:
-    """Return {tag: [{step, value, wall_time}, ...]} (defaults to train/* for the metrics view)."""
-    return _read_scalars(run_dir, tag_prefix)
+def read_scalars(
+    run_dir: str | Path,
+    tag_prefix: str = "train/",
+    *,
+    max_points: int | None = None,
+) -> dict[str, list[dict[str, Any]]]:
+    """Return {tag: [{step, value, wall_time}, ...]} (defaults to train/* for the metrics view).
+
+    ``max_points`` downsamples each series (the detail view caps to keep long runs snappy).
+    """
+    return _read_scalars(run_dir, tag_prefix, max_points=max_points)

@@ -39,6 +39,7 @@ import type {
   RegistryProbeResult,
   RenderTomlResult,
   RunConfigResult,
+  RunSeriesResult,
   SystemStatsResponse,
   TensorboardStartBody,
   TensorboardStartResult,
@@ -265,6 +266,14 @@ export const api = {
       `/runs/compare?runs=${encodeURIComponent(runs.join(","))}&output_dir=${encodeURIComponent(
         outputDir
       )}`
+    ),
+
+  /** On-demand series for ONE metric across runs (lazy-loaded per chart in the comparison view). */
+  runSeries: (runs: string[], tag: string, maxPoints = 500, outputDir = "output") =>
+    request<RunSeriesResult>(
+      `/runs/series?runs=${encodeURIComponent(runs.join(","))}&tag=${encodeURIComponent(
+        tag
+      )}&max_points=${maxPoints}&output_dir=${encodeURIComponent(outputDir)}`
     ),
 
   getSchema: () => request<ConfigSchemaResponse>("/schema"),

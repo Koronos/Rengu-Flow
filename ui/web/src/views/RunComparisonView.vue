@@ -66,14 +66,18 @@
         </div>
       </el-card>
 
-      <el-card v-for="tag in seriesTags" :key="tag" class="cmp-card">
-        <template #header><span>{{ tag }}</span></template>
-        <div class="curve-row">
-          <div v-for="r in runs" :key="r.run_id" class="curve-cell">
-            <div class="curve-name">{{ r.name }}</div>
-            <ScalarLineChart :scalars="series[r.run_id] || {}" :tag="tag" :width="280" :height="90" />
-          </div>
-        </div>
+      <el-card v-if="metrics.length" class="cmp-card">
+        <template #header>
+          <span>Metrics ({{ metrics.length }}) — each loads as it scrolls into view</span>
+        </template>
+        <LazyMetricChart
+          v-for="tag in metrics"
+          :key="tag"
+          :tag="tag"
+          :runs="runRefs"
+          :output-dir="outputDir"
+          class="metric-block"
+        />
       </el-card>
 
       <el-card class="cmp-card">
@@ -106,12 +110,11 @@
 import { computed, onMounted, ref } from "vue";
 import { useRoute } from "vue-router";
 import { api } from "../api";
-import ScalarLineChart from "../components/ScalarLineChart.vue";
+import LazyMetricChart from "../components/LazyMetricChart.vue";
 import type {
   CompareColumn,
   CompareRunRow,
   CompareRunsResult,
-  ScalarMetricPoint,
   TimelineEvent,
 } from "../types/api";
 
@@ -124,7 +127,7 @@ const onlyDiffs = ref(true);
 
 const runs = ref<CompareRunRow[]>([]);
 const columns = ref<CompareColumn[]>([]);
-const series = ref<Record<string, Record<string, ScalarMetricPoint[]>>>({});
+const metrics = ref<string[]>([]);
 const timelines = ref<Record<string, TimelineEvent[]>>({});
 
 function selectedNames(): string[] {
@@ -133,14 +136,22 @@ function selectedNames(): string[] {
   return [];
 }
 
+const outputDir = computed(() => {
+  const q = route.query.output_dir;
+  return typeof q === "string" && q ? q : "output";
+});
+
+// Stable id/name pairs handed to each lazy chart so it knows which runs to fetch.
+const runRefs = computed(() => runs.value.map((r) => ({ id: r.run_id, name: r.name })));
+
 async function load() {
   loading.value = true;
   error.value = "";
   try {
-    const res: CompareRunsResult = await api.compareRuns(selectedNames());
+    const res: CompareRunsResult = await api.compareRuns(selectedNames(), outputDir.value);
     runs.value = res.runs || [];
     columns.value = res.columns || [];
-    series.value = res.series || {};
+    metrics.value = res.metrics || [];
     timelines.value = res.timelines || {};
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e);
@@ -162,14 +173,6 @@ const summaryKeys = computed(() => {
     for (const k of Object.keys(r.system_summary || {})) keys.add(`system/${k}`);
   }
   return Array.from(keys).sort();
-});
-
-const seriesTags = computed(() => {
-  const tags = new Set<string>();
-  for (const byTag of Object.values(series.value)) {
-    for (const tag of Object.keys(byTag)) tags.add(tag);
-  }
-  return Array.from(tags).sort();
 });
 
 function summaryValue(r: CompareRunRow, key: string): number | string | null {
@@ -278,6 +281,13 @@ function hardwareLabel(r: CompareRunRow): string {
 }
 .muted {
   color: var(--el-text-color-secondary);
+}
+.metric-block {
+  padding: 12px 0;
+  border-top: 1px solid var(--el-border-color-lighter);
+}
+.metric-block:first-child {
+  border-top: none;
 }
 .curve-row {
   display: flex;

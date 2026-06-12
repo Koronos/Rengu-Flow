@@ -20,6 +20,22 @@ from rengu_track.run import MANIFEST_NAME, read_manifest
 # run_dir key -> (latest event mtime, parsed scalars)
 _scalar_cache: dict[str, tuple[float, dict[str, list[dict[str, Any]]]]] = {}
 
+# Default cap on points returned per scalar tag. Charts are a few hundred px wide, so loading
+# every step is wasted work; the full series stays cached and is downsampled on the way out.
+DEFAULT_MAX_POINTS = 500
+
+
+def _downsample(series: list[dict[str, Any]], max_points: int) -> list[dict[str, Any]]:
+    """Uniform-stride downsample to <= max_points, always keeping the first and last point."""
+    n = len(series)
+    if max_points <= 0 or n <= max_points:
+        return series
+    if max_points <= 2:
+        return [series[0], series[-1]]
+    step = (n - 1) / (max_points - 1)
+    idxs = sorted({int(round(i * step)) for i in range(max_points)})
+    return [series[i] for i in idxs]
+
 
 def invalidate_scalars_cache(run_dir: str | Path | None = None) -> None:
     """Drop cached scalars for one run or all runs."""
@@ -41,10 +57,16 @@ def _latest_event_mtime(run_dir: Path) -> float:
     return latest
 
 
-def read_scalars(run_dir: str | Path, tag_prefix: str = "") -> dict[str, list[dict[str, Any]]]:
+def read_scalars(
+    run_dir: str | Path,
+    tag_prefix: str = "",
+    *,
+    max_points: int | None = None,
+) -> dict[str, list[dict[str, Any]]]:
     """Return {tag: [{step, value, wall_time}, ...]} from event files (cached by mtime).
 
-    Default returns ALL tags (train/eval/val/system); pass a prefix to filter.
+    Default returns ALL tags (train/eval/val/system); pass a prefix to filter. ``max_points``
+    downsamples each series on return (the full series stays cached for other callers).
     """
     root = Path(run_dir).resolve()
     if not root.is_dir():
@@ -53,11 +75,15 @@ def read_scalars(run_dir: str | Path, tag_prefix: str = "") -> dict[str, list[di
     key = str(root)
     cached = _scalar_cache.get(key)
     if cached is not None and cached[0] >= mtime:
-        return _filter_by_prefix(cached[1], tag_prefix)
+        data = cached[1]
+    else:
+        data = _load_scalars(root)
+        _scalar_cache[key] = (mtime, data)
 
-    data = _load_scalars(root)
-    _scalar_cache[key] = (mtime, data)
-    return _filter_by_prefix(data, tag_prefix)
+    filtered = _filter_by_prefix(data, tag_prefix)
+    if max_points is None:
+        return filtered
+    return {tag: _downsample(points, max_points) for tag, points in filtered.items()}
 
 
 def _filter_by_prefix(
@@ -108,6 +134,8 @@ def run_row(run_dir: str | Path) -> dict[str, Any] | None:
         "system_summary": manifest.system_summary,
         "lineage": manifest.lineage,
         "hardware": manifest.hardware,
+        "tags": manifest.scalar_tags,
+        "last_scalars": manifest.last_scalars,
     }
 
 
@@ -135,24 +163,55 @@ def compare_runs(
     run_dirs: list[str | Path],
     *,
     tag_prefix: str = "",
-    include_series: bool = True,
+    include_series: bool = False,
+    max_points: int | None = DEFAULT_MAX_POINTS,
 ) -> dict[str, Any]:
-    """Assemble the comparison payload: manifest rows, hparam columns, series, timelines."""
-    rows: list[dict[str, Any]] = []
-    series: dict[str, dict[str, list[dict[str, Any]]]] = {}
+    """Assemble the comparison payload from manifests/timelines — NO event-file parsing by default.
+
+    ``metrics`` is the union of each run's manifest scalar tags, so the UI can list every metric
+    and fetch each series on demand (see ``series_for``). Pass ``include_series=True`` to eagerly
+    embed downsampled series (parses event files; avoid for large run sets).
+    """
+    kept: list[tuple[str | Path, dict[str, Any]]] = []
     timelines: dict[str, list[dict[str, Any]]] = {}
+    metrics: set[str] = set()
     for run_dir in run_dirs:
         row = run_row(run_dir)
         if row is None:
             continue
-        rid = row["run_id"]
-        rows.append(row)
-        timelines[rid] = read_events(run_dir)
-        if include_series:
-            series[rid] = read_scalars(run_dir, tag_prefix)
-    return {
+        kept.append((run_dir, row))
+        timelines[row["run_id"]] = read_events(run_dir)
+        metrics.update(row.get("tags") or [])
+    rows = [row for _, row in kept]
+    payload: dict[str, Any] = {
         "runs": rows,
         "columns": _hparam_columns(rows),
-        "series": series,
+        "metrics": sorted(metrics),
         "timelines": timelines,
     }
+    if include_series:
+        payload["series"] = {
+            row["run_id"]: read_scalars(run_dir, tag_prefix, max_points=max_points)
+            for run_dir, row in kept
+        }
+    return payload
+
+
+def series_for(
+    run_dirs: list[str | Path],
+    tag: str,
+    *,
+    max_points: int | None = DEFAULT_MAX_POINTS,
+) -> dict[str, list[dict[str, Any]]]:
+    """On-demand: load ONE metric's downsampled series for each run → {run_id: [points]}.
+
+    This is the lazy path the comparison UI calls per metric. Only the runs being compared are
+    touched, and only when their chart is actually viewed; the mtime cache makes repeated
+    per-metric fetches for the same run cheap (the run is parsed once).
+    """
+    out: dict[str, list[dict[str, Any]]] = {}
+    for run_dir in run_dirs:
+        manifest = read_manifest(run_dir)
+        rid = manifest.run_id if manifest is not None else Path(run_dir).name
+        out[rid] = read_scalars(run_dir, max_points=max_points).get(tag, [])
+    return out

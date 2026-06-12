@@ -625,6 +625,8 @@ export interface CompareRunRow {
   system_summary: Record<string, number | string | null>;
   lineage: Record<string, unknown>;
   hardware: Record<string, unknown>;
+  tags: string[];
+  last_scalars: Record<string, number>;
 }
 
 export interface CompareColumn {
@@ -640,11 +642,17 @@ export interface TimelineEvent {
   payload: Record<string, unknown>;
 }
 
+/** Metadata-only comparison payload — no series (those load on demand via runSeries). */
 export interface CompareRunsResult {
   runs: CompareRunRow[];
   columns: CompareColumn[];
-  series: Record<string, Record<string, ScalarMetricPoint[]>>;
+  metrics: string[];
   timelines: Record<string, TimelineEvent[]>;
+}
+
+export interface RunSeriesResult {
+  tag: string;
+  series: Record<string, ScalarMetricPoint[]>;
 }
 
 // --- Maintenance ---

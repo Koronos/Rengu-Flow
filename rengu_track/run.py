@@ -69,6 +69,11 @@ class RunManifest:
     hardware: dict[str, Any] = field(default_factory=dict)
     summary: dict[str, Any] = field(default_factory=dict)
     system_summary: dict[str, Any] = field(default_factory=dict)
+    # Cheap scalar index: the tag names logged and their last value. Lets the UI list/compare
+    # views show metrics without parsing TensorBoard event files (recorded by the manifest backend).
+    scalar_tags: list[str] = field(default_factory=list)
+    last_scalars: dict[str, float] = field(default_factory=dict)
+    last_step: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

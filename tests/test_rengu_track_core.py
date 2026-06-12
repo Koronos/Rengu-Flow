@@ -208,3 +208,18 @@ def test_build_sink_manifest_only_writes_run_json(tmp_path):
     assert manifest.summary["best_loss"] == 0.2
     assert manifest.system_summary["peak_vram_gb"] == 7.5
     assert manifest.status == "finished"
+
+
+def test_manifest_backend_records_scalar_index(tmp_path):
+    # The manifest backend records the last value per scalar tag (cheap index for lists/compare),
+    # flushed to run.json on close — without storing the full series.
+    sink = build_sink({"tracking": {"backends": ["manifest"]}}, tmp_path)
+    sink.scalar("train/loss", 0.5, 1)
+    sink.scalar("train/loss", 0.3, 2)
+    sink.scalar("val/loss", 0.7, 2)
+    sink.close(status="finished")
+
+    manifest = read_manifest(tmp_path)
+    assert manifest.scalar_tags == ["train/loss", "val/loss"]
+    assert manifest.last_scalars["train/loss"] == 0.3
+    assert manifest.last_scalars["val/loss"] == 0.7

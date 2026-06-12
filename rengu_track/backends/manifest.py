@@ -25,6 +25,8 @@ class ManifestBackend(Backend):
     ) -> None:
         self.run_dir = Path(run_dir)
         config = config or {}
+        self._last_scalars: dict[str, float] = {}
+        self._last_step: int | None = None
         self.manifest = RunManifest(
             run_id=run_id,
             name=name or run_id,
@@ -33,6 +35,20 @@ class ManifestBackend(Backend):
             hparams_flat=flatten_hparams(config),
         )
         write_manifest(self.run_dir, self.manifest)
+
+    def _apply_scalar_index(self) -> None:
+        """Fold the in-memory scalar index into the manifest before it is written."""
+        if self._last_scalars:
+            self.manifest.last_scalars = dict(self._last_scalars)
+            self.manifest.scalar_tags = sorted(self._last_scalars)
+            self.manifest.last_step = self._last_step
+
+    def scalar(self, tag: str, value: float, step: int) -> None:
+        # Record the last value per tag (and the latest step) in memory only — no per-step disk
+        # write. The index is folded into run.json on the next metadata/summary/close write.
+        self._last_scalars[tag] = float(value)
+        if self._last_step is None or step > self._last_step:
+            self._last_step = step
 
     def set_metadata(
         self,
@@ -48,6 +64,7 @@ class ManifestBackend(Backend):
             self.manifest.lineage = lineage
         if hardware is not None:
             self.manifest.hardware = hardware
+        self._apply_scalar_index()
         write_manifest(self.run_dir, self.manifest)
 
     def summary(self, metrics: dict[str, Any]) -> None:
@@ -57,9 +74,11 @@ class ManifestBackend(Backend):
                 self.manifest.system_summary[key[len("system/") :]] = value
             else:
                 self.manifest.summary[key] = value
+        self._apply_scalar_index()
         write_manifest(self.run_dir, self.manifest)
 
     def close(self, *, status: str | None = None) -> None:
         if status is not None:
             self.manifest.status = status
+        self._apply_scalar_index()
         write_manifest(self.run_dir, self.manifest)

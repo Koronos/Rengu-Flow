@@ -21,7 +21,7 @@ def _make_run(root: Path, run_id: str, lr: float) -> None:
     write_manifest(run_dir, manifest)
 
 
-def test_compare_endpoint_all_runs(ui_client, tmp_path: Path) -> None:
+def test_compare_endpoint_metadata_only(ui_client, tmp_path: Path) -> None:
     _make_run(tmp_path, "run-a", 1e-4)
     _make_run(tmp_path, "run-b", 2e-4)
 
@@ -33,8 +33,10 @@ def test_compare_endpoint_all_runs(ui_client, tmp_path: Path) -> None:
     cols = {c["key"]: c["varies"] for c in data["columns"]}
     assert cols["optimizer.lr"] is True
     assert cols["model.type"] is False
-    assert set(data["series"]) == {"run-a", "run-b"}
     assert set(data["timelines"]) == {"run-a", "run-b"}
+    # On-demand: the comparison payload carries no series, only the metric-name union.
+    assert "series" not in data
+    assert "metrics" in data
 
 
 def test_compare_endpoint_selected_runs(ui_client, tmp_path: Path) -> None:
@@ -45,3 +47,18 @@ def test_compare_endpoint_selected_runs(ui_client, tmp_path: Path) -> None:
     assert resp.status_code == 200
     data = resp.json()
     assert [r["run_id"] for r in data["runs"]] == ["run-a"]
+
+
+def test_series_endpoint(ui_client, tmp_path: Path) -> None:
+    _make_run(tmp_path, "run-a", 1e-4)
+    _make_run(tmp_path, "run-b", 2e-4)
+
+    # Missing tag → 400.
+    assert ui_client.get(f"/api/v1/runs/series?output_dir={tmp_path}").status_code == 400
+
+    resp = ui_client.get(f"/api/v1/runs/series?tag=train/loss&output_dir={tmp_path}")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["tag"] == "train/loss"
+    # No TB event files in these synthetic runs → empty series per run, correct shape.
+    assert set(data["series"]) == {"run-a", "run-b"}

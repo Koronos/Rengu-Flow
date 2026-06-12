@@ -59,7 +59,7 @@ def snapshot_job_live(job_id: str, *, log_offset: int = 0) -> dict[str, Any]:
 
 def _metrics_payload(run_dir: Path) -> dict[str, Any]:
     return {
-        "scalars": metrics_tb.read_scalars(run_dir),
+        "scalars": metrics_tb.read_scalars(run_dir, max_points=1000),
         "preview_images": training_hub.list_run_preview_images(run_dir),
     }
 

@@ -1131,6 +1131,24 @@ def create_app() -> FastAPI:
         run_dirs = [root / n for n in names] if names else reader.list_run_dirs(root)
         return reader.compare_runs(run_dirs)
 
+    # On-demand per-metric series for the comparison view (lazy-loaded as each chart scrolls in).
+    @app.get(f"{API_PREFIX}/runs/series")
+    def fs_runs_series(
+        runs: str = "",
+        tag: str = "",
+        max_points: int = 500,
+        output_dir: str = "output",
+    ) -> dict[str, Any]:
+        from rengu_track import reader
+
+        if not tag:
+            raise HTTPException(400, "tag is required")
+        root = resolve_repo_path(output_dir)
+        names = [n.strip() for n in runs.split(",") if n.strip()]
+        run_dirs = [root / n for n in names] if names else reader.list_run_dirs(root)
+        cap = max_points if max_points and max_points > 0 else None
+        return {"tag": tag, "series": reader.series_for(run_dirs, tag, max_points=cap)}
+
     @app.get(f"{API_PREFIX}/runs/{{run_name}}")
     def get_fs_run(run_name: str, output_dir: str = "output") -> dict[str, Any]:
         path = resolve_repo_path(output_dir) / run_name
@@ -1337,7 +1355,7 @@ def _run_metrics_payload(run_dir) -> dict[str, Any]:
     from rengu_flow_ui import training_hub
 
     return {
-        "scalars": metrics_tb.read_scalars(run_dir),
+        "scalars": metrics_tb.read_scalars(run_dir, max_points=1000),
         "preview_images": training_hub.list_run_preview_images(run_dir),
     }
 
