@@ -34,7 +34,7 @@ from rengu_flow_ui.config_schema import get_schema
 from rengu_flow_ui.docs_reader import DocNotFoundError, DocPathError, read_doc
 from rengu_flow_ui import tensorboard_server
 from rengu_flow_ui.paths import PathError, resolve_example_path, resolve_repo_path
-from rengu_flow_ui.system_stats import collect_system_stats
+from rengu_track.system_stats import collect_system_stats
 from rengu_flow_ui.settings import (
     ensure_data_dirs,
     repo_root,

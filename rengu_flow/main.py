@@ -847,6 +847,14 @@ def _run_training(args, config):
     from rengu_track import NullSink, build_sink
 
     sink = build_sink(config, run_dir) if is_main_process() else NullSink()
+    tracking_cfg = config.get("tracking", {})
+    if is_main_process() and tracking_cfg.get("enabled", True) and tracking_cfg.get(
+        "capture_lineage", True
+    ):
+        from rengu_track import lineage
+
+        sink.set_lineage(lineage.capture())
+        sink.set_hardware(lineage.hardware())
     disable_block_swap_for_eval = config.get("disable_block_swap_for_eval", False)
     x_axis_examples = config.get("x_axis_examples", False)
     eval_every_n_steps = config.get("eval_every_n_steps")
@@ -861,6 +869,22 @@ def _run_training(args, config):
 
     step = 1
     examples = global_batch_size
+
+    # Background system-metrics sampler (rank 0): pushes system/* scalars (GPU util/VRAM/temp/
+    # power, CPU/RAM) at a fixed interval, tagged with the live `step`. Daemon thread; stopped on
+    # both exit paths so the peak/mean aggregates flush to the manifest.
+    sampler = None
+    sampler_cfg = tracking_cfg.get("system_sampler", {})
+    if is_main_process() and tracking_cfg.get("enabled", True) and sampler_cfg.get("enabled", True):
+        from rengu_track.sampler import SystemSampler
+
+        sampler = SystemSampler(
+            sink,
+            interval_sec=sampler_cfg.get("interval_sec", 10),
+            step_fn=lambda: step,
+        )
+        sampler.start()
+
     from rengu_flow.training_progress import (
         EpochSchedule,
         TrainingProgressTracker,
@@ -1341,6 +1365,8 @@ def _run_training(args, config):
                         f"rengu_flow: emergency checkpoint FAILED after OOM: {save_exc}",
                         flush=True,
                     )
+        if sampler is not None:
+            sampler.stop()
         sink.close(status="failed")
         raise
 
@@ -1370,6 +1396,8 @@ def _run_training(args, config):
             _print_compile_cache_stats()
         print("Training complete.")
 
+    if sampler is not None:
+        sampler.stop()
     sink.close(status="finished")
 
 
