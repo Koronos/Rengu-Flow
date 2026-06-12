@@ -10,6 +10,31 @@ __getattr__, __dir__, __all__ = lazy.attach(
     __name__,
     submod_attrs={
         "caption_store": ["CaptionSet", "CaptionStore"],
+        "captioner": [
+            "CaptionBackend",
+            "CaptionerConfig",
+            "JoyCaptionBackend",
+            "ToriiGateBackend",
+            "build_prompt",
+            "caption_folder",
+            "list_caption_models",
+        ],
+        "cleanup": [
+            "CleanupConfig",
+            "WatermarkDetector",
+            "LamaInpainter",
+            "boxes_to_mask",
+            "clean_folder",
+        ],
         "tag_ops": ["TagEditOp", "TagFilter", "apply_ops", "tag_frequencies"],
+        "tagger": [
+            "TaggerModelSpec",
+            "KNOWN_TAGGERS",
+            "DEFAULT_TAGGERS",
+            "OnnxTagger",
+            "merge_model_results",
+            "run_ensemble",
+        ],
+        "models": ["list_models", "ensure_model"],
     },
 )
