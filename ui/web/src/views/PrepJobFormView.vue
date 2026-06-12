@@ -24,7 +24,8 @@
             />
           </el-form-item>
 
-          <div class="form-row-2">
+          <!-- Cleanup reads and writes images only — caption layout is irrelevant to it. -->
+          <div v-if="stage !== 'clean'" class="form-row-2">
             <el-form-item>
               <template #label>
                 Caption format <FieldHelpIcon :field="help('Sidecar: one .txt per image, each line a caption variant (line 1 = tags, line 2 = caption). JSON: single captions.json index file per folder.')" />
