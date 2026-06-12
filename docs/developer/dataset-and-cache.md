@@ -36,6 +36,43 @@ Validation for real data: `rengu_flow.data.dataset_config.validate_dataset_confi
 
 Caption lists are flattened for text-embedding cache (one embedding per (image, caption)); iteration order picks one caption per step.
 
+## Caption variants — how multi-caption works inside
+
+Multi-line `.txt` files are the cached-augmentation mechanism (e.g. pre-baked tag-dropout
+variants generated offline so `cache_text_embeddings = true` keeps working). What actually
+happens, end to end:
+
+1. **Parsing** — `_read_captions_from_txt_per_line` stores each image's captions as a list;
+   every variant gets its own cached text embedding keyed by `(image_spec, caption_number)`
+   (`TextEmbeddingDataset.get_text_embeddings`). The mapping is unambiguous: one
+   `(image, caption_number)` → one text → one embedding.
+2. **Iteration order** (`SizeBucketDataset`, "Building iteration order") — with equal counts,
+   each image's captions are first shuffled with a per-image seed, then grouped by slot:
+   segment 0 holds every image once with its slot-0 variant, segment 1 with slot-1, etc. One
+   full pass over the order therefore serves **every image with all K variants exactly once
+   each** (verified on real cache artifacts: no image is ever stuck with one embedding, and
+   no `(image, caption_number)` maps to two texts). With unequal counts the order is a flat
+   shuffle instead.
+3. **Epoch accounting** — variants multiply the iteration order (each is its own example),
+   but they are regularization samples of the same images, not new data.
+   `Dataset.caption_variants` (uniform count across all buckets, else 1) is divided out of
+   `steps_per_epoch` in `main._run_training`, so an **"epoch" still means one pass over the
+   images**: save/eval/preview cadence and the `epochs × steps_per_epoch` budget stay stable
+   for any K, and each accounting epoch serves the next per-image variant (rotation across
+   epochs). `epochs = K` consumes every variant exactly once.
+4. **Why pre-baked variants instead of live tag dropout** — live per-tag dropout produces a
+   unique caption per draw, forcing the text encoder to stay resident (~1.2 GB, lowering the
+   usable `activation_memory_budget`) and to run every step (~22 ms — launch-overhead-bound,
+   independent of caption length; see EXPERIMENTS_GRAVEYARD "Trim Cosmos text padding").
+   K pre-baked variants sampled from the same dropout distribution are statistically
+   equivalent up to finite-K noise (with `epochs` passes, each tag is seen present/absent in
+   a Binomial(K, p) share of them), encode once at cache time (~22 ms per caption, latents
+   reused), and free the TE from the GPU entirely. `uncond_fraction` composes with this
+   (the cached unconditional embedding is swapped in per draw).
+
+Generator used for tag-dropout variants: sample `apply_tag_dropout` K times per caption with
+a fixed seed and write K lines per `.txt` (see `tag_dropout.py` for the distribution).
+
 ## Cache
 
 - **`cache_root`** (training TOML) — All v2 caches live under `cache_root/<dataset_hash>/<directory_hash>/<model_name>/`. Default: `cache/` at install root (gitignored). Legacy v1 / co-located `path/cache/` is not supported. If `cache_root` remains in a dataset TOML, it is deprecated: a warning is logged and the value is used only when the training config omits `cache_root`.

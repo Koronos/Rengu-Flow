@@ -400,3 +400,43 @@ def test_size_bucket_online_captions_selects_caption_number(tmp_path):
     sb.text_embedding_datasets = []
     sb.uncond_text_embeddings = []
     assert sb[0]["caption"] == "third"
+
+
+def test_uniform_caption_variants_equal_counts():
+    from rengu_flow.data.dataset import uniform_caption_variants
+
+    assert uniform_caption_variants([["a", "b", "c"], ["d", "e", "f"]]) == 3
+
+
+def test_uniform_caption_variants_mixed_counts_fall_back_to_one():
+    from rengu_flow.data.dataset import uniform_caption_variants
+
+    assert uniform_caption_variants([["a", "b"], ["c"]]) == 1
+
+
+def test_uniform_caption_variants_single_caption():
+    from rengu_flow.data.dataset import uniform_caption_variants
+
+    assert uniform_caption_variants([["a"], ["b"]]) == 1
+
+
+def test_dataset_caption_variants_aggregates_buckets():
+    """Dataset.caption_variants: one uniform value across buckets, else 1."""
+    from types import SimpleNamespace
+
+    from rengu_flow.data.dataset import Dataset
+
+    def fake(variants):
+        return SimpleNamespace(caption_variants=variants)
+
+    ds = object.__new__(Dataset)
+    ds.directory_datasets = [
+        SimpleNamespace(
+            size_bucket_datasets=[fake(15), fake(15)],
+            ar_bucket_datasets=[SimpleNamespace(size_buckets=[fake(15)])],
+        )
+    ]
+    assert ds.caption_variants == 15
+
+    ds.directory_datasets[0].size_bucket_datasets.append(fake(3))
+    assert ds.caption_variants == 1
