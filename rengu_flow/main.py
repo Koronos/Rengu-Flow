@@ -10,6 +10,7 @@ from pathlib import Path
 
 from rengu_flow.config import (
     apply_local_config_to_environ,
+    apply_model_paths_from_env,
     load_config,
     load_dataset_config,
     load_eval_dataset_config,
@@ -1524,6 +1525,11 @@ def run_prepared(args) -> None:
         raise SystemExit("rengu_flow: --config is required (unless using --dump_dataset).")
 
     config = load_config(args.config)
+    # Smoke/CI fixtures omit [model] paths; the smoke scripts export RENGU_*_PATH
+    # from the repo-root .env before launching. Only an externally-set env var
+    # overrides — the trainer itself never reads .env, so normal runs are
+    # unaffected.
+    apply_model_paths_from_env(config)
     set_config_defaults(config)
 
     if not args.validate_only:

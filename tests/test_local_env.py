@@ -50,3 +50,42 @@ def test_model_path_errors_after_apply(tmp_path, monkeypatch):
     assert model_path_errors(config) == []
     config["model"]["checkpoint_path"] = str(tmp_path / "missing.safetensors")
     assert any("not found" in e for e in model_path_errors(config))
+
+
+def test_run_prepared_applies_externally_set_env_model_paths(tmp_path, monkeypatch):
+    """The trainer honors RENGU_*_PATH already present in its environment (exported by
+    the smoke scripts from .env); it never reads .env itself, so normal runs are
+    unaffected. Regressed in 31686ee: smoke fixtures without [model] paths failed
+    validation even with the vars exported."""
+    import pytest
+
+    try:
+        from rengu_flow.main import parse_args, run_prepared
+    except ImportError as e:
+        pytest.skip(f"Cannot import rengu_flow.main: {e}")
+
+    ckpt = tmp_path / "model.safetensors"
+    ckpt.write_bytes(b"x")
+    monkeypatch.setenv("RENGU_SDXL_CHECKPOINT_PATH", str(ckpt))
+    config_file = tmp_path / "train.toml"
+    config_file.write_text(
+        "\n".join(
+            [
+                'dataset = "examples/minimal_dataset.toml"',
+                'output_dir = "output"',
+                "[model]",
+                'type = "sdxl"',
+                'dtype = "bfloat16"',
+                "[adapter]",
+                'type = "lycoris_loha"',
+                "rank = 8",
+                "[optimizer]",
+                'type = "adamw"',
+                "lr = 1e-4",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    # validate-only exercises load_config -> env apply -> defaults -> validate_config;
+    # without the env application this raises SystemExit("Config validation failed ...").
+    run_prepared(parse_args(["--config", str(config_file), "--validate-only"]))
