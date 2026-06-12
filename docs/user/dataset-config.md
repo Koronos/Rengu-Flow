@@ -141,11 +141,38 @@ sources/0002.png  ← extension can differ; stem must match
 
 | Source | Format | Behaviour |
 |--------|--------|-----------|
-| **Sidecar `.txt`** | One **line** = one caption variant for that image. | Multiple lines → multiple training rows per image (separate text-embedding cache entries). Empty file → one empty caption. |
+| **Sidecar `.txt`** | One **line** = one caption variant for that image. | Multiple lines → one cached text embedding per variant, rotated across epochs (an epoch still means one pass over the images — variants do **not** lengthen it). Empty file → one empty caption. |
 | **`captions.json`** in the image folder | JSON object: filename → caption or **list of captions**. | If present, **overrides** sidecar `.txt` for that directory. Example: `{ "photo.jpg": ["tag1, style", "alt description"] }`. A single string value is treated as one caption. |
 | **`directory_caption`** | One string in TOML. | Used when there is no `.txt` and no JSON entry; when a per-image caption exists, it is **prepended** as a prefix (see table above). |
 
 Inspect resolved captions with [`--dump_dataset`](#inspecting-a-dataset---dump_dataset) before caching.
+
+### Caption variants: cached tag dropout
+
+Live `tag_dropout_enabled = true` requires `cache_text_embeddings = false`, which keeps the
+text encoder on the GPU for the whole run (~22 ms/step plus ~1.2 GB VRAM that lowers the
+usable `activation_memory_budget`). The cached equivalent — same dropout distribution,
+text encoder fully off the GPU — is to **pre-bake K dropout samples as `.txt` lines**:
+
+```bash
+python scripts/generate_caption_variants.py /path/to/your/images --variants 15 --seed 42 \
+    --probability 0.3 --in-place     # originals backed up once to .txt.orig
+```
+
+Then in the dataset TOML set `tag_dropout_enabled = false` (the dropout is baked into the
+lines; the live option is rejected with cached embeddings), keep
+`cache_text_embeddings = true` in the model config, and re-cache (latents are reused — only
+metadata and text embeddings rebuild, a couple of minutes).
+
+Each variant gets its own cached embedding and the trainer rotates them: every epoch is
+still one pass over the images, serving the next per-image variant. `--variants` equal to
+your `epochs` is statistically sufficient (each variant is used exactly once across the
+run); regenerating with a new seed/K is idempotent thanks to the `.txt.orig` backups.
+A `.txt` that already holds several captions (alternative descriptions) keeps all of them:
+the generator writes K dropout samples of **each** line (total `lines × K`); note the epoch
+division only applies while every image ends up with the same line count.
+`uncond_fraction` composes with this (the cached unconditional embedding is swapped in per
+draw). Internals: `docs/developer/dataset-and-cache.md`, "Caption variants".
 
 Example:
 
@@ -182,7 +209,7 @@ These apply to all directories unless overridden per-directory.
 | **`subsample_ratio`** | Fraction of the combined training schedule (e.g. `0.25` for quick debug runs). | Float in (0, 1]. | `1` (full dataset). |
 | **`max_images`** | Default absolute image cap per folder per epoch (per size bucket); rotates each epoch unless `static_sampling`. Per-folder keys override it. Mutually exclusive with a per-folder `subsample_ratio`. See [per-epoch limiting](#per-epoch-image-limiting-subsample_ratio-vs-max_images). | Integer &gt; 0. | Not set (no cap). |
 | **`static_sampling`** | Default for whether the active limiter (subsample ratio or max images) uses a fixed subset every epoch instead of rotating. | `true` / `false` | `false` (rotate). |
-| **`tag_dropout_enabled`** | Enable random tag dropout at training time. Requires `cache_text_embeddings = false` in the model config (captions must be encoded at training time). | `true` / `false` | `false` |
+| **`tag_dropout_enabled`** | Enable random tag dropout at training time. Requires `cache_text_embeddings = false` in the model config (captions must be encoded at training time, keeping the text encoder on the GPU). For the cached, faster equivalent see [caption variants](#caption-variants-cached-tag-dropout). | `true` / `false` | `false` |
 | **`tag_dropout_probability`** | Default drop probability for tags not in a rule. | Float in [0, 1]. | — |
 | **`tag_dropout_mode`** | `per_tag` or `full`. | String | `per_tag` |
 | **`tag_dropout_rules`** | List of `{ tags, drop_probability }` and/or `tags_file`. | Tables / JSON in UI | — |

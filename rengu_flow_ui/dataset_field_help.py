@@ -162,7 +162,10 @@ FIELD_HELP: dict[str, dict[str, str]] = {
             "When on, some caption tags are omitted each step so the model does not over-rely "
             "on any single tag. Dropout runs at training time only — captions stored in cache "
             "metadata stay raw. Requires cache_text_embeddings = false in the model config, "
-            "since cached text embeddings ignore per-sample caption changes."
+            "which keeps the text encoder on the GPU (~22 ms/step + ~1.2 GB VRAM). Faster "
+            "alternative with the same distribution: pre-bake K dropout variants as .txt lines "
+            "(scripts/generate_caption_variants.py), keep cache_text_embeddings = true, and "
+            "leave this off — variants rotate across epochs without lengthening them."
         ),
         "doc": "docs/user/dataset-config.md",
     },
