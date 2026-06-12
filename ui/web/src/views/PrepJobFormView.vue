@@ -173,6 +173,15 @@
             </div>
 
             <div class="form-row-2">
+              <el-form-item label="Max image side (px, 0 = no downscale)">
+                <el-input-number v-model="captionForm.max_image_side" :min="0" :step="128" controls-position="right" class="w-full" />
+              </el-form-item>
+              <el-form-item label="Min image side (px, 0 = no filter)">
+                <el-input-number v-model="captionForm.min_image_side" :min="0" :step="64" controls-position="right" class="w-full" />
+              </el-form-item>
+            </div>
+
+            <div class="form-row-2">
               <el-form-item label="Temperature">
                 <el-input-number v-model="captionForm.temperature" :min="0" :max="2" :step="0.05" :precision="2" controls-position="right" class="w-full" />
               </el-form-item>
@@ -297,16 +306,18 @@ const captionForm = reactive({
   quantization: "bf16" as "bf16" | "int8" | "nf4",
   prompt: "",
   max_new_tokens: 512,
-  temperature: 0.7,
+  temperature: 0.6,
   top_p: 0.9,
-  batch_size: 1,
-  use_tags_as_grounding: false,
+  batch_size: 4,
+  use_tags_as_grounding: true,
   overwrite: false,
+  max_image_side: 1536,
+  min_image_side: 0,
 });
 
 // --- clean form ---
 const cleanForm = reactive({
-  confidence: 0.3,
+  confidence: 0.35,
   mask_dilation_px: 4,
   in_place: false,
   output_dir: "",
@@ -377,6 +388,8 @@ function buildConfig() {
         batch_size: captionForm.batch_size,
         use_tags_as_grounding: captionForm.use_tags_as_grounding,
         overwrite: captionForm.overwrite,
+        max_image_side: captionForm.max_image_side,
+        min_image_side: captionForm.min_image_side,
       },
     };
   }
@@ -432,6 +445,8 @@ async function submit(startNow: boolean): Promise<void> {
             batch_size: captionForm.batch_size,
             use_tags_as_grounding: captionForm.use_tags_as_grounding,
             overwrite: captionForm.overwrite,
+            max_image_side: captionForm.max_image_side,
+            min_image_side: captionForm.min_image_side,
           },
         },
         start_now: false,

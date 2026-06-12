@@ -65,6 +65,12 @@ class CaptionerConfig:
     batch_size: int = 4
     use_tags_as_grounding: bool = True   # only ToriiGate uses it
     overwrite: bool = False              # if False, skip images that already have line 2
+    # The trainer's bucketing does the real resize later, so raw datasets can carry
+    # 8K originals (decode RAM; dynamic-resolution VLMs explode image-token counts)
+    # or thumbnails (garbage captions). Cap the long side before the processor and
+    # optionally skip too-small images entirely (0 disables the filter).
+    max_image_side: int = 1536
+    min_image_side: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -271,11 +277,17 @@ class ToriiGateBackend(_HFVisionBackend):
 
     def _load_model_and_processor(self):
         import torch
-        from transformers import AutoModelForVision2Seq, AutoProcessor  # type: ignore
+        from transformers import AutoProcessor  # type: ignore
+
+        try:
+            # transformers >= 5 dropped AutoModelForVision2Seq in favor of this.
+            from transformers import AutoModelForImageTextToText as AutoVLM  # type: ignore
+        except ImportError:
+            from transformers import AutoModelForVision2Seq as AutoVLM  # type: ignore
 
         repo_id = _BACKENDS[self.model_key]["repo_id"]
         processor = AutoProcessor.from_pretrained(repo_id, trust_remote_code=True)
-        model = AutoModelForVision2Seq.from_pretrained(
+        model = AutoVLM.from_pretrained(
             repo_id,
             torch_dtype=torch.bfloat16,
             device_map="cuda:0",
@@ -362,6 +374,7 @@ def caption_folder(
     total = len(to_caption)
     captioned = 0
     failed: list[str] = []
+    skipped_small: list[str] = []
     stopped = False
 
     try:
@@ -385,6 +398,23 @@ def caption_folder(
                 try:
                     img_path = cs.images[key]
                     img = Image.open(img_path).convert("RGB")
+                    if config.min_image_side and min(img.size) < config.min_image_side:
+                        logger.info(
+                            "Skipping %s: %dx%d below min_image_side=%d",
+                            key, *img.size, config.min_image_side,
+                        )
+                        skipped_small.append(key)
+                        batch_images.append(None)
+                        batch_prompts.append("")
+                        continue
+                    if config.max_image_side and max(img.size) > config.max_image_side:
+                        # In-place downscale: caption quality is unchanged (VLM vision
+                        # towers see <=1536px anyway) but decode RAM and image-token
+                        # counts (dynamic-resolution models) stay bounded.
+                        img.thumbnail(
+                            (config.max_image_side, config.max_image_side),
+                            Image.LANCZOS,
+                        )
                     tags = cs.get_tags(key) if config.use_tags_as_grounding else None
                     prompt = build_prompt(config, tags)
                     batch_images.append(img)
@@ -470,6 +500,7 @@ def caption_folder(
     return {
         "captioned": captioned,
         "skipped": skipped,
+        "skipped_small": skipped_small,
         "failed": failed,
         "stopped": stopped,
     }

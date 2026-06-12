@@ -214,3 +214,35 @@ def test_prep_job_report_endpoint(ui_client, img_dir):
     Path(job["run_dir"], "report.json").write_text(_json.dumps({"tagged": 3}))
     res = ui_client.get(f"/api/v1/prep/jobs/{job['id']}/report")
     assert res.json()["report"]["tagged"] == 3
+
+
+def test_size_query_and_quarantine_by_keys(ui_client, img_dir):
+    from PIL import Image as PILImage
+
+    # One genuinely tiny image among the normal fixtures.
+    PILImage.new("RGB", (100, 80), (50, 50, 50)).save(img_dir / "tiny.jpg")
+    (img_dir / "tiny.txt").write_text("lowres\n")
+
+    sid = _open_session(ui_client, img_dir)
+    res = ui_client.post(
+        f"/api/v1/prep/tags/sessions/{sid}/size-query", json={"below": 256}
+    )
+    assert res.status_code == 200, res.text
+    data = res.json()
+    assert data["keys"] == ["tiny.jpg"]
+    assert data["sizes"]["tiny.jpg"] == [100, 80]
+    assert "tiny.jpg" in data["previews"]
+
+    # Missing params -> 400.
+    assert (
+        ui_client.post(f"/api/v1/prep/tags/sessions/{sid}/size-query", json={}).status_code
+        == 400
+    )
+
+    ui_client.post(
+        f"/api/v1/prep/tags/sessions/{sid}/ops",
+        json={"ops": [{"op": "quarantine", "keys": data["keys"]}]},
+    )
+    commit = ui_client.post(f"/api/v1/prep/tags/sessions/{sid}/commit").json()
+    assert commit["quarantined"] == ["tiny.jpg"]
+    assert not (img_dir / "tiny.jpg").exists()

@@ -184,3 +184,20 @@ def test_op_roundtrip_dict():
     assert TagEditOp.from_dict(TagEditOp.from_dict(original).to_dict()) == TagEditOp.from_dict(
         original
     )
+
+
+def test_quarantine_with_explicit_keys():
+    res = apply_ops(CAPS, [op({"op": "quarantine", "keys": ["a.jpg", "missing.jpg"]})])
+    assert res.quarantined == ["a.jpg"]
+    assert "a.jpg" not in res.captions
+
+
+def test_explicit_keys_intersect_with_filter():
+    res = apply_ops(
+        CAPS,
+        [op({"op": "remove", "tags": ["long hair"], "keys": ["a.jpg", "c.jpg"],
+             "filter": {"all": ["1girl"]}, "scope": "line1"})],
+    )
+    # c.jpg matches keys but not the 1girl filter -> untouched.
+    assert res.captions["a.jpg"][0] == "1girl, smile"
+    assert res.captions["c.jpg"][0] == "2girls, long hair"

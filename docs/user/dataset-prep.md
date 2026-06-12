@@ -68,7 +68,11 @@ rengu prep models                    # list everything with download state
 rengu prep models --stage tag --download pixai-v0.9
 ```
 
-Weights land in the standard HuggingFace cache (`HF_HOME` respected).
+Weights land in the standard HuggingFace cache (`HF_HOME` respected). Downloads use
+the `huggingface_hub` Python library bundled with the `prep` extra — the `hf` /
+`huggingface-cli` binary is NOT required, and no HF account/token is needed (every
+registry model is public; if you ever point a spec at a gated repo, exporting
+`HF_TOKEN` is enough).
 
 ## Prep TOML
 
@@ -101,7 +105,7 @@ use_tags_as_grounding = true
 overwrite = false
 
 [clean]
-confidence = 0.5
+confidence = 0.35
 mask_dilation_px = 8
 in_place = false
 output_dir = ""                 # empty = <path>/cleaned

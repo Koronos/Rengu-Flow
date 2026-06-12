@@ -172,6 +172,9 @@ class TagEditOp:
     tags: tuple[str, ...] = ()
     rename_to: str | None = None
     filter: TagFilter = field(default_factory=TagFilter)
+    # Explicit image selection (e.g. from a size query). When set, the op applies to
+    # these keys (further narrowed by `filter` if that is non-empty too).
+    keys: tuple[str, ...] = ()
     scope: str = SCOPE_TAG_LINES
     line_index: int | None = None
     min_count: int | None = None
@@ -192,13 +195,19 @@ class TagEditOp:
             raise ValueError("Op 'rename' requires rename_to")
         if op == OP_PRUNE and not isinstance(data.get("min_count"), int):
             raise ValueError("Op 'prune' requires integer min_count")
-        if op == OP_QUARANTINE and TagFilter.from_dict(data.get("filter")).is_empty():
-            raise ValueError("Op 'quarantine' requires a non-empty filter")
+        keys = tuple(str(k) for k in data.get("keys", []) if str(k).strip())
+        if (
+            op == OP_QUARANTINE
+            and TagFilter.from_dict(data.get("filter")).is_empty()
+            and not keys
+        ):
+            raise ValueError("Op 'quarantine' requires a non-empty filter or explicit keys")
         return TagEditOp(
             op=op,
             tags=tags,
             rename_to=(data.get("rename_to") or "").strip() or None,
             filter=TagFilter.from_dict(data.get("filter")),
+            keys=keys,
             scope=scope,
             line_index=data.get("line_index"),
             min_count=data.get("min_count"),
@@ -215,6 +224,7 @@ class TagEditOp:
                 "any": list(self.filter.any),
                 "none": list(self.filter.none),
             },
+            "keys": list(self.keys),
             "scope": self.scope,
             "line_index": self.line_index,
             "min_count": self.min_count,
@@ -233,6 +243,22 @@ def _edit_line_tags(line: str, edit) -> str:
     return join_tags(edit(parse_tags(line)))
 
 
+def _select_for_op(captions: dict[str, list[str]], op: TagEditOp) -> list[str]:
+    """Images an op applies to: explicit keys (optionally narrowed by filter), or filter."""
+    if op.keys:
+        selected = [k for k in op.keys if k in captions]
+        if not op.filter.is_empty():
+            selected = [
+                k
+                for k in selected
+                if op.filter.matches(image_tags(captions[k], op.scope, op.line_index))
+            ]
+        return selected
+    if op.filter.is_empty():
+        return list(captions)
+    return select_images(captions, op.filter, op.scope, op.line_index)
+
+
 def _apply_one(
     captions: dict[str, list[str]], op: TagEditOp
 ) -> tuple[dict[str, list[str]], list[str], set[str]]:
@@ -241,7 +267,7 @@ def _apply_one(
     quarantined: list[str] = []
 
     if op.op == OP_QUARANTINE:
-        quarantined = select_images(new_captions, op.filter, op.scope, op.line_index)
+        quarantined = _select_for_op(new_captions, op)
         for key in quarantined:
             new_captions.pop(key)
         return new_captions, quarantined, set(quarantined)
@@ -261,11 +287,7 @@ def _apply_one(
                     changed.add(key)
         return new_captions, quarantined, changed
 
-    selected = (
-        list(new_captions)
-        if op.filter.is_empty()
-        else select_images(new_captions, op.filter, op.scope, op.line_index)
-    )
+    selected = _select_for_op(new_captions, op)
     wanted = {t.lower() for t in op.tags}
     for key in selected:
         lines = new_captions[key]

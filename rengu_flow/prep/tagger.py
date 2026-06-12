@@ -323,6 +323,7 @@ class OnnxTagger:
         self._session = None
         self._names: np.ndarray | None = None  # display names (underscores resolved)
         self._categories: np.ndarray | None = None
+        self._output_name: str | None = None
         self._sigmoid_warned = False
 
     def _ensure_loaded(self) -> None:
@@ -348,6 +349,31 @@ class OnnxTagger:
         tags = load_tag_list(self.tags_path)
         self._names = np.array([replace_underscores(name) for name, _ in tags])
         self._categories = np.array([cat for _, cat in tags], dtype=np.int64)
+        self._output_name = self._pick_output_name()
+
+    def _pick_output_name(self) -> str:
+        """Choose the per-tag score tensor among the model's outputs.
+
+        Some exports emit several heads (pixai-tagger-v0.9-onnx: ``embedding``,
+        ``logits``, ``prediction``) — blindly taking outputs[0] would read the
+        1024-dim embedding and produce random tags. Prefer the post-sigmoid
+        ``prediction``, then ``logits``, then a single output, then any output
+        whose last dim matches the vocabulary; anything else is an error.
+        """
+        outputs = self._session.get_outputs()
+        by_name = {o.name: o for o in outputs}
+        for preferred in ("prediction", "logits"):
+            if preferred in by_name:
+                return preferred
+        if len(outputs) == 1:
+            return outputs[0].name
+        for o in outputs:
+            if o.shape and o.shape[-1] == len(self._names):
+                return o.name
+        raise ValueError(
+            f"{self.spec.id}: cannot identify the tag-score output among "
+            f"{[(o.name, o.shape) for o in outputs]} (vocabulary size {len(self._names)})."
+        )
 
     def predict_arrays(self, batch: np.ndarray) -> list[dict[str, float]]:
         """Run inference on a preprocessed (N, H, W, 3) float32 BGR batch.
@@ -361,7 +387,9 @@ class OnnxTagger:
         spec = self.spec
 
         input_name = self._session.get_inputs()[0].name
-        probs_batch = np.asarray(self._session.run(None, {input_name: batch})[0])
+        probs_batch = np.asarray(
+            self._session.run([self._output_name], {input_name: batch})[0]
+        )
 
         # Some exports emit logits instead of sigmoid probabilities; normalize once.
         if probs_batch.min() < 0.0 or probs_batch.max() > 1.0:

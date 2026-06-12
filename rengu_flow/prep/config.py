@@ -39,11 +39,13 @@ class CaptionStageConfig:
     batch_size: int = 4
     use_tags_as_grounding: bool = True
     overwrite: bool = False
+    max_image_side: int = 1536  # downscale long side before the VLM (0 = off)
+    min_image_side: int = 0  # skip images smaller than this (0 = off)
 
 
 @dataclass
 class CleanStageConfig:
-    confidence: float = 0.5
+    confidence: float = 0.35
     mask_dilation_px: int = 8
     in_place: bool = False
     output_dir: str = ""

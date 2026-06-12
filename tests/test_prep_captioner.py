@@ -396,3 +396,61 @@ class TestOnProgress:
         # Final call: done == total
         last_done, last_total, _ = progress_calls[-1]
         assert last_total == 2
+
+
+class TestImageSizeNormalization:
+    def _setup(self, tmp_path, sizes):
+        from PIL import Image as PILImage
+
+        d = tmp_path / "imgs"
+        d.mkdir()
+        for name, (w, h) in sizes.items():
+            PILImage.new("RGB", (w, h), (120, 120, 120)).save(d / name, quality=90)
+            (d / name).with_suffix(".txt").write_text("tag line\n")
+        return d
+
+    def test_oversized_images_downscaled_before_backend(self, tmp_path):
+        from rengu_flow.prep.captioner import CaptionerConfig, caption_folder
+
+        d = self._setup(tmp_path, {"big.jpg": (4096, 2048), "ok.jpg": (800, 600)})
+        seen_sizes = {}
+
+        class Backend:
+            def load(self):
+                pass
+
+            def unload(self):
+                pass
+
+            def caption_batch(self, images, prompts):
+                for img in images:
+                    seen_sizes[img.size] = True
+                return ["caption"] * len(images)
+
+        config = CaptionerConfig(max_image_side=1024, batch_size=4)
+        report = caption_folder(d, config, backend_factory=lambda c: Backend())
+        assert report["captioned"] == 2
+        assert (1024, 512) in seen_sizes  # 4096x2048 capped, aspect kept
+        assert (800, 600) in seen_sizes  # under the cap: untouched
+
+    def test_too_small_images_skipped_and_reported(self, tmp_path):
+        from rengu_flow.prep.captioner import CaptionerConfig, caption_folder
+
+        d = self._setup(tmp_path, {"tiny.jpg": (120, 90), "ok.jpg": (800, 600)})
+
+        class Backend:
+            def load(self):
+                pass
+
+            def unload(self):
+                pass
+
+            def caption_batch(self, images, prompts):
+                return ["caption"] * len(images)
+
+        config = CaptionerConfig(min_image_side=256, max_image_side=0, batch_size=4)
+        report = caption_folder(d, config, backend_factory=lambda c: Backend())
+        assert report["captioned"] == 1
+        assert report["skipped_small"] == ["tiny.jpg"]
+        # The tiny image's caption file is untouched (still only the tag line).
+        assert (d / "tiny.txt").read_text() == "tag line\n"

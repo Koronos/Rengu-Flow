@@ -108,6 +108,8 @@ def _run_caption(config: PrepConfig, on_progress, should_stop) -> dict:
         batch_size=stage.batch_size,
         use_tags_as_grounding=stage.use_tags_as_grounding,
         overwrite=stage.overwrite,
+        max_image_side=stage.max_image_side,
+        min_image_side=stage.min_image_side,
     )
     return caption_folder(
         config.path,

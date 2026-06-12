@@ -18,6 +18,7 @@ export function useTagSession() {
   const query = ref<TagQueryResult | null>(null);
   const lastFilter = ref<TagEditOpDto["filter"] | null>(null);
   const lastFilterScope = ref("tag_lines");
+  const lastSizeQuery = ref<{ below?: number; above?: number } | null>(null);
   const loading = ref(false);
   const error = ref("");
 
@@ -44,7 +45,12 @@ export function useTagSession() {
   }
 
   async function refreshQuery(): Promise<void> {
-    if (!sessionId.value || !lastFilter.value) return;
+    if (!sessionId.value) return;
+    if (lastSizeQuery.value) {
+      query.value = await api.prepTagSizeQuery(sessionId.value, lastSizeQuery.value);
+      return;
+    }
+    if (!lastFilter.value) return;
     query.value = await api.prepTagQuery(
       sessionId.value,
       lastFilter.value,
@@ -60,6 +66,7 @@ export function useTagSession() {
       session.value = await api.prepOpenTagSession(path, format, ext);
       query.value = null;
       lastFilter.value = null;
+      lastSizeQuery.value = null;
       await refreshStats();
       return true;
     });
@@ -71,8 +78,17 @@ export function useTagSession() {
     scope: string
   ): Promise<void> {
     await withLoading(async () => {
+      lastSizeQuery.value = null;
       lastFilter.value = filter;
       lastFilterScope.value = scope;
+      await refreshQuery();
+    });
+  }
+
+  async function runSizeQuery(params: { below?: number; above?: number }): Promise<void> {
+    await withLoading(async () => {
+      lastFilter.value = null;
+      lastSizeQuery.value = params;
       await refreshQuery();
     });
   }
@@ -119,6 +135,7 @@ export function useTagSession() {
     hasStaged,
     open,
     runQuery,
+    runSizeQuery,
     stageOps,
     undo,
     setStatsScope,

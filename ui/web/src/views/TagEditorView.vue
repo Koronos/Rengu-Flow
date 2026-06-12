@@ -99,6 +99,31 @@
               Quarantine matching
             </el-button>
           </div>
+          <div class="tag-editor__size-row">
+            <span class="tag-editor__size-label">Size filter (px):</span>
+            <el-input-number
+              v-model="sizeBelow"
+              :min="0"
+              :step="64"
+              size="small"
+              controls-position="right"
+            />
+            <el-button size="small" :loading="loading" @click="findBySize">
+              Find images with short side &lt; {{ sizeBelow }}
+            </el-button>
+            <el-button
+              size="small"
+              type="danger"
+              plain
+              :disabled="!sizeResultKeys.length"
+              @click="quarantineFound"
+            >
+              Quarantine found ({{ sizeResultKeys.length }})
+            </el-button>
+            <el-text size="small" type="info">
+              Bucketing resizes later — this catches thumbnails that tag/caption/train badly.
+            </el-text>
+          </div>
         </el-card>
 
         <el-card shadow="never" class="tag-editor__results">
@@ -129,7 +154,12 @@
                 class="tag-editor__thumb"
                 @click="openViewer(i)"
               />
-              <div class="tag-editor__cell-name" :title="key">{{ key }}</div>
+              <div class="tag-editor__cell-name" :title="key">
+                {{ key }}
+                <span v-if="query.sizes?.[key]" class="tag-editor__cell-size">
+                  {{ query.sizes[key][0] }}×{{ query.sizes[key][1] }}
+                </span>
+              </div>
               <div
                 class="tag-editor__cell-caption"
                 :title="(query.captions[key] ?? []).join('\n')"
@@ -228,6 +258,7 @@ const {
   hasStaged,
   open,
   runQuery: runSessionQuery,
+  runSizeQuery,
   stageOps,
   undo,
   setStatsScope,
@@ -240,6 +271,7 @@ const ext = ref(".txt");
 const filter = ref<TagEditOpDto["filter"]>({ all: [], any: [], none: [] });
 const editTags = ref<string[]>([]);
 const opScope = ref<"line1" | "tag_lines" | "all_lines">("tag_lines");
+const sizeBelow = ref(512);
 
 const diffOpen = ref(false);
 const diff = ref<TagDiffResult | null>(null);
@@ -276,6 +308,22 @@ function addTagToFilter(tag: string): void {
 
 async function runQuery(): Promise<void> {
   await runSessionQuery(filter.value, "tag_lines");
+}
+
+const sizeResultKeys = computed(() =>
+  query.value?.sizes ? query.value.keys : []
+);
+
+async function findBySize(): Promise<void> {
+  if (!sizeBelow.value) return;
+  await runSizeQuery({ below: sizeBelow.value });
+}
+
+function quarantineFound(): void {
+  void stage(
+    { op: "quarantine", keys: [...sizeResultKeys.value] },
+    `Staged: quarantine ${sizeResultKeys.value.length} small image(s)`
+  );
 }
 
 function currentFilter(): TagEditOpDto["filter"] | undefined {
@@ -461,6 +509,21 @@ async function restoreQuarantine(name: string): Promise<void> {
 .tag-editor__edit-tags {
   min-width: 220px;
   flex: 1;
+}
+.tag-editor__size-row {
+  margin-top: 10px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.tag-editor__size-label {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+.tag-editor__cell-size {
+  font-weight: 400;
+  color: var(--el-text-color-secondary);
 }
 .tag-editor__grid {
   display: grid;

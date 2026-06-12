@@ -679,6 +679,7 @@ export interface TagEditOpDto {
   tags?: string[];
   rename_to?: string | null;
   filter?: { all?: string[]; any?: string[]; none?: string[] };
+  keys?: string[];
   scope?: "line1" | "tag_lines" | "all_lines" | "line_n";
   line_index?: number | null;
   min_count?: number | null;
@@ -705,6 +706,7 @@ export interface TagQueryResult {
   keys: string[];
   captions: Record<string, string[]>;
   previews: Record<string, string>;
+  sizes?: Record<string, [number, number]>;
 }
 
 export interface TagDiffEntry {
@@ -762,6 +764,8 @@ export interface PrepCaptionConfig {
   batch_size: number;
   use_tags_as_grounding: boolean;
   overwrite: boolean;
+  max_image_side: number;
+  min_image_side: number;
 }
 
 export interface PrepCleanConfig {

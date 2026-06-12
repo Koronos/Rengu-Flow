@@ -493,6 +493,12 @@ export const api = {
       body: JSON.stringify({ filter, scope }),
     }),
 
+  prepTagSizeQuery: (sessionId: string, body: { below?: number; above?: number }) =>
+    request<TagQueryResult>(
+      `/prep/tags/sessions/${encodeURIComponent(sessionId)}/size-query`,
+      { method: "POST", body: JSON.stringify(body) }
+    ),
+
   prepStageTagOps: (sessionId: string, ops: TagEditOpDto[]) =>
     request<TagSessionSummary>(`/prep/tags/sessions/${encodeURIComponent(sessionId)}/ops`, {
       method: "POST",
