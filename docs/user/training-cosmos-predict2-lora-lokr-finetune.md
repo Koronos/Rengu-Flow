@@ -87,7 +87,11 @@ rank = 8
 - `alpha` is derived from `rank` (do not set `alpha` in TOML). Saves use the same
   Comfy-style keys as cosmos LoKr: `diffusion_model.<module path>.<weight>` plus a
   per-module `.alpha`.
-- Per-type extras match the SDXL table (`dora_wd`, LoKr's `factor`/`full_matrix`/…).
+- Per-type extras match the SDXL table (`dora_wd`, LoKr's `factor`/`full_matrix`/…),
+  including `rs_lora` (locon/dora) and `target_include`/`target_exclude` module
+  globs (paths look like `blocks.0.self_attn.q_proj`). `train_norm` is not
+  available here: the Cosmos DiT has no trainable norm weights, and requesting it
+  fails at startup.
 - DyLoRA and the OFT family are exposed for SDXL only: DyLoRA conflicts with
   `activation_checkpointing` (standard in cosmos configs), and Diag-OFT/BOFT's staged
   weight rebuild does not fit the DiT on 16 GB cards.

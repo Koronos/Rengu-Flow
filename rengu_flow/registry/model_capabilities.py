@@ -38,6 +38,25 @@ LYCORIS_FIELD_GROUPS: list[tuple[dict[str, Any], frozenset[str]]] = [
     ({"path": "adapter.dropout", "label": "Dropout", "type": "number", "default": 0.0}, _ALL_LYCORIS),
     ({"path": "adapter.rank_dropout", "label": "Rank dropout", "type": "number", "default": 0.0}, _ALL_LYCORIS),
     ({"path": "adapter.module_dropout", "label": "Module dropout", "type": "number", "default": 0.0}, _ALL_LYCORIS),
+    ({"path": "adapter.train_norm", "label": "Train norm layers", "type": "boolean", "default": False}, _ALL_LYCORIS),
+    (
+        {
+            "path": "adapter.target_include",
+            "label": "Target include patterns",
+            "type": "string_list",
+            "placeholder": "e.g. *attn*",
+        },
+        _ALL_LYCORIS,
+    ),
+    (
+        {
+            "path": "adapter.target_exclude",
+            "label": "Target exclude patterns",
+            "type": "string_list",
+            "placeholder": "e.g. *ff*",
+        },
+        _ALL_LYCORIS,
+    ),
     # Shared by all except lycoris_dylora
     ({"path": "adapter.train_conv", "label": "Train conv layers", "type": "boolean", "default": False}, _LYCORIS_WITH_TRAIN_CONV),
     # locon, loha, dora, lokr — tucker/scalar/wd_on_output
@@ -46,6 +65,8 @@ LYCORIS_FIELD_GROUPS: list[tuple[dict[str, Any], frozenset[str]]] = [
     ({"path": "adapter.wd_on_output", "label": "DoRA output axis", "type": "boolean", "default": True}, _LOCON_LOHA_DORA_LOKR),
     # dora_wd: locon, loha, lokr (NOT dora — implied by the type)
     ({"path": "adapter.dora_wd", "label": "DoRA decomposition", "type": "boolean", "default": False}, _LOCON_LOHA | frozenset({"lycoris_lokr"})),
+    # rs_lora only exists on LoConModule (locon / dora)
+    ({"path": "adapter.rs_lora", "label": "Rank-stabilized scale", "type": "boolean", "default": False}, frozenset({"lycoris_locon", "lycoris_dora"})),
     # lokr-only extras
     ({"path": "adapter.factor", "label": "LoKr factor", "type": "integer", "default": -1}, frozenset({"lycoris_lokr"})),
     ({"path": "adapter.full_matrix", "label": "LoKr full_matrix", "type": "boolean", "default": False}, frozenset({"lycoris_lokr"})),

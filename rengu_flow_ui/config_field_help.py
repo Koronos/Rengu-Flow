@@ -264,6 +264,42 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         ),
         "doc": "docs/user/training-sdxl-lora-lokr.md",
     },
+    "adapter.train_norm": {
+        "summary": "Also trains the existing LayerNorm/GroupNorm weights alongside the adapter (default off).",
+        "detail": (
+            "Exports them as w_norm/b_norm keys, which ComfyUI loads with the rest of the file. "
+            "Try it when global tone, contrast, or palette refuses to shift at a rank that otherwise "
+            "works. SDXL only — the Cosmos DiT has no trainable norm weights, so the run fails fast there."
+        ),
+        "doc": "docs/user/training-sdxl-lora-lokr.md",
+    },
+    "adapter.rs_lora": {
+        "summary": "Scales the adapter delta by alpha/sqrt(rank) instead of alpha/rank (default off).",
+        "detail": (
+            "Rank-stabilized LoRA: standard scaling shrinks the effective update as rank grows; "
+            "sqrt scaling keeps it steady. Worth trying at rank 32+. The exported per-module alpha "
+            "is adjusted (alpha x sqrt(rank)) so loaders reproduce the trained strength unchanged."
+        ),
+        "doc": "docs/user/training-sdxl-lora-lokr.md",
+    },
+    "adapter.target_include": {
+        "summary": "Only attaches the adapter to modules whose path matches one of these glob patterns (empty = all modules).",
+        "detail": (
+            "Patterns match the full dotted module path (e.g. unet.down_blocks.0...attn1.to_q on SDXL, "
+            "blocks.0.self_attn... on Cosmos). *attn* trains attention only — smaller file with the "
+            "capacity focused on composition/identity instead of textures."
+        ),
+        "doc": "docs/user/training-sdxl-lora-lokr.md",
+    },
+    "adapter.target_exclude": {
+        "summary": "Skips modules whose path matches any of these glob patterns, applied after the include list (empty = skip none).",
+        "detail": (
+            "Same path matching as Target include. E.g. *ff* (SDXL) or *mlp* (Cosmos) leaves the "
+            "feed-forward layers untrained. If include and exclude together match nothing, the run "
+            "fails at startup instead of training an empty adapter."
+        ),
+        "doc": "docs/user/training-sdxl-lora-lokr.md",
+    },
     "adapter.unbalanced_factorization": {
         "summary": "LoKr: swaps which output factor each Kronecker side gets (default off).",
         "detail": (

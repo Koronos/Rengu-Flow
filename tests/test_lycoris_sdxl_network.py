@@ -33,11 +33,14 @@ def _config(adapter_type):
 
 
 def _models():
-    """Minimal SDXL-shaped tree: unet with down/mid/up blocks plus two text encoders."""
+    """Minimal SDXL-shaped tree: unet with down/mid/up blocks plus two text encoders.
+
+    Each block carries an affine LayerNorm so train_norm has something to attach to
+    (ignored by the Linear-only preset when train_norm is off)."""
     torch.manual_seed(0)
 
     def block():
-        return nn.Sequential(nn.Linear(16, 16), nn.Linear(16, 16))
+        return nn.Sequential(nn.Linear(16, 16), nn.LayerNorm(16), nn.Linear(16, 16))
 
     unet = nn.Module()
     unet.down_blocks = block()
@@ -333,3 +336,108 @@ def test_validation_dylora_rejects_activation_checkpointing():
     cfg = _base_config({"type": "lycoris_dylora", "rank": 8})
     cfg["activation_checkpointing"] = True
     assert any("activation_checkpointing" in i for i in collect_validation_errors(cfg))
+
+
+def test_train_norm_attaches_exports_and_round_trips(tmp_path):
+    """train_norm adds NormModule on the blocks' LayerNorms: exported as w_norm/b_norm
+    without alpha, loadable, and fusable with output parity."""
+    cfg = _config("lycoris_locon")
+    cfg["train_norm"] = True
+    unet, te, te2 = _models()
+    lycoris_sdxl.configure(unet, te, te2, cfg)
+    kinds = [type(m).__name__ for _, m in lycoris_attach.iter_attached_adapters(unet)]
+    assert kinds.count("NormModule") == 3  # one LayerNorm per unet block
+    x16 = _train_one_step(unet, te, te2)
+    with torch.no_grad():
+        expected = unet.down_blocks(x16)
+    snapshot = _snapshot(unet, te, te2)
+    lycoris_sdxl.save(tmp_path, snapshot, cfg)
+
+    import safetensors.torch
+
+    state = safetensors.torch.load_file(tmp_path / "adapter_model.safetensors")
+    norm_modules = {k.rsplit(".w_norm", 1)[0] for k in state if k.endswith(".w_norm")}
+    assert norm_modules
+    assert all(f"{m}.b_norm" in state for m in norm_modules)
+    assert all(f"{m}.alpha" not in state for m in norm_modules)
+    failures, _ = check_export(tmp_path / "adapter_model.safetensors", "lycoris_locon")
+    assert not failures, failures
+
+    cfg2 = _config("lycoris_locon")
+    cfg2["train_norm"] = True
+    unet2, te2_, te22 = _models()
+    lycoris_sdxl.configure(unet2, te2_, te22, cfg2)
+    lycoris_sdxl.load(_Pipe(unet2, te2_, te22), tmp_path)
+    with torch.no_grad():
+        assert torch.allclose(unet2.down_blocks(x16), expected, atol=1e-5)
+    lycoris_sdxl.fuse(_Pipe(unet2, te2_, te22))
+    with torch.no_grad():
+        assert torch.allclose(unet2.down_blocks(x16), expected, atol=1e-4)
+
+
+def test_rs_lora_scale_and_export_alpha(tmp_path):
+    """rs_lora trains at alpha/sqrt(r) and exports alpha*sqrt(r) so loaders
+    (scale = alpha/rank) reproduce the trained strength."""
+    cfg = _config("lycoris_locon")
+    cfg["rs_lora"] = True
+    unet, te, te2 = _models()
+    lycoris_sdxl.configure(unet, te, te2, cfg)
+    _, lora = next(lycoris_attach.iter_attached_adapters(unet))
+    rank = cfg["rank"]
+    assert lora.rs_lora is True
+    assert lora.scale == pytest.approx(rank / rank**0.5)
+    assert float(lora.alpha) == pytest.approx(rank * rank**0.5)
+
+    x16 = _train_one_step(unet, te, te2)
+    with torch.no_grad():
+        expected = unet.down_blocks(x16)
+    lycoris_sdxl.save(tmp_path, _snapshot(unet, te, te2), cfg)
+
+    import safetensors.torch
+
+    state = safetensors.torch.load_file(tmp_path / "adapter_model.safetensors")
+    alphas = [v for k, v in state.items() if k.endswith(".alpha")]
+    assert all(float(a) == pytest.approx(rank * rank**0.5) for a in alphas)
+    failures, _ = check_export(tmp_path / "adapter_model.safetensors", "lycoris_locon")
+    assert not failures, failures
+
+    cfg2 = _config("lycoris_locon")
+    cfg2["rs_lora"] = True
+    unet2, te2_, te22 = _models()
+    lycoris_sdxl.configure(unet2, te2_, te22, cfg2)
+    lycoris_sdxl.load(_Pipe(unet2, te2_, te22), tmp_path)
+    with torch.no_grad():
+        assert torch.allclose(unet2.down_blocks(x16), expected, atol=1e-5)
+
+
+def test_target_include_exclude_filtering():
+    cfg = _config("lycoris_loha")
+    cfg["target_include"] = ["unet.mid_block*"]
+    unet, te, te2 = _models()
+    lycoris_sdxl.configure(unet, te, te2, cfg)
+    attached = [p for m in (unet, te, te2) for p, _ in lycoris_attach.iter_attached_adapters(m)]
+    assert len(attached) == 2  # only mid_block's two Linears
+
+    cfg = _config("lycoris_loha")
+    cfg["target_exclude"] = ["*.0"]  # first Linear of every Sequential
+    unet, te, te2 = _models()
+    lycoris_sdxl.configure(unet, te, te2, cfg)
+    n = sum(1 for m in (unet, te, te2) for _ in lycoris_attach.iter_attached_adapters(m))
+    assert n == 3  # unet blocks keep only their second Linear; TEs lose theirs
+
+    cfg = _config("lycoris_loha")
+    cfg["target_include"] = ["no_such_module*"]
+    unet, te, te2 = _models()
+    with pytest.raises(RuntimeError, match="attached 0 modules"):
+        lycoris_sdxl.configure(unet, te, te2, cfg)
+
+
+def test_validation_rs_lora_and_target_lists():
+    issues = _adapter_issues({"type": "lycoris_loha", "rank": 8, "rs_lora": True})
+    assert any("keys not supported by lycoris_loha" in i for i in issues)
+    assert not _adapter_issues({"type": "lycoris_locon", "rank": 8, "rs_lora": True})
+    assert not _adapter_issues({"type": "lycoris_locon", "rank": 8, "train_norm": True})
+    issues = _adapter_issues({"type": "lycoris_locon", "rank": 8, "target_include": "attn"})
+    assert any("non-empty list of glob patterns" in i for i in issues)
+    issues = _adapter_issues({"type": "lycoris_locon", "rank": 8, "target_exclude": []})
+    assert any("non-empty list of glob patterns" in i for i in issues)

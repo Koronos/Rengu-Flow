@@ -148,3 +148,60 @@ def test_capabilities_expose_cosmos_lycoris():
         assert cosmos["adapter_labels"][adapter_type].startswith("LyCORIS · ")
     assert "lycoris_dylora" not in cosmos["adapters"]
     assert "lycoris_boft" not in cosmos["adapters"]
+
+
+def test_targeting_on_dit():
+    torch.manual_seed(0)
+    model = DummyDiT()
+    cfg = _config("lycoris_locon")
+    cfg["target_include"] = ["*q_proj*"]
+    lycoris_dit.configure(model, cfg)
+    attached = [p for p, _ in lycoris_attach.iter_attached_adapters(model)]
+    assert len(attached) == 2
+    assert all("q_proj" in p for p in attached)
+
+    torch.manual_seed(0)
+    model = DummyDiT()
+    cfg = _config("lycoris_loha")
+    cfg["target_exclude"] = ["*mlp*"]
+    lycoris_dit.configure(model, cfg)
+    attached = [p for p, _ in lycoris_attach.iter_attached_adapters(model)]
+    assert len(attached) == 4
+    assert not any("mlp" in p for p in attached)
+
+
+def test_rs_lora_on_dit(tmp_path):
+    torch.manual_seed(0)
+    model = DummyDiT()
+    cfg = _config("lycoris_dora")
+    cfg["rs_lora"] = True
+    lycoris_dit.configure(model, cfg)
+    _, lora = next(lycoris_attach.iter_attached_adapters(model))
+    assert lora.rs_lora is True
+    assert float(lora.alpha) == pytest.approx(4 * 2.0)  # rank 4 -> alpha*sqrt(4)
+    _train_one_step(model)
+    snapshot = {
+        p.original_name: p.detach().clone() for p in model.parameters() if p.requires_grad
+    }
+    lycoris_dit.save(tmp_path, snapshot, cfg)
+    failures, _ = check_export(
+        tmp_path / "adapter_model.safetensors", "lycoris_dora", style="cosmos"
+    )
+    assert not failures, failures
+
+    import safetensors.torch
+
+    state = safetensors.torch.load_file(tmp_path / "adapter_model.safetensors")
+    alphas = [float(v) for k, v in state.items() if k.endswith(".alpha")]
+    assert alphas and all(a == pytest.approx(8.0) for a in alphas)
+
+
+def test_train_norm_rejected_on_dit_without_affine_norms():
+    """The cosmos-style DiT has no affine LayerNorm/GroupNorm: train_norm must fail
+    loudly instead of silently training nothing extra."""
+    torch.manual_seed(0)
+    model = DummyDiT()
+    cfg = _config("lycoris_locon")
+    cfg["train_norm"] = True
+    with pytest.raises(RuntimeError, match="no trainable LayerNorm/GroupNorm"):
+        lycoris_dit.configure(model, cfg)

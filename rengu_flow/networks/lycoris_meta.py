@@ -32,17 +32,45 @@ FORCED_ALGO_KWARGS = {
 # by validation but rejected by defaults with the alpha=rank message (same rule as
 # lora/lokr); ``dim`` is the Kohya-style alias normalized to ``rank``.
 COMMON_CONFIG_KEYS = frozenset(
-    {"type", "rank", "dim", "alpha", "dtype", "train_conv", "init_from_existing"}
+    {
+        "type",
+        "rank",
+        "dim",
+        "alpha",
+        "dtype",
+        "train_conv",
+        "init_from_existing",
+        # Module targeting: fnmatch globs against the full dotted module path
+        # (e.g. "unet.down_blocks.0...attn1.to_q"); absent include = all modules.
+        "target_include",
+        "target_exclude",
+    }
 )
+
+# Config keys consumed by rengu's attach layer itself, never forwarded to
+# create_lycoris (rs_lora is applied as a post-init override — create_lycoris
+# does not forward it to the modules).
+ATTACH_ONLY_KEYS = frozenset({"rs_lora"})
 
 # Per-type tunables passed through to create_lycoris. Spelling follows the
 # create_lycoris kwargs (DoRA toggle is ``dora_wd``, not ``weight_decompose``).
 _DROPOUTS = ("dropout", "rank_dropout", "module_dropout")
+# train_norm is network-level (NormModule on LayerNorm/GroupNorm), available on
+# every algorithm; rs_lora only exists on LoConModule (locon/dora).
 ALGO_CONFIG_KEYS = {
-    "lycoris_locon": (*_DROPOUTS, "use_tucker", "use_scalar", "dora_wd", "wd_on_output"),
-    "lycoris_loha": (*_DROPOUTS, "use_tucker", "use_scalar", "dora_wd", "wd_on_output"),
+    "lycoris_locon": (
+        *_DROPOUTS,
+        "train_norm",
+        "use_tucker",
+        "use_scalar",
+        "dora_wd",
+        "wd_on_output",
+        "rs_lora",
+    ),
+    "lycoris_loha": (*_DROPOUTS, "train_norm", "use_tucker", "use_scalar", "dora_wd", "wd_on_output"),
     "lycoris_lokr": (
         *_DROPOUTS,
+        "train_norm",
         "use_tucker",
         "use_scalar",
         "dora_wd",
@@ -53,16 +81,21 @@ ALGO_CONFIG_KEYS = {
         "unbalanced_factorization",
     ),
     # dora_wd is implied by the type itself; offering it would invite dora_wd=false.
-    "lycoris_dora": (*_DROPOUTS, "use_tucker", "use_scalar", "wd_on_output"),
-    "lycoris_dylora": (*_DROPOUTS, "block_size"),
-    "lycoris_glora": _DROPOUTS,
-    "lycoris_diag_oft": (*_DROPOUTS, "constraint", "rescaled"),
-    "lycoris_boft": (*_DROPOUTS, "constraint", "rescaled"),
+    "lycoris_dora": (*_DROPOUTS, "train_norm", "use_tucker", "use_scalar", "wd_on_output", "rs_lora"),
+    "lycoris_dylora": (*_DROPOUTS, "train_norm", "block_size"),
+    "lycoris_glora": (*_DROPOUTS, "train_norm"),
+    "lycoris_diag_oft": (*_DROPOUTS, "train_norm", "constraint", "rescaled"),
+    "lycoris_boft": (*_DROPOUTS, "train_norm", "constraint", "rescaled"),
 }
 
 # Defaults mirror create_lycoris (wrapper.py): dropouts 0.0, toggles off,
 # wd_on_output True, lokr factor -1, dylora block_size 4, oft/boft constraint 0.0.
-_SHARED_DEFAULTS = {"dropout": 0.0, "rank_dropout": 0.0, "module_dropout": 0.0}
+_SHARED_DEFAULTS = {
+    "dropout": 0.0,
+    "rank_dropout": 0.0,
+    "module_dropout": 0.0,
+    "train_norm": False,
+}
 ALGO_CONFIG_DEFAULTS = {
     "lycoris_locon": {
         **_SHARED_DEFAULTS,
@@ -70,6 +103,7 @@ ALGO_CONFIG_DEFAULTS = {
         "use_scalar": False,
         "dora_wd": False,
         "wd_on_output": True,
+        "rs_lora": False,
     },
     "lycoris_loha": {
         **_SHARED_DEFAULTS,
@@ -94,6 +128,7 @@ ALGO_CONFIG_DEFAULTS = {
         "use_tucker": False,
         "use_scalar": False,
         "wd_on_output": True,
+        "rs_lora": False,
     },
     "lycoris_dylora": {**_SHARED_DEFAULTS, "block_size": 4},
     "lycoris_glora": dict(_SHARED_DEFAULTS),
@@ -160,6 +195,15 @@ WEIGHT_KEY_FAMILIES = {
     },
 }
 
+# train_norm attaches NormModule to LayerNorm/GroupNorm layers regardless of the
+# algorithm; its exported modules carry only these keys (no alpha entry).
+NORM_MODULE_FAMILY = {
+    "required": ("w_norm",),
+    "optional": ("b_norm",),
+    "either": (),
+    "delta": "w_norm",
+}
+
 # When use_scalar=True the trained ``scalar`` is folded into these tensors at export
 # (exactly what each module's custom_state_dict does); for LoKr only whichever W1
 # family is present gets folded.
@@ -202,6 +246,19 @@ def collect_lycoris_adapter_issues(adapter: dict) -> list[str]:
         # Upstream DyLoraModule allocates 2D block lists from (out, in) only; full
         # conv kernels don't round-trip through its state dict.
         issues.append("lycoris_dylora does not support train_conv = true.")
+    for key in ("target_include", "target_exclude"):
+        patterns = adapter.get(key)
+        if patterns is None:
+            continue
+        if (
+            not isinstance(patterns, list)
+            or not patterns
+            or not all(isinstance(p, str) and p.strip() for p in patterns)
+        ):
+            issues.append(
+                f"adapter.{key} must be a non-empty list of glob patterns "
+                f'(e.g. ["*attn*"]); omit it to match all modules.'
+            )
     rank = adapter.get("rank", adapter.get("dim"))
     if adapter_type == "lycoris_dylora" and rank is not None:
         block_size = adapter.get("block_size", ALGO_CONFIG_DEFAULTS["lycoris_dylora"]["block_size"])
@@ -226,7 +283,7 @@ def create_lycoris_kwargs(adapter_config: dict) -> tuple[str, dict]:
     kwargs = {
         key: adapter_config[key]
         for key in ALGO_CONFIG_KEYS[adapter_type]
-        if key in adapter_config
+        if key in adapter_config and key not in ATTACH_ONLY_KEYS
     }
     kwargs.update(FORCED_ALGO_KWARGS.get(adapter_type, {}))
     return ALGO_MAP[adapter_type], kwargs

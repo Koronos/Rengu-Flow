@@ -42,6 +42,13 @@ case "${MODEL}" in
   cosmos_lycoris_locon|cosmos_lycoris_loha|cosmos_lycoris_lokr|cosmos_lycoris_dora)
     IS_LYCORIS=1; ALGO="${MODEL#cosmos_lycoris_}"; LYCORIS_STYLE="cosmos"
     CONFIG="${REPO_ROOT}/tests/fixtures/smoke/${COSMOS_LYCORIS_STEM}_${ALGO}.toml" ;;
+  # extras fixtures: locon/dora plus rs_lora + train_norm (SDXL) + target globs
+  sdxl_lycoris_extras)
+    IS_LYCORIS=1; ALGO="locon"
+    CONFIG="${REPO_ROOT}/tests/fixtures/smoke/${SDXL_LYCORIS_STEM}_extras.toml" ;;
+  cosmos_lycoris_extras)
+    IS_LYCORIS=1; ALGO="dora"; LYCORIS_STYLE="cosmos"
+    CONFIG="${REPO_ROOT}/tests/fixtures/smoke/${COSMOS_LYCORIS_STEM}_extras.toml" ;;
   sdxl_lycoris_all)
     IS_LYCORIS_ALL=1
     CONFIG="${REPO_ROOT}/tests/fixtures/smoke/${SDXL_LYCORIS_STEM}_locon.toml" ;;
@@ -50,7 +57,7 @@ case "${MODEL}" in
     LYCORIS_STEM="${COSMOS_LYCORIS_STEM}"; LYCORIS_ALGOS="${COSMOS_LYCORIS_ALGOS}"
     CONFIG="${REPO_ROOT}/tests/fixtures/smoke/${COSMOS_LYCORIS_STEM}_locon.toml" ;;
   *)
-    echo "Usage: $0 sdxl|sdxl_lokr|cosmos|cosmos_lokr|sdxl_lycoris_<algo>|sdxl_lycoris_all|cosmos_lycoris_<algo>|cosmos_lycoris_all" >&2
+    echo "Usage: $0 sdxl|sdxl_lokr|cosmos|cosmos_lokr|sdxl_lycoris_<algo>|sdxl_lycoris_extras|sdxl_lycoris_all|cosmos_lycoris_<algo>|cosmos_lycoris_extras|cosmos_lycoris_all" >&2
     echo "  sdxl lycoris algos:   ${SDXL_LYCORIS_ALGOS// /|}" >&2
     echo "  cosmos lycoris algos: ${COSMOS_LYCORIS_ALGOS// /|}" >&2
     exit 1

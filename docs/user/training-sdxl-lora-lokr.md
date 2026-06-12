@@ -80,6 +80,30 @@ Every type accepts `rank` (or its alias `dim`), `dtype`, `dropout`, `rank_dropou
 | `lycoris_diag_oft` | LyCORIS · Diag-OFT | Diagonal orthogonal rotation; `rank` sets the block split per layer instead of a low-rank dimension | `constraint` (default `0.0`), `rescaled` (default `false`). The exported `.alpha` stores the `constraint` value, not a rank. |
 | `lycoris_boft` | LyCORIS · BOFT | Butterfly orthogonal rotation | `constraint` (default `0.0`), `rescaled` (default `false`). The exported `.alpha` stores the `constraint` value, not a rank. BOFT needs every adapted layer width to split as (even m ≤ rank) × power-of-two; SDXL widths carry a factor of 5, so `rank = 10` is the smallest that fits — smaller ranks fail at startup with "impossible to decompose". Its staged weight rebuild is also the most VRAM-hungry type: on a 16 GB card add `blocks_to_swap` (e.g. 8) or it OOMs even at 512px. |
 
+### Shared LyCORIS options
+
+All `lycoris_*` types also accept:
+
+- **`train_norm`** (default `false`): additionally trains the existing
+  LayerNorm/GroupNorm weights, exported as `w_norm`/`b_norm` keys (ComfyUI loads
+  them). Useful when global tone or contrast refuses to shift. SDXL only — the
+  Cosmos DiT has no trainable norm weights, and the run fails fast if requested.
+- **`rs_lora`** (default `false`, `lycoris_locon`/`lycoris_dora` only):
+  rank-stabilized scaling `alpha / sqrt(rank)` instead of `alpha / rank`, keeping
+  the update magnitude steady at high ranks (32+). The exported per-module alpha
+  becomes `alpha * sqrt(rank)` so any loader reproduces the trained strength.
+- **`target_include` / `target_exclude`** (default: all modules): glob patterns
+  matched against each module's full dotted path; include is applied first, then
+  exclude. The run fails at startup if nothing matches. Example — attention-only
+  LoHa on the UNet:
+
+```toml
+[adapter]
+type = "lycoris_loha"
+rank = 16
+target_include = ["unet.*attn*"]
+```
+
 ### Key format and compatibility
 
 Exported files use kohya-flat key prefixes:

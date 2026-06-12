@@ -28,7 +28,7 @@ ATTACH_ATTR = "lycoris_adapter"
 _PRESET_NAME = "rengu"
 
 
-def _register_preset(train_conv: bool, lora_prefix: str = "lycoris") -> str:
+def _register_preset(train_conv: bool, lora_prefix: str = "lycoris", train_norm: bool = False) -> str:
     """Register a complete preset under a fixed name and return that name.
 
     ``LycorisNetwork.apply_preset`` mutates class-level state key by key, so a
@@ -38,6 +38,10 @@ def _register_preset(train_conv: bool, lora_prefix: str = "lycoris") -> str:
     import lycoris.config
 
     target_module = ["Linear", "Conv2d"] if train_conv else ["Linear"]
+    if train_norm:
+        # NormModule only supports affine LayerNorm/GroupNorm; the train_norm kwarg
+        # routes these classes to it instead of the main algorithm.
+        target_module += ["LayerNorm", "GroupNorm"]
     lycoris.config.PRESET[_PRESET_NAME] = {
         "enable_conv": train_conv,
         "target_module": target_module,
@@ -58,15 +62,23 @@ def configure_roots(roots, adapter_config):
     params get ``original_name = prefix + name``, and the containers under it that
     actually receive adapters (e.g. only the unet's down/mid/up blocks).
     """
+    from fnmatch import fnmatch
+
     from lycoris import create_lycoris
 
     algo, algo_kwargs = create_lycoris_kwargs(adapter_config)
     rank = adapter_config["rank"]
     alpha = adapter_config["alpha"]
     dtype = adapter_config.get("dtype")
-    preset = _register_preset(adapter_config.get("train_conv", False))
+    train_norm = bool(adapter_config.get("train_norm", False))
+    rs_lora = bool(adapter_config.get("rs_lora", False))
+    include = adapter_config.get("target_include") or ["*"]
+    exclude = adapter_config.get("target_exclude") or []
+    preset = _register_preset(adapter_config.get("train_conv", False), train_norm=train_norm)
 
     total_modules = 0
+    norm_modules = 0
+    filtered_out = 0
     for module, containers, prefix in roots:
         first = next(module.parameters(), None)
         if first is not None and first.device.type == "meta":
@@ -79,6 +91,8 @@ def configure_roots(roots, adapter_config):
             continue
         for p in module.parameters():
             p.requires_grad_(False)
+        # Full dotted path per wrapped layer, for target_include/exclude globs.
+        path_of = {id(m): prefix + name for name, m in module.named_modules()}
         for container in containers:
             if container is None:
                 continue
@@ -93,31 +107,76 @@ def configure_roots(roots, adapter_config):
                 **algo_kwargs,
             )
             for lora in net.loras:
+                if getattr(lora, "not_supported", False):
+                    continue
                 org = lora.org_module[0]
+                path = path_of[id(org)]
+                if not any(fnmatch(path, pat) for pat in include) or any(
+                    fnmatch(path, pat) for pat in exclude
+                ):
+                    filtered_out += 1
+                    continue
                 if hasattr(org, ATTACH_ATTR):
                     raise RuntimeError(
                         f"Module already has a {ATTACH_ATTR}; configure_roots called twice?"
                     )
+                if rs_lora and type(lora).__name__ == "LoConModule":
+                    _apply_rs_lora(lora)
                 lora.apply_to()
                 lora.requires_grad_(True)
                 setattr(org, ATTACH_ATTR, lora)
                 total_modules += 1
+                if type(lora).__name__ == "NormModule":
+                    norm_modules += 1
             del net
         for name, p in module.named_parameters():
             p.original_name = prefix + name
             if p.requires_grad and dtype is not None:
                 p.data = p.data.to(dtype)
 
+    if total_modules == 0:
+        raise RuntimeError(
+            "LyCORIS attached 0 modules — target_include/target_exclude filtered "
+            f"everything out ({filtered_out} candidates dropped)."
+        )
+    if train_norm and norm_modules == 0:
+        raise RuntimeError(
+            "train_norm = true but no trainable LayerNorm/GroupNorm matched. The "
+            "Cosmos DiT has no affine norm weights (train_norm is SDXL-only); on "
+            "SDXL check your target_include/target_exclude patterns."
+        )
     if is_main_process():
         trainable = sum(
             p.numel() for module, _, _ in roots for p in module.parameters() if p.requires_grad
         )
         total = sum(p.numel() for module, _, _ in roots for p in module.parameters())
-        print(f"LyCORIS ({algo}): attached {total_modules} modules")
+        extras = []
+        if norm_modules:
+            extras.append(f"{norm_modules} norm")
+        if filtered_out:
+            extras.append(f"{filtered_out} filtered out by targets")
+        suffix = f" ({', '.join(extras)})" if extras else ""
+        print(f"LyCORIS ({algo}): attached {total_modules} modules{suffix}")
         print(
             f"  trainable params: {trainable:,d} || all params: {total:,d} "
             f"|| trainable%: {100 * trainable / total:.4f}"
         )
+
+
+def _apply_rs_lora(lora):
+    """Rank-stabilized scaling on a LoConModule created without it.
+
+    ``create_lycoris`` does not forward ``rs_lora`` to the modules, so reproduce
+    its two effects post-init (locon.py: r_factor = sqrt(lora_dim)):
+    ``scale = alpha / sqrt(r)`` and the exported-alpha buffer ``alpha * sqrt(r)``.
+    """
+    import math
+
+    r = lora.lora_dim
+    cfg_alpha = float(lora.alpha.item())  # buffer still holds the plain config alpha
+    lora.rs_lora = True
+    lora.scale = cfg_alpha / math.sqrt(r)
+    lora.alpha.fill_(cfg_alpha * math.sqrt(r))
 
 
 def iter_attached_adapters(module):
@@ -151,6 +210,13 @@ def save_transform(state_dict, adapter_config, prefix_map, *, flat=True):
     algo, _ = create_lycoris_kwargs(adapter_config)
     if adapter_type in ALPHA_IS_CONSTRAINT:
         alpha_value = float(adapter_config["constraint"])
+    elif adapter_config.get("rs_lora"):
+        # Loaders compute scale = alpha / rank; rank-stabilized training used
+        # alpha / sqrt(rank), so export alpha * sqrt(rank) (matches the upstream
+        # rs_lora alpha buffer).
+        import math
+
+        alpha_value = float(adapter_config["alpha"]) * math.sqrt(adapter_config["rank"])
     else:
         alpha_value = float(adapter_config["alpha"])
 
@@ -182,6 +248,9 @@ def save_transform(state_dict, adapter_config, prefix_map, *, flat=True):
                     collected[target] = collected[target] * scalar.to(collected[target].dtype)
         for param_name, tensor in collected.items():
             out[f"{mod_name}.{param_name}"] = tensor.contiguous()
+        if set(collected) <= {"w_norm", "b_norm"}:
+            # train_norm module: upstream NormModule state dicts carry no alpha.
+            continue
         out[f"{mod_name}.alpha"] = torch.tensor(alpha_value)
     return out
 

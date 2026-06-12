@@ -19,7 +19,11 @@ import safetensors
 import safetensors.torch
 import torch
 
-from rengu_flow.networks.lycoris_meta import LYCORIS_ADAPTER_TYPES, WEIGHT_KEY_FAMILIES
+from rengu_flow.networks.lycoris_meta import (
+    LYCORIS_ADAPTER_TYPES,
+    NORM_MODULE_FAMILY,
+    WEIGHT_KEY_FAMILIES,
+)
 
 # adapter type -> class name get_module must resolve every module to. DyLoRA
 # deploys as plain up/down matrices, so its export parses as LoCon by design.
@@ -44,7 +48,11 @@ STYLE_PREFIXES = {
 
 
 def _family_weight_names(fam):
+    # Norm-module keys are always accepted alongside the algorithm's own family:
+    # train_norm composes with every algo.
     names = {"alpha", *fam["required"], *fam["optional"]}
+    names.update(NORM_MODULE_FAMILY["required"])
+    names.update(NORM_MODULE_FAMILY["optional"])
     for group in fam["either"]:
         for alt in group:
             names.update(alt)
@@ -86,15 +94,26 @@ def check_export(path, adapter_type, style="kohya"):
             allowed.update(alt)
     deltas = fam["delta"] if isinstance(fam["delta"], tuple) else (fam["delta"],)
 
+    norm_allowed = set(NORM_MODULE_FAMILY["required"]) | set(NORM_MODULE_FAMILY["optional"])
     zero_delta = []
+    norm_modules = set()
     for module_name, subs in per_module.items():
-        missing = set(fam["required"]) - set(subs)
+        mod_fam = fam
+        mod_deltas = deltas
+        mod_allowed = allowed
+        if "w_norm" in subs:
+            # train_norm module: own key family, no alpha entry.
+            norm_modules.add(module_name)
+            mod_fam = NORM_MODULE_FAMILY
+            mod_deltas = (NORM_MODULE_FAMILY["delta"],)
+            mod_allowed = norm_allowed
+        missing = set(mod_fam["required"]) - set(subs)
         if missing:
             failures.append(f"{module_name}: missing required keys {sorted(missing)}")
-        foreign = set(subs) - allowed
+        foreign = set(subs) - mod_allowed
         if foreign:
             failures.append(f"{module_name}: foreign keys {sorted(foreign)}")
-        for group in fam["either"]:
+        for group in mod_fam["either"]:
             hits = [alt for alt in group if set(alt) <= set(subs)]
             if len(hits) != 1:
                 failures.append(
@@ -106,7 +125,7 @@ def check_export(path, adapter_type, style="kohya"):
         for sub, tensor in subs.items():
             if not torch.isfinite(tensor).all():
                 failures.append(f"{module_name}.{sub}: non-finite values")
-        if not any(s in subs and subs[s].abs().sum() > 0 for s in deltas):
+        if not any(s in subs and subs[s].abs().sum() > 0 for s in mod_deltas):
             zero_delta.append(module_name)
     if zero_delta:
         failures.append(
@@ -120,11 +139,12 @@ def check_export(path, adapter_type, style="kohya"):
     expected_cls = EXPECTED_MODULE_CLASS[adapter_type]
     for module_name in per_module:
         cls, params = get_module(state, module_name)
+        wanted = "NormModule" if module_name in norm_modules else expected_cls
         if cls is None:
             failures.append(f"{module_name}: lycoris get_module cannot parse")
-        elif cls.__name__ != expected_cls:
+        elif cls.__name__ != wanted:
             failures.append(
-                f"{module_name}: parsed as {cls.__name__}, expected {expected_cls}"
+                f"{module_name}: parsed as {cls.__name__}, expected {wanted}"
             )
     return failures, len(per_module)
 
