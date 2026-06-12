@@ -167,7 +167,8 @@ def test_metadata_map_fn_uses_embedded_json_caption_field(tmp_path, img_dir):
     assert out["caption"] == [["from preloaded json", "second variant"]]
 
 
-def test_cache_shuffle_ignored_when_shuffle_tags_off(tmp_path, img_dir):
+def test_retired_shuffle_keys_are_ignored_with_warning(tmp_path, img_dir, capsys):
+    """shuffle_tags/cache_shuffle_num were retired: captions pass through untouched."""
     img = _copy_fixture_image(img_dir, "tags")
     (img_dir / "tags.txt").write_text("alpha, beta, gamma\n", encoding="utf-8")
     dd = DirectoryDataset(
@@ -175,14 +176,15 @@ def test_cache_shuffle_ignored_when_shuffle_tags_off(tmp_path, img_dir):
             "path": str(img_dir),
             "num_repeats": 1,
             "shuffle_metadata": False,
-            "shuffle_tags": False,
+            "shuffle_tags": True,
             "cache_shuffle_num": 3,
         },
-        {**MINIMAL_DATASET_CONFIG, "cache_shuffle_num": 3},
+        MINIMAL_DATASET_CONFIG,
         "sdxl",
         skip_dataset_validation=True,
     )
-    assert dd.shuffle == 0
+    out_text = capsys.readouterr().out
+    assert "retired" in out_text and "generate_caption_variants" in out_text
     fn, _ = dd._metadata_map_fn()
     batch = {
         "image_spec": [[None, str(img)]],
@@ -190,8 +192,7 @@ def test_cache_shuffle_ignored_when_shuffle_tags_off(tmp_path, img_dir):
         "mask_file": [None],
     }
     out = fn(batch)
-    assert len(out["caption"][0]) == 1
-    assert out["caption"][0][0] == "alpha, beta, gamma"
+    assert out["caption"][0] == ["alpha, beta, gamma"]
 
 
 def test_metadata_map_fn_tracks_tar_handles_for_cleanup(tmp_path, img_dir):
@@ -229,48 +230,6 @@ def test_metadata_map_fn_tracks_tar_handles_for_cleanup(tmp_path, img_dir):
     assert tarfile_map[str(tar_path)].closed
 
 
-def test_cache_shuffle_defaults_to_one_when_shuffle_tags_on(tmp_path, img_dir):
-    dd = DirectoryDataset(
-        {
-            "path": str(img_dir),
-            "num_repeats": 1,
-            "shuffle_metadata": False,
-            "shuffle_tags": True,
-            "cache_shuffle_num": 0,
-        },
-        MINIMAL_DATASET_CONFIG,
-        "sdxl",
-        skip_dataset_validation=True,
-    )
-    assert dd.shuffle == 1
-
-
-def test_cache_shuffle_applied_when_shuffle_tags_on(tmp_path, img_dir):
-    img = _copy_fixture_image(img_dir, "shuffled")
-    (img_dir / "shuffled.txt").write_text("one, two\n", encoding="utf-8")
-    dd = DirectoryDataset(
-        {
-            "path": str(img_dir),
-            "num_repeats": 1,
-            "shuffle_metadata": False,
-            "shuffle_tags": True,
-            "cache_shuffle_num": 2,
-        },
-        MINIMAL_DATASET_CONFIG,
-        "sdxl",
-        skip_dataset_validation=True,
-    )
-    assert dd.shuffle == 2
-    fn, _ = dd._metadata_map_fn()
-    batch = {
-        "image_spec": [[None, str(img)]],
-        "caption_file": [str(img_dir / "shuffled.txt")],
-        "mask_file": [None],
-    }
-    out = fn(batch)
-    assert len(out["caption"][0]) == 2
-
-
 def test_metadata_map_fn_directory_caption_fallback(tmp_path, img_dir):
     img = _copy_fixture_image(img_dir, "fallback")
     dd = DirectoryDataset(
@@ -291,7 +250,7 @@ def test_metadata_map_fn_directory_caption_fallback(tmp_path, img_dir):
         "mask_file": [None],
     }
     out = fn(batch)
-    # directory_caption is both the fallback text and caption_prefix in shuffle_captions.
+    # directory_caption is both the fallback text and the caption prefix.
     assert out["caption"] == [["shared folder captionshared folder caption"]]
 
 

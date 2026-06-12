@@ -47,12 +47,9 @@ Use **`[[directory]]`** (array of tables). Each entry must have:
 | **`enable_ar_bucket`** | Enable aspect-ratio bucketing for this directory. | `true` or `false`. | From global (default `false`). |
 | **`ar_buckets`** | Explicit list of aspect ratios (width/height) for bucketing. | List of floats, e.g. `[1.0, 1.25, 1.5]`. | If unset, derived from `min_ar` / `max_ar` / `num_ar_buckets`. |
 | **`size_buckets`** | Use fixed size buckets instead of AR bucketing. Each entry is `[width, height, frames]`. | List of arrays, e.g. `[[512, 512, 1], [768, 768, 1]]`. | Not set (AR bucketing used if enabled). |
-| **`cache_shuffle_num`** | Number of caption shuffles and repeats for cache (only when `shuffle_tags` is on). | Integer ≥ 0. Ignored if `shuffle_tags` is `false`. | `1` (from global). |
-| **`cache_shuffle_delimiter`** | Delimiter used when shuffling tags inside a caption (e.g. comma for "a, b, c"). Only used when `shuffle_tags` is on. | String, e.g. `", "`. | `", "` (from global). |
-| **`shuffle_tags`** | Shuffle comma-separated (or delimiter-separated) tags in each caption. | `true` or `false`. | From global (default `false`). |
 | **`subsample_ratio`** | **Fractional** per-epoch limiter for this folder's rows per size bucket. Rotates each epoch by default. **Mutually exclusive with `max_images`.** | Float in (0, 1]. | `1` (all rows). |
 | **`max_images`** | **Absolute** per-epoch image cap from this folder, per size bucket. Rotates each epoch by default. **Mutually exclusive with `subsample_ratio`.** | Integer &gt; 0. | Not set (no cap); inherits the dataset default if one is set. |
-| **`static_sampling`** | Use the **same** images every epoch (no rotation) for whichever limiter is active. | `true` or `false`. | `false` (rotate). |
+| **`subsample_shuffle`** | Rotate the sampled window each epoch for whichever limiter is active; `false` keeps the **same** images every epoch. | `true` or `false`. | `true` (rotate). |
 
 #### Per-epoch image limiting: `subsample_ratio` vs `max_images`
 
@@ -61,13 +58,13 @@ There are two ways to use only part of a folder each epoch — pick **one** (the
 - **`subsample_ratio = f`** — a **fraction** (e.g. `0.25` = a quarter of the rows). Good for quick debug runs.
 - **`max_images = N`** — an **absolute count**. Good for **balancing several folders of very different sizes** (e.g. ten style folders with 10–100 images each) so no folder dominates.
 
-Both share the same per-epoch behavior, governed by `static_sampling`:
+Both share the same per-epoch behavior, governed by `subsample_shuffle`:
 
-- **Rotating (default, `static_sampling = false`).** Each epoch serves a *different* window, advancing through the whole folder and wrapping around. Over `ceil(total / limit)` epochs every image is seen — you get the limit **and** eventually use the entire dataset. Recommended.
-- **Static (`static_sampling = true`).** The same first images are used every epoch; the rest of the folder is never seen. Use only when you deliberately want a fixed subset.
+- **Rotating (default, `subsample_shuffle = true`).** Each epoch serves a *different* window, advancing through the whole folder and wrapping around. Over `ceil(total / limit)` epochs every image is seen — you get the limit **and** eventually use the entire dataset. Recommended.
+- **Static (`subsample_shuffle = false`).** The same first images are used every epoch; the rest of the folder is never seen. Use only when you deliberately want a fixed subset.
 - **Fewer images than `max_images`.** The folder repeats its images up to `N` (repeat-to-N), so its per-epoch count matches folders that do have `N`. To over-sample a small folder beyond `N`, use `num_repeats`.
 - **Per size bucket.** The limit applies per (folder, size bucket). With aspect-ratio bucketing **off** (the common case) a folder has a single bucket, so the limit is effectively per folder. With AR bucketing on, each bucket is limited independently.
-- **Interaction.** `num_repeats` still multiplies the per-epoch count (`limit × num_repeats` rows). The limit keeps each epoch's length constant, so `steps_per_epoch` is unchanged — only *which* images appear rotates. (The root-level `subsample_ratio` in [Global options](#global-options-dataset-toml-root) is a separate, static trim of the combined schedule and is unaffected by `static_sampling`.)
+- **Interaction.** `num_repeats` still multiplies the per-epoch count (`limit × num_repeats` rows). The limit keeps each epoch's length constant, so `steps_per_epoch` is unchanged — only *which* images appear rotates. (The root-level `subsample_ratio` in [Global options](#global-options-dataset-toml-root) is a separate, static trim of the combined schedule and is unaffected by `subsample_shuffle`.)
 - **Resuming / workers.** Rotation is derived from the epoch number, so resuming from a checkpoint continues the rotation correctly. With the default `dataloader_num_workers = 0` it works out of the box; with `dataloader_num_workers > 0` the loader re-creates workers at each epoch boundary so they pick up the new window.
 
 ```toml
@@ -85,7 +82,7 @@ num_repeats = 1
 [[directory]]
 path = "styles/rare"         # 6 images → repeated up to 10 each epoch
 num_repeats = 1
-static_sampling = true       # this folder: fixed subset instead of rotating
+subsample_shuffle = false    # this folder: fixed subset instead of rotating
 ```
 
 #### Path resolution (`path`, `mask_path`, `control_path`)
@@ -201,14 +198,11 @@ These apply to all directories unless overridden per-directory.
 | **`num_ar_buckets`** | Number of aspect-ratio buckets between `min_ar` and `max_ar`. | Integer &gt; 0. | Required if `enable_ar_bucket` and no `ar_buckets`. |
 | **`ar_buckets`** | Explicit list of aspect ratios (overrides min_ar/max_ar/num). | List of floats. | Not set. |
 | **`size_buckets`** | Fixed size buckets instead of AR; each entry `[width, height, frames]`. | List of arrays. | Not set. |
-| **`shuffle_tags`** | Shuffle delimiter-separated tags in captions. | `true` or `false`. | `false`. |
-| **`cache_shuffle_num`** | Caption shuffle/repeat count for cache (ignored when `shuffle_tags` is `false`). | Integer ≥ 0. | `1`. |
-| **`cache_shuffle_delimiter`** | Delimiter for tag shuffling (ignored when `shuffle_tags` is `false`). | String. | `", "`. |
 | **`shuffle_metadata`** | Shuffle image order when building metadata (deterministic seed from directory path). | `true` / `false` | `true` |
 | **`online_captions`** | Read captions from `captions.json` at training time instead of only from cached metadata. | `true` / `false` | `false` |
 | **`subsample_ratio`** | Fraction of the combined training schedule (e.g. `0.25` for quick debug runs). | Float in (0, 1]. | `1` (full dataset). |
-| **`max_images`** | Default absolute image cap per folder per epoch (per size bucket); rotates each epoch unless `static_sampling`. Per-folder keys override it. Mutually exclusive with a per-folder `subsample_ratio`. See [per-epoch limiting](#per-epoch-image-limiting-subsample_ratio-vs-max_images). | Integer &gt; 0. | Not set (no cap). |
-| **`static_sampling`** | Default for whether the active limiter (subsample ratio or max images) uses a fixed subset every epoch instead of rotating. | `true` / `false` | `false` (rotate). |
+| **`max_images`** | Default absolute image cap per folder per epoch (per size bucket); rotates each epoch while `subsample_shuffle` is on. Per-folder keys override it. Mutually exclusive with a per-folder `subsample_ratio`. See [per-epoch limiting](#per-epoch-image-limiting-subsample_ratio-vs-max_images). | Integer &gt; 0. | Not set (no cap). |
+| **`subsample_shuffle`** | Default for whether the active limiter (subsample ratio or max images) rotates per epoch (`true`) or keeps a fixed subset (`false`). Renamed from the retired `static_sampling` (inverted polarity). | `true` / `false` | `true` (rotate). |
 | **`tag_dropout_enabled`** | Enable random tag dropout at training time. Requires `cache_text_embeddings = false` in the model config (captions must be encoded at training time, keeping the text encoder on the GPU). For the cached, faster equivalent see [caption variants](#caption-variants-cached-tag-dropout). | `true` / `false` | `false` |
 | **`tag_dropout_probability`** | Default drop probability for tags not in a rule. | Float in [0, 1]. | — |
 | **`tag_dropout_mode`** | `per_tag` or `full`. | String | `per_tag` |

@@ -40,13 +40,20 @@ def main() -> int:
     parser.add_argument("--probability", type=float, default=0.3,
                         help="Per-tag drop probability (default 0.3).")
     parser.add_argument("--mode", choices=("per_tag", "full"), default="per_tag")
+    parser.add_argument("--shuffle-tags", action="store_true",
+                        help="Also shuffle tag order in each variant (replaces the retired "
+                             "shuffle_tags/cache_shuffle_num cache-time shuffling).")
+    parser.add_argument("--delimiter", default=", ", help="Tag delimiter (default ', ').")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--out", type=Path, help="Write a copy of the dataset here.")
     group.add_argument("--in-place", action="store_true",
                        help="Rewrite .txt files in place (originals backed up to .txt.orig once).")
     args = parser.parse_args()
 
-    cfg = TagDropoutConfig(enabled=True, default_probability=args.probability, mode=args.mode)
+    if args.probability <= 0 and not args.shuffle_tags:
+        print("nothing to do: probability is 0 and --shuffle-tags is off", file=sys.stderr)
+        return 1
+    cfg = TagDropoutConfig(enabled=args.probability > 0, default_probability=args.probability, mode=args.mode)
     rng = random.Random(args.seed)
     images = sorted(
         p for p in args.dataset_dir.iterdir() if p.suffix.lower() in IMAGE_SUFFIXES
@@ -72,11 +79,15 @@ def main() -> int:
         # K variants of EACH base caption: a multi-caption .txt (alternative
         # descriptions) keeps every alternative, each with its own dropout
         # samples. Total lines = len(base_captions) * K.
-        variants = [
-            apply_tag_dropout(caption, cfg, rng)
-            for caption in base_captions
-            for _ in range(args.variants)
-        ]
+        variants = []
+        for caption in base_captions:
+            for _ in range(args.variants):
+                variant = apply_tag_dropout(caption, cfg, rng)
+                if args.shuffle_tags:
+                    parts = [t.strip() for t in variant.split(args.delimiter) if t.strip()]
+                    rng.shuffle(parts)
+                    variant = args.delimiter.join(parts)
+                variants.append(variant)
         if args.in_place:
             if not orig.exists():
                 shutil.copy2(txt, orig)

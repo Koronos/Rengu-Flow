@@ -30,14 +30,11 @@ DIRECTORY_OPTIONAL_KEYS = (
     "num_ar_buckets",
     "ar_buckets",
     "size_buckets",
-    "cache_shuffle_num",
-    "cache_shuffle_delimiter",
-    "shuffle_tags",
     "shuffle_metadata",
     "online_captions",
     "subsample_ratio",
     "max_images",
-    "static_sampling",
+    "subsample_shuffle",
 )
 
 
@@ -105,8 +102,8 @@ def _directory_row_for_toml(entry: dict[str, Any], global_values: dict[str, Any]
                 val = int(val)
             except (TypeError, ValueError):
                 continue
-        if key == "static_sampling" and not val:
-            continue  # rotating (False) is the default; omit from TOML
+        if key == "subsample_shuffle" and val:
+            continue  # rotating (True) is the default; omit from TOML
         if key in global_values and val == global_values.get(key):
             continue
         if key in INTEGER_LIST_KEYS | NUMBER_LIST_KEYS | JSON_LIST_KEYS:
@@ -330,14 +327,11 @@ def form_to_toml(form: dict[str, Any]) -> str:
             "min_ar",
             "max_ar",
             "num_ar_buckets",
-            "shuffle_tags",
-            "cache_shuffle_num",
-            "cache_shuffle_delimiter",
             "shuffle_metadata",
             "online_captions",
             "subsample_ratio",
             "max_images",
-            "static_sampling",
+            "subsample_shuffle",
         )
         if k in form and form[k] not in (None, "")
     }
@@ -393,9 +387,9 @@ def form_to_toml(form: dict[str, Any]) -> str:
             except (TypeError, ValueError):
                 pass
             continue
-        if key == "static_sampling":
-            if val:  # rotating (False) is the default; omit from TOML
-                config[key] = True
+        if key == "subsample_shuffle":
+            if not val:  # rotating (True) is the default; omit from TOML
+                config[key] = False
             continue
         if key == "tag_dropout_rules":
             rules = _complete_tag_dropout_rules(val)

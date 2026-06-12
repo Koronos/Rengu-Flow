@@ -69,34 +69,6 @@ def shuffle_with_seed(lst: list, seed=None) -> None:
     random.setstate(rng_state)
 
 
-def shuffle_captions(
-    captions: list[str],
-    count: int = 0,
-    delimiter: str = ", ",
-    caption_prefix: str = "",
-) -> list[str]:
-    """Apply prefix and optionally shuffle comma-separated tags and repeat."""
-    if count == 0:
-        return [caption_prefix + c for c in captions]
-
-    def shuffle_caption(caption: str, variant: int, delim: str = ", ") -> str:
-        parts = caption.split(delim)
-        # Seed per (caption, variant) so the cached metadata is reproducible across
-        # runs. With the global RNG the tag order changed every time the metadata was
-        # recomputed, churning the cache fingerprint and forcing a full re-cache.
-        seed = int(
-            hashlib.md5(f"{variant}\x00{caption}".encode("utf-8")).hexdigest(), 16
-        )
-        random.Random(seed).shuffle(parts)
-        return delim.join(parts)
-
-    return [
-        caption_prefix + shuffle_caption(caption, i, delimiter)
-        for caption in captions
-        for i in range(count)
-    ]
-
-
 def _read_captions_from_txt_per_line(caption_file: str) -> list[str]:
     """Read .txt file as one caption per line (rengu-flow behavior). Empty lines skipped."""
     with open(caption_file) as f:
@@ -200,13 +172,20 @@ def directory_max_images(directory_config: dict) -> int | None:
     return int(value)
 
 
-def directory_static_sampling(directory_config: dict) -> bool:
-    """Whether the active sampler (``subsample_ratio`` or ``max_images``) uses a fixed subset.
+def directory_subsample_shuffle(directory_config: dict) -> bool:
+    """Whether the active sampler (``subsample_ratio`` or ``max_images``) rotates per epoch.
 
-    ``True`` keeps the same images every epoch; ``False`` (default) rotates the window so the
-    whole folder is eventually used.
+    ``True`` (default) advances the sampled window every epoch so the whole folder is
+    eventually used; ``False`` keeps the same images every epoch (the behaviour of the
+    retired ``static_sampling = true``).
     """
-    return bool(directory_config.get("static_sampling", False))
+    if "static_sampling" in directory_config and is_main_process():
+        print(
+            "[data] 'static_sampling' was renamed; it is ignored. Use "
+            "subsample_shuffle = false for the old static_sampling = true behaviour.",
+            flush=True,
+        )
+    return bool(directory_config.get("subsample_shuffle", True))
 
 
 def effective_sample_cap(
@@ -314,7 +293,7 @@ class SizeBucketDataset:
         if self.max_images is not None and self.max_images <= 0:
             raise ValueError(f"max_images must be >0, was {self.max_images}")
         self.subsample_ratio = directory_subsample_ratio(directory_config)
-        self.static_sampling = directory_static_sampling(directory_config)
+        self.subsample_shuffle = directory_subsample_shuffle(directory_config)
         self._epoch = 1
         # Per-epoch row order for the uncapped (whole-pool) case, so partial passes don't always
         # drop the same images (see _pool_index). Cached per epoch; deterministic per bucket.
@@ -545,14 +524,14 @@ class SizeBucketDataset:
             return 0
         pos = idx % m
         cap = self._sample_cap
-        if cap is None and not self.static_sampling:
+        if cap is None and self.subsample_shuffle:
             # Whole pool served every epoch: reshuffle the row order per epoch (RandomCursor) so
             # the partial passes at schedule-stage boundaries / run end don't always drop the same
             # tail. Coverage is preserved (it's a full permutation); a capped pool keeps its own
             # coverage-guaranteeing window rotation below.
             return self._epoch_pool_order()[pos]
         return rotation_window_index(
-            pos, self._epoch, self._pool_len, cap, self.static_sampling
+            pos, self._epoch, self._pool_len, cap, not self.subsample_shuffle
         )
 
     def _epoch_pool_order(self) -> list[int]:
@@ -843,25 +822,21 @@ class DirectoryDataset:
             )
             self.ar_bucket_datasets = []
 
-        shuffle_tags = directory_config.get(
-            "shuffle_tags", dataset_config.get("shuffle_tags", False)
-        )
-        if shuffle_tags:
-            # When tag shuffling is on, cache_shuffle_num is the per-image shuffle/repeat
-            # count; an unset or 0 value means "shuffle once" rather than "off".
-            cache_shuffle_num = directory_config.get(
-                "cache_shuffle_num", dataset_config.get("cache_shuffle_num", 0)
-            )
-            self.shuffle = cache_shuffle_num or 1
-        else:
-            # Tag shuffling off → no cache shuffle, regardless of cache_shuffle_num.
-            self.shuffle = 0
+        # Cache-time tag shuffling was retired: caption multiplication is governed
+        # only by .txt lines (caption variants). Bake shuffled/dropped variants with
+        # scripts/generate_caption_variants.py (--shuffle-tags) instead.
+        for _retired in ("shuffle_tags", "cache_shuffle_num", "cache_shuffle_delimiter"):
+            if (
+                directory_config.get(_retired, dataset_config.get(_retired)) not in (None, False)
+                and is_main_process()
+            ):
+                print(
+                    f"[data] '{_retired}' was retired and is ignored; pre-bake shuffled "
+                    "caption variants with scripts/generate_caption_variants.py "
+                    "--shuffle-tags (cached, rotates across epochs).",
+                    flush=True,
+                )
         self.shuffle_metadata = directory_config["shuffle_metadata"]
-        self.directory_config["cache_shuffle_num"] = self.shuffle
-        self.shuffle_delimiter = directory_config.get(
-            "cache_shuffle_delimiter",
-            dataset_config.get("cache_shuffle_delimiter", ", "),
-        )
         self.path = Path(self.directory_config["path"])
         self.mask_path = (
             Path(self.directory_config["mask_path"])
@@ -971,9 +946,6 @@ class DirectoryDataset:
             dataset_config.get("enable_ar_bucket", False),
         )
         directory_config.setdefault(
-            "shuffle_tags", dataset_config.get("shuffle_tags", False)
-        )
-        directory_config.setdefault(
             "directory_caption", dataset_config.get("directory_caption", "")
         )
         directory_config.setdefault(
@@ -993,8 +965,14 @@ class DirectoryDataset:
             explicit_ratio = 1.0
         if explicit_ratio >= 1.0 and dataset_config.get("max_images") is not None:
             directory_config.setdefault("max_images", dataset_config.get("max_images"))
+        if "static_sampling" in dataset_config and is_main_process():
+            print(
+                "[data] 'static_sampling' was renamed; it is ignored. Use "
+                "subsample_shuffle = false for the old static_sampling = true behaviour.",
+                flush=True,
+            )
         directory_config.setdefault(
-            "static_sampling", dataset_config.get("static_sampling", False)
+            "subsample_shuffle", dataset_config.get("subsample_shuffle", True)
         )
 
     def _validate(self) -> None:
@@ -1268,10 +1246,6 @@ class DirectoryDataset:
     def _metadata_map_fn(self):
         tarfile_map = {}
 
-        # Initialize the shuffle flag once, up front — not per-example inside the closure.
-        if self.directory_config.get("shuffle_tags") and self.shuffle == 0:
-            self.shuffle = 1
-
         def fn(example):
             caption_file = example["caption_file"][0]
             image_spec = example["image_spec"][0]
@@ -1295,12 +1269,8 @@ class DirectoryDataset:
                         "No caption for %s; using empty caption.",
                         image_file,
                     )
-            captions = shuffle_captions(
-                captions,
-                self.shuffle,
-                self.shuffle_delimiter,
-                self.directory_config.get("directory_caption", ""),
-            )
+            prefix = self.directory_config.get("directory_caption", "")
+            captions = [prefix + c for c in captions]
             empty_return = {
                 "image_spec": [],
                 "mask_file": [],
@@ -1614,7 +1584,7 @@ class Dataset:
                 directory_subsample_ratio(d.directory_config),
             )
             is not None
-            and not directory_static_sampling(d.directory_config)
+            and directory_subsample_shuffle(d.directory_config)
             for d in self.directory_datasets
         )
 

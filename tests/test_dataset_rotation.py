@@ -26,7 +26,7 @@ class _FakeBucket:
     def __init__(self, pool_len, cap=None, static=False):
         self._len = pool_len
         self._cap = cap
-        self.static_sampling = static
+        self.subsample_shuffle = not static
         self._epoch = 1
         self._epoch_order_seed = 4242
         self._epoch_order_cache = None

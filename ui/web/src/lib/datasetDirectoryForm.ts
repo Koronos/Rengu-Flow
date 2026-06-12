@@ -85,7 +85,7 @@ export function directoryFieldOverrideStatus(
   return directoryFieldWritesToToml(field, entry) ? "overridden" : "inherited";
 }
 
-/** Per-directory fields that are not optional root overrides (e.g. shuffle_tags). */
+/** Per-directory fields that are not optional root overrides (e.g. shuffle_metadata). */
 export function explicitDirectoryOverrideFields(fields: SchemaField[]): SchemaField[] {
   return fields.filter((f) => !f.show_if_set && !f.show_when_field);
 }
@@ -95,7 +95,7 @@ export function optionalRootOverrideFields(fields: SchemaField[]): SchemaField[]
   return fields.filter((f) => !!f.show_if_set && !f.show_when_field);
 }
 
-/** Fields shown when a parent override is enabled (e.g. cache_shuffle_num). */
+/** Fields shown when a parent override is enabled (e.g. min_ar with enable_ar_bucket). */
 export function conditionalDirectoryOverrideFields(fields: SchemaField[]): SchemaField[] {
   return fields.filter((f) => !!f.show_when_field);
 }
