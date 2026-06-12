@@ -1117,6 +1117,20 @@ def create_app() -> FastAPI:
             return {"run": None}
         return {"run": runs[-1]}
 
+    # Registered before /runs/{run_name} so the literal path wins over the {run_name} param.
+    @app.get(f"{API_PREFIX}/runs/compare")
+    def compare_fs_runs(runs: str = "", output_dir: str = "output") -> dict[str, Any]:
+        """Cross-run comparison: manifest rows + hparam columns + scalar series + timelines.
+
+        ``runs`` is a comma-separated list of run folder names; empty selects all tracked runs.
+        """
+        from rengu_track import reader
+
+        root = resolve_repo_path(output_dir)
+        names = [n.strip() for n in runs.split(",") if n.strip()]
+        run_dirs = [root / n for n in names] if names else reader.list_run_dirs(root)
+        return reader.compare_runs(run_dirs)
+
     @app.get(f"{API_PREFIX}/runs/{{run_name}}")
     def get_fs_run(run_name: str, output_dir: str = "output") -> dict[str, Any]:
         path = resolve_repo_path(output_dir) / run_name

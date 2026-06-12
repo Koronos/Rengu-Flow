@@ -3,6 +3,7 @@ import { filenameFromContentDisposition } from "./lib/downloadBlob";
 import type { FormValues } from "./types/forms";
 import type {
   CheckpointsResult,
+  CompareRunsResult,
   ConfigSchemaResponse,
   ContinueRunBody,
   DatasetComposeResult,
@@ -255,6 +256,15 @@ export const api = {
   fsMetrics: (name: string, outputDir = "output") =>
     request<JobMetricsResult>(
       `/runs/${encodeURIComponent(name)}/metrics?output_dir=${encodeURIComponent(outputDir)}`
+    ),
+
+  /** Cross-run comparison: manifest rows + hparam columns + scalar series + timelines.
+   *  `runs` is a list of run folder names; empty selects all tracked runs. */
+  compareRuns: (runs: string[] = [], outputDir = "output") =>
+    request<CompareRunsResult>(
+      `/runs/compare?runs=${encodeURIComponent(runs.join(","))}&output_dir=${encodeURIComponent(
+        outputDir
+      )}`
     ),
 
   getSchema: () => request<ConfigSchemaResponse>("/schema"),

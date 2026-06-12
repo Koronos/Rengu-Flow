@@ -9,6 +9,10 @@
             <el-icon><VideoPlay /></el-icon>
             <span>Runs</span>
           </el-menu-item>
+          <el-menu-item index="/compare">
+            <el-icon><TrendCharts /></el-icon>
+            <span>Compare</span>
+          </el-menu-item>
           <el-menu-item index="/datasets">
             <el-icon><Files /></el-icon>
             <span>Datasets</span>
@@ -78,6 +82,10 @@
             <el-icon><VideoPlay /></el-icon>
             <span>Runs</span>
           </el-menu-item>
+          <el-menu-item index="/compare">
+            <el-icon><TrendCharts /></el-icon>
+            <span>Compare</span>
+          </el-menu-item>
           <el-menu-item index="/datasets">
             <el-icon><Files /></el-icon>
             <span>Datasets</span>
@@ -112,7 +120,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { useRoute } from "vue-router";
-import { Document, Files, Menu, Tools, VideoPlay } from "@element-plus/icons-vue";
+import { Document, Files, Menu, Tools, TrendCharts, VideoPlay } from "@element-plus/icons-vue";
 import { api } from "./api";
 import { useBreakpoint } from "./composables/useBreakpoint";
 import DatasetGalleryHost from "./components/DatasetGalleryHost.vue";

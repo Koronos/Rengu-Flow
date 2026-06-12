@@ -612,6 +612,41 @@ export interface JobMetricsResult {
   previews?: { name: string; path?: string }[];
 }
 
+// --- Cross-run comparison (rengu_track) ---
+
+export interface CompareRunRow {
+  run_id: string;
+  name: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+  hparams: Record<string, string | number | boolean | null>;
+  summary: Record<string, number | string | null>;
+  system_summary: Record<string, number | string | null>;
+  lineage: Record<string, unknown>;
+  hardware: Record<string, unknown>;
+}
+
+export interface CompareColumn {
+  key: string;
+  varies: boolean;
+}
+
+export interface TimelineEvent {
+  ts: string;
+  type: string;
+  step: number | null;
+  source: string;
+  payload: Record<string, unknown>;
+}
+
+export interface CompareRunsResult {
+  runs: CompareRunRow[];
+  columns: CompareColumn[];
+  series: Record<string, Record<string, ScalarMetricPoint[]>>;
+  timelines: Record<string, TimelineEvent[]>;
+}
+
 // --- Maintenance ---
 
 export interface MaintenanceEnabledResult {
