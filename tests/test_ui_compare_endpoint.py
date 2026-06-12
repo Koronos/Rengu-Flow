@@ -62,3 +62,22 @@ def test_series_endpoint(ui_client, tmp_path: Path) -> None:
     assert data["tag"] == "train/loss"
     # No TB event files in these synthetic runs → empty series per run, correct shape.
     assert set(data["series"]) == {"run-a", "run-b"}
+
+
+def test_compare_endpoint_discovers_unmanifested_runs(ui_client, tmp_path: Path) -> None:
+    # A run with no run.json — just a config TOML (trained before tracking) — must still appear.
+    legacy = tmp_path / "20260101_10-00-00_legacy"
+    legacy.mkdir()
+    (legacy / "train.toml").write_text(
+        '[optimizer]\nlr = 0.0003\n[model]\ntype = "sdxl"\n', encoding="utf-8"
+    )
+
+    resp = ui_client.get(f"/api/v1/runs/compare?output_dir={tmp_path}")
+    assert resp.status_code == 200
+    data = resp.json()
+    row = next((r for r in data["runs"] if r["run_id"] == legacy.name), None)
+    assert row is not None
+    assert row["status"] == "imported"
+    assert row["hparams"]["optimizer.lr"] == 0.0003
+    # curated metrics offered so the legacy run's curves can load lazily.
+    assert "train/loss" in data["metrics"]

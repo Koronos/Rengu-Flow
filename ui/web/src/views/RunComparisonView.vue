@@ -2,14 +2,33 @@
   <div class="run-comparison">
     <div class="page-head">
       <h2>Compare runs</h2>
-      <el-text v-if="runs.length" type="info" size="small">{{ runs.length }} runs</el-text>
+      <el-text v-if="runs.length" type="info" size="small">
+        {{ runs.length }} runs in “{{ outputDir }}”
+      </el-text>
     </div>
+
+    <form class="folder-bar" @submit.prevent="applyFolder">
+      <el-input
+        v-model="folderInput"
+        placeholder="output folder — e.g. output, runs/cosmos, or /abs/path"
+        size="small"
+        clearable
+      >
+        <template #prepend>Folder</template>
+        <template #append>
+          <el-button native-type="submit">Load</el-button>
+        </template>
+      </el-input>
+    </form>
 
     <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
     <div v-else-if="loading" class="loading">
       <el-text type="info">Loading comparison…</el-text>
     </div>
-    <el-empty v-else-if="!runs.length" description="No tracked runs to compare" />
+    <el-empty
+      v-else-if="!runs.length"
+      :description="`No comparable runs found in “${outputDir}”. Runs need a config or TensorBoard events.`"
+    />
 
     <template v-else>
       <div class="run-chips">
@@ -107,8 +126,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
-import { useRoute } from "vue-router";
+import { computed, onMounted, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import { api } from "../api";
 import LazyMetricChart from "../components/LazyMetricChart.vue";
 import type {
@@ -121,9 +140,11 @@ import type {
 type TagType = "success" | "info" | "warning" | "danger" | "primary";
 
 const route = useRoute();
+const router = useRouter();
 const loading = ref(true);
 const error = ref("");
 const onlyDiffs = ref(true);
+const folderInput = ref("output");
 
 const runs = ref<CompareRunRow[]>([]);
 const columns = ref<CompareColumn[]>([]);
@@ -160,7 +181,24 @@ async function load() {
   }
 }
 
-onMounted(load);
+function applyFolder() {
+  // Picking a folder compares everything in it (drops any explicit run selection).
+  router.push({ path: "/compare", query: { output_dir: folderInput.value.trim() || "output" } });
+}
+
+onMounted(() => {
+  folderInput.value = outputDir.value;
+  load();
+});
+
+// Reload when the route changes (folder field, or the "Compare folder" button from a run view).
+watch(
+  () => route.fullPath,
+  () => {
+    folderInput.value = outputDir.value;
+    load();
+  }
+);
 
 const visibleHparamCols = computed(() =>
   onlyDiffs.value ? columns.value.filter((c) => c.varies) : columns.value
@@ -241,6 +279,9 @@ function hardwareLabel(r: CompareRunRow): string {
   display: flex;
   align-items: baseline;
   gap: 12px;
+}
+.folder-bar {
+  max-width: 560px;
 }
 .run-chips {
   display: flex;

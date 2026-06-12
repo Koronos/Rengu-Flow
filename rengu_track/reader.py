@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from rengu_track.events import read_events
 from rengu_track.run import MANIFEST_NAME, read_manifest
@@ -30,6 +30,16 @@ _scalar_cache: dict[str, tuple[float, dict[str, list[dict[str, Any]]]]] = {}
 # Default cap on points returned per scalar tag. Charts are a few hundred px wide, so loading
 # every step is wasted work; the full series stays cached and is downsampled on the way out.
 DEFAULT_MAX_POINTS = 500
+
+# Offered for runs that have no manifest tag index (TB-only / pre-tracking). The lazy series
+# fetch reads these from the event files on demand; tags a run doesn't have render empty.
+DEFAULT_COMPARE_METRICS = (
+    "train/loss",
+    "train/grad_norm",
+    "val/loss",
+    "val/gap",
+    "system/vram_used_gb",
+)
 
 
 def _downsample(series: list[dict[str, Any]], max_points: int) -> list[dict[str, Any]]:
@@ -172,23 +182,36 @@ def compare_runs(
     tag_prefix: str = "",
     include_series: bool = False,
     max_points: int | None = DEFAULT_MAX_POINTS,
+    config_fallback: Callable[[str | Path], dict[str, Any] | None] | None = None,
 ) -> dict[str, Any]:
     """Assemble the comparison payload from manifests/timelines — NO event-file parsing by default.
 
     ``metrics`` is the union of each run's manifest scalar tags, so the UI can list every metric
     and fetch each series on demand (see ``series_for``). Pass ``include_series=True`` to eagerly
     embed downsampled series (parses event files; avoid for large run sets).
+
+    ``config_fallback`` builds a row for a run that has no ``run.json`` (e.g. trained before
+    tracking) — typically from its config TOML. Such runs have no cheap tag index, so the curated
+    ``DEFAULT_COMPARE_METRICS`` are offered for them (their series still load lazily; absent tags
+    just render empty).
     """
     kept: list[tuple[str | Path, dict[str, Any]]] = []
     timelines: dict[str, list[dict[str, Any]]] = {}
     metrics: set[str] = set()
+    any_unindexed = False
     for run_dir in run_dirs:
         row = run_row(run_dir)
+        if row is None and config_fallback is not None:
+            row = config_fallback(run_dir)
+            if row is not None and not row.get("tags"):
+                any_unindexed = True
         if row is None:
             continue
         kept.append((run_dir, row))
         timelines[row["run_id"]] = read_events(run_dir)
         metrics.update(row.get("tags") or [])
+    if any_unindexed:
+        metrics.update(DEFAULT_COMPARE_METRICS)
     rows = [row for _, row in kept]
     payload: dict[str, Any] = {
         "runs": rows,

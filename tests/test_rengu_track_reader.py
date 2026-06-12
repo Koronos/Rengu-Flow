@@ -141,3 +141,34 @@ def test_preview_images_parses_step_and_prompt(tmp_path):
 
 def test_preview_images_missing_dir(tmp_path):
     assert reader.preview_images(tmp_path / "nope") == []
+
+
+def test_compare_runs_config_fallback_for_unmanifested(tmp_path):
+    _make_run(tmp_path, "run-a", lr=1e-4)  # has run.json
+    legacy = tmp_path / "legacy"  # no run.json — only reachable via fallback
+    legacy.mkdir()
+
+    def fallback(run_dir):
+        from pathlib import Path as P
+
+        return {
+            "run_id": P(run_dir).name,
+            "name": P(run_dir).name,
+            "status": "imported",
+            "created_at": "",
+            "updated_at": "",
+            "hparams": {"optimizer.lr": 3e-4, "model.type": "sdxl"},
+            "summary": {},
+            "system_summary": {},
+            "lineage": {},
+            "hardware": {},
+            "tags": [],
+            "last_scalars": {},
+        }
+
+    payload = reader.compare_runs([tmp_path / "run-a", legacy], config_fallback=fallback)
+    assert {r["run_id"] for r in payload["runs"]} == {"run-a", "legacy"}
+    cols = {c["key"]: c["varies"] for c in payload["columns"]}
+    assert cols["optimizer.lr"] is True  # 1e-4 vs 3e-4
+    # legacy has no tag index → curated defaults offered so its curves can still load lazily.
+    assert "train/loss" in payload["metrics"]

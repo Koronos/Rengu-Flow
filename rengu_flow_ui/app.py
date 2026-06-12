@@ -1128,8 +1128,13 @@ def create_app() -> FastAPI:
 
         root = resolve_repo_path(output_dir)
         names = [n.strip() for n in runs.split(",") if n.strip()]
-        run_dirs = [root / n for n in names] if names else reader.list_run_dirs(root)
-        return reader.compare_runs(run_dirs)
+        if names:
+            run_dirs: list[Path] = [root / n for n in names]
+        else:
+            # Discover ALL run folders (by config/event files), not just manifest ones, so runs
+            # trained before tracking still show up.
+            run_dirs = [Path(r["path"]) for r in runs_scanner.scan_output_runs(root)]
+        return reader.compare_runs(run_dirs, config_fallback=_compare_config_row)
 
     # On-demand per-metric series for the comparison view (lazy-loaded as each chart scrolls in).
     @app.get(f"{API_PREFIX}/runs/series")
@@ -1357,6 +1362,43 @@ def _run_metrics_payload(run_dir) -> dict[str, Any]:
     return {
         "scalars": metrics_tb.read_scalars(run_dir, max_points=1000),
         "preview_images": training_hub.list_run_preview_images(run_dir),
+    }
+
+
+def _compare_config_row(run_dir) -> dict[str, Any] | None:
+    """Build a comparison row for a run that has no run.json (trained before tracking).
+
+    Hyperparameters come from the run's config TOML; summary/lineage are empty (the trainer never
+    recorded them). Returns None for a folder that is neither a config-bearing nor TB-bearing run.
+    """
+    from rengu_track.run import flatten_hparams
+
+    rd = Path(run_dir)
+    cfg_path = runs_scanner.pick_main_config_path(rd)
+    has_tb = any(rd.glob("events.out.tfevents.*"))
+    if cfg_path is None and not has_tb:
+        return None
+    config: dict[str, Any] = {}
+    if cfg_path is not None:
+        try:
+            import tomlkit
+
+            config = tomlkit.parse(cfg_path.read_text(encoding="utf-8")).unwrap()
+        except Exception:
+            config = {}
+    return {
+        "run_id": rd.name,
+        "name": config.get("run_name") or rd.name,
+        "status": "imported",
+        "created_at": "",
+        "updated_at": "",
+        "hparams": flatten_hparams(config),
+        "summary": {},
+        "system_summary": {},
+        "lineage": {},
+        "hardware": {},
+        "tags": [],
+        "last_scalars": {},
     }
 
 

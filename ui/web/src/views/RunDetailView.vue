@@ -14,6 +14,7 @@
           </el-button>
           <el-button v-if="mode === 'job' && job?.id" @click="newRunFromThisConfig">New run from this config</el-button>
           <el-button :loading="tbLoading" @click="openTensorboardForRun">Open TensorBoard</el-button>
+          <el-button @click="compareFolder">Compare folder</el-button>
           <el-button
             v-if="tbStatus?.running"
             :loading="tbLoading"
@@ -314,6 +315,12 @@ async function openTensorboardForRun() {
   } catch {
     /* ElMessage already shown */
   }
+}
+
+function compareFolder() {
+  // Open the comparison view on this run's output folder (same folder Open TensorBoard uses).
+  const dir = String(job.value?.output_dir || outputDir.value || "output");
+  router.push({ path: "/compare", query: { output_dir: dir } });
 }
 
 async function stopTensorboardForRun() {
