@@ -71,28 +71,6 @@ def get_directory_fields() -> list[dict[str, Any]]:
             description="Prepended to per-image captions, or used when an image has no caption file.",
         ),
         _field(
-            "shuffle_tags",
-            "Shuffle tags",
-            "boolean",
-            description="Shuffle delimiter-separated tags when caching (overrides global).",
-        ),
-        _field(
-            "cache_shuffle_num",
-            "Cache shuffle count",
-            "integer",
-            default=1,
-            show_when_field="shuffle_tags",
-            description="Caption shuffle/repeat count for cache augmentation (0 = off).",
-        ),
-        _field(
-            "cache_shuffle_delimiter",
-            "Tag delimiter",
-            "string",
-            default=", ",
-            show_when_field="shuffle_tags",
-            description="Delimiter between tags when shuffle tags is enabled.",
-        ),
-        _field(
             "shuffle_metadata",
             "Shuffle metadata order",
             "boolean",
@@ -185,13 +163,14 @@ def get_directory_fields() -> list[dict[str, Any]]:
             "Mutually exclusive with 'Subsample ratio'.",
         ),
         _field(
-            "static_sampling",
-            "Static sampling (no rotation)",
+            "subsample_shuffle",
+            "Rotate subsampled window",
             "boolean",
-            default=False,
+            default=True,
             show_if_set=True,
-            description="Use the same images every epoch instead of rotating the window. "
-            "Applies to whichever limiter is set (subsample ratio or max images).",
+            description="Rotate the sampled window every epoch so the whole folder is "
+            "eventually used; off = same images every epoch. Applies to whichever "
+            "limiter is set (subsample ratio or max images).",
         ),
         _field("mask_path", "Mask folder", "string", show_if_set=True),
         _field("control_path", "Control folder", "string", show_if_set=True),
@@ -330,24 +309,9 @@ def get_dataset_schema() -> dict[str, Any]:
         },
         {
             "id": "captions",
-            "title": "Captions & shuffle (global defaults)",
-            "description": "Default caption/shuffle behaviour for all folders. Override per folder in Directories.",
+            "title": "Captions & sampling (global defaults)",
+            "description": "Default caption/sampling behaviour for all folders. Override per folder in Directories.",
             "fields": [
-                _field("shuffle_tags", "Shuffle tags", "boolean", default=False),
-                _field(
-                    "cache_shuffle_num",
-                    "Cache shuffle num",
-                    "integer",
-                    default=1,
-                    show_when_field="shuffle_tags",
-                ),
-                _field(
-                    "cache_shuffle_delimiter",
-                    "Tag delimiter",
-                    "string",
-                    default=", ",
-                    show_when_field="shuffle_tags",
-                ),
                 _field("shuffle_metadata", "Shuffle metadata order", "boolean", default=True),
                 _field("online_captions", "Online captions.json", "boolean", default=False),
                 _field(
@@ -363,16 +327,16 @@ def get_dataset_schema() -> dict[str, Any]:
                     "integer",
                     min=1,
                     description="Default absolute image cap per folder per epoch (per size bucket); "
-                    "rotates each epoch unless 'static_sampling'. Folders may override it. "
+                    "rotates each epoch while 'subsample_shuffle' is on. Folders may override it. "
                     "Mutually exclusive with 'subsample_ratio'.",
                 ),
                 _field(
-                    "static_sampling",
-                    "Static sampling (no rotation)",
+                    "subsample_shuffle",
+                    "Rotate subsampled window",
                     "boolean",
-                    default=False,
+                    default=True,
                     description="Default for whether the active limiter (subsample ratio or max "
-                    "images) uses a fixed subset every epoch instead of rotating.",
+                    "images) rotates per epoch (on) or keeps a fixed subset (off).",
                 ),
                 _field("tag_dropout_enabled", "Enable tag dropout", "boolean", default=False),
                 _field(

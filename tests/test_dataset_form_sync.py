@@ -31,16 +31,12 @@ def test_global_booleans_and_numbers_roundtrip() -> None:
     form["min_ar"] = 0.6
     form["max_ar"] = 1.8
     form["num_ar_buckets"] = 8
-    form["shuffle_tags"] = True
-    form["cache_shuffle_num"] = 2
     form["subsample_ratio"] = 0.25
     cfg = _roundtrip(form)
     assert cfg["enable_ar_bucket"] is True
     assert cfg["min_ar"] == 0.6
     assert cfg["max_ar"] == 1.8
     assert cfg["num_ar_buckets"] == 8
-    assert cfg["shuffle_tags"] is True
-    assert cfg["cache_shuffle_num"] == 2
     assert cfg["subsample_ratio"] == 0.25
 
 
@@ -90,7 +86,6 @@ def test_directory_boolean_and_ar_overrides_roundtrip() -> None:
         {
             "path": "/my/images",
             "num_repeats": 1,
-            "shuffle_tags": True,
             "shuffle_metadata": False,
             "enable_ar_bucket": True,
             "ar_buckets": [1.0, 1.5],
@@ -98,7 +93,6 @@ def test_directory_boolean_and_ar_overrides_roundtrip() -> None:
     ]
     cfg = _roundtrip(form)
     d = cfg["directory"][0]
-    assert d["shuffle_tags"] is True
     assert d["shuffle_metadata"] is False
     assert d["enable_ar_bucket"] is True
     assert d["ar_buckets"] == [1.0, 1.5]
@@ -158,15 +152,15 @@ def test_directory_max_images_override_roundtrip() -> None:
             "path": "/my/images",
             "num_repeats": 1,
             "max_images": 10,
-            "static_sampling": True,
+            "subsample_shuffle": False,
         }
     ]
     cfg = _roundtrip(form)
     assert cfg["directory"][0]["max_images"] == 10
-    assert cfg["directory"][0]["static_sampling"] is True
+    assert cfg["directory"][0]["subsample_shuffle"] is False
 
 
-def test_directory_static_sampling_omitted_when_false() -> None:
+def test_directory_subsample_shuffle_omitted_when_default() -> None:
     form, _ = parse_toml_to_form(
         "resolutions = [1024]\nframe_buckets = [1]\n\n"
         "[[directory]]\npath = '/data/x'\nnum_repeats = 1\n"
@@ -176,24 +170,24 @@ def test_directory_static_sampling_omitted_when_false() -> None:
             "path": "/my/images",
             "num_repeats": 1,
             "max_images": 10,
-            "static_sampling": False,
+            "subsample_shuffle": True,
         }
     ]
     cfg = _roundtrip(form)
     assert cfg["directory"][0]["max_images"] == 10
-    assert "static_sampling" not in cfg["directory"][0]
+    assert "subsample_shuffle" not in cfg["directory"][0]
 
 
-def test_global_max_images_roundtrip_and_static_default_omitted() -> None:
+def test_global_max_images_roundtrip_and_rotation_default_omitted() -> None:
     form, _ = parse_toml_to_form(
         "resolutions = [1024]\nframe_buckets = [1]\n\n"
         "[[directory]]\npath = '/data/x'\nnum_repeats = 1\n"
     )
     form["max_images"] = 25
-    form["static_sampling"] = False
+    form["subsample_shuffle"] = True
     cfg = _roundtrip(form)
     assert cfg["max_images"] == 25
-    assert "static_sampling" not in cfg
+    assert "subsample_shuffle" not in cfg
 
 
 def test_directory_max_images_omitted_when_same_as_global() -> None:
@@ -220,7 +214,6 @@ def test_directory_path_and_overrides_roundtrip() -> None:
             "path": "/my/images",
             "num_repeats": 3,
             "directory_caption": "style: ",
-            "shuffle_tags": True,
             "resolutions": [512],
         }
     ]
@@ -229,5 +222,4 @@ def test_directory_path_and_overrides_roundtrip() -> None:
     assert d["path"] == "/my/images"
     assert d["num_repeats"] == 3
     assert d["directory_caption"] == "style: "
-    assert d["shuffle_tags"] is True
     assert d["resolutions"] == [512]
