@@ -53,6 +53,14 @@ import type {
   MaintenanceDbResetResult,
   MaintenanceEnabledResult,
   MaintenanceStatus,
+  QuarantineBatchInfo,
+  TagBackupInfo,
+  TagCommitResult,
+  TagDiffResult,
+  TagEditOpDto,
+  TagQueryResult,
+  TagSessionSummary,
+  TagStatsResult,
   VersionInfo,
 } from "./types/api";
 import { withDefaultPagination } from "./types/api";
@@ -455,5 +463,75 @@ export const api = {
     request<MaintenanceCommandOutput>("/maintenance/deps/install", {
       method: "POST",
       body: JSON.stringify({ profile, execute, confirm: execute }),
+    }),
+
+  // --- Dataset prep: tag editor ---
+
+  prepOpenTagSession: (path: string, format: string, ext: string) =>
+    request<TagSessionSummary>("/prep/tags/sessions", {
+      method: "POST",
+      body: JSON.stringify({ path, format, ext }),
+    }),
+
+  prepTagSessionSummary: (sessionId: string) =>
+    request<TagSessionSummary>(`/prep/tags/sessions/${encodeURIComponent(sessionId)}`),
+
+  prepTagStats: (sessionId: string, scope: string) =>
+    request<TagStatsResult>(
+      `/prep/tags/sessions/${encodeURIComponent(sessionId)}/stats?scope=${encodeURIComponent(scope)}`
+    ),
+
+  prepTagQuery: (sessionId: string, filter: TagEditOpDto["filter"], scope: string) =>
+    request<TagQueryResult>(`/prep/tags/sessions/${encodeURIComponent(sessionId)}/query`, {
+      method: "POST",
+      body: JSON.stringify({ filter, scope }),
+    }),
+
+  prepStageTagOps: (sessionId: string, ops: TagEditOpDto[]) =>
+    request<TagSessionSummary>(`/prep/tags/sessions/${encodeURIComponent(sessionId)}/ops`, {
+      method: "POST",
+      body: JSON.stringify({ ops }),
+    }),
+
+  prepUndoTagOp: (sessionId: string) =>
+    request<TagSessionSummary>(`/prep/tags/sessions/${encodeURIComponent(sessionId)}/undo`, {
+      method: "POST",
+    }),
+
+  prepTagDiff: (sessionId: string, limit?: number) =>
+    request<TagDiffResult>(
+      `/prep/tags/sessions/${encodeURIComponent(sessionId)}/diff${limit ? `?limit=${limit}` : ""}`
+    ),
+
+  prepCommitTagSession: (sessionId: string) =>
+    request<TagCommitResult>(`/prep/tags/sessions/${encodeURIComponent(sessionId)}/commit`, {
+      method: "POST",
+    }),
+
+  prepCloseTagSession: (sessionId: string) =>
+    request<{ ok: boolean }>(`/prep/tags/sessions/${encodeURIComponent(sessionId)}`, {
+      method: "DELETE",
+    }),
+
+  prepTagBackups: (path: string) =>
+    request<{ backups: TagBackupInfo[] }>(
+      `/prep/tags/backups?path=${encodeURIComponent(path)}`
+    ),
+
+  prepRestoreTagBackup: (path: string, backup: string) =>
+    request<{ restored: string[] }>("/prep/tags/restore", {
+      method: "POST",
+      body: JSON.stringify({ path, backup }),
+    }),
+
+  prepQuarantineBatches: (path: string) =>
+    request<{ batches: QuarantineBatchInfo[] }>(
+      `/prep/tags/quarantine?path=${encodeURIComponent(path)}`
+    ),
+
+  prepRestoreQuarantine: (path: string, batch: string) =>
+    request<{ restored: string[] }>("/prep/tags/quarantine/restore", {
+      method: "POST",
+      body: JSON.stringify({ path, batch }),
     }),
 };

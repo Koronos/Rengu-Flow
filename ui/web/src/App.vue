@@ -13,6 +13,10 @@
             <el-icon><Files /></el-icon>
             <span>Datasets</span>
           </el-menu-item>
+          <el-menu-item index="/prep/tags">
+            <el-icon><MagicStick /></el-icon>
+            <span>Prep</span>
+          </el-menu-item>
         </el-menu>
         <div v-if="versionLabel" class="app-brand-version">
           <span class="app-brand-version__label" :title="versionTitle">{{ versionLabel }}</span>
@@ -82,6 +86,10 @@
             <el-icon><Files /></el-icon>
             <span>Datasets</span>
           </el-menu-item>
+          <el-menu-item index="/prep/tags">
+            <el-icon><MagicStick /></el-icon>
+            <span>Prep</span>
+          </el-menu-item>
         </el-menu>
         <div class="app-menu-bottom">
           <el-menu
@@ -112,7 +120,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { useRoute } from "vue-router";
-import { Document, Files, Menu, Tools, VideoPlay } from "@element-plus/icons-vue";
+import { Document, Files, MagicStick, Menu, Tools, VideoPlay } from "@element-plus/icons-vue";
 import { api } from "./api";
 import { useBreakpoint } from "./composables/useBreakpoint";
 import DatasetGalleryHost from "./components/DatasetGalleryHost.vue";
@@ -155,6 +163,7 @@ const activeMenu = computed(() => {
   if (name === "docs") return "/docs";
   if (name === "maintenance") return "/maintenance";
   if (name.startsWith("datasets-")) return "/datasets";
+  if (name.startsWith("prep-")) return "/prep/tags";
   return "/runs";
 });
 
@@ -169,6 +178,7 @@ const pageTitle = computed(() => {
     "run-continue": "Continue training",
     "datasets-list": "Datasets",
     "run-detail": "Run detail",
+    "prep-tags": "Dataset prep · Tag editor",
   };
   return names[routeName.value] || "Rengu Flow UI";
 });

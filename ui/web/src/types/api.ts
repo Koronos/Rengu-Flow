@@ -670,3 +670,70 @@ export interface MaintenanceDbResetResult extends MaintenanceCommandOutput {
   tables_before: string[];
   tables_after: string[];
 }
+
+// --- Dataset prep: tag editor -------------------------------------------------
+
+export interface TagEditOpDto {
+  op: "add" | "remove" | "rename" | "prune" | "quarantine";
+  tags?: string[];
+  rename_to?: string | null;
+  filter?: { all?: string[]; any?: string[]; none?: string[] };
+  scope?: "line1" | "tag_lines" | "all_lines" | "line_n";
+  line_index?: number | null;
+  min_count?: number | null;
+  position?: "start" | "end";
+}
+
+export interface TagSessionSummary {
+  session_id: string;
+  path: string;
+  format: string;
+  ext: string;
+  image_count: number;
+  staged_ops: TagEditOpDto[];
+  changed_count: number;
+  quarantine_pending: string[];
+}
+
+export interface TagStatsResult {
+  tags: { tag: string; count: number }[];
+  image_count: number;
+}
+
+export interface TagQueryResult {
+  keys: string[];
+  captions: Record<string, string[]>;
+  previews: Record<string, string>;
+}
+
+export interface TagDiffEntry {
+  key: string;
+  before: string[] | null;
+  after: string[] | null;
+}
+
+export interface TagDiffResult {
+  total: number;
+  entries: TagDiffEntry[];
+}
+
+export interface TagCommitResult {
+  backup: string;
+  backup_path: string;
+  files_written: string[];
+  quarantined: string[];
+}
+
+export interface TagBackupInfo {
+  name: string;
+  created: string | null;
+  format: string | null;
+  ext: string | null;
+  file_count: number;
+}
+
+export interface QuarantineBatchInfo {
+  name: string;
+  created: string | null;
+  images: string[];
+}

@@ -5,6 +5,7 @@ import MaintenanceView from "./views/MaintenanceView.vue";
 import JobsView from "./views/JobsView.vue";
 import RunDetailView from "./views/RunDetailView.vue";
 import RunFormView from "./views/RunFormView.vue";
+import TagEditorView from "./views/TagEditorView.vue";
 
 const router = createRouter({
   history: createWebHistory(),
@@ -26,6 +27,8 @@ const router = createRouter({
     { path: "/jobs/:id", redirect: (to) => `/runs/jobs/${to.params.id}` },
     { path: "/jobs", redirect: "/runs" },
     { path: "/datasets", name: "datasets-list", component: DatasetsListView },
+    { path: "/prep", redirect: "/prep/tags" },
+    { path: "/prep/tags", name: "prep-tags", component: TagEditorView },
   ],
 });
 
