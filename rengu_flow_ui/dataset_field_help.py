@@ -20,14 +20,6 @@ FIELD_HELP: dict[str, dict[str, str]] = {
     "min_ar": {"summary": "Minimum width/height ratio for AR buckets.", "doc": "docs/user/dataset-config.md"},
     "max_ar": {"summary": "Maximum width/height ratio for AR buckets.", "doc": "docs/user/dataset-config.md"},
     "num_ar_buckets": {"summary": "Number of AR buckets between min and max.", "doc": "docs/user/dataset-config.md"},
-    "shuffle_tags": {
-        "summary": "Shuffle comma-separated caption tags when caching.",
-        "doc": "docs/user/dataset-config.md",
-    },
-    "cache_shuffle_num": {
-        "summary": "Caption shuffle/repeat count for cache augmentation.",
-        "doc": "docs/user/dataset-config.md",
-    },
     "directory.path": {
         "summary": "Folder with images (and optional .txt or captions.json).",
         "doc": "docs/user/dataset-config.md",
@@ -38,14 +30,6 @@ FIELD_HELP: dict[str, dict[str, str]] = {
     },
     "directory.directory_caption": {
         "summary": "Default or prefix caption for images in this folder.",
-        "doc": "docs/user/dataset-config.md",
-    },
-    "directory.shuffle_tags": {
-        "summary": "Shuffle delimiter-separated tags when caching this folder.",
-        "doc": "docs/user/dataset-config.md",
-    },
-    "directory.cache_shuffle_num": {
-        "summary": "Caption shuffle/repeat count for this folder only.",
         "doc": "docs/user/dataset-config.md",
     },
     "_dataset_augmentation": {
@@ -71,10 +55,6 @@ FIELD_HELP: dict[str, dict[str, str]] = {
     "directory.augmentation.strategies": {
         "summary": "Per-strategy parameter overrides (JSON object).",
         "doc": "docs/user/dataset-augmentation.md",
-    },
-    "directory.cache_shuffle_delimiter": {
-        "summary": "Tag delimiter for this folder when shuffle tags is on.",
-        "doc": "docs/user/dataset-config.md",
     },
     "directory.shuffle_metadata": {
         "summary": "Shuffle image order when building metadata for this folder.",
@@ -116,10 +96,6 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "summary": "Fixed [width, height, frames] buckets instead of AR bucketing.",
         "doc": "docs/user/dataset-config.md",
     },
-    "cache_shuffle_delimiter": {
-        "summary": "Delimiter between tags when shuffle_tags is enabled.",
-        "doc": "docs/user/dataset-config.md",
-    },
     "shuffle_metadata": {
         "summary": "Shuffle image order when building metadata (deterministic per folder).",
         "doc": "docs/user/dataset-config.md",
@@ -132,7 +108,7 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "summary": "Use a fraction of images per epoch. Mutually exclusive with max_images.",
         "detail": (
             "Fractional per-epoch limiter (e.g. 0.1). By default the window rotates over the "
-            "whole folder across epochs (set static_sampling to freeze it). Cannot be combined "
+            "whole folder across epochs (turn subsample_shuffle off to freeze it). Cannot be combined "
             "with max_images in the same place — pick one."
         ),
         "doc": "docs/user/dataset-config.md",
@@ -143,16 +119,17 @@ FIELD_HELP: dict[str, dict[str, str]] = {
             "Caps how many images a folder contributes each epoch. By default the window "
             "rotates over the whole folder across epochs so every image is eventually seen "
             "(balances folders of different sizes without wasting data). Folders with fewer "
-            "images than the cap repeat up to it. Set static_sampling to freeze the subset. "
+            "images than the cap repeat up to it. Turn subsample_shuffle off to freeze the subset. "
             "Mutually exclusive with subsample_ratio."
         ),
         "doc": "docs/user/dataset-config.md",
     },
-    "static_sampling": {
-        "summary": "Freeze the active limiter to the same images every epoch (no rotation).",
+    "subsample_shuffle": {
+        "summary": "Rotate the sampled window every epoch (on) or keep the same subset (off).",
         "detail": (
-            "Applies to whichever limiter is set (subsample_ratio or max_images). False "
-            "(default) rotates the per-epoch window; True keeps the same subset each epoch."
+            "Applies to whichever limiter is set (subsample_ratio or max_images). On "
+            "(default) advances the per-epoch window so the whole folder is eventually "
+            "used; off keeps the same subset each epoch (the old static_sampling = true)."
         ),
         "doc": "docs/user/dataset-config.md",
     },
@@ -162,7 +139,10 @@ FIELD_HELP: dict[str, dict[str, str]] = {
             "When on, some caption tags are omitted each step so the model does not over-rely "
             "on any single tag. Dropout runs at training time only — captions stored in cache "
             "metadata stay raw. Requires cache_text_embeddings = false in the model config, "
-            "since cached text embeddings ignore per-sample caption changes."
+            "which keeps the text encoder on the GPU (~22 ms/step + ~1.2 GB VRAM). Faster "
+            "alternative with the same distribution: pre-bake K dropout variants as .txt lines "
+            "(scripts/generate_caption_variants.py), keep cache_text_embeddings = true, and "
+            "leave this off — variants rotate across epochs without lengthening them."
         ),
         "doc": "docs/user/dataset-config.md",
     },

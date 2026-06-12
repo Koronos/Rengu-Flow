@@ -14,13 +14,13 @@ User-facing summary: [Dataset augmentation (user)](../user/dataset-augmentation.
 
 The main config references a dataset via the `dataset` key (path to a TOML file). That TOML must contain:
 
-- **`directory`** — List of directory configs (from TOML `[[directory]]`). Each entry: **`path`** and **`num_repeats`** (required); optional: `directory_caption`, `mask_path`, `control_path`, `default_mask_file`, `resolutions`, `frame_buckets`, `enable_ar_bucket`, `ar_buckets`, `size_buckets`, `cache_shuffle_num`, `cache_shuffle_delimiter`, `shuffle_tags`, `subsample_ratio`, `max_images`, `static_sampling`. See [user dataset-config](../user/dataset-config.md) for what each option does and allowed values.
-- **Global options** in the same TOML: `resolutions`, `frame_buckets`, `enable_ar_bucket`, `min_ar`, `max_ar`, `num_ar_buckets`, `ar_buckets`, `size_buckets`, `shuffle_tags`, `cache_shuffle_num`, `cache_shuffle_delimiter`, `shuffle_metadata`, `online_captions`, `subsample_ratio`, `max_images`, `static_sampling`. Full descriptions and values are in the user doc.
+- **`directory`** — List of directory configs (from TOML `[[directory]]`). Each entry: **`path`** and **`num_repeats`** (required); optional: `directory_caption`, `mask_path`, `control_path`, `default_mask_file`, `resolutions`, `frame_buckets`, `enable_ar_bucket`, `ar_buckets`, `size_buckets`, `subsample_ratio`, `max_images`, `subsample_shuffle`. See [user dataset-config](../user/dataset-config.md) for what each option does and allowed values.
+- **Global options** in the same TOML: `resolutions`, `frame_buckets`, `enable_ar_bucket`, `min_ar`, `max_ar`, `num_ar_buckets`, `ar_buckets`, `size_buckets`, `shuffle_metadata`, `online_captions`, `subsample_ratio`, `max_images`, `subsample_shuffle`. Full descriptions and values are in the user doc.
 - **Per-`[[directory]]` optional keys** include the same caption/bucket overrides as the UI directory editor, plus the per-epoch limiters `subsample_ratio` / `max_images` (see below). Root `subsample_ratio` is a separate static trim applied in `Dataset.post_init` on the combined iteration order.
 
 ### Per-epoch image limiting (`subsample_ratio` / `max_images`, rotating)
 
-`subsample_ratio` (fraction) and `max_images` (absolute count) are two **mutually exclusive** per-(folder, size bucket) limiters on how many rows a folder serves per epoch. Both go through the same rotation machinery and are governed by `static_sampling`. Neither is baked into the cached iteration order — the full pool stays cached so the served window can change per epoch (the latents cache was always full regardless, so this adds no caching cost):
+`subsample_ratio` (fraction) and `max_images` (absolute count) are two **mutually exclusive** per-(folder, size bucket) limiters on how many rows a folder serves per epoch. Both go through the same rotation machinery and are governed by `subsample_shuffle` (renamed from the retired `static_sampling`, inverted polarity). Neither is baked into the cached iteration order — the full pool stays cached so the served window can change per epoch (the latents cache was always full regardless, so this adds no caching cost):
 
 - `SizeBucketDataset` keeps the full `iteration_order` (pool length `P`). The per-epoch row count is `cap = effective_sample_cap(P, max_images, subsample_ratio)` — `max_images`, else `max(1, int(P*subsample_ratio))` when `ratio < 1`, else `None` (uncapped). Per-epoch served length `M = cap or P`; `__len__` is `M * num_repeats`, constant across epochs (so `steps_per_epoch` is stable).
 - `__getitem__`/`get_items_batch` map an index to a pool row via the pure helper `rotation_window_index(pos, epoch, pool_len, cap, static)`. Non-static (default) advances the window start by `cap` each epoch (wrapping) so the whole pool is covered every `ceil(P/cap)` epochs; `static` keeps offset 0; `cap > P` repeats the pool up to `cap` (repeat-to-N).
@@ -35,6 +35,43 @@ Validation for real data: `rengu_flow.data.dataset_config.validate_dataset_confi
 - **`directory_caption`** (single option, no separate prefix): When there is no `.txt` and no `captions.json` entry for an image, this string is used as the full caption (or empty if unset). When a per-image caption exists, this string is **prepended** as a prefix. So one key covers both “fallback caption” and “prefix”.
 
 Caption lists are flattened for text-embedding cache (one embedding per (image, caption)); iteration order picks one caption per step.
+
+## Caption variants — how multi-caption works inside
+
+Multi-line `.txt` files are the cached-augmentation mechanism (e.g. pre-baked tag-dropout
+variants generated offline so `cache_text_embeddings = true` keeps working). What actually
+happens, end to end:
+
+1. **Parsing** — `_read_captions_from_txt_per_line` stores each image's captions as a list;
+   every variant gets its own cached text embedding keyed by `(image_spec, caption_number)`
+   (`TextEmbeddingDataset.get_text_embeddings`). The mapping is unambiguous: one
+   `(image, caption_number)` → one text → one embedding.
+2. **Iteration order** (`SizeBucketDataset`, "Building iteration order") — with equal counts,
+   each image's captions are first shuffled with a per-image seed, then grouped by slot:
+   segment 0 holds every image once with its slot-0 variant, segment 1 with slot-1, etc. One
+   full pass over the order therefore serves **every image with all K variants exactly once
+   each** (verified on real cache artifacts: no image is ever stuck with one embedding, and
+   no `(image, caption_number)` maps to two texts). With unequal counts the order is a flat
+   shuffle instead.
+3. **Epoch accounting** — variants multiply the iteration order (each is its own example),
+   but they are regularization samples of the same images, not new data.
+   `Dataset.caption_variants` (uniform count across all buckets, else 1) is divided out of
+   `steps_per_epoch` in `main._run_training`, so an **"epoch" still means one pass over the
+   images**: save/eval/preview cadence and the `epochs × steps_per_epoch` budget stay stable
+   for any K, and each accounting epoch serves the next per-image variant (rotation across
+   epochs). `epochs = K` consumes every variant exactly once.
+4. **Why pre-baked variants instead of live tag dropout** — live per-tag dropout produces a
+   unique caption per draw, forcing the text encoder to stay resident (~1.2 GB, lowering the
+   usable `activation_memory_budget`) and to run every step (~22 ms — launch-overhead-bound,
+   independent of caption length; see EXPERIMENTS_GRAVEYARD "Trim Cosmos text padding").
+   K pre-baked variants sampled from the same dropout distribution are statistically
+   equivalent up to finite-K noise (with `epochs` passes, each tag is seen present/absent in
+   a Binomial(K, p) share of them), encode once at cache time (~22 ms per caption, latents
+   reused), and free the TE from the GPU entirely. `uncond_fraction` composes with this
+   (the cached unconditional embedding is swapped in per draw).
+
+Generator used for tag-dropout variants: sample `apply_tag_dropout` K times per caption with
+a fixed seed and write K lines per `.txt` (see `tag_dropout.py` for the distribution).
 
 ## Cache
 

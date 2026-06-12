@@ -123,10 +123,13 @@ FIELD_HELP: dict[str, dict[str, str]] = {
     "model.cache_text_embeddings": {
         "summary": "Cache captions as embeddings once (faster training, more disk).",
         "detail": (
-            "Strongly recommended for Cosmos/Anima: run --cache_only so training skips Qwen3 forward passes. "
-            "Disabling only makes sense for debugging; it does not save meaningful VRAM once latents are cached."
+            "Strongly recommended for Cosmos/Anima: training skips the live Qwen3 forward "
+            "(~22 ms/step) and frees ~1.2 GB VRAM (more activation_memory_budget headroom). "
+            "Incompatible with live tag dropout — to keep dropout WITH the cache, pre-bake "
+            "variants as .txt lines (scripts/generate_caption_variants.py): every line is "
+            "cached and rotates across epochs without inflating them."
         ),
-        "doc": "docs/user/training-cosmos-predict2-lora-lokr-finetune.md",
+        "doc": "docs/user/dataset-config.md",
     },
     "_has_adapter": {
         "summary": "Train LoRA/LoKr instead of full-model finetune.",

@@ -14,10 +14,16 @@ Legend: ⛔ REJECTED (measured net-negative) · ⏸ PARKED (dead here, viable on
 
 ## ⛔ / ⏸ Speed & memory levers
 
-### ↩ SAC — `activation_checkpointing = "selective"` (retired 2026-06)
+### ↩ SAC — `activation_checkpointing = "selective"` (retired 2026-06; re-tested and re-buried 2026-06-11)
 - **What:** Selective Activation Checkpointing: non-reentrant checkpoint with a `MUST_SAVE` policy for SDPA ops (+ `selective_checkpoint_save_ops` to keep more), recompute the rest.
 - **Why superseded:** `activation_checkpointing = "auto"` (Inductor memory-budget partitioner, `training/activation_budget.py`) measured **better on BOTH axes** @1024 LoKr: SAC 0.932 s / 6.56 GB vs auto(0.1) 0.881 s / 6.37 GB — and auto scales to −20.6% at budget 0.5. SAC's only niche was compile-off runs (−4.3% for +0.8 GB), too thin to keep a second policy, config key, and UI field. Legacy configs degrade to `true` with a warning.
-- **Where the code was:** `main.py` AC block (removed; git history has it).
+- **Re-test (2026-06-11):** resurrected on `worktree-activation-offload` and A/B'd against auto under
+  the full production config (live TE, per-res batches {2,2,1}, resolution schedule, ar buckets,
+  previews, dynamic compile; 261-step harness). SAC 571/1043/1000 ms (512/768/1024) and tuned SAC
+  (+mm,addmm,bmm, dial verified applied) 567/1034/991 vs **auto(0.22) 509/928/892 — auto wins all
+  three resolutions by ~11%**. SAC's only edge: steady peak 8.46 vs 10.85 GB — and auto buys the
+  same VRAM with a lower budget (it is a continuous dial over the same trade). Verdict unchanged.
+- **Where the code was:** `main.py` AC block (removed; git history has it, plus the re-test resurrection on `worktree-activation-offload`).
 - **Revisit when:** a supported model can't compile at all (auto requires `compile = true`).
 
 ### ↩ unsloth-style CPU-offload checkpointing — `activation_checkpointing = "unsloth"` (retired 2026-06)
@@ -70,6 +76,33 @@ Legend: ⛔ REJECTED (measured net-negative) · ⏸ PARKED (dead here, viable on
   `rengu_flow/training/activation_offload.py` + tests + main-loop wiring, off by default.
 - **Revisit when:** a host link ≥4× PCIe 4.0 (NVLink/Grace class), or a model whose saved set is
   mostly large contiguous tensors that are not alive in the residual stream.
+
+### ⛔ Trim Cosmos text padding below 512 — *(tried in-place 2026-06-11, reverted; no branch)*
+- **What:** `tokenize()` pads every caption to a fixed 512 tokens (`model/cosmos_predict2/text.py`),
+  so the live TE (Qwen 0.6B) processes ~3-6× padding for typical 80-150-token captions and the DiT
+  cross-attention carries the full 512 K/V context every step. Probe: env-gated bucketed padding
+  (longest-in-batch rounded up to 64, cap 512), expected to recover most of the ~35 ms/step live-TE
+  cost plus a slice of DiT crossattn.
+- **Why rejected:** **the model depends on the padding**. The DiT cross-attention applies NO mask
+  (`attn_mask_type="no_mask"` for TE; plain `scaled_dot_product_attention(q, k, v)` for torch —
+  `dit.py`), so the ~400 zeroed positions act as trained-in attention sinks. Equivalence probe
+  (same seed, no dropout, eager, 10 steps): |Δloss| up to 0.053 vs a 0.0013 bf16 noise floor —
+  **39× above noise and systematically higher loss on every step**. Trimming is out-of-distribution
+  input, not an optimization.
+- **Revisit when:** training a model whose checkpoints were trained with masked/variable-length
+  text context, or if a finetune deliberately re-adapts the model to short contexts (measure loss
+  parity first, exactly like this probe).
+- **Follow-up (same day): exact variant also rejected — zero gain.** Trimming only the *encoder
+  compute* (bucketed tokenize for the Qwen side, zero-pad the embedding + mask back to 512 in
+  InitialLayer; t5/DiT context untouched) IS mathematically equivalent — fp32 probe: max|Δ|=1e-4 on
+  embeddings of magnitude ~63 (padding side is right; the encoder masks padding; padded outputs are
+  zeroed). But the canonical-harness A/B measured **no speedup at all** (510/930/900 vs 509/928/892
+  ms): a direct CUDA-event bench shows the live TE forward costs **~22 ms at ANY length** (21.8 ms
+  @512 vs 22.2 ms @128, bs2) — it is kernel-launch/overhead bound, not token bound. Reverted.
+  The real levers for the ~22-30 ms live-TE cost are: (a) pre-cached caption variants (already
+  supported: one caption per .txt line + cache_text_embeddings=true — embeddings cached per
+  caption_number, TE leaves the GPU, budget headroom returns to 0.3), or (b) cutting launch
+  overhead itself (e.g. compiling the TE with mode="reduce-overhead"/CUDA graphs) — unmeasured.
 
 ### ⏸ fp8 matmul for the frozen DiT base — `feat/cosmos-quant`
 - **What:** `torch._scaled_mm` row-wise fp8 GEMM for the ~280 frozen DiT linears (`transformer_fp8_matmul`), with a custom `_Fp8ScaledMatmul` autograd.Function (scaled_mm has no derivative) and LoKr-on-quantized-base composition.

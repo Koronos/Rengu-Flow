@@ -719,6 +719,21 @@ def _run_training(args, config):
         )
     else:
         steps_per_epoch = max(1, len(train_dataloader) // gradient_accumulation_steps)
+    # Caption variants (multi-line .txt) multiply the iteration order, but they are
+    # regularization samples of the same images, not new data. Divide them out so an
+    # "epoch" still means one pass over the images — save/eval/preview cadence and
+    # the epochs*steps_per_epoch budget stay stable for any K, and the variants
+    # rotate across epochs (each pass serves the next per-image variant).
+    caption_variants = max(1, int(getattr(train_data, "caption_variants", 1)))
+    if caption_variants > 1:
+        steps_per_epoch = max(1, steps_per_epoch // caption_variants)
+        if is_main_process():
+            print(
+                f"[data] {caption_variants} caption variants per image: epoch "
+                f"accounting uses {steps_per_epoch} steps/epoch (one pass over the "
+                "images); variants rotate across epochs.",
+                flush=True,
+            )
     epochs = config.get("epochs", 1)
     total_steps = epochs * steps_per_epoch
     # The schedule is measured against a step budget: the user's max_steps if set

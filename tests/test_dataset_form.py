@@ -52,7 +52,6 @@ def test_form_values_for_ui_fills_dataset_defaults() -> None:
     filled = form_values_for_ui(form, schema)
     assert filled["enable_ar_bucket"] is False
     assert filled["frame_buckets"] == [1]
-    assert filled["cache_shuffle_num"] == 1
     assert filled["subsample_ratio"] == 1
 
 
@@ -74,28 +73,27 @@ def test_max_images_schema_fields() -> None:
     assert by_path["max_images"]["type"] == "integer"
     assert by_path["max_images"]["min"] == 1
     assert "default" not in by_path["max_images"]
-    assert by_path["static_sampling"]["default"] is False
+    assert by_path["subsample_shuffle"]["default"] is True
 
     dir_by_path = {f["path"]: f for f in schema["directory_fields"]}
     assert dir_by_path["max_images"]["type"] == "integer"
     assert dir_by_path["max_images"]["min"] == 1
     assert dir_by_path["max_images"].get("show_if_set") is True
-    # Static flag governs whichever limiter is active; it's an optional override.
-    assert dir_by_path["static_sampling"]["type"] == "boolean"
-    assert dir_by_path["static_sampling"].get("show_if_set") is True
-    assert dir_by_path["static_sampling"]["default"] is False
+    # The rotation flag governs whichever limiter is active; it's an optional override.
+    assert dir_by_path["subsample_shuffle"]["type"] == "boolean"
+    assert dir_by_path["subsample_shuffle"].get("show_if_set") is True
+    assert dir_by_path["subsample_shuffle"]["default"] is True
 
 
-def test_cache_shuffle_schema_default_and_shuffle_tags_gating() -> None:
+def test_retired_shuffle_fields_absent_from_schema() -> None:
+    """shuffle_tags/cache_shuffle_* were retired (pre-bake variants instead)."""
     schema = get_dataset_schema()
     captions = next(s for s in schema["sections"] if s["id"] == "captions")
-    by_path = {f["path"]: f for f in captions["fields"]}
-    assert by_path["cache_shuffle_num"]["default"] == 1
-    assert by_path["cache_shuffle_num"]["show_when_field"] == "shuffle_tags"
-    assert by_path["cache_shuffle_delimiter"]["show_when_field"] == "shuffle_tags"
-    dir_by_path = {f["path"]: f for f in schema["directory_fields"]}
-    assert dir_by_path["cache_shuffle_num"]["default"] == 1
-    assert dir_by_path["cache_shuffle_num"]["show_when_field"] == "shuffle_tags"
+    paths = {f["path"] for f in captions["fields"]}
+    dir_paths = {f["path"] for f in schema["directory_fields"]}
+    for retired in ("shuffle_tags", "cache_shuffle_num", "cache_shuffle_delimiter"):
+        assert retired not in paths
+        assert retired not in dir_paths
 
 
 def test_parse_toml_to_form_skips_defaults_by_default() -> None:
@@ -115,31 +113,6 @@ def test_parse_keeps_number_lists_as_arrays() -> None:
         "frame_buckets = [1]\n\n[[directory]]\npath = '/x'\nnum_repeats = 1\n"
     )
     assert form["ar_buckets"] == [1.0, 1.5]
-
-
-def test_directory_per_folder_shuffle_override() -> None:
-    raw = """
-resolutions = [1024]
-frame_buckets = [1]
-shuffle_tags = false
-
-[[directory]]
-path = "/data/a"
-num_repeats = 1
-shuffle_tags = true
-cache_shuffle_num = 3
-
-[[directory]]
-path = "/data/b"
-num_repeats = 2
-"""
-    form = parse_toml(raw)
-    assert form["_directories"][0]["shuffle_tags"] is True
-    assert form["_directories"][0]["cache_shuffle_num"] == 3
-    cfg = toml.loads(form_to_toml(form))
-    assert cfg["directory"][0]["shuffle_tags"] is True
-    assert cfg["directory"][0]["cache_shuffle_num"] == 3
-    assert "shuffle_tags" not in cfg["directory"][1]
 
 
 def test_parse_keeps_integer_lists_as_arrays() -> None:
