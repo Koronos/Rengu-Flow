@@ -33,6 +33,22 @@ class TagSession:
     staged_ops: list[TagEditOp] = field(default_factory=list)
     last_access: float = field(default_factory=time.monotonic)
     _current_cache: tuple[int, dict] | None = None
+    _sizes_cache: dict[str, tuple[int, int]] | None = None
+
+    def sizes(self) -> dict[str, tuple[int, int]]:
+        """Pixel dimensions per image (header-only reads; cached for the session)."""
+        if self._sizes_cache is None:
+            from PIL import Image
+
+            sizes: dict[str, tuple[int, int]] = {}
+            for key, path in self.captions.images.items():
+                try:
+                    with Image.open(path) as img:
+                        sizes[key] = (int(img.width), int(img.height))
+                except OSError:
+                    sizes[key] = (0, 0)
+            self._sizes_cache = sizes
+        return self._sizes_cache
 
     @property
     def base(self) -> dict[str, list[str]]:
@@ -133,6 +149,38 @@ class TagSessionStore:
         return {
             "keys": keys,
             "captions": {key: current[key] for key in keys},
+        }
+
+    def size_query(
+        self,
+        session_id: str,
+        *,
+        below: int | None = None,
+        above: int | None = None,
+    ) -> dict:
+        """Images whose SHORT side is < ``below`` and/or whose LONG side is > ``above``.
+
+        The trainer's bucketing resizes later, so this is the prep-time filter for
+        thumbnails that caption/train badly and oversized originals worth flagging.
+        """
+        session = self.get(session_id)
+        current = session.current()
+        sizes = session.sizes()
+        keys = []
+        for key in current:
+            w, h = sizes.get(key, (0, 0))
+            if below is not None and min(w, h) >= below:
+                continue
+            if above is not None and max(w, h) <= above:
+                continue
+            if below is None and above is None:
+                continue
+            keys.append(key)
+        keys.sort(key=lambda k: min(sizes.get(k, (0, 0))))
+        return {
+            "keys": keys,
+            "captions": {key: current[key] for key in keys},
+            "sizes": {key: list(sizes.get(key, (0, 0))) for key in keys},
         }
 
     def diff(self, session_id: str, limit: int | None = None) -> dict:
