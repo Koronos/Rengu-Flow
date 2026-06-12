@@ -89,7 +89,7 @@ def set_config_defaults(config: dict[str, Any]) -> None:
         if "rank" not in adapter_config and "dim" in adapter_config:
             adapter_config["rank"] = adapter_config["dim"]
         adapter_type = adapter_config["type"]
-        if adapter_type in ("lora", "lokr"):
+        if adapter_type in ("lora", "lokr") or adapter_type.startswith("lycoris_"):
             if "alpha" in adapter_config:
                 raise ConfigValidationError(
                     "Remove alpha from [adapter]; rengu-flow sets alpha=rank for Comfy-compatible saves."
@@ -103,6 +103,18 @@ def set_config_defaults(config: dict[str, Any]) -> None:
             adapter_config.setdefault("factor", -1)
             adapter_config.setdefault("decompose_both", False)
             adapter_config.setdefault("full_matrix", False)
+            adapter_config.setdefault("dtype", model_dtype_str)
+            adapter_config["dtype"] = DTYPE_MAP[adapter_config["dtype"]]
+        elif adapter_type.startswith("lycoris_"):
+            # Torch-free catalog module; per-algo tunables mirror lycoris 3.4.0.
+            from rengu_flow.networks.lycoris_meta import LYCORIS_ADAPTER_TYPES, apply_lycoris_defaults
+
+            if adapter_type not in LYCORIS_ADAPTER_TYPES:
+                known = ", ".join(LYCORIS_ADAPTER_TYPES)
+                raise ConfigValidationError(
+                    f"adapter.type {adapter_type!r} is not a known LyCORIS type. Available: {known}."
+                )
+            apply_lycoris_defaults(adapter_config)
             adapter_config.setdefault("dtype", model_dtype_str)
             adapter_config["dtype"] = DTYPE_MAP[adapter_config["dtype"]]
         else:

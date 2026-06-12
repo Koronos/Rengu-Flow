@@ -135,14 +135,35 @@ def collect_validation_errors(
         if not isinstance(adapter, dict):
             issues.append("[adapter] must be a table when present.")
         else:
+            from rengu_flow.networks.lycoris_meta import (
+                LYCORIS_ADAPTER_TYPES,
+                collect_lycoris_adapter_issues,
+                is_lycoris_type,
+            )
+
             if "type" not in adapter:
-                issues.append("adapter.type is required when using an adapter — `lora` or `lokr`.")
-            elif adapter["type"] not in ("lora", "lokr"):
                 issues.append(
-                    f"adapter.type must be `lora` or `lokr`, not {adapter['type']!r}."
+                    "adapter.type is required when using an adapter — `lora`, `lokr`, "
+                    "or a `lycoris_*` type."
+                )
+            elif adapter["type"] not in ("lora", "lokr") and not is_lycoris_type(adapter["type"]):
+                known = ", ".join(f"`{t}`" for t in ("lora", "lokr", *LYCORIS_ADAPTER_TYPES))
+                issues.append(
+                    f"adapter.type {adapter['type']!r} is not supported. Available: {known}."
+                )
+            elif is_lycoris_type(adapter["type"]) and (
+                lycoris_issues := collect_lycoris_adapter_issues(adapter)
+            ):
+                issues.extend(lycoris_issues)
+            elif adapter["type"] == "lycoris_dylora" and config.get("activation_checkpointing"):
+                # DyLoRA samples a random sub-rank per forward; checkpoint recompute
+                # draws a different one and fails on mismatched tensor metadata.
+                issues.append(
+                    "lycoris_dylora requires activation_checkpointing = false "
+                    "(its random sub-rank per forward breaks checkpoint recompute)."
                 )
             elif "rank" not in adapter and "dim" not in adapter:
-                issues.append("adapter.rank (or adapter.dim) is required for LoRA / LoKr training.")
+                issues.append("adapter.rank (or adapter.dim) is required for adapter training.")
 
     max_exports = config.get("max_model_exports_to_keep")
     if max_exports is not None:

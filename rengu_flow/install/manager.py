@@ -132,7 +132,8 @@ def profiles_for_config_dict(data: dict[str, Any]) -> list[str]:
         profiles.append("cosmos")
 
     adapter = data.get("adapter") if isinstance(data.get("adapter"), dict) else {}
-    if str(adapter.get("type", "")).strip().lower() == "lokr":
+    adapter_type = str(adapter.get("type", "")).strip().lower()
+    if adapter_type == "lokr" or adapter_type.startswith("lycoris_"):
         profiles.append("lycoris")
 
     optim = data.get("optimizer") if isinstance(data.get("optimizer"), dict) else {}

@@ -136,7 +136,7 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "doc": "docs/user/dataset-config.md",
     },
     "_has_adapter": {
-        "summary": "Train a LoRA/LoKr adapter (checked) or fine-tune all weights directly (unchecked).",
+        "summary": "Train a LoRA/LoKr/LyCORIS adapter (checked) or fine-tune all weights directly (unchecked).",
         "detail": (
             "When checked, only the adapter parameters train — the base model stays frozen and the adapter file "
             "is small and portable (ComfyUI/Forge compatible). "
@@ -146,11 +146,14 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "doc": "docs/user/full-model-training-sdxl.md",
     },
     "adapter.type": {
-        "summary": "Adapter algorithm: lora or lokr.",
+        "summary": "Adapter algorithm: PEFT LoRA, LoKr, or one of the LyCORIS networks.",
         "detail": (
-            "LoRA injects low-rank matrices (widely compatible — loads in ComfyUI/Forge as lora.safetensors). "
-            "LoKr uses Kronecker factorization (LyCORIS, loads as adapter_model.safetensors). "
-            "Both train at the same rank; LoKr tends to be more parameter-efficient at the same rank."
+            "LoRA exports the widely compatible lora.safetensors; LoKr and every LyCORIS type export "
+            "adapter_model.safetensors with kohya-style keys (loads in ComfyUI). LyCORIS types use the "
+            "lycoris-lora library: LoCon (classic LoRA), LoHa (Hadamard product), LoKr (Kronecker product), "
+            "DoRA (LoCon + weight decomposition, often closer to full finetune at low rank), DyLoRA (trains "
+            "nested ranks so you can truncate after training), GLoRA (adds input-side adaptation), Diag-OFT "
+            "and BOFT (orthogonal rotations that preserve base-model weight norms)."
         ),
         "doc": "docs/user/training-sdxl-lora-lokr.md",
     },
@@ -189,11 +192,111 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "doc": "docs/user/training-sdxl-lora-lokr.md",
     },
     "adapter.dropout": {
-        "summary": "LoRA dropout probability (default 0.0).",
+        "summary": "Probability of dropping adapter activations during training (default 0.0 = off).",
         "detail": (
-            "Probability of dropping adapter activations during training, in [0, 1]. Default "
-            "0.0 (off). Small values (e.g. 0.05–0.1) can regularize and reduce overfitting on "
-            "small datasets."
+            "Probability of dropping adapter activations during training, in [0, 1]. Default 0.0 (off). "
+            "Small values (e.g. 0.05–0.1) can regularize and reduce overfitting on small datasets. "
+            "Applies to LoRA and all LyCORIS types."
+        ),
+        "doc": "docs/user/training-sdxl-lora-lokr.md",
+    },
+    "adapter.rank_dropout": {
+        "summary": "Zeroes random rank rows of the adapter each step (default 0.0 = off).",
+        "detail": (
+            "Per-step dropout over the adapter's rank dimension, in [0, 1]. A light value (0.05-0.1) "
+            "regularizes inside the low-rank factorization; try it if a small dataset overfits before "
+            "the style converges."
+        ),
+        "doc": "docs/user/training-sdxl-lora-lokr.md",
+    },
+    "adapter.module_dropout": {
+        "summary": "Skips the entire adapter on a layer with this probability per step (default 0.0 = off).",
+        "detail": (
+            "Each step, an adapted layer keeps base-only behavior with this probability, so the frozen "
+            "model stays visible during training. Use a small value if the adapter drowns out the base "
+            "model's general knowledge."
+        ),
+        "doc": "docs/user/training-sdxl-lora-lokr.md",
+    },
+    "adapter.train_conv": {
+        "summary": "Also adapts Conv2d layers (resnet/sampling convs), not just Linear (default off).",
+        "detail": (
+            "Off matches the lora/lokr targets (attention + MLP Linear layers). On attaches the network "
+            "to every Conv2d in the UNet blocks too — larger file and slower steps, more grip on texture. "
+            "Turn on if fine surface detail refuses to transfer at a rank that otherwise works. Not "
+            "supported for lycoris_dylora."
+        ),
+        "doc": "docs/user/training-sdxl-lora-lokr.md",
+    },
+    "adapter.use_tucker": {
+        "summary": "Tucker-decomposes conv kernels (only acts when Train conv layers is on).",
+        "detail": (
+            "Adds a small core tensor (lora_mid) between the down/up factors on non-1x1 convs, cutting "
+            "conv adapter parameters. It has no effect on Linear layers, so leave it off unless train_conv "
+            "is on."
+        ),
+        "doc": "docs/user/training-sdxl-lora-lokr.md",
+    },
+    "adapter.use_scalar": {
+        "summary": "Adds a trained scale that starts at 0 so the weight factors can init non-zero (default off).",
+        "detail": (
+            "Standard init zeroes the up factor so training starts as a no-op; use_scalar instead "
+            "initializes both factors and multiplies the delta by a learned scalar starting at 0. The "
+            "scalar is folded into the exported tensors, so files stay loader-compatible."
+        ),
+        "doc": "docs/user/training-sdxl-lora-lokr.md",
+    },
+    "adapter.dora_wd": {
+        "summary": "DoRA weight decomposition on top of this algorithm: the adapter trains the direction, a per-channel magnitude trains separately (default off).",
+        "detail": (
+            "Splits each adapted weight into a trained magnitude (dora_scale) and the algorithm's delta "
+            "as direction. Often tracks full finetuning better at low rank, at a per-step compute cost. "
+            "For plain LoRA + DoRA pick the LyCORIS · DoRA type instead of toggling this."
+        ),
+        "doc": "docs/user/training-sdxl-lora-lokr.md",
+    },
+    "adapter.wd_on_output": {
+        "summary": "Computes the DoRA magnitude over the output axis (default on).",
+        "detail": (
+            "Only matters when DoRA decomposition is active (dora_wd, or the DoRA type). On = one "
+            "magnitude per output channel (lycoris default); off = per input column. Leave on unless "
+            "reproducing a recipe that used the input axis."
+        ),
+        "doc": "docs/user/training-sdxl-lora-lokr.md",
+    },
+    "adapter.unbalanced_factorization": {
+        "summary": "LoKr: swaps which output factor each Kronecker side gets (default off).",
+        "detail": (
+            "The output dimension factors into a (small, large) pair; this gives W1 the large one "
+            "instead. Capacity moves between the two Kronecker factors — a recipe-matching knob, leave "
+            "off otherwise."
+        ),
+        "doc": "docs/user/training-sdxl-lora-lokr.md",
+    },
+    "adapter.block_size": {
+        "summary": "DyLoRA: the rank trains in nested blocks of this size; rank must divide evenly (default 4).",
+        "detail": (
+            "Each step updates a random sub-rank that is a multiple of block_size, so the exported LoRA "
+            "stays usable when truncated to any multiple of block_size after training. Smaller blocks give "
+            "finer rank choices but noisier updates."
+        ),
+        "doc": "docs/user/training-sdxl-lora-lokr.md",
+    },
+    "adapter.constraint": {
+        "summary": "OFT: caps the rotation magnitude per layer; 0 = uncapped (default).",
+        "detail": (
+            "Positive values bound the norm of the rotation generator (scaled by layer width) — the "
+            "constrained-OFT variant. Raise it from 0 if the adapter drifts the model too far from base "
+            "behavior. Exported as the file's per-module alpha."
+        ),
+        "doc": "docs/user/training-sdxl-lora-lokr.md",
+    },
+    "adapter.rescaled": {
+        "summary": "OFT: adds a trained per-channel scale on top of the rotation (default off).",
+        "detail": (
+            "Pure OFT only rotates weights, preserving their norms. Rescaled OFT adds a learned diagonal "
+            "scale (saved as 'rescale'), letting magnitudes change too — slightly more expressive, slightly "
+            "less base-preserving."
         ),
         "doc": "docs/user/training-sdxl-lora-lokr.md",
     },

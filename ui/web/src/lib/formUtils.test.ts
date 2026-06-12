@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { fieldVisible, isTruthyFormValue } from "./formUtils";
-import type { FormValues, SchemaField } from "../types/forms";
+import { adapterOptionsForModel, fieldVisible, isTruthyFormValue } from "./formUtils";
+import type { FormValues, ModelCapabilities, SchemaField } from "../types/forms";
 
 describe("isTruthyFormValue", () => {
   it("treats explicit falsy values (incl. KV strings) as false", () => {
@@ -67,5 +67,44 @@ describe("fieldVisible with form_map_truthy", () => {
         { other: { type_id: "other", features: {} } }
       )
     ).toBe(false);
+  });
+});
+
+describe("adapterOptionsForModel", () => {
+  const caps: ModelCapabilities = {
+    sdxl: {
+      type_id: "sdxl",
+      adapters: ["lora", "lokr", "lycoris_locon"],
+      adapter_labels: { lora: "LoRA (PEFT)", lokr: "LoKr", lycoris_locon: "LyCORIS · LoCon" },
+    },
+    other: {
+      type_id: "other",
+      adapters: ["lora", "novelkind"],
+    },
+  };
+
+  it("returns labeled options using adapter_labels", () => {
+    const opts = adapterOptionsForModel(caps, "sdxl");
+    expect(opts).toEqual([
+      { value: "lora", label: "LoRA (PEFT)" },
+      { value: "lokr", label: "LoKr" },
+      { value: "lycoris_locon", label: "LyCORIS · LoCon" },
+    ]);
+  });
+
+  it("falls back to the raw kind when no label exists", () => {
+    const opts = adapterOptionsForModel(caps, "other");
+    expect(opts).toEqual([
+      { value: "lora", label: "lora" },
+      { value: "novelkind", label: "novelkind" },
+    ]);
+  });
+
+  it("returns empty array for unknown model type", () => {
+    expect(adapterOptionsForModel(caps, "nonexistent")).toEqual([]);
+  });
+
+  it("returns empty array for null capabilities", () => {
+    expect(adapterOptionsForModel(null, "sdxl")).toEqual([]);
   });
 });

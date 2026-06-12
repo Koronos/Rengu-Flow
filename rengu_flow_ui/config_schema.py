@@ -179,7 +179,7 @@ def _adapter_section_fields() -> list[dict[str, Any]]:
     fields: list[dict[str, Any]] = [
         _field(
             "_has_adapter",
-            "Train with adapter (LoRA / LoKr)",
+            "Train with adapter (LoRA / LoKr / LyCORIS)",
             "boolean",
             default=True,
             importance="required",
@@ -199,15 +199,33 @@ def _adapter_section_fields() -> list[dict[str, Any]]:
         fields.append(
             _field_from_template({**spec, "when_model_has_adapter": True}, HAS_ADAPTER)
         )
-    for adapter_kind in ("lora", "lokr"):
-        when_kind = {
-            "all": [
-                HAS_ADAPTER,
-                {"field": "adapter.type", "equals": adapter_kind},
-            ]
-        }
-        for spec in ADAPTER_FIELD_TEMPLATES.get(adapter_kind, []):
-            f = _field_from_template(spec, None)
+    from rengu_flow.networks.lycoris_meta import LYCORIS_ADAPTER_TYPES
+
+    # Build reverse map: field path -> list of kinds that use it (preserving first-seen spec)
+    path_to_kinds: dict[str, list[str]] = {}
+    path_to_spec: dict[str, dict] = {}
+    for kind in ("lora", "lokr", *LYCORIS_ADAPTER_TYPES):
+        for spec in ADAPTER_FIELD_TEMPLATES.get(kind, []):
+            p = spec["path"]
+            if p not in path_to_kinds:
+                path_to_kinds[p] = []
+                path_to_spec[p] = spec
+            path_to_kinds[p].append(kind)
+
+    # Emit each field once, with a when clause covering all its kinds
+    emitted: set[str] = set()
+    for kind in ("lora", "lokr", *LYCORIS_ADAPTER_TYPES):
+        for spec in ADAPTER_FIELD_TEMPLATES.get(kind, []):
+            p = spec["path"]
+            if p in emitted:
+                continue
+            emitted.add(p)
+            kinds_for_path = path_to_kinds[p]
+            if len(kinds_for_path) == 1:
+                when_kind = {"all": [HAS_ADAPTER, {"field": "adapter.type", "equals": kinds_for_path[0]}]}
+            else:
+                when_kind = {"all": [HAS_ADAPTER, {"field": "adapter.type", "in": kinds_for_path}]}
+            f = _field_from_template(path_to_spec[p], None)
             f["when"] = when_kind
             fields.append(f)
     return fields

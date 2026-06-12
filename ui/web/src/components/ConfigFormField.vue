@@ -330,10 +330,7 @@ const trainingDatasetModel = computed(() =>
 
 const selectOptions = computed(() => {
   if (props.field.options_from_model) {
-    return adapterOptionsForModel(props.capabilities, props.form["model.type"]).map((o) => ({
-      label: String(o),
-      value: String(o),
-    }));
+    return adapterOptionsForModel(props.capabilities, props.form["model.type"]);
   }
   const values = props.field.option_values || [];
   const labels = props.field.options || [];

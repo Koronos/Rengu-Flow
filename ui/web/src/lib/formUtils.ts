@@ -325,17 +325,22 @@ export function pruneFormForModel(
 export function adapterOptionsForModel(
   capabilities: ModelCapabilities | null,
   modelType: unknown
-): string[] {
+): { value: string; label: string }[] {
   const cap = getModelCapability(capabilities, modelType);
   if (!cap?.adapters) return [];
-  return cap.adapters;
+  return cap.adapters.map((kind) => ({
+    value: kind,
+    label: cap.adapter_labels?.[kind] ?? kind,
+  }));
 }
 
 export function trainingModesLabel(cap: ModelCapability | null): string {
   if (!cap) return "";
   const parts: string[] = [];
   if (cap.full_finetune) parts.push("full finetune");
-  if (cap.adapters?.length) parts.push(...cap.adapters.map((a) => a.toUpperCase()));
+  if (cap.adapters?.length) {
+    parts.push(...cap.adapters.map((a) => cap.adapter_labels?.[a] ?? a.toUpperCase()));
+  }
   return parts.join(", ");
 }
 

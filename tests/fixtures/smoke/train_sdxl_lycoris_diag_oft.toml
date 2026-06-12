@@ -1,0 +1,28 @@
+# SDXL LyCORIS DIAG_OFT smoke (12 steps) with versioned CC0 dataset.
+# Model path: RENGU_SDXL_CHECKPOINT_PATH in repo-root `.env` (see `.env.example`).
+#   scripts/run_model_smoke.sh sdxl_lycoris_diag_oft
+
+dataset = "tests/fixtures/smoke/dataset_cc0.toml"
+output_dir = "output"
+max_steps = 12
+micro_batch_size_per_gpu = 1
+gradient_accumulation_steps = 1
+pipeline_stages = 1
+logging_steps = 1
+caching_batch_size = 1
+save_every_n_epochs = 1
+activation_checkpointing = true
+bench = true
+
+[model]
+type = "sdxl"
+dtype = "bfloat16"
+cache_text_embeddings = true
+
+[adapter]
+type = "lycoris_diag_oft"
+rank = 4
+
+[optimizer]
+type = "adamw"
+lr = 1.0e-4

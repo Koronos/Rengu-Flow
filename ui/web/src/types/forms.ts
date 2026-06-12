@@ -55,6 +55,7 @@ export interface ModelCapability {
   aliases?: string[];
   features?: Record<string, boolean>;
   adapters?: string[];
+  adapter_labels?: Record<string, string>;
   full_finetune?: boolean;
   model_fields?: { path: string; ui?: boolean }[];
 }

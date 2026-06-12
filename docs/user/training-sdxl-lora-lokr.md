@@ -1,6 +1,6 @@
 # Training SDXL LoRA and LoKr (user guide)
 
-This guide explains how to train SDXL with **LoRA** or **LoKr** (LyCORIS) adapters using Rengu Flow. No implementation details; task-oriented.
+This guide explains how to train SDXL with **LoRA**, **LoKr**, or any of the **LyCORIS** network adapters using Rengu Flow. No implementation details; task-oriented.
 
 ## What you need
 
@@ -18,12 +18,12 @@ Add an `[adapter]` section with `type = "lora"` and a rank (or `dim`):
 [adapter]
 type = "lora"
 rank = 16
-# optional: dim = 16 (alias for rank, Kohya-style), alpha = 16, dropout = 0.0, dtype = "bfloat16"
+# optional: dim = 16 (alias for rank, Kohya-style), dropout = 0.0, dtype = "bfloat16"
 ```
 
 - **rank**: LoRA rank (e.g. 8, 16, 32). Required unless you use `dim`.
 - **dim**: Alias for `rank` (Kohya-style). You must set either `rank` or `dim`.
-- **alpha**: Optional. Scaling factor; effective scale is `alpha / rank`. Default: same as rank (scale 1.0). Increase for stronger adapter effect, decrease for weaker.
+- **alpha**: Not configurable — rengu always sets `alpha = rank` (scale 1.0) so exports load at the intended strength; setting it in the TOML is rejected.
 - **dropout**: Optional; default 0.0.
 - **dtype**: Optional; defaults to the model dtype.
 
@@ -37,18 +37,67 @@ Add an `[adapter]` section with `type = "lokr"` and a rank (or `dim`):
 [adapter]
 type = "lokr"
 rank = 16
-# optional: dim = 16 (alias for rank), alpha = 16, factor = -1, decompose_both = false, full_matrix = false, dtype = "bfloat16"
+# optional: dim = 16 (alias for rank), factor = -1, decompose_both = false, full_matrix = false, dtype = "bfloat16"
 ```
 
 - **rank**: LoKr rank. Required unless you use `dim`.
 - **dim**: Alias for `rank` (Kohya-style). You must set either `rank` or `dim`.
-- **alpha**: Optional. Scaling factor; effective scale is `alpha / rank`. Default: same as rank (scale 1.0). Increase for stronger adapter effect, decrease for weaker.
+- **alpha**: Not configurable — rengu always sets `alpha = rank` (scale 1.0); setting it in the TOML is rejected.
 - **factor**: Factorization hint; use -1 for automatic. Optional.
 - **decompose_both**: Decompose both Kronecker factors. Optional; default false.
 - **full_matrix**: Use full matrices instead of low-rank for the second factor. Optional; default false.
 - **dtype**: Optional; defaults to the model dtype.
 
 Example minimal LoKr config: see `examples/minimal_config_lokr_sdxl.toml`.
+
+## LyCORIS networks
+
+The LyCORIS package exposes eight adapter algorithms beyond plain LoRA. All eight export a kohya-flat `adapter_model.safetensors` file (not `lora.safetensors` — that name is only produced by the built-in `lora` type) with `lora_unet_*` / `lora_te1_*` / `lora_te2_*` key prefixes — the format kohya-key-compatible loaders (ComfyUI and friends) expect.
+
+When `adapter.type` starts with `lycoris_`, rengu installs the `lycoris` dependency profile automatically before training (the same profile the LoKr types use).
+
+### Practical recipe
+
+```toml
+[adapter]
+type = "lycoris_loha"
+rank = 16
+# Output: adapter_model.safetensors (kohya-flat keys, ComfyUI-loadable)
+```
+
+Every type accepts `rank` (or its alias `dim`), `dtype`, `dropout`, `rank_dropout`, `module_dropout`, and `train_conv` (except DyLoRA, which does not support `train_conv`). As with LoRA/LoKr, `alpha` is not configurable: rengu sets `alpha = rank` automatically and rejects an explicit value.
+
+### Type reference
+
+| TOML `type` | Label | What it is | Extra fields (beyond common) |
+|---|---|---|---|
+| `lycoris_locon` | LyCORIS · LoCon | Standard LoRA math through the LyCORIS backend | `use_tucker` (default `false`), `use_scalar` (default `false`), `dora_wd` (default `false`), `wd_on_output` (default `true`) |
+| `lycoris_loha` | LyCORIS · LoHa | Hadamard-product factorization of the weight delta | `use_tucker` (default `false`), `use_scalar` (default `false`), `dora_wd` (default `false`), `wd_on_output` (default `true`) |
+| `lycoris_lokr` | LyCORIS · LoKr | Kronecker-product factorization | `use_tucker`, `use_scalar`, `dora_wd`, `wd_on_output`, `factor` (default `-1`, automatic), `full_matrix` (default `false`), `decompose_both` (default `false`), `unbalanced_factorization` (default `false`) |
+| `lycoris_dora` | LyCORIS · DoRA | LoCon with weight decomposition forced on | `use_tucker` (default `false`), `use_scalar` (default `false`), `wd_on_output` (default `true`). `dora_wd` is always enabled; the field is not exposed. |
+| `lycoris_dylora` | LyCORIS · DyLoRA | Nested-rank training; the saved file can be truncated to any multiple of `block_size` after training | `block_size` (default `4`). `rank` must be divisible by `block_size`. `train_conv` is not supported, and the run needs `activation_checkpointing = false` (the random sub-rank per forward breaks checkpoint recompute). |
+| `lycoris_glora` | LyCORIS · GLoRA | Adds input-side adaptation via `a1`/`a2` + `b1`/`b2` factor pairs | Dropout family only (`dropout`, `rank_dropout`, `module_dropout`) |
+| `lycoris_diag_oft` | LyCORIS · Diag-OFT | Diagonal orthogonal rotation; `rank` sets the block split per layer instead of a low-rank dimension | `constraint` (default `0.0`), `rescaled` (default `false`). The exported `.alpha` stores the `constraint` value, not a rank. |
+| `lycoris_boft` | LyCORIS · BOFT | Butterfly orthogonal rotation | `constraint` (default `0.0`), `rescaled` (default `false`). The exported `.alpha` stores the `constraint` value, not a rank. BOFT needs every adapted layer width to split as (even m ≤ rank) × power-of-two; SDXL widths carry a factor of 5, so `rank = 10` is the smallest that fits — smaller ranks fail at startup with "impossible to decompose". Its staged weight rebuild is also the most VRAM-hungry type: on a 16 GB card add `blocks_to_swap` (e.g. 8) or it OOMs even at 512px. |
+
+### Key format and compatibility
+
+Exported files use kohya-flat key prefixes:
+
+- UNet modules: `lora_unet_<module_path>`
+- Text encoder 1: `lora_te1_<module_path>`
+- Text encoder 2: `lora_te2_<module_path>`
+
+For all types except Diag-OFT and BOFT, the per-module `.alpha` tensor holds the rank value (enabling standard `alpha / rank` scaling in inference loaders). For Diag-OFT and BOFT it holds the `constraint` value.
+
+DyLoRA exports `lora_up.weight` / `lora_down.weight` (the same key family as LoCon), so a DyLoRA file loads as a regular LoRA at full rank in any LyCORIS-compatible loader. To use a truncated rank, slice the file in multiples of `block_size` before loading.
+
+### Not exposed
+
+Two LyCORIS algorithms are not available:
+
+- **`full`** — the upstream `FullModule.apply_to` deletes the weight that its own `org_forward` still needs. Rengu also has native full fine-tuning via its own mechanism.
+- **`ia3`** — registered in the LyCORIS config SDK but absent from the `network_module_dict` wrapper registry, so it cannot be attached.
 
 ## Loss function (top-level config)
 

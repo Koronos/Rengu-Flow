@@ -365,6 +365,13 @@ class SDXLPipeline(BasePipeline):
                 self.text_encoder_2,
                 adapter_config,
             )
+        elif self.adapter_type.startswith("lycoris_"):
+            networks_module.lycoris_sdxl.configure(
+                self.unet,
+                self.text_encoder,
+                self.text_encoder_2,
+                adapter_config,
+            )
         else:
             raise NotImplementedError(f"Adapter type {self.adapter_type} is not implemented")
 
@@ -375,6 +382,8 @@ class SDXLPipeline(BasePipeline):
             networks_module.lora_sdxl.save(save_dir, state_dict, self.adapter_config)
         elif adapter_type == "lokr":
             networks_module.lokr_sdxl.save(save_dir, state_dict, self.adapter_config)
+        elif adapter_type.startswith("lycoris_"):
+            networks_module.lycoris_sdxl.save(save_dir, state_dict, self.adapter_config)
         else:
             raise NotImplementedError(f"Adapter type {adapter_type} is not implemented")
 
@@ -384,9 +393,15 @@ class SDXLPipeline(BasePipeline):
         if not files:
             raise RuntimeError(f"No .safetensors file found in {adapter_path}")
         state = safetensors.torch.load_file(files[0])
-        is_lokr = any("lokr_" in k for k in state.keys())
         adapter_type = getattr(self, "adapter_type", None) or (self.config.get("adapter") or {}).get("type")
-        if is_lokr or adapter_type == "lokr":
+        # Dispatch by the configured type first: lycoris exports reuse lokr_/lora_
+        # key fragments, so key-sniffing only decides when no type is configured.
+        if adapter_type and adapter_type.startswith("lycoris_"):
+            networks_module.lycoris_sdxl.load(self.diffusers_pipeline, adapter_path)
+        elif adapter_type == "lokr" or (
+            adapter_type is None and any("lokr_" in k for k in state.keys())
+            and not networks_module.lycoris_sdxl.looks_like_lycoris_state(state)
+        ):
             networks_module.lokr_sdxl.load(self, adapter_path)
         else:
             networks_module.lora_sdxl.load(self.diffusers_pipeline, adapter_path)
@@ -398,9 +413,14 @@ class SDXLPipeline(BasePipeline):
         if not files:
             raise RuntimeError(f"No .safetensors file found in {path}")
         state = safetensors.torch.load_file(files[0])
-        is_lokr = any("lokr_" in k for k in state.keys())
+        adapter_type = getattr(self, "adapter_type", None) or (self.config.get("adapter") or {}).get("type")
 
-        if is_lokr:
+        if (adapter_type and adapter_type.startswith("lycoris_")) or (
+            adapter_type is None and networks_module.lycoris_sdxl.looks_like_lycoris_state(state)
+        ):
+            networks_module.lycoris_sdxl.load_and_fuse(self.diffusers_pipeline, path)
+            self._set_param_original_name()
+        elif adapter_type == "lokr" or any("lokr_" in k for k in state.keys()):
             self._load_and_fuse_lokr(path, state)
         else:
             self._load_and_fuse_lora(path, state)
