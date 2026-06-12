@@ -65,8 +65,11 @@ Two models, both selectable per job:
   extra-requirements section. It also generates one image at a time (its hybrid
   linear-attention layers don't tolerate padded batches — that's what made captions
   start fine and then repeat/derail) and inputs are capped at ~1 Mpx (its training
-  resolution). The "fast path not available" startup note is expected: the optional
-  fused kernels have no CUDA-13 builds yet; the fallback is correct, just slower.
+  resolution). The "fast path not available" startup note is expected and harmless: the
+  optional fused kernels (flash-linear-attention + causal-conv1d) were benchmarked
+  (cu13torch2.10 wheel runs fine on torch 2.12) and give **no speedup** for this
+  short-decode captioning workload — they target long-sequence prefill. The torch
+  fallback is correct.
 
 The model loads once per job and generates in true batches; on OOM the batch halves
 and stays halved. Captions save incrementally after every batch, so a stop never
