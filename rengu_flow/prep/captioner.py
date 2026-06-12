@@ -420,6 +420,62 @@ class CaptionerConfig:
 # ---------------------------------------------------------------------------
 
 
+# ToriiGate is trained on FIXED prompt formats (model card: "deviating from them is
+# highly discouraged" — free-form instructions make it repeat/derail). These are the
+# two plain-text formats from its official scripts/prompts.py, verbatim.
+_TORII_FORMATS = {
+    "long": (
+        "Make a caption for given image with natural text. Use 2 to 5 paragraphs. "
+        "Make your description long and vivid, mentioning all the details.\n"
+    ),
+    "short": (
+        "The caption for image should be quite short without long purple prose and "
+        "slop. Cover main objects and details.\n"
+    ),
+}
+
+
+def _build_toriigate_prompt(
+    config: "CaptionerConfig",
+    tags: Optional[list[str]],
+    image_key: Optional[str] = None,
+) -> str:
+    """Native ToriiGate user query: trained format + official grounding blocks.
+
+    Mirrors make_user_query in the model's scripts/prompts.py: '# Captioning
+    format:' + format text, '# Booru tags for the image\\n[...]', '# Characters on
+    picture: ... make sure to use them: [...]'. Our modifiers/outfit policy ride an
+    extra-requirements section — minimal deviation, validated on GPU.
+    """
+    c_type = "short" if config.prompt_base == "concise" else "long"
+    parts = [f"# Captioning format:\n{_TORII_FORMATS[c_type]}"]
+
+    extra = [
+        PROMPT_MODIFIERS[m]["text"]
+        for m in PROMPT_MODIFIERS
+        if m in set(config.prompt_modifiers)
+    ]
+    if config.character_name.strip():
+        resolved = config.outfit
+        if resolved == "mixed":
+            resolved = "describe" if _stable_choice(image_key or "") else "omit"
+        extra.append(_OUTFIT_DESCRIBE if resolved == "describe" else _OUTFIT_OMIT)
+        if config.character_canon.strip():
+            extra.append(
+                _character_canon_text(config.character_name.strip(), config.character_canon.strip())
+            )
+    if extra:
+        parts.append("# Extra requirements:\n" + "\n".join(extra) + "\n")
+    if config.use_tags_as_grounding and tags:
+        parts.append(f"# Booru tags for the image\n[{', '.join(tags)}]\n")
+    if config.character_name.strip():
+        parts.append(
+            "# Characters on picture:\nHere are names/tags for characters from the "
+            f"picture, make sure to use them: [{config.character_name.strip()}].\n"
+        )
+    return "\n".join(parts)
+
+
 def build_prompt(
     config: CaptionerConfig,
     tags: Optional[list[str]] = None,
@@ -427,12 +483,14 @@ def build_prompt(
 ) -> str:
     """Return the user-facing prompt string for one image.
 
-    Resolution order: explicit custom ``prompt`` > composed (base + modifiers +
-    character/outfit policy). ``image_key`` feeds the per-image resolution of
-    ``outfit="mixed"``. For ToriiGate, if use_tags_as_grounding is True and tags is
-    non-empty, the tags are appended as a <tags>…</tags> block (JoyCaption ignores
-    grounding).
+    Resolution order: explicit custom ``prompt`` > model-native composition.
+    JoyCaption takes the instruction-composed prompt (it is instruction-flexible);
+    ToriiGate takes its trained format + official grounding blocks instead.
+    ``image_key`` feeds the per-image resolution of ``outfit="mixed"``.
     """
+    if not config.prompt and config.model == "toriigate-0.5":
+        return _build_toriigate_prompt(config, tags, image_key)
+
     base_prompt = config.prompt or compose_prompt(
         config.prompt_base,
         config.prompt_modifiers,
@@ -443,11 +501,8 @@ def build_prompt(
     )
 
     if config.model == "toriigate-0.5" and config.use_tags_as_grounding and tags:
-        tags_str = ", ".join(tags)
-        return (
-            f"{base_prompt} Also here are booru tags for better understanding of the "
-            f"picture, you can use them as reference: <tags>{tags_str}</tags>"
-        )
+        # Custom-prompt path: still ground with the official block format.
+        return f"{base_prompt}\n\n# Booru tags for the image\n[{', '.join(tags)}]\n"
 
     return base_prompt
 
@@ -508,11 +563,27 @@ class _HFVisionBackend(CaptionBackend):
     """
 
     model_key: str = ""
+    # Hybrid linear-attention/conv models (ToriiGate's Qwen3.5 base) don't mask left
+    # padding through their conv state — batched padded generation makes the shorter
+    # sequences repeat/derail. True = generate one image at a time (no padding).
+    single_image_generation: bool = False
+    # Resize cap in pixels applied right before the processor (None = off). ToriiGate
+    # was trained at ~1.0 Mpx (model card known issues).
+    max_pixels: int | None = None
 
     def __init__(self, config: CaptionerConfig) -> None:
         self.config = config
         self._processor = None
         self._model = None
+
+    def _prepare_image(self, image: Image.Image) -> Image.Image:
+        if self.max_pixels and image.width * image.height > self.max_pixels:
+            scale = (self.max_pixels / (image.width * image.height)) ** 0.5
+            image = image.resize(
+                (max(1, int(image.width * scale)), max(1, int(image.height * scale))),
+                Image.LANCZOS,
+            )
+        return image
 
     def _load_model_and_processor(self):  # pragma: no cover - subclass hook
         raise NotImplementedError
@@ -542,9 +613,17 @@ class _HFVisionBackend(CaptionBackend):
     def caption_batch(
         self, images: list[Image.Image], prompts: list[str]
     ) -> list[str]:
-        import torch  # lazy
-
         assert self._processor is not None and self._model is not None, "Call load() first"
+        images = [self._prepare_image(img) for img in images]
+        if self.single_image_generation:
+            results: list[str] = []
+            for image, prompt in zip(images, prompts):
+                results.extend(self._generate([image], [prompt]))
+            return results
+        return self._generate(images, prompts)
+
+    def _generate(self, images: list[Image.Image], prompts: list[str]) -> list[str]:
+        import torch  # lazy
 
         texts = [self._build_chat_text(prompt) for prompt in prompts]
         inputs = self._processor(
@@ -554,6 +633,10 @@ class _HFVisionBackend(CaptionBackend):
             inputs["pixel_values"] = inputs["pixel_values"].to(torch.bfloat16)
 
         gen_kwargs: dict = {"max_new_tokens": self.config.max_new_tokens}
+        tokenizer = getattr(self._processor, "tokenizer", None)
+        if tokenizer is not None and tokenizer.pad_token_id is not None:
+            # Explicit pad id silences the per-batch "setting pad_token_id" notice.
+            gen_kwargs["pad_token_id"] = tokenizer.pad_token_id
         if self.config.temperature > 0:
             gen_kwargs.update(
                 do_sample=True,
@@ -567,7 +650,11 @@ class _HFVisionBackend(CaptionBackend):
             output_ids = self._model.generate(**inputs, **gen_kwargs)
 
         new_tokens = output_ids[:, inputs["input_ids"].shape[1] :]
-        captions = self._processor.batch_decode(new_tokens, skip_special_tokens=True)
+        # clean_up_tokenization_spaces is a WordPiece-era step that corrupts BPE
+        # output (strips spaces before punctuation) — transformers 5 warns about it.
+        captions = self._processor.batch_decode(
+            new_tokens, skip_special_tokens=True, clean_up_tokenization_spaces=False
+        )
         return [_collapse_to_one_line(c) for c in captions]
 
     def unload(self) -> None:
@@ -598,10 +685,13 @@ class JoyCaptionBackend(_HFVisionBackend):
         from transformers import AutoProcessor, LlavaForConditionalGeneration  # type: ignore
 
         repo_id = _BACKENDS[self.model_key]["repo_id"]
-        processor = AutoProcessor.from_pretrained(repo_id)
+        # use_fast=False: the fast (torchvision) image processor can't do the LANCZOS
+        # resample this model's preprocessor_config asks for and silently substitutes
+        # BICUBIC — the PIL backend reproduces the training-time preprocessing exactly.
+        processor = AutoProcessor.from_pretrained(repo_id, use_fast=False)
         model = LlavaForConditionalGeneration.from_pretrained(
             repo_id,
-            torch_dtype=torch.bfloat16,
+            dtype=torch.bfloat16,
             device_map="cuda:0",
             **self._quant_kwargs(),
         )
@@ -627,6 +717,11 @@ class ToriiGateBackend(_HFVisionBackend):
     """Qwen3.5-based anime-specialist backend (Minthy/ToriiGate-0.5, ~5B)."""
 
     model_key = "toriigate-0.5"
+    # Hybrid linear-attention arch: padded batches corrupt the conv state of shorter
+    # sequences (captions start fine, then repeat/derail) — generate per image, like
+    # the model's own batch script does.
+    single_image_generation = True
+    max_pixels = 1_000_000  # trained at ~1.0 Mpx (official scripts resize to this)
 
     def _load_model_and_processor(self):
         import torch
@@ -642,7 +737,7 @@ class ToriiGateBackend(_HFVisionBackend):
         processor = AutoProcessor.from_pretrained(repo_id, trust_remote_code=True)
         model = AutoVLM.from_pretrained(
             repo_id,
-            torch_dtype=torch.bfloat16,
+            dtype=torch.bfloat16,
             device_map="cuda:0",
             trust_remote_code=True,
             **self._quant_kwargs(),

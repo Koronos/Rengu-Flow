@@ -109,7 +109,9 @@ class TestBuildPrompt:
         cfg = CaptionerConfig(model="toriigate-0.5", use_tags_as_grounding=True)
         tags = ["1girl", "long hair", "smile"]
         prompt = build_prompt(cfg, tags)
-        assert "<tags>1girl, long hair, smile</tags>" in prompt
+        assert "# Booru tags for the image\n[1girl, long hair, smile]" in prompt
+        # Native trained format, not free-form instructions (model card discourages those).
+        assert prompt.startswith("# Captioning format:")
 
     def test_toriigate_grounding_disabled(self):
         cfg = CaptionerConfig(model="toriigate-0.5", use_tags_as_grounding=False)
@@ -237,7 +239,7 @@ class TestToriiGateGrounding:
         assert len(fb.recorded_prompts) == 1
         batch_prompts = fb.recorded_prompts[0]
         assert len(batch_prompts) == 1
-        assert "<tags>1girl, smile</tags>" in batch_prompts[0]
+        assert "# Booru tags for the image\n[1girl, smile]" in batch_prompts[0]
 
     def test_grounding_disabled_no_tags_in_prompt(self, tmp_path):
         img_dir = _make_img_dir(tmp_path, ["a.jpg"])
@@ -545,12 +547,36 @@ class TestComposablePrompts:
         config = CaptionerConfig(prompt="My custom.", character_name="miku")
         assert build_prompt(config) == "My custom."
 
-    def test_grounding_appends_after_composed_prompt(self):
+    def test_toriigate_native_prompt_structure(self):
         from rengu_flow.prep.captioner import CaptionerConfig, build_prompt
 
-        config = CaptionerConfig(model="toriigate-0.5")
+        config = CaptionerConfig(
+            model="toriigate-0.5",
+            prompt_modifiers=("medium_neutral",),
+            character_name="hatsune miku",
+            outfit="omit",
+        )
         text = build_prompt(config, tags=["1girl", "long hair"])
-        assert "<tags>1girl, long hair</tags>" in text
+        # Official trained blocks, in order: format, extra requirements, tags, characters.
+        assert text.startswith("# Captioning format:")
+        assert "Use 2 to 5 paragraphs" in text  # the 'long' trained format, verbatim
+        assert "# Extra requirements:" in text
+        assert "never mention or hint at the medium" in text.lower()
+        assert "leave it completely unmentioned" in text  # outfit omit
+        assert "# Booru tags for the image\n[1girl, long hair]" in text
+        assert "make sure to use them: [hatsune miku]" in text
+        # Custom prompt still wins and grounds with the official block.
+        custom = CaptionerConfig(model="toriigate-0.5", prompt="My custom.")
+        text = build_prompt(custom, tags=["1girl"])
+        assert text.startswith("My custom.")
+        assert "# Booru tags for the image\n[1girl]" in text
+
+    def test_toriigate_concise_maps_to_short_format(self):
+        from rengu_flow.prep.captioner import CaptionerConfig, build_prompt
+
+        config = CaptionerConfig(model="toriigate-0.5", prompt_base="concise")
+        text = build_prompt(config)
+        assert "quite short without long purple prose" in text
 
 
     def test_register_modifiers_compose(self):

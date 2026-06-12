@@ -58,7 +58,15 @@ Two models, both selectable per job:
   because the queue guarantees exclusivity. `int8`/`nf4` quantization for smaller
   cards or bigger batches.
 - `toriigate-0.5` — ~5B anime specialist; with `use_tags_as_grounding = true`
-  (default) it receives the image's line-1 booru tags as context.
+  (default) it receives the image's line-1 booru tags as context. ToriiGate is
+  trained on FIXED prompt formats, so it does not take the composable instruction
+  prompt: the base maps to its native format (`concise` → short, everything else →
+  long), grounding/character name use its official blocks, and the modifiers ride an
+  extra-requirements section. It also generates one image at a time (its hybrid
+  linear-attention layers don't tolerate padded batches — that's what made captions
+  start fine and then repeat/derail) and inputs are capped at ~1 Mpx (its training
+  resolution). The "fast path not available" startup note is expected: the optional
+  fused kernels have no CUDA-13 builds yet; the fallback is correct, just slower.
 
 The model loads once per job and generates in true batches; on OOM the batch halves
 and stays halved. Captions save incrementally after every batch, so a stop never
