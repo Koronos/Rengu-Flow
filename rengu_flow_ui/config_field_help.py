@@ -75,7 +75,11 @@ FIELD_HELP: dict[str, dict[str, str]] = {
     },
     "model.freeze_text_encoders": {
         "summary": "Train UNet only; freeze both CLIP text encoders.",
-        "detail": "Reduces VRAM and speeds adapter training when you only need visual changes.",
+        "detail": (
+            "Keeps both text encoders frozen so their weights don't update — reduces VRAM and speeds up "
+            "each training step. Turn off only if you need the model to respond differently to new prompt words "
+            "(e.g. training a new concept with a novel trigger token)."
+        ),
         "doc": "docs/user/full-model-training-sdxl.md",
     },
     "model.transformer_path": {
@@ -132,18 +136,31 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "doc": "docs/user/dataset-config.md",
     },
     "_has_adapter": {
-        "summary": "Train LoRA/LoKr instead of full-model finetune.",
-        "detail": "Uncheck when the model supports full finetune and you want all weights trainable.",
+        "summary": "Train a LoRA/LoKr adapter (checked) or fine-tune all weights directly (unchecked).",
+        "detail": (
+            "When checked, only the adapter parameters train — the base model stays frozen and the adapter file "
+            "is small and portable (ComfyUI/Forge compatible). "
+            "Uncheck to train all weights (full finetune); also set optimizer.gradient_release = true and "
+            "blocks_to_swap if the full model does not fit in VRAM."
+        ),
         "doc": "docs/user/full-model-training-sdxl.md",
     },
     "adapter.type": {
         "summary": "Adapter algorithm: lora or lokr.",
-        "detail": "LoRA uses PEFT low-rank matrices; LoKr uses Kronecker (LyCORIS) factorization.",
+        "detail": (
+            "LoRA injects low-rank matrices (widely compatible — loads in ComfyUI/Forge as lora.safetensors). "
+            "LoKr uses Kronecker factorization (LyCORIS, loads as adapter_model.safetensors). "
+            "Both train at the same rank; LoKr tends to be more parameter-efficient at the same rank."
+        ),
         "doc": "docs/user/training-sdxl-lora-lokr.md",
     },
     "adapter.rank": {
-        "summary": "Adapter rank (capacity vs size).",
-        "detail": "Higher rank = more parameters. For LoKr/LoRA, alpha defaults to rank unless set.",
+        "summary": "Controls how many parameters the adapter adds (typical values: 8, 16, 32).",
+        "detail": (
+            "Higher rank = more adapter parameters and larger saved file. "
+            "Alpha defaults to rank (scale 1.0); raise alpha for stronger adapter effect, lower for weaker. "
+            "If results look blurry or under-trained, try a higher rank; if the adapter overrides the base too aggressively, lower rank or alpha."
+        ),
         "doc": "docs/user/training-sdxl-lora-lokr.md",
     },
     "adapter.dim": {
@@ -246,11 +263,13 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "doc": "docs/user/checkpoint-and-save.md",
     },
     "save_every_n_examples": {
-        "summary": "Export every N training examples (converted to steps).",
+        "summary": "Export model weights every N training examples (converted to steps using global batch size).",
+        "detail": "Alternative to save_every_n_steps when you want to compare runs with different batch sizes at the same data exposure.",
         "doc": "docs/user/checkpoint-and-save.md",
     },
     "checkpoint_every_n_minutes": {
-        "summary": "Write a resume checkpoint after this many minutes.",
+        "summary": "Write a DeepSpeed resume checkpoint after this many wall-clock minutes.",
+        "detail": "Use on long runs to limit the distance back to the last safe resume point if training crashes.",
         "doc": "docs/user/checkpoint-and-save.md",
     },
     "max_checkpoints_to_keep": {
@@ -268,23 +287,30 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "doc": "docs/user/checkpoint-and-save.md",
     },
     "train_seed": {
-        "summary": "RNG seed for training, tag dropout, and dataloader shuffle.",
+        "summary": "RNG seed for training, tag dropout, and dataloader shuffle (default 42).",
+        "detail": "Change to reproduce a run with a different random order, or to break a run that appears to be stuck in a bad local pattern.",
         "doc": "docs/user/training-loop-and-eval.md",
     },
     "eval_datasets": {
-        "summary": "Extra dataset(s) for periodic evaluation.",
+        "summary": "Held-out dataset(s) used for periodic evaluation (val/loss and val/gap).",
+        "detail": (
+            "Each entry is a path to a dataset TOML, or a table with name and config keys. "
+            "Set at least one to enable the generalization probe — without it, val_gap_enable is a no-op."
+        ),
         "doc": "docs/user/training-loop-and-eval.md",
     },
     "eval_every_n_steps": {
-        "summary": "Run eval every N training steps.",
+        "summary": "Run a validation pass every N optimizer steps.",
+        "detail": "Use this for fine-grained overfitting tracking; combine with val_gap_enable to log val/loss and val/gap.",
         "doc": "docs/user/training-loop-and-eval.md",
     },
     "eval_every_n_epochs": {
-        "summary": "Run eval at the end of every N epochs.",
+        "summary": "Run a validation pass at the end of every N epochs.",
+        "detail": "Simpler alternative to eval_every_n_steps when your dataset has a well-defined epoch boundary.",
         "doc": "docs/user/training-loop-and-eval.md",
     },
     "eval_every_n_examples": {
-        "summary": "Run eval every N examples (converted to steps).",
+        "summary": "Run a validation pass every N training examples (converted to steps using global batch size).",
         "doc": "docs/user/training-loop-and-eval.md",
     },
     "eval_before_first_step": {
@@ -293,7 +319,8 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "doc": "docs/user/training-loop-and-eval.md",
     },
     "eval_gradient_accumulation_steps": {
-        "summary": "Gradient accumulation steps used during eval.",
+        "summary": "Micro-batches accumulated per eval step (default 1).",
+        "detail": "Raise to match training accumulation if your eval loss differs unexpectedly from train loss.",
         "doc": "docs/user/training-loop-and-eval.md",
     },
     "val_gap_enable": {
@@ -306,12 +333,16 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "doc": "docs/user/training-loop-and-eval.md",
     },
     "val_gap_probe_batches": {
-        "summary": "Forward batches per gap probe (per timestep quantile).",
-        "detail": "Smaller is faster. Keeps the probe cheap regardless of dataset size.",
+        "summary": "Forward batches per gap probe pass (per timestep quantile); default 8.",
+        "detail": (
+            "Each probe runs this many forward-only batches per quantile to estimate val/loss and train/probe. "
+            "Lower if the probe adds noticeable time to your eval cadence; raise for smoother, less noisy gap curves."
+        ),
         "doc": "docs/user/training-loop-and-eval.md",
     },
     "preview.enabled": {
-        "summary": "Generate sample images during training.",
+        "summary": "Generate sample images at configured intervals during training.",
+        "detail": "Images are written to the run preview/ folder and shown in TensorBoard. Enable to visually track quality without stopping the run.",
         "doc": "docs/user/previews.md",
     },
     "preview.prompts": {
@@ -320,51 +351,63 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "doc": "docs/user/previews.md",
     },
     "preview.negative_prompt": {
-        "summary": "Negative prompt for preview generation.",
+        "summary": "Negative prompt applied to every preview image (SDXL).",
+        "detail": "Shared across all preview prompts. Leave empty for Cosmos/Anima, which does not use a negative prompt during sampling.",
         "doc": "docs/user/previews.md",
     },
     "preview.width": {
         "summary": "Preview image width in pixels.",
+        "detail": "Set to a resolution your model supports; mismatch with the trained resolution can make previews look blurry or distorted.",
         "doc": "docs/user/previews.md",
     },
     "preview.height": {
         "summary": "Preview image height in pixels.",
+        "detail": "Set to a resolution your model supports; mismatch with the trained resolution can make previews look blurry or distorted.",
         "doc": "docs/user/previews.md",
     },
     "preview.num_inference_steps": {
         "summary": "Denoising steps per preview image.",
+        "detail": "Fewer steps = faster preview but lower quality. Typical values: 20–30 for SDXL, 30–50 for Cosmos.",
         "doc": "docs/user/previews.md",
     },
     "preview.guidance_scale": {
         "summary": "Classifier-free guidance scale for previews.",
+        "detail": "Higher values follow the prompt more strictly but can saturate colours. Typical range: 5–9 for SDXL; Cosmos ignores this.",
         "doc": "docs/user/previews.md",
     },
     "preview.seed": {
         "summary": "Base RNG seed for preview images.",
+        "detail": "Fixed seed produces consistent previews across steps so changes in quality are clearly visible. Change if the seed happens to pick an unrepresentative starting noise.",
         "doc": "docs/user/previews.md",
     },
     "preview.seed_stride": {
-        "summary": "Seed offset per prompt index and training step.",
+        "summary": "Seed offset applied per prompt index and per training step.",
+        "detail": "Varies the noise across multiple prompts and steps so previews do not all look identical. Leave at default unless you have a specific reason to fix the per-step seed.",
         "doc": "docs/user/previews.md",
     },
     "preview.preview_every_n_steps": {
-        "summary": "Generate previews every N training steps.",
+        "summary": "Generate preview images every N optimizer steps.",
+        "detail": "Lower values give more frequent quality checks at the cost of extra inference time per step. Combine with preview_before_first_step for a baseline.",
         "doc": "docs/user/previews.md",
     },
     "preview.preview_every_n_epochs": {
-        "summary": "Generate previews every N epochs.",
+        "summary": "Generate preview images at the end of every N epochs.",
+        "detail": "Alternative to preview_every_n_steps for epoch-based runs. Preview inference runs after the epoch save, so it does not delay checkpointing.",
         "doc": "docs/user/previews.md",
     },
     "preview.preview_before_first_step": {
-        "summary": "Run previews once before step 1.",
+        "summary": "Run one preview pass before step 1 to capture the untrained baseline.",
+        "detail": "Useful for visually comparing the model's output before and after training begins.",
         "doc": "docs/user/previews.md",
     },
     "preview.preview_offload_text_encoder": {
-        "summary": "Move text encoder to CPU during Cosmos preview sampling.",
+        "summary": "Move the text encoder to CPU during Cosmos preview sampling to free VRAM.",
+        "detail": "Enable if preview sampling OOMs; the transfer adds latency but lets the DiT use more VRAM during generation.",
         "doc": "docs/user/previews.md",
     },
     "preview.preview_blocks_to_swap": {
-        "summary": "DiT blocks on CPU between preview steps (Cosmos only).",
+        "summary": "Number of DiT blocks to keep on CPU during Cosmos preview sampling.",
+        "detail": "Reduces preview VRAM at the cost of slower sampling. Raise if preview sampling OOMs after enabling preview_offload_text_encoder.",
         "doc": "docs/user/previews.md",
     },
     "preview.preview_offload_dit_for_decode": {
@@ -374,7 +417,8 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "doc": "docs/user/previews.md",
     },
     "preview.preview_save_png": {
-        "summary": "Write PNG files under the run preview/ folder.",
+        "summary": "Write preview images as PNG files under the run preview/ folder (on by default).",
+        "detail": "Turn off only to suppress preview files on disk; images still appear in TensorBoard via the in-memory path.",
         "doc": "docs/user/previews.md",
     },
     "tracking.enabled": {
@@ -383,11 +427,12 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "doc": "docs/user/training-loop-and-eval.md",
     },
     "tracking.system_sampler.enabled": {
-        "summary": "Sample GPU/CPU/RAM metrics over the run as system/* scalars.",
+        "summary": "Periodically sample GPU/CPU/RAM usage and log as system/* scalars.",
+        "detail": "Enable to see hardware utilisation alongside training loss in TensorBoard. Turn off if the sampler adds overhead on very fast steps.",
         "doc": "docs/user/training-loop-and-eval.md",
     },
     "tracking.wandb.project": {
-        "summary": "WandB project name (only used when 'wandb' is in tracking.backends).",
+        "summary": "WandB project name — required when 'wandb' is in tracking.backends.",
         "doc": "docs/user/training-loop-and-eval.md",
     },
     "tracking.wandb.run_name": {
@@ -427,11 +472,13 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "doc": "docs/user/training-loop-and-eval.md",
     },
     "disable_block_swap_for_eval": {
-        "summary": "Load full backbone on GPU during eval when block swap is on.",
+        "summary": "Load the full backbone onto GPU for eval passes even when blocks_to_swap is on.",
+        "detail": "Gives more accurate eval loss at the cost of temporarily using full-model VRAM. Enable if eval results look wrong with block swap active.",
         "doc": "docs/user/training-loop-and-eval.md",
     },
     "disable_block_swap_for_preview": {
-        "summary": "Load full backbone on GPU during preview when block swap is on.",
+        "summary": "Load the full backbone onto GPU for preview sampling even when blocks_to_swap is on.",
+        "detail": "Faster previews at the cost of temporarily using full-model VRAM. Enable if preview quality looks degraded with block swap active.",
         "doc": "docs/user/previews.md",
     },
     "optimizer.extra_params": {
@@ -450,7 +497,8 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "doc": "docs/user/training-loop-and-eval.md",
     },
     "steps_per_print": {
-        "summary": "DeepSpeed console log interval (steps).",
+        "summary": "DeepSpeed prints step timing to the console every N steps.",
+        "detail": "Lower for more frequent stdout feedback; raise to reduce log noise on long runs. Does not affect TensorBoard logging (use logging_steps for that).",
         "doc": "docs/user/training-loop-and-eval.md",
     },
     "synthetic_num_batches": {
@@ -488,7 +536,8 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "doc": "docs/user/training-cosmos-predict2-lora-lokr-finetune.md",
     },
     "x_axis_examples": {
-        "summary": "TensorBoard/WandB x-axis uses example count instead of step.",
+        "summary": "Plot TensorBoard/WandB x-axis as total examples seen instead of optimizer steps.",
+        "detail": "Useful when comparing runs with different batch sizes or gradient accumulation — example count normalizes the x-axis across them.",
         "doc": "docs/user/training-loop-and-eval.md",
     },
     "caching_batch_size": {
@@ -526,15 +575,18 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "doc": "docs/user/training-loop-and-eval.md",
     },
     "dataloader_pin_memory": {
-        "summary": "Page-locked CPU tensors for faster CUDA copies.",
+        "summary": "Allocate CPU batch tensors in page-locked memory for faster host-to-GPU copies.",
+        "detail": "Helps on Linux with dataloader_num_workers > 0; has little effect with the default prefetch thread. Off by default.",
         "doc": "docs/user/training-loop-and-eval.md",
     },
     "dataloader_prefetch_factor": {
-        "summary": "Batches prefetched per worker when num_workers > 0.",
+        "summary": "Batches each DataLoader worker prefetches ahead (default 2, applies only when num_workers > 0).",
+        "detail": "Raise if workers are fast but the GPU still stalls waiting for batches. Lower if RAM is tight.",
         "doc": "docs/user/training-loop-and-eval.md",
     },
     "dataloader_persistent_workers": {
-        "summary": "Keep DataLoader worker processes between epochs.",
+        "summary": "Keep DataLoader worker processes alive between epochs instead of restarting them (default on).",
+        "detail": "Turn off only if you see stale worker state or memory leaks across epoch boundaries.",
         "doc": "docs/user/training-loop-and-eval.md",
     },
     "max_steps": {
@@ -554,7 +606,11 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "doc": "docs/user/optimizer-and-scheduler.md",
     },
     "epochs": {
-        "summary": "Number of passes over the dataset.",
+        "summary": "Passes over the full training dataset; each pass visits every image once.",
+        "detail": (
+            "One epoch = one complete pass over all images at each configured resolution. "
+            "Raise if the model hasn't converged; lower if val/gap is rising (overfitting signal)."
+        ),
         "doc": "docs/user/training-loop-and-eval.md",
     },
     "micro_batch_size_per_gpu": {
@@ -576,15 +632,18 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "doc": "docs/user/training-cosmos-predict2-lora-lokr-finetune.md",
     },
     "gradient_clipping": {
-        "summary": "Max gradient norm (0 disables).",
+        "summary": "Clips gradient norm to this value before the optimizer step (0 = off).",
+        "detail": "Prevents gradient spikes from destabilizing training. Lower if loss spikes suddenly mid-run; common values are 0.5–1.0.",
         "doc": "docs/user/training-loop-and-eval.md",
     },
     "logging_steps": {
-        "summary": "Log metrics every N optimizer steps.",
+        "summary": "Write train/loss and other scalars to TensorBoard every N optimizer steps.",
+        "detail": "Lower for finer loss curves; raise to reduce log file growth on very long runs.",
         "doc": "docs/user/training-loop-and-eval.md",
     },
     "pipeline_stages": {
-        "summary": "DeepSpeed pipeline parallel stages (typically = num GPUs).",
+        "summary": "DeepSpeed pipeline parallel stages — set to the number of GPUs when using pipeline parallelism.",
+        "detail": "Default 1 (single GPU or tensor-parallel). Raise only when splitting the model across multiple GPUs; blocks_to_swap is the VRAM lever for single-GPU runs.",
         "doc": "docs/user/training-loop-and-eval.md",
     },
     "activation_checkpointing": {
@@ -704,11 +763,13 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "doc": "docs/user/training-cosmos-predict2-lora-lokr-finetune.md",
     },
     "checkpoint_every_n_epochs": {
-        "summary": "Write DeepSpeed checkpoints every N epochs.",
+        "summary": "Write a DeepSpeed resume checkpoint at the end of every N epochs.",
+        "detail": "Stores full optimizer and scheduler state for training resumption; not a usable inference file. Combine with max_checkpoints_to_keep to limit disk use.",
         "doc": "docs/user/checkpoint-and-save.md",
     },
     "save_every_n_epochs": {
-        "summary": "Export adapter/model files every N epochs.",
+        "summary": "Export adapter or full-model weights every N epochs (default 1).",
+        "detail": "Writes an epoch1/, epoch2/, ... folder usable in ComfyUI/Forge. Reduce to save fewer intermediate files; increase max_model_exports_to_keep if you want them all kept.",
         "doc": "docs/user/checkpoint-and-save.md",
     },
 }

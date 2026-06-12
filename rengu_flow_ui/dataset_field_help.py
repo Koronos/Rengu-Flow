@@ -6,30 +6,61 @@ from typing import Any
 
 FIELD_HELP: dict[str, dict[str, str]] = {
     "resolutions": {
-        "summary": "Long-side resolutions for aspect-ratio buckets.",
+        "summary": "Long-side pixel values used to build aspect-ratio buckets (e.g. [512, 768, 1024]).",
+        "detail": (
+            "Each value defines the longer edge for a set of buckets at that scale. "
+            "Adding a resolution triggers latent caching for the new size on the next run. "
+            "To stage resolutions over the run instead of mixing them, use resolution_schedule."
+        ),
         "doc": "docs/user/dataset-config.md",
     },
     "frame_buckets": {
-        "summary": "1 = images; higher values = video frame counts.",
+        "summary": "Frame counts for temporal buckets: 1 = images, higher = video (e.g. [1] or [1, 16, 24]).",
+        "detail": "Use [1] for image-only training. Add video frame counts only when your model and dataset support video; mixing image and video in the same run requires the model to handle both modalities.",
         "doc": "docs/user/dataset-config.md",
     },
     "enable_ar_bucket": {
-        "summary": "Bucket by aspect ratio instead of a single resolution.",
+        "summary": "Allow images with different aspect ratios to train in separate buckets.",
+        "detail": (
+            "When off (default), all images are center-cropped or padded to the configured resolution. "
+            "Turn on if your dataset has a wide mix of portrait and landscape images — bucketing avoids "
+            "distortion and keeps more of each image's content. Requires min_ar, max_ar, and num_ar_buckets (or ar_buckets)."
+        ),
         "doc": "docs/user/dataset-config.md",
     },
-    "min_ar": {"summary": "Minimum width/height ratio for AR buckets.", "doc": "docs/user/dataset-config.md"},
-    "max_ar": {"summary": "Maximum width/height ratio for AR buckets.", "doc": "docs/user/dataset-config.md"},
-    "num_ar_buckets": {"summary": "Number of AR buckets between min and max.", "doc": "docs/user/dataset-config.md"},
+    "min_ar": {
+        "summary": "Narrowest width/height ratio for AR buckets (e.g. 0.5 = 1:2 portrait).",
+        "detail": "Images narrower than this ratio are cropped up to the limit. Required when enable_ar_bucket is on and ar_buckets is not set.",
+        "doc": "docs/user/dataset-config.md",
+    },
+    "max_ar": {
+        "summary": "Widest width/height ratio for AR buckets (e.g. 2.0 = 2:1 landscape).",
+        "detail": "Images wider than this ratio are cropped down to the limit. Required when enable_ar_bucket is on and ar_buckets is not set.",
+        "doc": "docs/user/dataset-config.md",
+    },
+    "num_ar_buckets": {
+        "summary": "How many evenly spaced aspect-ratio buckets to generate between min_ar and max_ar.",
+        "detail": "More buckets = less cropping per image, but more distinct shapes the model must handle. 5–10 is a common range for mixed-aspect datasets.",
+        "doc": "docs/user/dataset-config.md",
+    },
     "directory.path": {
         "summary": "Folder with images (and optional .txt or captions.json).",
         "doc": "docs/user/dataset-config.md",
     },
     "directory.num_repeats": {
-        "summary": "How many times this folder is repeated per epoch.",
+        "summary": "Multiplies how many times this folder's images appear per epoch.",
+        "detail": (
+            "1 = each image seen once per epoch. Raise to over-sample a small folder relative to larger "
+            "ones — the epoch gets proportionally longer. Combine with max_images to cap the absolute count."
+        ),
         "doc": "docs/user/dataset-config.md",
     },
     "directory.directory_caption": {
-        "summary": "Default or prefix caption for images in this folder.",
+        "summary": "Caption used when an image has no .txt file; also prepended as a prefix when a per-image caption exists.",
+        "detail": (
+            "Example: set to 'style: ' and every captioned image becomes 'style: <original caption>'. "
+            "Leave empty to use only per-image captions with no prefix."
+        ),
         "doc": "docs/user/dataset-config.md",
     },
     "_dataset_augmentation": {
@@ -57,11 +88,13 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "doc": "docs/user/dataset-augmentation.md",
     },
     "directory.shuffle_metadata": {
-        "summary": "Shuffle image order when building metadata for this folder.",
+        "summary": "Randomize image order when building this folder's metadata (deterministic per-folder seed).",
+        "detail": "On by default globally; per-folder override. Turn off only if you need a predictable, filename-sorted order in the cache.",
         "doc": "docs/user/dataset-config.md",
     },
     "directory.online_captions": {
-        "summary": "Read captions.json at train time for this folder.",
+        "summary": "Re-read captions.json from disk at training time instead of relying on cached metadata.",
+        "detail": "Enable if you update captions.json between training runs without regenerating the full cache. Only applies to this folder.",
         "doc": "docs/user/dataset-config.md",
     },
     "directory.resolutions": {
@@ -97,11 +130,13 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "doc": "docs/user/dataset-config.md",
     },
     "shuffle_metadata": {
-        "summary": "Shuffle image order when building metadata (deterministic per folder).",
+        "summary": "Randomize image order when building metadata across all folders (deterministic per-folder seed, default on).",
+        "detail": "Turn off only if you need predictable, filename-sorted metadata order for debugging or reproducing an exact cache layout.",
         "doc": "docs/user/dataset-config.md",
     },
     "online_captions": {
-        "summary": "Read captions.json at train time instead of cache-only captions.",
+        "summary": "Re-read captions.json from disk at training time for all folders.",
+        "detail": "Enable globally if you update caption files between runs without regenerating the full cache. Per-folder directory.online_captions overrides this.",
         "doc": "docs/user/dataset-config.md",
     },
     "subsample_ratio": {

@@ -49,7 +49,7 @@
           <el-form label-position="top">
             <el-form-item>
               <template #label>
-                Models <FieldHelpIcon :field="help('ONNX tagger ensemble — probabilities merge across models by max. Pre-selects downloaded models.')" />
+                Models <FieldHelpIcon :field="help('Runs each model in sequence and merges per-image probabilities by max, so the ensemble catches tags any single model misses. Add a second model when one alone keeps missing specific tag categories.')" />
               </template>
               <el-text v-if="modelsLoading" size="small" type="info">Loading models…</el-text>
               <el-select
@@ -76,7 +76,7 @@
             <div class="form-row-2">
               <el-form-item>
                 <template #label>
-                  General tag confidence <FieldHelpIcon :field="help('Minimum probability to include a general (non-character, non-rating) tag. Leave blank to use the model default.')" />
+                  General tag confidence <FieldHelpIcon :field="help('Sets the probability floor for all general tags across every selected model (leave blank = model default). Raise it if output is cluttered with low-confidence noise; lower it if rare or subtle tags keep disappearing.')" />
                 </template>
                 <el-input-number
                   v-model="tagForm.general_threshold"
@@ -92,7 +92,7 @@
               </el-form-item>
               <el-form-item>
                 <template #label>
-                  Character tag confidence <FieldHelpIcon :field="help('Minimum probability for character/series tags. Taggers are weakest here — a higher threshold keeps only confident character matches.')" />
+                  Character tag confidence <FieldHelpIcon :field="help('Sets the probability floor for character and series name tags (leave blank = model default). Raise it when the tagger keeps attaching the wrong character name to images.')" />
                 </template>
                 <el-input-number
                   v-model="tagForm.character_threshold"
@@ -115,7 +115,7 @@
               <el-switch v-model="tagForm.include_character_tags" />
               <el-text class="ml-8" size="small">
                 Include character/series name tags
-                <el-text type="info"> — taggers are weakest at character names; disable to keep only your own trigger via Prepend tags</el-text>
+                <el-text type="info"> — turn off if taggers keep mislabeling your characters, and put your own trigger word in Prepend tags instead</el-text>
               </el-text>
             </el-form-item>
 
@@ -126,7 +126,7 @@
 
             <el-form-item>
               <template #label>
-                Exclude tags <FieldHelpIcon :field="help('Tags to strip from the output — even if the model is confident about them.')" />
+                Exclude tags <FieldHelpIcon :field="help('Strips these tags from every image output regardless of model confidence. Use when specific tags keep appearing that are wrong for your dataset style (e.g. realistic on anime images) or would bias training negatively.')" />
               </template>
               <el-select
                 v-model="tagForm.exclude_tags"
@@ -143,7 +143,7 @@
 
             <el-form-item>
               <template #label>
-                Prepend tags <FieldHelpIcon :field="help('Tags prepended to every output caption — use for trigger words or forced tags the tagger may miss.')" />
+                Prepend tags <FieldHelpIcon :field="help('Inserts these tags at the start of every image\'s tag line before the tagger output. Use for your trigger word or any tag the model consistently misses.')" />
               </template>
               <el-select
                 v-model="tagForm.prepend_tags"
@@ -169,7 +169,7 @@
 
             <el-form-item>
               <template #label>
-                Overwrite <FieldHelpIcon :field="help('Re-tag images that already have a tag line on line 1. Off by default — skips already-processed images.')" />
+                Overwrite <FieldHelpIcon :field="help('Re-tags images that already have a tag line on line 1, replacing it. Turn on when you are changing models or thresholds and want to regenerate tags for the whole folder from scratch.')" />
               </template>
               <el-switch v-model="tagForm.overwrite" />
               <el-text class="ml-8" size="small">Overwrite existing captions</el-text>
@@ -178,8 +178,8 @@
             <el-form-item>
               <el-switch v-model="chainCaption" />
               <el-text class="ml-8" size="small">
-                Also queue a caption job after tagging (uses the caption defaults;
-                ToriiGate/JoyCaption can be tuned by queueing it separately)
+                Also queue a caption job immediately after this tag job
+                <el-text type="info"> — use when you want tag + caption in one go; queue the caption job separately if you need custom prompt or model settings</el-text>
               </el-text>
             </el-form-item>
           </el-form>
@@ -191,7 +191,7 @@
           <el-form label-position="top">
             <el-form-item>
               <template #label>
-                Model <FieldHelpIcon :field="help('JoyCaption: 8B LLaVA, best quality. ToriiGate: ~5B anime specialist with tag grounding.')" />
+                Model <FieldHelpIcon :field="help('JoyCaption (8B, bf16 ~17 GB) writes free-form captions from a composable instruction prompt. ToriiGate (~5B) is an anime specialist that uses your tag line as grounding — pick it when caption style consistency with Danbooru vocabulary matters more than prompt flexibility.')" />
               </template>
               <el-text v-if="modelsLoading" size="small" type="info">Loading models…</el-text>
               <el-radio-group v-else v-model="captionForm.model" class="model-radio-group">
@@ -215,12 +215,12 @@
               :closable="false"
               show-icon
               class="mt-8 mb-12"
-              title="ToriiGate is trained on fixed prompt formats — the prompt base maps to its native format ('Concise' → short, others → long) and modifiers ride an extra-requirements section. Check the prompt preview below for the exact text."
+              title="ToriiGate uses fixed internal prompt formats: 'Concise' maps to its short format, all other bases map to long. Custom modifiers are appended as extra requirements. Open the prompt preview below to see exactly what the model receives — if the output captions read oddly, that is the place to look first."
             />
 
             <el-form-item>
               <template #label>
-                Quantization <FieldHelpIcon :field="help('Precision for model weights. Lower precision uses less VRAM at a slight quality cost.')" />
+                Quantization <FieldHelpIcon :field="help('Controls how model weights are stored in VRAM. Start with bf16; drop to int8 or nf4 if the job fails with an out-of-memory error.')" />
               </template>
               <el-radio-group v-model="captionForm.quantization" class="quant-radio-group">
                 <el-radio value="bf16">
@@ -233,14 +233,14 @@
                 </el-radio>
                 <el-radio value="nf4">
                   nf4
-                  <el-text size="small" type="info"> (smallest VRAM, slight quality cost)</el-text>
+                  <el-text size="small" type="info"> (smallest VRAM — use when int8 still OOMs)</el-text>
                 </el-radio>
               </el-radio-group>
             </el-form-item>
 
             <el-form-item>
               <template #label>
-                Prompt base <FieldHelpIcon :field="help('Foundation prompt style: descriptive-long (default), concise, character-focus, style-focus. A custom prompt overrides the whole composition.')" />
+                Prompt base <FieldHelpIcon :field="help('Sets the core intent of every generated caption. Change it when the default captions are too verbose, or when you need captions centered on a specific aspect (character, style). A custom prompt in the field below overrides the whole composition.')" />
               </template>
               <el-select v-model="captionForm.prompt_base" class="w-full">
                 <el-option
@@ -257,7 +257,7 @@
 
             <el-form-item>
               <template #label>
-                Prompt modifiers (stackable) <FieldHelpIcon :field="help('Stack onto the base prompt: demographics, medium_neutral (hides style), plain_language, objective_only, composition_camera, explicit_language.')" />
+                Prompt modifiers (stackable) <FieldHelpIcon :field="help('Each modifier adds one instruction to the base prompt — they compose independently, so tick only what your dataset needs. Check each modifier\'s description and the prompt preview to see the exact effect before running a large job.')" />
               </template>
               <el-checkbox-group v-model="captionForm.prompt_modifiers">
                 <el-checkbox
@@ -274,7 +274,7 @@
             <div class="form-row-2">
               <el-form-item>
                 <template #label>
-                  Character trigger name (optional) <FieldHelpIcon :field="help('When set, the model refers to the character by this name and absorbs their inherent traits (hair, eyes) into the trigger token.')" />
+                  Character trigger name (optional) <FieldHelpIcon :field="help('The model replaces inherent traits (hair, eye color, face) with this name so they collapse into the trigger token at training time. Set it when you want prompting the trigger to reliably reproduce the character\'s fixed appearance without describing those traits explicitly.')" />
                 </template>
                 <el-input
                   v-model="captionForm.character_name"
@@ -282,12 +282,12 @@
                   class="w-full"
                 />
                 <el-text v-if="captionForm.character_name.trim()" size="small" type="info" class="hint-text">
-                  A deterministic post-pass removes any leaked inherent-trait clauses (disabled when a canonical look is set).
+                  A scrubber removes any trait clauses the model leaks anyway, keeping absorption consistent. Disabled when a canonical look is set.
                 </el-text>
               </el-form-item>
               <el-form-item>
                 <template #label>
-                  Outfit policy (with trigger) <FieldHelpIcon :field="help('describe = outfit stays promptable; omit = default outfit absorbed into trigger; mixed = 50/50 per image (recommended).')" />
+                  Outfit policy (with trigger) <FieldHelpIcon :field="help('Controls whether the outfit is described (stays swappable at generation) or absorbed into the trigger (default outfit always appears). Mixed 50/50 gives the model both signals — use it when you want outfit swapping to work but the canonical look as the default.')" />
                 </template>
                 <el-select
                   v-model="captionForm.outfit"
@@ -305,7 +305,7 @@
               v-if="captionForm.character_name.trim()"
             >
               <template #label>
-                Canonical look (optional — for datasets with character variants) <FieldHelpIcon :field="help('Describe the canonical appearance. Deviations from this are described; matches are absorbed into the trigger.')" />
+                Canonical look (optional — for datasets with character variants) <FieldHelpIcon :field="help('Describe the character\'s baseline appearance (e.g. &quot;aqua twin-tail hair, blue eyes&quot;). Traits that match are absorbed into the trigger; deviations (aged-up versions, alternate hairstyles) are described, keeping them promptable. Use only when your dataset deliberately mixes canon and variant images.')" />
               </template>
               <el-input
                 v-model="captionForm.character_canon"
@@ -315,14 +315,13 @@
                 class="w-full"
               />
               <el-text v-if="captionForm.character_canon.trim()" size="small" type="warning">
-                Canon mode trusts the model to separate canon from deviation; the hard
-                trait scrubber is disabled.
+                The trait scrubber is disabled in canon mode — if the model fails to separate a variant from canon, those trait clauses will remain in the caption.
               </el-text>
             </el-form-item>
 
             <el-form-item>
               <template #label>
-                Caption line <FieldHelpIcon :field="help('Line index to write the caption to. Line 2 = standard. Use 3+ to add additional caption variants alongside existing ones.')" />
+                Caption line <FieldHelpIcon :field="help('Writes the caption to this line in each sidecar file, leaving all other lines untouched. Use 3+ to add a second caption variant — each line is treated as an independent caption at training time.')" />
               </template>
               <el-input-number
                 v-model="captionForm.target_line"
@@ -367,7 +366,7 @@
             <div class="form-row-2">
               <el-form-item>
                 <template #label>
-                  Max image side (px, 0 = no downscale) <FieldHelpIcon :field="help('Downscale images longer than this before sending to the VLM. Default 1536. Bucketing handles the real resize at training time.')" />
+                  Max image side (px, 0 = no downscale) <FieldHelpIcon :field="help('Downscales the long side of each image to this limit before the VLM sees it (default 1536 px). Lower it to reduce VRAM per image when captioning very large originals; training bucketing handles the real resize independently.')" />
                 </template>
                 <el-input-number v-model="captionForm.max_image_side" :min="0" :step="128" controls-position="right" class="w-full" />
                 <el-text v-if="captionForm.model === 'toriigate-0.5'" size="small" type="info" class="hint-text">
@@ -376,7 +375,7 @@
               </el-form-item>
               <el-form-item>
                 <template #label>
-                  Min image side (px, 0 = no filter) <FieldHelpIcon :field="help('Skip images with either side below this threshold. Use to filter out tiny thumbnails before captioning.')" />
+                  Min image side (px, 0 = no filter) <FieldHelpIcon :field="help('Skips images whose short side is below this limit. Set it when your folder contains thumbnails or web-scrape artifacts that produce garbled captions.')" />
                 </template>
                 <el-input-number v-model="captionForm.min_image_side" :min="0" :step="64" controls-position="right" class="w-full" />
               </el-form-item>
@@ -385,7 +384,7 @@
             <div class="form-row-2">
               <el-form-item>
                 <template #label>
-                  Temperature <FieldHelpIcon :field="help('Sampling temperature. Leave blank for the model\'s own recommended value. 0 = greedy/deterministic.')" />
+                  Temperature <FieldHelpIcon :field="help('Controls output randomness; leave blank for the recommended value of the selected model (shown in the placeholder). Lower it for more consistent captions across similar images; raise it only if captions feel repetitive.')" />
                 </template>
                 <el-input-number
                   v-model="captionForm.temperature"
@@ -401,7 +400,7 @@
               </el-form-item>
               <el-form-item>
                 <template #label>
-                  Top-p <FieldHelpIcon :field="help('Nucleus sampling cutoff. Leave blank for the model default.')" />
+                  Top-p <FieldHelpIcon :field="help('Nucleus sampling cutoff — limits which tokens are considered each step; leave blank for the model default (shown in the placeholder). Rarely needs changing; lower it only if captions produce incoherent or off-topic tokens.')" />
                 </template>
                 <el-input-number
                   v-model="captionForm.top_p"
@@ -421,7 +420,7 @@
               <el-switch v-model="captionForm.exact_generation" />
               <el-text class="ml-8" size="small">
                 Exact (unpadded) generation
-                <el-text type="info"> — ToriiGate's hybrid attention paraphrases slightly under batched padding; exact mode generates per image (~2.5x slower)</el-text>
+                <el-text type="info"> — generates one image at a time instead of in batches, giving bit-exact results (~2.5x slower); turn on if batched captions for similar images are phrased inconsistently</el-text>
               </el-text>
             </el-form-item>
 
@@ -429,13 +428,13 @@
               <el-switch v-model="captionForm.use_tags_as_grounding" />
               <el-text class="ml-8" size="small">
                 Use tags as grounding
-                <el-text type="info"> (ToriiGate: line-1 tags used as context)</el-text>
+                <el-text type="info"> — feeds line-1 booru tags to ToriiGate as context, improving tag/caption consistency; turn off only if the tag line is absent or unreliable</el-text>
               </el-text>
             </el-form-item>
 
             <el-form-item>
               <template #label>
-                Overwrite <FieldHelpIcon :field="help('Re-caption images that already have content on the target line. Off by default — skips already-processed images.')" />
+                Overwrite <FieldHelpIcon :field="help('Re-captions images that already have content on the target line, replacing it. Turn on when you are changing the prompt or model and want to regenerate captions for the whole folder.')" />
               </template>
               <el-switch v-model="captionForm.overwrite" />
               <el-text class="ml-8" size="small">Overwrite existing captions</el-text>
@@ -456,7 +455,7 @@
           <el-form label-position="top">
             <el-form-item>
               <template #label>
-                Confidence threshold <FieldHelpIcon :field="help('Minimum YOLO11 detection score to treat a region as a watermark. Lower = more aggressive removal.')" />
+                Confidence threshold <FieldHelpIcon :field="help('YOLO11 detection score required to flag a region as a watermark (default 0.35). Lower it if the detector keeps missing faint or small watermarks; raise it if clean areas are being incorrectly inpainted.')" />
               </template>
               <el-slider
                 v-model="cleanForm.confidence"
@@ -470,14 +469,14 @@
 
             <el-form-item>
               <template #label>
-                Mask dilation (px) <FieldHelpIcon :field="help('Pixels to expand the detected watermark mask before inpainting. Larger = covers edge fringing.')" />
+                Mask dilation (px) <FieldHelpIcon :field="help('Expands each detected watermark region by this many pixels before inpainting (default 8). Increase it when inpainted areas show a leftover fringe around the original watermark edge.')" />
               </template>
               <el-input-number v-model="cleanForm.mask_dilation_px" :min="0" :max="100" controls-position="right" />
             </el-form-item>
 
             <el-form-item>
               <template #label>
-                In-place <FieldHelpIcon :field="help('Overwrite originals instead of writing to a separate folder. Originals are backed up under .rengu_prep/cleanup_originals/ first.')" />
+                In-place <FieldHelpIcon :field="help('Overwrites originals rather than writing to a separate folder (originals are backed up to .rengu_prep/cleanup_originals/ first). Use it when you want the training folder itself to contain only cleaned images and do not need the side-by-side comparison.')" />
               </template>
               <el-switch v-model="cleanForm.in_place" />
               <el-text class="ml-8" size="small">In-place (overwrite originals)</el-text>
@@ -591,7 +590,7 @@ const captionForm = reactive({
 // --- clean form ---
 const cleanForm = reactive({
   confidence: 0.35,
-  mask_dilation_px: 4,
+  mask_dilation_px: 8,
   in_place: false,
   output_dir: "",
   copy_undetected: true,

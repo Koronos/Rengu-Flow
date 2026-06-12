@@ -121,7 +121,7 @@
               Quarantine found ({{ sizeResultKeys.length }})
             </el-button>
             <el-text size="small" type="info">
-              Bucketing resizes later — this catches thumbnails that tag/caption/train badly.
+              Finds images whose short side is below the threshold. Use it to quarantine thumbnails and web-scrape artifacts before tagging or captioning produces garbled results on them.
             </el-text>
           </div>
         </el-card>
