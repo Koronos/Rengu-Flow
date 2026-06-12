@@ -248,6 +248,18 @@ def rotation_window_index(
     return (offset + pos) % pool_len
 
 
+def uniform_caption_variants(caption_lists) -> int:
+    """Captions-per-image when every image has the same count, else 1.
+
+    Caption variants (one per .txt line) multiply the iteration order; the
+    epoch accounting in main divides by this so an "epoch" still means one
+    pass over the images, with variants rotating across appearances. A mixed
+    dataset (unequal counts) cannot be divided out cleanly -> report 1.
+    """
+    counts = {len(c) for c in caption_lists}
+    return counts.pop() if len(counts) == 1 else 1
+
+
 class SizeBucketDataset:
     """Single size bucket from one directory: latents + text embeddings cache, iteration order."""
 
@@ -263,6 +275,7 @@ class SizeBucketDataset:
         # Per-bucket shuffle mixes multi-resolution training better (diffusion-pipe).
         metadata_dataset = metadata_dataset.shuffle(seed=seed_from_hash(size_bucket))
         self.metadata_dataset = metadata_dataset
+        self._caption_variants = None
         self.directory_config = directory_config
         self.size_bucket = size_bucket
         # Long-side resolution this bucket was generated for; used by the resolution
@@ -309,6 +322,15 @@ class SizeBucketDataset:
         self._epoch_order_cache: list[int] | None = None
         self._epoch_order_for: int | None = None
         self._aug_fingerprint = getattr(directory_dataset, "_aug_fingerprint", "")
+
+    @property
+    def caption_variants(self) -> int:
+        """Captions per image in this bucket (1 when images disagree)."""
+        if self._caption_variants is None:
+            self._caption_variants = uniform_caption_variants(
+                self.metadata_dataset["caption"]
+            )
+        return self._caption_variants
 
     def cache_latents(
         self,
@@ -1609,6 +1631,24 @@ class Dataset:
         self._schedule_target = None
         self._active_stage = None
         self.full_epoch_len = 0
+
+    @property
+    def caption_variants(self) -> int:
+        """Uniform captions-per-image across every bucket (1 when mixed).
+
+        Multi-line .txt captions multiply the iteration order (each variant is
+        its own example). The training loop divides steps_per_epoch by this so
+        an "epoch" still means one pass over the images — variants rotate
+        across the epochs instead of inflating them.
+        """
+        values = set()
+        for dir_ds in self.directory_datasets:
+            for sb in getattr(dir_ds, "size_bucket_datasets", []):
+                values.add(sb.caption_variants)
+            for ar in getattr(dir_ds, "ar_bucket_datasets", []):
+                for sb in getattr(ar, "size_buckets", []):
+                    values.add(sb.caption_variants)
+        return values.pop() if len(values) == 1 else 1
 
     def set_epoch(self, epoch: int) -> None:
         """Propagate the current epoch to every size bucket so rotation advances.
