@@ -76,7 +76,7 @@ rengu-flow-ui = "rengu_flow_ui.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["rengu_flow*", "rengu_flow_ui*"]
+include = ["rengu_flow*", "rengu_flow_ui*", "rengu_track*"]
 
 [tool.setuptools.package-data]
 "rengu_flow.model.cosmos_predict2" = ["assets/**/*"]
