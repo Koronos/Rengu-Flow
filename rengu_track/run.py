@@ -93,7 +93,10 @@ def write_manifest(run_dir: str | Path, manifest: RunManifest) -> None:
     fd, tmp = tempfile.mkstemp(dir=root, prefix=".run_", suffix=".json")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(manifest.to_dict(), f, indent=2)
+            # The embedded config arrives post-defaults, where values like
+            # model.dtype are live torch.dtype objects — stringify anything JSON
+            # can't hold instead of failing the run at sink construction.
+            json.dump(manifest.to_dict(), f, indent=2, default=str)
         os.replace(tmp, target)
     except OSError:
         try:

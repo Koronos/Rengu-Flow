@@ -52,6 +52,19 @@ def test_read_manifest_missing_returns_none(tmp_path):
     assert read_manifest(tmp_path) is None
 
 
+def test_write_manifest_stringifies_non_json_config(tmp_path):
+    """The live training config holds torch.dtype values post-defaults; the manifest
+    must stringify them instead of failing the run at sink construction."""
+    torch = pytest.importorskip("torch")
+    manifest = RunManifest(
+        run_id="r1",
+        config={"model": {"type": "sdxl", "dtype": torch.bfloat16}},
+    )
+    write_manifest(tmp_path, manifest)
+    loaded = read_manifest(tmp_path)
+    assert loaded.config["model"]["dtype"] == "torch.bfloat16"
+
+
 def test_from_dict_drops_unknown_keys(tmp_path):
     (tmp_path / "run.json").write_text(
         json.dumps({"run_id": "x", "name": "n", "some_future_field": 1}),
