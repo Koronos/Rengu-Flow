@@ -19,7 +19,7 @@ STAGES = ("tag", "caption", "clean")
 
 @dataclass
 class TagStageConfig:
-    models: list[str] = field(default_factory=lambda: ["pixai-v0.9", "cl-tagger-1.01"])
+    models: list[str] = field(default_factory=lambda: ["pixai-v0.9", "cl-tagger-1.02"])
     overrides: dict[str, dict] = field(default_factory=dict)  # spec id -> field overrides
     exclude_tags: list[str] = field(default_factory=list)
     prepend_tags: list[str] = field(default_factory=list)

@@ -53,6 +53,13 @@ class TaggerModelSpec:
     # Ratings are near-mutually-exclusive, so they resolve by argmax (one rating tag per
     # image, kept only if it clears rating_threshold) instead of per-tag thresholding.
     include_rating: bool = True
+    # Input convention — verified against each export's reference inference code:
+    #   "wd":           pad-square white + resize, BGR uint8-range float, NHWC (WD v3 line)
+    #   "norm05_rgb":   plain resize, RGB /255 normalized (mean=std=0.5), NCHW
+    #                   (deepghs exports, e.g. pixai-tagger-v0.9-onnx preprocess.json)
+    #   "norm05_bgr_pad": pad-square white + resize, BGR /255 normalized (0.5), NCHW
+    #                   (cl_tagger official space app.py)
+    preprocess: str = "wd"
     source: str = ""
 
 
@@ -65,17 +72,31 @@ KNOWN_TAGGERS: dict[str, TaggerModelSpec] = {
         general_threshold=0.30,
         character_threshold=0.75,
         rating_threshold=0.50,
+        preprocess="norm05_rgb",
         source="deepghs/pixai-tagger-v0.9-onnx on HuggingFace (June 2026)",
+    ),
+    "cl-tagger-1.02": TaggerModelSpec(
+        id="cl-tagger-1.02",
+        repo_id="cella110n/cl_tagger",
+        filename="model_optimized.onnx",
+        tags_filename="tag_mapping.json",
+        subdir="cl_tagger_1_02",
+        general_threshold=0.35,
+        character_threshold=0.75,
+        rating_threshold=0.50,
+        preprocess="norm05_bgr_pad",
+        source="cella110n/cl_tagger on HuggingFace (June 2026)",
     ),
     "cl-tagger-1.01": TaggerModelSpec(
         id="cl-tagger-1.01",
         repo_id="cella110n/cl_tagger",
-        filename="model.onnx",
+        filename="model_optimized.onnx",
         tags_filename="tag_mapping.json",
         subdir="cl_tagger_1_01",
         general_threshold=0.35,
-        character_threshold=0.85,
+        character_threshold=0.75,
         rating_threshold=0.50,
+        preprocess="norm05_bgr_pad",
         source="cella110n/cl_tagger on HuggingFace (June 2026)",
     ),
     "wd-eva02-large-v3": TaggerModelSpec(
@@ -110,7 +131,7 @@ KNOWN_TAGGERS: dict[str, TaggerModelSpec] = {
     ),
 }
 
-DEFAULT_TAGGERS: list[str] = ["pixai-v0.9", "cl-tagger-1.01"]
+DEFAULT_TAGGERS: list[str] = ["pixai-v0.9", "cl-tagger-1.02"]
 
 
 # ---------------------------------------------------------------------------
@@ -138,18 +159,38 @@ def _load_tags_csv(path: Path) -> list[tuple[str, int]]:
     return rows
 
 
+# cl_tagger names its categories; map them onto WD category codes. Quality tags
+# (masterpiece/best quality/...) ride the general threshold; Copyright (series names)
+# rides the character threshold; Model/Meta tags are bookkeeping and never emitted.
+_NAMED_CATEGORIES = {
+    "general": 0,
+    "quality": 0,
+    "copyright": 3,
+    "character": 4,
+    "meta": 5,
+    "model": 5,
+    "rating": 9,
+}
+
+
 def _load_tags_json(path: Path) -> list[tuple[str, int]]:
     """Parse a cl_tagger-style tag_mapping.json.
 
-    The file may be structured as:
-      - ``{idx: {"name": str, "category": int}}``
-      - ``{idx: str}``  (name only, category assumed 0)
-      - ``{"tags": [...], "categories": [...]}``  (parallel arrays)
-
-    Any unrecognised layout logs a clear error and raises, not silently returning empty.
+    Verified layout (cella110n/cl_tagger): ``{"0": {"tag": str, "category": "Rating"}}``
+    — index keys, "tag" name key, NAMED categories. Older/other exports may use
+    ``{"name": ..., "category": int}`` or parallel ``{"tags": [...], "categories":
+    [...]}`` arrays; all three parse. Anything else raises (no silent fallback).
     """
     with open(path, encoding="utf-8") as f:
         raw = json.load(f)
+
+    def coerce_category(value) -> int:
+        if isinstance(value, str) and not value.isdigit():
+            return _NAMED_CATEGORIES.get(value.strip().lower(), 0)
+        try:
+            return int(value)
+        except (ValueError, TypeError):
+            return 0
 
     if isinstance(raw, dict):
         # Parallel array style: {"tags": [...], "categories": [...]}
@@ -160,25 +201,24 @@ def _load_tags_json(path: Path) -> list[tuple[str, int]]:
             for i, tag in enumerate(tags):
                 if not isinstance(tag, str) or not tag.strip():
                     continue
-                try:
-                    cat = int(categories[i]) if i < len(categories) else 0
-                except (ValueError, TypeError):
-                    cat = 0
+                cat = coerce_category(categories[i]) if i < len(categories) else 0
                 rows.append((tag.strip(), cat))
             return rows
 
-        # Dict-of-entries style: {idx: str | dict}
+        # Dict-of-entries style: {idx: str | dict}. Model outputs index by position,
+        # so iterate in numeric key order, not insertion order.
+        def entry_order(item):
+            key = item[0]
+            return (0, int(key)) if str(key).isdigit() else (1, 0)
+
         rows = []
-        for _idx, entry in raw.items():
+        for _idx, entry in sorted(raw.items(), key=entry_order):
             if isinstance(entry, str):
                 name = entry.strip()
                 cat = 0
             elif isinstance(entry, dict):
-                name = str(entry.get("name", "")).strip()
-                try:
-                    cat = int(entry.get("category", 0))
-                except (ValueError, TypeError):
-                    cat = 0
+                name = str(entry.get("tag") or entry.get("name") or "").strip()
+                cat = coerce_category(entry.get("category", 0))
             else:
                 continue
             if name:
@@ -211,36 +251,58 @@ def load_tag_list(path: Path) -> list[tuple[str, int]]:
 # Image preprocessing
 # ---------------------------------------------------------------------------
 
-def _preprocess_image(image: Image.Image, input_size: int) -> np.ndarray:
-    """PIL image -> float32 BGR numpy array ready for ONNX inference.
-
-    Follows the WD-tagger convention:
-    1. Flatten alpha channel onto a white background.
-    2. Pad to square using white fill (not crop — preserves aspect ratio).
-    3. Resize to ``input_size × input_size`` with LANCZOS.
-    4. Convert to BGR float32 and add batch dimension.
-    """
-    # Flatten alpha onto white
+def _flatten_to_rgb(image: Image.Image) -> Image.Image:
+    """Flatten any alpha channel onto a white background."""
     if image.mode == "RGBA":
         bg = Image.new("RGB", image.size, (255, 255, 255))
         bg.paste(image, mask=image.split()[3])
-        image = bg
-    else:
-        image = image.convert("RGB")
+        return bg
+    return image.convert("RGB")
 
-    # Pad to square
+
+def _pad_square_white(image: Image.Image) -> Image.Image:
     w, h = image.size
+    if w == h:
+        return image
     side = max(w, h)
     padded = Image.new("RGB", (side, side), (255, 255, 255))
     padded.paste(image, ((side - w) // 2, (side - h) // 2))
+    return padded
 
-    # Resize
-    resized = padded.resize((input_size, input_size), Image.LANCZOS)
 
-    # RGB -> BGR float32 with batch dim
-    arr = np.array(resized, dtype=np.float32)
-    arr = arr[:, :, ::-1]  # RGB to BGR
-    return np.expand_dims(arr, axis=0)
+def _preprocess_image(
+    image: Image.Image, input_size: int, mode: str = "wd"
+) -> np.ndarray:
+    """PIL image -> float32 batch-of-1 array in the convention ``mode`` expects.
+
+    Modes (each verified against the export's own reference inference code):
+    - ``wd``: pad-square white, resize, BGR in the 0..255 range, NHWC. (WD v3 line.)
+    - ``norm05_rgb``: plain resize (no padding), RGB, /255 then (x-0.5)/0.5, NCHW.
+      (deepghs exports — pixai-tagger-v0.9-onnx ships exactly this preprocess.json.)
+    - ``norm05_bgr_pad``: pad-square white, resize, BGR, /255 then (x-0.5)/0.5, NCHW.
+      (cl_tagger — official space app.py.)
+    """
+    image = _flatten_to_rgb(image)
+
+    if mode == "wd":
+        resized = _pad_square_white(image).resize((input_size, input_size), Image.BICUBIC)
+        arr = np.array(resized, dtype=np.float32)[:, :, ::-1]  # RGB -> BGR
+        return np.expand_dims(arr, axis=0)  # (1, H, W, 3)
+
+    if mode == "norm05_rgb":
+        resized = image.resize((input_size, input_size), Image.BILINEAR)
+        arr = np.array(resized, dtype=np.float32).transpose(2, 0, 1) / 255.0
+        arr = (arr - 0.5) / 0.5
+        return np.expand_dims(arr, axis=0)  # (1, 3, H, W)
+
+    if mode == "norm05_bgr_pad":
+        resized = _pad_square_white(image).resize((input_size, input_size), Image.BICUBIC)
+        arr = np.array(resized, dtype=np.float32).transpose(2, 0, 1) / 255.0
+        arr = arr[::-1, :, :].copy()  # RGB -> BGR (channel axis)
+        arr = (arr - 0.5) / 0.5
+        return np.expand_dims(arr, axis=0)  # (1, 3, H, W)
+
+    raise ValueError(f"Unknown preprocess mode {mode!r}")
 
 
 # ---------------------------------------------------------------------------
@@ -312,7 +374,8 @@ class OnnxTagger:
         names = self._names[:n_tags]
         cats = self._categories[:n_tags]
         general_mask = cats == 0
-        character_mask = cats == 4
+        # Copyright (series) tags ride the character threshold: same name-like nature.
+        character_mask = (cats == 4) | (cats == 3)
         rating_idx = np.flatnonzero(cats == 9)
 
         results: list[dict[str, float]] = []
@@ -333,7 +396,11 @@ class OnnxTagger:
     def predict_batch(self, images: list[Image.Image]) -> list[dict[str, float]]:
         """Convenience wrapper: preprocess PIL images, then ``predict_arrays``."""
         batch = np.concatenate(
-            [_preprocess_image(img, self.spec.input_size) for img in images], axis=0
+            [
+                _preprocess_image(img, self.spec.input_size, self.spec.preprocess)
+                for img in images
+            ],
+            axis=0,
         )
         return self.predict_arrays(batch)
 
@@ -369,7 +436,7 @@ def _default_infer_factory(spec: TaggerModelSpec) -> Callable[[list[Path]], list
 
     def _decode(path: Path) -> np.ndarray:
         with Image.open(path) as img:
-            return _preprocess_image(img, spec.input_size)
+            return _preprocess_image(img, spec.input_size, spec.preprocess)
 
     def _infer(image_paths: list[Path]) -> list[dict[str, float]]:
         arrays = list(decode_pool.map(_decode, image_paths))

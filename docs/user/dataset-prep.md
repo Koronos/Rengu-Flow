@@ -24,7 +24,7 @@ Prep reads and writes the same caption formats the trainer understands:
 
 ### Tagging — `rengu prep tag`
 
-ONNX tagger ensemble. Default: **PixAI v0.9 + cl_tagger 1.01** (2025-26 generation —
+ONNX tagger ensemble. Default: **PixAI v0.9 + cl_tagger 1.02** (2025-26 generation —
 fresher Danbooru data and far better character recall than the WD v3 line, which
 remains available: `wd-eva02-large-v3`, `wd-vit-large-v3`, `wd-swinv2-v3`). Models run
 one at a time (one ONNX session in VRAM); per-image probabilities merge across models
@@ -81,7 +81,7 @@ caption_format = "sidecar"      # or "json"
 caption_ext = ".txt"
 
 [tag]
-models = ["pixai-v0.9", "cl-tagger-1.01"]
+models = ["pixai-v0.9", "cl-tagger-1.02"]
 exclude_tags = ["realistic", "3d"]
 prepend_tags = ["my_trigger_word"]
 max_tags = 255

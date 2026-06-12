@@ -181,6 +181,7 @@ export interface JobRecord {
   run_name?: string | null;
   config_path?: string;
   state: JobState | string;
+  kind?: string;
   pid?: number | null;
   run_dir?: string | null;
   output_dir?: string;
@@ -736,4 +737,80 @@ export interface QuarantineBatchInfo {
   name: string;
   created: string | null;
   images: string[];
+}
+
+// --- Dataset prep: jobs -------------------------------------------------------
+
+export type PrepStage = "tag" | "caption" | "clean";
+
+export interface PrepTagConfig {
+  models: string[];
+  exclude_tags: string[];
+  prepend_tags: string[];
+  max_tags: number;
+  batch_size: number;
+  overwrite: boolean;
+}
+
+export interface PrepCaptionConfig {
+  model: string;
+  quantization: "bf16" | "int8" | "nf4";
+  prompt: string;
+  max_new_tokens: number;
+  temperature: number;
+  top_p: number;
+  batch_size: number;
+  use_tags_as_grounding: boolean;
+  overwrite: boolean;
+}
+
+export interface PrepCleanConfig {
+  confidence: number;
+  mask_dilation_px: number;
+  in_place: boolean;
+  output_dir: string;
+  copy_undetected: boolean;
+}
+
+export interface PrepConfigDto {
+  path: string;
+  caption_format: "sidecar" | "json";
+  caption_ext: string;
+  tag?: PrepTagConfig;
+  caption?: PrepCaptionConfig;
+  clean?: PrepCleanConfig;
+}
+
+export interface PrepJobStartBody {
+  stage: PrepStage;
+  config: PrepConfigDto;
+  start_now: boolean;
+}
+
+export interface PrepJobListResult {
+  jobs: JobRecord[];
+  stats: { running: number; pending: number };
+}
+
+export interface PrepJobReportResult {
+  report: Record<string, unknown> | null;
+}
+
+export interface PrepModelInfo {
+  id: string;
+  repo_id: string;
+  downloaded: boolean;
+  available: boolean;
+  general_threshold?: number;
+  character_threshold?: number;
+  notes?: string;
+}
+
+export interface PrepModelsResult {
+  models: PrepModelInfo[];
+}
+
+export interface PrepModelDownloadResult {
+  ok: boolean;
+  path?: string;
 }

@@ -307,3 +307,88 @@ class TestOverrides:
         assert seen_specs[0].include_rating is False
         # The registry entry itself is untouched (frozen dataclass replaced, not mutated).
         assert KNOWN_TAGGERS["pixai-v0.9"].general_threshold == 0.30
+
+
+class TestPreprocessModes:
+    def _img(self, w=300, h=200):
+        from PIL import Image
+
+        return Image.new("RGB", (w, h), (255, 0, 0))
+
+    def test_wd_mode_is_nhwc_bgr_0_255(self):
+        from rengu_flow.prep.tagger import _preprocess_image
+
+        arr = _preprocess_image(self._img(), 448, "wd")
+        assert arr.shape == (1, 448, 448, 3)
+        assert arr.max() == 255.0
+        # Pure-red RGB image -> BGR channel order puts red last.
+        center = arr[0, 224, 224]
+        assert center[2] == 255.0 and center[0] == 0.0
+
+    def test_norm05_rgb_is_nchw_normalized(self):
+        from rengu_flow.prep.tagger import _preprocess_image
+
+        arr = _preprocess_image(self._img(), 448, "norm05_rgb")
+        assert arr.shape == (1, 3, 448, 448)
+        assert arr.min() >= -1.0 and arr.max() <= 1.0
+        # Red channel first (RGB), fully saturated -> +1.
+        assert arr[0, 0, 224, 224] == 1.0 and arr[0, 2, 224, 224] == -1.0
+
+    def test_norm05_bgr_pad_is_nchw_bgr_with_padding(self):
+        from rengu_flow.prep.tagger import _preprocess_image
+
+        arr = _preprocess_image(self._img(300, 100), 448, "norm05_bgr_pad")
+        assert arr.shape == (1, 3, 448, 448)
+        # BGR: blue channel first; red content lands in channel 2.
+        assert arr[0, 2, 224, 224] == 1.0
+        # Top rows are white padding -> all channels +1.
+        assert arr[0, 0, 2, 224] == 1.0 and arr[0, 2, 2, 224] == 1.0
+
+    def test_unknown_mode_raises(self):
+        from rengu_flow.prep.tagger import _preprocess_image
+
+        with pytest.raises(ValueError):
+            _preprocess_image(self._img(), 448, "bogus")
+
+    def test_registry_preprocess_modes(self):
+        from rengu_flow.prep.tagger import KNOWN_TAGGERS
+
+        assert KNOWN_TAGGERS["pixai-v0.9"].preprocess == "norm05_rgb"
+        assert KNOWN_TAGGERS["cl-tagger-1.02"].preprocess == "norm05_bgr_pad"
+        assert KNOWN_TAGGERS["wd-eva02-large-v3"].preprocess == "wd"
+
+
+class TestTagMappingJson:
+    def test_cl_tagger_layout_named_categories(self, tmp_path):
+        import json as _json
+
+        from rengu_flow.prep.tagger import load_tag_list
+
+        mapping = {
+            "0": {"tag": "general", "category": "Rating"},
+            "1": {"tag": "1girl", "category": "General"},
+            "2": {"tag": "hatsune_miku", "category": "Character"},
+            "3": {"tag": "vocaloid", "category": "Copyright"},
+            "4": {"tag": "masterpiece", "category": "Quality"},
+        }
+        p = tmp_path / "tag_mapping.json"
+        p.write_text(_json.dumps(mapping))
+        rows = load_tag_list(p)
+        assert rows == [
+            ("general", 9),
+            ("1girl", 0),
+            ("hatsune_miku", 4),
+            ("vocaloid", 3),
+            ("masterpiece", 0),
+        ]
+
+    def test_numeric_key_order_not_insertion_order(self, tmp_path):
+        import json as _json
+
+        from rengu_flow.prep.tagger import load_tag_list
+
+        mapping = {"10": {"tag": "later", "category": "General"},
+                   "2": {"tag": "early", "category": "General"}}
+        p = tmp_path / "tag_mapping.json"
+        p.write_text(_json.dumps(mapping))
+        assert [name for name, _ in load_tag_list(p)] == ["early", "later"]

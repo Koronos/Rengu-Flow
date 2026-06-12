@@ -62,6 +62,12 @@ import type {
   TagSessionSummary,
   TagStatsResult,
   VersionInfo,
+  PrepJobStartBody,
+  PrepJobListResult,
+  PrepJobReportResult,
+  PrepModelsResult,
+  PrepModelDownloadResult,
+  PrepStage,
 } from "./types/api";
 import { withDefaultPagination } from "./types/api";
 
@@ -533,5 +539,32 @@ export const api = {
     request<{ restored: string[] }>("/prep/tags/quarantine/restore", {
       method: "POST",
       body: JSON.stringify({ path, batch }),
+    }),
+
+  // --- Dataset prep: jobs ---
+
+  /** List prep jobs (kind=prep filter). Existing listJobs() remains unchanged (train-only server-side default). */
+  prepJobs: () => request<PrepJobListResult>("/jobs?kind=prep"),
+
+  /** Create a new prep job (tag | caption | clean). */
+  createPrepJob: (body: PrepJobStartBody) =>
+    request<JobRecord>("/prep/jobs", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  /** Fetch stage report for a finished/running prep job. */
+  prepJobReport: (id: string) =>
+    request<PrepJobReportResult>(`/prep/jobs/${encodeURIComponent(id)}/report`),
+
+  /** List available models for a prep stage. */
+  prepModels: (stage: PrepStage) =>
+    request<PrepModelsResult>(`/prep/models?stage=${encodeURIComponent(stage)}`),
+
+  /** Trigger download of a prep model. */
+  prepModelDownload: (stage: PrepStage, modelId: string) =>
+    request<PrepModelDownloadResult>("/prep/models/download", {
+      method: "POST",
+      body: JSON.stringify({ stage, model_id: modelId }),
     }),
 };

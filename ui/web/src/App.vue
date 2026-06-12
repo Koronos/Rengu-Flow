@@ -13,7 +13,7 @@
             <el-icon><Files /></el-icon>
             <span>Datasets</span>
           </el-menu-item>
-          <el-menu-item index="/prep/tags">
+          <el-menu-item index="/prep">
             <el-icon><MagicStick /></el-icon>
             <span>Prep</span>
           </el-menu-item>
@@ -86,7 +86,7 @@
             <el-icon><Files /></el-icon>
             <span>Datasets</span>
           </el-menu-item>
-          <el-menu-item index="/prep/tags">
+          <el-menu-item index="/prep">
             <el-icon><MagicStick /></el-icon>
             <span>Prep</span>
           </el-menu-item>
@@ -163,7 +163,7 @@ const activeMenu = computed(() => {
   if (name === "docs") return "/docs";
   if (name === "maintenance") return "/maintenance";
   if (name.startsWith("datasets-")) return "/datasets";
-  if (name.startsWith("prep-")) return "/prep/tags";
+  if (name.startsWith("prep-")) return "/prep";
   return "/runs";
 });
 
@@ -178,6 +178,8 @@ const pageTitle = computed(() => {
     "run-continue": "Continue training",
     "datasets-list": "Datasets",
     "run-detail": "Run detail",
+    "prep-jobs": "Dataset prep",
+    "prep-new": "New prep job",
     "prep-tags": "Dataset prep · Tag editor",
   };
   return names[routeName.value] || "Rengu Flow UI";
