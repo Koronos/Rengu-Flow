@@ -102,6 +102,7 @@ def _run_caption(config: PrepConfig, on_progress, should_stop) -> dict:
         model=stage.model,
         quantization=stage.quantization,
         prompt=stage.prompt or None,
+        prompt_preset=stage.prompt_preset,
         max_new_tokens=stage.max_new_tokens,
         temperature=stage.temperature,
         top_p=stage.top_p,

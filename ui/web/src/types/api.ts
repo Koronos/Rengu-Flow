@@ -758,6 +758,7 @@ export interface PrepCaptionConfig {
   model: string;
   quantization: "bf16" | "int8" | "nf4";
   prompt: string;
+  prompt_preset: string;
   max_new_tokens: number;
   temperature: number;
   top_p: number;
@@ -812,6 +813,18 @@ export interface PrepModelInfo {
 
 export interface PrepModelsResult {
   models: PrepModelInfo[];
+}
+
+export interface PrepPromptPreset {
+  id: string;
+  label: string;
+  prompt: string;
+  description: string;
+}
+
+export interface PrepPromptPresetsResult {
+  presets: PrepPromptPreset[];
+  default: string;
 }
 
 export interface PrepModelDownloadResult {

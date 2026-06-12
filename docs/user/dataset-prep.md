@@ -51,7 +51,19 @@ Two models, both selectable per job:
 
 The model loads once per job and generates in true batches; on OOM the batch halves
 and stays halved. Captions save incrementally after every batch, so a stop never
-loses completed work.
+loses completed work. Oversized originals are downscaled before the VLM
+(`max_image_side`, default 1536 — bucketing does the real resize later) and
+thumbnails can be skipped (`min_image_side`).
+
+**Prompt presets** (`prompt_preset`; a custom `prompt` overrides them):
+
+| Preset | Use |
+|--------|-----|
+| `training-balanced` (default) | Long t2i-training caption: subjects, apparent age/ethnicity when perceivable, clothing, pose, setting, lighting, composition; no meta phrases ("this image shows…"). |
+| `medium-neutral` | Same content detail but NEVER names the medium or style (no photo/anime/illustration/render/realistic/stylized…) — for training anime models on realistic data and vice versa, so style isn't anchored to the text. |
+| `character-focus` | Exhaustive physical description of the main character (age, ethnicity, skin tone, hair, eyes, body, marks, clothing) for character LoRAs. |
+| `style-focus` | Describes the artistic style in depth (here the medium IS described) for style LoRAs. |
+| `concise` | 2–4 sentences, for tight token budgets. |
 
 ### Watermark cleanup — `rengu prep clean`
 

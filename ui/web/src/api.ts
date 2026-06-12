@@ -66,6 +66,7 @@ import type {
   PrepJobListResult,
   PrepJobReportResult,
   PrepModelsResult,
+  PrepPromptPresetsResult,
   PrepModelDownloadResult,
   PrepStage,
 } from "./types/api";
@@ -568,6 +569,9 @@ export const api = {
     request<PrepModelsResult>(`/prep/models?stage=${encodeURIComponent(stage)}`),
 
   /** Trigger download of a prep model. */
+  prepCaptionPrompts: () =>
+    request<PrepPromptPresetsResult>("/prep/caption-prompts"),
+
   prepModelDownload: (stage: PrepStage, modelId: string) =>
     request<PrepModelDownloadResult>("/prep/models/download", {
       method: "POST",

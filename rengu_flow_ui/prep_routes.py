@@ -44,6 +44,11 @@ class QueryBody(BaseModel):
     scope: str = "tag_lines"
 
 
+class SizeQueryBody(BaseModel):
+    below: int | None = None  # short side < below
+    above: int | None = None  # long side > above
+
+
 class RestoreBackupBody(BaseModel):
     path: str
     backup: str
@@ -104,6 +109,12 @@ def register_prep_routes(app: FastAPI) -> None:
         with _prep_http_errors():
             return {"models": list_models(stage)}
 
+    @app.get(f"{API_PREFIX}/prep/caption-prompts")
+    def prep_caption_prompts():
+        from rengu_flow.prep.captioner import DEFAULT_PROMPT_PRESET, list_prompt_presets
+
+        return {"presets": list_prompt_presets(), "default": DEFAULT_PROMPT_PRESET}
+
     @app.post(f"{API_PREFIX}/prep/models/download")
     def prep_model_download(body: DownloadModelBody):
         from rengu_flow.prep.models import ensure_model
@@ -132,6 +143,20 @@ def register_prep_routes(app: FastAPI) -> None:
     def tag_session_query(session_id: str, body: QueryBody):
         with _prep_http_errors():
             result = tag_sessions.query(session_id, body.filter, scope=body.scope)
+            folder = Path(tag_sessions.get(session_id).captions.folder).resolve()
+            result["previews"] = {
+                key: issue_image_token(0, key, folder) for key in result["keys"]
+            }
+            return result
+
+    @app.post(f"{API_PREFIX}/prep/tags/sessions/{{session_id}}/size-query")
+    def tag_session_size_query(session_id: str, body: SizeQueryBody):
+        with _prep_http_errors():
+            if body.below is None and body.above is None:
+                raise ValueError("Provide 'below' and/or 'above'")
+            result = tag_sessions.size_query(
+                session_id, below=body.below, above=body.above
+            )
             folder = Path(tag_sessions.get(session_id).captions.folder).resolve()
             result["previews"] = {
                 key: issue_image_token(0, key, folder) for key in result["keys"]

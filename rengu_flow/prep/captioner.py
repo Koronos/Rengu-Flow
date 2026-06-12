@@ -50,6 +50,112 @@ def list_caption_models() -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Prompt presets
+# ---------------------------------------------------------------------------
+
+# Curated for diffusion-training captions. Phrasing leans on JoyCaption's trained
+# instruction set (no-meta-phrases, include-ages options from its model card);
+# ToriiGate is instruction-tuned and follows the same text. The training-critical
+# detail: a caption that names the medium ("anime", "a photo of") anchors the style
+# to the text instead of letting the model learn it — `medium-neutral` exists so
+# anime models can train on realistic data and vice versa.
+
+_NO_META = (
+    "Your response will be used to train a text-to-image model, so avoid useless "
+    "meta phrases like 'This image shows', 'You are looking at', or 'In this "
+    "picture'; start directly with the content."
+)
+
+_PEOPLE_DETAIL = (
+    "When people or characters are depicted, include their apparent age (or age "
+    "range), apparent ethnicity or regional origin, and skin tone whenever these "
+    "are perceivable — best-effort estimates are fine for stylized characters."
+)
+
+PROMPT_PRESETS: dict[str, dict] = {
+    "training-balanced": {
+        "label": "Training — balanced (default)",
+        "prompt": (
+            "Write a long, detailed caption for this image as one paragraph. "
+            "Describe the subjects and their appearance, clothing and accessories, "
+            "expressions, poses and actions, then the setting and background "
+            "elements, lighting, color palette, and composition. "
+            f"{_PEOPLE_DETAIL} Use precise, objective language and describe only "
+            f"what is actually visible. {_NO_META}"
+        ),
+        "description": "Caption largo y completo para entrenamiento t2i.",
+    },
+    "medium-neutral": {
+        "label": "Training — medium-neutral (cross-style)",
+        "prompt": (
+            "Write a long, detailed caption for this image as one paragraph, "
+            "describing only the content: the subjects and their appearance, "
+            "clothing, expressions, poses and actions, the setting, lighting, "
+            "colors, and composition. "
+            f"{_PEOPLE_DETAIL} "
+            "STRICT RULE: never mention or hint at the medium, style, or rendering "
+            "of the image. Do not use words like photo, photograph, photorealistic, "
+            "realistic, anime, manga, cartoon, drawing, illustration, painting, "
+            "artwork, render, 3D, CGI, screenshot, stylized, or animated, and do "
+            "not compare the image to any medium. Describe the scene exactly as if "
+            "the question of how it was made did not exist. "
+            f"{_NO_META}"
+        ),
+        "description": (
+            "Sin mencionar el medio (foto/anime/render): para entrenar modelos de "
+            "anime con datos realistas y viceversa."
+        ),
+    },
+    "character-focus": {
+        "label": "Character LoRA — physical detail",
+        "prompt": (
+            "Write a detailed caption for this image centered on the main person "
+            "or character. Thoroughly describe their apparent age, apparent "
+            "ethnicity or regional origin, skin tone, face and notable facial "
+            "features, hair color, length and style, eye color and shape, body "
+            "type and build, and any distinguishing marks or accessories. Then "
+            "describe their clothing in detail, their expression, pose, and "
+            "action. Finish with one or two sentences about the setting, lighting, "
+            "and composition. Use precise, objective language. "
+            f"{_NO_META}"
+        ),
+        "description": "Prioriza la descripción física del personaje (LoRA de personaje).",
+    },
+    "style-focus": {
+        "label": "Style LoRA — artistic style detail",
+        "prompt": (
+            "Describe the artistic style of this image in detail: the medium and "
+            "technique, line work, brushwork or rendering, shading and lighting "
+            "treatment, color palette, level of detail, composition, and overall "
+            "aesthetic. Then summarize the subject matter in one or two sentences. "
+            f"{_NO_META}"
+        ),
+        "description": "Prioriza el estilo artístico sobre el contenido (LoRA de estilo).",
+    },
+    "concise": {
+        "label": "Concise (2-4 sentences)",
+        "prompt": (
+            "Write a caption of two to four sentences covering only the most "
+            "important elements of this image: the main subject and their "
+            "appearance, the action or pose, the setting, and the overall "
+            "lighting and mood. "
+            f"{_PEOPLE_DETAIL} {_NO_META}"
+        ),
+        "description": "Caption corto para budgets de tokens reducidos.",
+    },
+}
+
+DEFAULT_PROMPT_PRESET = "training-balanced"
+
+
+def list_prompt_presets() -> list[dict]:
+    return [
+        {"id": preset_id, **{k: v for k, v in preset.items()}}
+        for preset_id, preset in PROMPT_PRESETS.items()
+    ]
+
+
+# ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
 
@@ -58,7 +164,8 @@ def list_caption_models() -> list[str]:
 class CaptionerConfig:
     model: str = "joycaption-beta-one"
     quantization: str = "bf16"           # "bf16" | "int8" | "nf4"
-    prompt: Optional[str] = None         # None -> per-model default
+    prompt: Optional[str] = None         # custom prompt; overrides prompt_preset
+    prompt_preset: str = DEFAULT_PROMPT_PRESET
     max_new_tokens: int = 512
     temperature: float = 0.6
     top_p: float = 0.9
@@ -81,12 +188,16 @@ class CaptionerConfig:
 def build_prompt(config: CaptionerConfig, tags: Optional[list[str]] = None) -> str:
     """Return the user-facing prompt string for one image.
 
-    For JoyCaption the tags are ignored (model doesn't use grounding).
-    For ToriiGate, if use_tags_as_grounding is True and tags is non-empty,
-    the tags are appended as a <tags>…</tags> block.
+    Resolution order: explicit custom ``prompt`` > ``prompt_preset`` > the model's
+    bare default. For ToriiGate, if use_tags_as_grounding is True and tags is
+    non-empty, the tags are appended as a <tags>…</tags> block (JoyCaption ignores
+    grounding).
     """
-    base_prompt = config.prompt or _BACKENDS.get(config.model, {}).get(
-        "default_prompt", "Describe this image."
+    preset = PROMPT_PRESETS.get(config.prompt_preset or "")
+    base_prompt = (
+        config.prompt
+        or (preset["prompt"] if preset else None)
+        or _BACKENDS.get(config.model, {}).get("default_prompt", "Describe this image.")
     )
 
     if config.model == "toriigate-0.5" and config.use_tags_as_grounding and tags:

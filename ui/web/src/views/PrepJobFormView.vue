@@ -153,12 +153,26 @@
               </el-radio-group>
             </el-form-item>
 
-            <el-form-item label="Prompt">
+            <el-form-item label="Prompt preset">
+              <el-select v-model="captionForm.prompt_preset" class="w-full">
+                <el-option
+                  v-for="preset in promptPresets"
+                  :key="preset.id"
+                  :label="preset.label"
+                  :value="preset.id"
+                />
+              </el-select>
+              <el-text v-if="activePreset" size="small" type="info" class="preset-desc">
+                {{ activePreset.description }}
+              </el-text>
+            </el-form-item>
+
+            <el-form-item label="Custom prompt (overrides the preset)">
               <el-input
                 v-model="captionForm.prompt"
                 type="textarea"
                 :rows="3"
-                placeholder="model default"
+                :placeholder="activePreset ? activePreset.prompt : 'model default'"
                 class="w-full"
               />
             </el-form-item>
@@ -272,7 +286,7 @@ import { ArrowLeft } from "@element-plus/icons-vue";
 import { api } from "../api";
 import PathFieldControl from "../components/PathFieldControl.vue";
 import { formatError } from "../lib/formatError";
-import type { PrepModelInfo, PrepStage } from "../types/api";
+import type { PrepModelInfo, PrepPromptPreset, PrepStage } from "../types/api";
 
 const route = useRoute();
 const router = useRouter();
@@ -305,6 +319,7 @@ const captionForm = reactive({
   model: "",
   quantization: "bf16" as "bf16" | "int8" | "nf4",
   prompt: "",
+  prompt_preset: "training-balanced",
   max_new_tokens: 512,
   temperature: 0.6,
   top_p: 0.9,
@@ -328,6 +343,10 @@ const cleanForm = reactive({
 const tagModels = ref<PrepModelInfo[]>([]);
 const captionModels = ref<PrepModelInfo[]>([]);
 const modelsLoading = ref(false);
+const promptPresets = ref<PrepPromptPreset[]>([]);
+const activePreset = computed(() =>
+  promptPresets.value.find((p) => p.id === captionForm.prompt_preset)
+);
 
 async function loadModels(): Promise<void> {
   modelsLoading.value = true;
@@ -335,13 +354,19 @@ async function loadModels(): Promise<void> {
     if (stage.value === "tag") {
       const res = await api.prepModels("tag");
       tagModels.value = res.models || [];
-      // pre-select downloaded models
+      // pre-select downloaded models; fall back to the registry's default ensemble
       tagForm.models = tagModels.value.filter((m) => m.downloaded).map((m) => m.id);
+      if (!tagForm.models.length) {
+        tagForm.models = tagModels.value.slice(0, 2).map((m) => m.id);
+      }
     } else if (stage.value === "caption") {
       const res = await api.prepModels("caption");
       captionModels.value = res.models || [];
       const first = captionModels.value[0];
       if (first) captionForm.model = first.id;
+      const prompts = await api.prepCaptionPrompts();
+      promptPresets.value = prompts.presets || [];
+      if (prompts.default) captionForm.prompt_preset = prompts.default;
     }
   } catch {
     // models endpoint may not be implemented yet — silently degrade
@@ -382,6 +407,7 @@ function buildConfig() {
         model: captionForm.model,
         quantization: captionForm.quantization,
         prompt: captionForm.prompt,
+        prompt_preset: captionForm.prompt_preset,
         max_new_tokens: captionForm.max_new_tokens,
         temperature: captionForm.temperature,
         top_p: captionForm.top_p,
@@ -439,6 +465,7 @@ async function submit(startNow: boolean): Promise<void> {
             model: captionForm.model,
             quantization: captionForm.quantization,
             prompt: captionForm.prompt,
+            prompt_preset: captionForm.prompt_preset,
             max_new_tokens: captionForm.max_new_tokens,
             temperature: captionForm.temperature,
             top_p: captionForm.top_p,
@@ -528,5 +555,9 @@ onMounted(() => {
   .form-row-2 {
     grid-template-columns: 1fr;
   }
+}
+.preset-desc {
+  margin-top: 4px;
+  display: block;
 }
 </style>

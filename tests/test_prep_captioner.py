@@ -92,7 +92,8 @@ class TestBuildPrompt:
         prompt = build_prompt(cfg, tags)
         assert "<tags>" not in prompt
         assert "1girl" not in prompt
-        assert "formal tone" in prompt  # default prompt text
+        # Default preset (training-balanced) applies when no custom prompt is set.
+        assert "detailed caption" in prompt
 
     def test_joycaption_custom_prompt(self):
         cfg = CaptionerConfig(model="joycaption-beta-one", prompt="My custom prompt.")
@@ -454,3 +455,42 @@ class TestImageSizeNormalization:
         assert report["skipped_small"] == ["tiny.jpg"]
         # The tiny image's caption file is untouched (still only the tag line).
         assert (d / "tiny.txt").read_text() == "tag line\n"
+
+
+class TestPromptPresets:
+    def test_preset_resolution_order(self):
+        from rengu_flow.prep.captioner import CaptionerConfig, build_prompt
+
+        # Preset used when no custom prompt.
+        config = CaptionerConfig(prompt_preset="medium-neutral")
+        text = build_prompt(config)
+        assert "never mention or hint at the medium" in text.lower()
+        # Custom prompt wins over preset.
+        config = CaptionerConfig(prompt="My custom.", prompt_preset="medium-neutral")
+        assert build_prompt(config) == "My custom."
+        # Unknown preset falls back to the model default (no silent crash).
+        config = CaptionerConfig(prompt_preset="nope")
+        assert build_prompt(config)
+
+    def test_presets_registry_quality_gates(self):
+        from rengu_flow.prep.captioner import PROMPT_PRESETS, list_prompt_presets
+
+        presets = list_prompt_presets()
+        assert {p["id"] for p in presets} == set(PROMPT_PRESETS)
+        for p in presets:
+            assert p["label"] and p["prompt"] and p["description"]
+        # The cross-style preset forbids every medium word that anchors style.
+        neutral = PROMPT_PRESETS["medium-neutral"]["prompt"].lower()
+        for word in ("photo", "anime", "illustration", "render", "realistic"):
+            assert word in neutral  # listed as forbidden words in the instruction
+        # Training presets ask for age/ethnicity detail.
+        for pid in ("training-balanced", "medium-neutral", "character-focus"):
+            text = PROMPT_PRESETS[pid]["prompt"].lower()
+            assert "age" in text and "ethnicity" in text
+
+    def test_grounding_appends_after_preset(self):
+        from rengu_flow.prep.captioner import CaptionerConfig, build_prompt
+
+        config = CaptionerConfig(model="toriigate-0.5", prompt_preset="training-balanced")
+        text = build_prompt(config, tags=["1girl", "long hair"])
+        assert "<tags>1girl, long hair</tags>" in text

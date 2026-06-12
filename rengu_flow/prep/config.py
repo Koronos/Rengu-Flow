@@ -32,7 +32,8 @@ class TagStageConfig:
 class CaptionStageConfig:
     model: str = "joycaption-beta-one"
     quantization: str = "bf16"
-    prompt: str = ""
+    prompt: str = ""  # custom prompt; overrides prompt_preset
+    prompt_preset: str = "training-balanced"
     max_new_tokens: int = 512
     temperature: float = 0.6
     top_p: float = 0.9
