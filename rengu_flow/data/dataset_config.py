@@ -62,6 +62,9 @@ def validate_dataset_config_for_real_data(dataset_config: dict) -> None:
             raise DatasetConfigError(str(e)) from e
 
     _validate_positive_int(dataset_config, "max_images", "max_images")
+    _validate_positive_int(
+        dataset_config, "cached_caption_variants", "cached_caption_variants"
+    )
     _validate_sampler_exclusivity(dataset_config, "dataset_config")
     _validate_unit_fraction(dataset_config, "tag_dropout_probability")
     _validate_unit_fraction(dataset_config, "uncond_fraction")

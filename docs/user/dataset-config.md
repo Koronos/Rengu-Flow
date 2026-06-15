@@ -148,28 +148,43 @@ Inspect resolved captions with [`--dump_dataset`](#inspecting-a-dataset---dump_d
 
 Live `tag_dropout_enabled = true` requires `cache_text_embeddings = false`, which keeps the
 text encoder on the GPU for the whole run (~22 ms/step plus ~1.2 GB VRAM that lowers the
-usable `activation_memory_budget`). The cached equivalent — same dropout distribution,
-text encoder fully off the GPU — is to **pre-bake K dropout samples as `.txt` lines**:
+usable `activation_memory_budget`). To get the **same dropout distribution with the text
+encoder fully off the GPU**, keep `cache_text_embeddings = true` and let the caching step
+bake K dropout/shuffle variants per caption into the embedding cache:
 
-```bash
-python scripts/generate_caption_variants.py /path/to/your/images --variants 15 --seed 42 \
-    --probability 0.3 --in-place     # originals backed up once to .txt.orig
+```toml
+cache_text_embeddings = true       # model config (it already defaults on for Cosmos/SDXL)
+
+# dataset TOML root (or per [[directory]]):
+tag_dropout_enabled = true          # defines the dropout distribution...
+tag_dropout_probability = 0.3
+cached_caption_variants = 15        # ...baked this many times per caption at cache time
+cached_caption_shuffle = false      # optional: also shuffle tag order per variant
 ```
 
-Then in the dataset TOML set `tag_dropout_enabled = false` (the dropout is baked into the
-lines; the live option is rejected with cached embeddings), keep
-`cache_text_embeddings = true` in the model config, and re-cache (latents are reused — only
-metadata and text embeddings rebuild, a couple of minutes).
+When the text-embedding cache is built, each caption is expanded into `cached_caption_variants`
+seeded dropout/shuffle samples; every sample gets its own cached embedding and the trainer
+rotates them, so an epoch is still one pass over the images (variants do **not** lengthen it).
+`cached_caption_variants` equal to your `epochs` is statistically sufficient (each variant is
+used about once across the run). The generation is deterministic and idempotent: the cache is
+keyed by caption content, so re-running reuses it until you change K, the probability/rules,
+the shuffle flag, or the captions — then **only** the text-embedding cache rebuilds (latents
+are untouched, a couple of minutes).
 
-Each variant gets its own cached embedding and the trainer rotates them: every epoch is
-still one pass over the images, serving the next per-image variant. `--variants` equal to
-your `epochs` is statistically sufficient (each variant is used exactly once across the
-run); regenerating with a new seed/K is idempotent thanks to the `.txt.orig` backups.
-A `.txt` that already holds several captions (alternative descriptions) keeps all of them:
-the generator writes K dropout samples of **each** line (total `lines × K`); note the epoch
-division only applies while every image ends up with the same line count.
-`uncond_fraction` composes with this (the cached unconditional embedding is swapped in per
-draw). Internals: `docs/developer/dataset-and-cache.md`, "Caption variants".
+Notes:
+- `cached_caption_variants` is dataset-level and must be uniform across folders (mixed counts
+  fall back to 1); the per-folder `tag_dropout` rules still apply when baking each folder.
+- `cached_caption_variants = 1` with dropout/shuffle bakes **one fixed augmented variant** for
+  the whole dataset (this is how diffusion-pipe behaved by default — augmentation applied once at
+  cache time). Use `>= 2` to get variants that rotate across epochs.
+- A `.txt` with several lines (alternative descriptions) keeps all of them: each line is
+  expanded K times (total `lines × K`).
+- `uncond_fraction` composes with this (the cached unconditional embedding is swapped in per
+  draw). Internals: `docs/developer/dataset-and-cache.md`, "Caption variants".
+
+> The offline `scripts/generate_caption_variants.py` (pre-baking variants as extra `.txt`
+> lines) still works and is equivalent, but the `cached_caption_variants` config above is the
+> recommended path — no manual script run, no `.txt` rewrites.
 
 Example:
 
@@ -203,10 +218,12 @@ These apply to all directories unless overridden per-directory.
 | **`subsample_ratio`** | Fraction of the combined training schedule (e.g. `0.25` for quick debug runs). | Float in (0, 1]. | `1` (full dataset). |
 | **`max_images`** | Default absolute image cap per folder per epoch (per size bucket); rotates each epoch while `subsample_shuffle` is on. Per-folder keys override it. Mutually exclusive with a per-folder `subsample_ratio`. See [per-epoch limiting](#per-epoch-image-limiting-subsample_ratio-vs-max_images). | Integer &gt; 0. | Not set (no cap). |
 | **`subsample_shuffle`** | Default for whether the active limiter (subsample ratio or max images) rotates per epoch (`true`) or keeps a fixed subset (`false`). Renamed from the retired `static_sampling` (inverted polarity). | `true` / `false` | `true` (rotate). |
-| **`tag_dropout_enabled`** | Enable random tag dropout at training time. Requires `cache_text_embeddings = false` in the model config (captions must be encoded at training time, keeping the text encoder on the GPU). For the cached, faster equivalent see [caption variants](#caption-variants-cached-tag-dropout). | `true` / `false` | `false` |
+| **`tag_dropout_enabled`** | Enable random tag dropout. Defines the drop distribution; how it is applied depends on the cache: live per sample when `cache_text_embeddings = false`, or pre-baked into the cache when `cache_text_embeddings = true` with `cached_caption_variants >= 2`. See [caption variants](#caption-variants-cached-tag-dropout). | `true` / `false` | `false` |
 | **`tag_dropout_probability`** | Default drop probability for tags not in a rule. | Float in [0, 1]. | — |
 | **`tag_dropout_mode`** | `per_tag` or `full`. | String | `per_tag` |
 | **`tag_dropout_rules`** | List of `{ tags, drop_probability }` and/or `tags_file`. | Tables / JSON in UI | — |
+| **`cached_caption_variants`** | With `cache_text_embeddings = true`, bake this many tag-dropout/shuffle variants per caption into the embedding cache. `1` = identity if no dropout/shuffle, or one fixed baked variant with them (diffusion-pipe-style); `>= 2` rotates variants across epochs without lengthening them. Dataset-level and must be uniform across folders. See [caption variants](#caption-variants-cached-tag-dropout). | Integer ≥ 1. | `1` |
+| **`cached_caption_shuffle`** | Also shuffle tag order in each baked cached-caption variant. | `true` / `false` | `false` |
 | **`uncond_fraction`** | Fraction of samples with empty caption (CFG). | Float in [0, 1]. | `0` |
 | **`tag_match_case_sensitive`** | Case-sensitive tag matching in rules. | `true` / `false` | `false` |
 

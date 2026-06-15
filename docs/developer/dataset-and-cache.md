@@ -38,9 +38,11 @@ Caption lists are flattened for text-embedding cache (one embedding per (image, 
 
 ## Caption variants — how multi-caption works inside
 
-Multi-line `.txt` files are the cached-augmentation mechanism (e.g. pre-baked tag-dropout
-variants generated offline so `cache_text_embeddings = true` keeps working). What actually
-happens, end to end:
+Multiple captions per image are the cached-augmentation mechanism (tag-dropout variants that
+let `cache_text_embeddings = true` keep working). They come from two equivalent sources: extra
+`.txt` lines (offline `scripts/generate_caption_variants.py`), or — the recommended path —
+in-pipeline baking via the dataset-level `cached_caption_variants` (see point 5). Either way the
+caption column ends up with K entries per image; everything below is identical. End to end:
 
 1. **Parsing** — `_read_captions_from_txt_per_line` stores each image's captions as a list;
    every variant gets its own cached text embedding keyed by `(image_spec, caption_number)`
@@ -70,13 +72,23 @@ happens, end to end:
    reused), and free the TE from the GPU entirely. `uncond_fraction` composes with this
    (the cached unconditional embedding is swapped in per draw).
 
-Generator used for tag-dropout variants: sample `apply_tag_dropout` K times per caption with
-a fixed seed and write K lines per `.txt` (see `tag_dropout.py` for the distribution).
+5. **Where the K variants come from** — `dataset.expand_caption_variants` samples
+   `apply_tag_dropout` (+ optional tag shuffle) K times per base caption with a per-`(image,
+   base, variant)` md5 seed. When `cache_text_embeddings` is on and any of `cached_caption_variants
+   > 1`, `cached_caption_shuffle`, or `tag_dropout.enabled` holds, `SizeBucketDataset.__init__` runs it as an in-memory map over
+   the loaded metadata's caption column — **before** both the TE-cache flatten and the
+   iteration-order build, so both read the same expanded column. It is deterministic, so the
+   text-embedding cache (keyed by a content hash of the caption column) is reused until K / the
+   probability / rules / shuffle / captions change. The iteration-order cache, which only trusts
+   an existence check, gets its own caption-content fingerprint sidecar
+   (`iteration_order.caption_fp`) so it rebuilds on the same triggers. Latents never depend on
+   captions, so they are untouched. The offline generator (`generate_caption_variants.py`) does
+   the same sampling but writes K `.txt` lines instead.
 
 ## Cache
 
 - **`cache_root`** (training TOML) — All v2 caches live under `cache_root/<dataset_hash>/<directory_hash>/<model_name>/`. Default: `cache/` at install root (gitignored). Legacy v1 / co-located `path/cache/` is not supported. If `cache_root` remains in a dataset TOML, it is deprecated: a warning is logged and the value is used only when the training config omits `cache_root`.
-- **`tag_dropout_*`** / **`uncond_fraction`** — See `rengu_flow/data/tag_dropout.py`; both applied per sample in `SizeBucketDataset._sample_from_entry`. `uncond_fraction` works in every mode (cached runs swap in the cached uncond embedding). Tag dropout rewrites the caption string, so it requires `cache_text_embeddings = false` (captions encoded at training time); `Dataset.__init__` rejects it otherwise.
+- **`tag_dropout_*`** / **`uncond_fraction`** — See `rengu_flow/data/tag_dropout.py`. `uncond_fraction` works in every mode (cached runs swap in the cached uncond embedding). Tag dropout rewrites the caption string: with `cache_text_embeddings = false` it is applied **live** per sample in `SizeBucketDataset._sample_from_entry`; with the cache on it is **pre-baked** into the embedding cache (`cached_caption_variants = 1` bakes a single fixed variant — diffusion-pipe's default — and `>= 2` bakes rotating variants; see "Caption variants"). Either way the dropout reaches the model, so cache-on + dropout is not rejected.
 - **`rengu_flow.utils.cache_v2.CacheV2`** — Only supported format: `manifest.json` (fingerprint, tensor specs), `tensors/{key}.bin` (stacked payloads; float tensors stored as **bf16**), `meta.db` (per-index JSON for non-tensor fields and optional null tensors). Opened via **`rengu_flow.utils.cache_factory.open_disk_cache`**, which rejects legacy v1 caches (a `metadata.db` directory) with an actionable error.
 - **`rengu_flow.data.cache_utils._map_and_cache`** — Maps over a HuggingFace `datasets.Dataset` with a `map_fn(example, rank)`, persists results via `open_disk_cache`. Fingerprint from dataset `_fingerprint` + optional `new_fingerprint_args` + `cache_format=…`. If `map_fn is None`, loads existing cache only (used after worker cache run). Config: `cache_num_proc` (pool size, default `min(8, cpu_count)`), `cache_keep_in_memory` (default `false` for resume slices).
 - **`PipelineDataLoader` prefetch** — `dataloader_prefetch=true` uses a background thread when `dataloader_num_workers=0`; `prepare_inputs` stays on the main process. See `dataloader_num_workers`, `dataloader_pin_memory`, `dataloader_prefetch_factor` in the main TOML.

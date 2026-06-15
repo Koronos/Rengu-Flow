@@ -32,8 +32,8 @@ export const CONFIG_FORM_TAB_GROUPS: ConfigFormTabGroup[] = [
   {
     id: "training",
     label: "Training",
-    description: "Optimizer, learning-rate schedule, loop, and checkpoints.",
-    sectionIds: ["optimizer", "scheduler", "training", "checkpoint"],
+    description: "Optimizer, learning-rate schedule, text-embedding cache, loop, and checkpoints.",
+    sectionIds: ["optimizer", "scheduler", "te_cache", "training", "checkpoint"],
   },
   {
     id: "previews",

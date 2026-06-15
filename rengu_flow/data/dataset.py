@@ -40,6 +40,8 @@ from rengu_flow.data.tag_dropout import (
     TagDropoutConfig,
     apply_tag_dropout,
     build_tag_dropout_config,
+    join_tags,
+    split_tags,
 )
 from rengu_flow.utils.common import is_main_process, round_to_nearest_multiple
 from rengu_flow.utils.paths import path_is_under
@@ -239,6 +241,52 @@ def uniform_caption_variants(caption_lists) -> int:
     return counts.pop() if len(counts) == 1 else 1
 
 
+def expand_caption_variants(
+    captions: list[str],
+    num_variants: int,
+    tag_dropout: TagDropoutConfig,
+    shuffle: bool,
+    *,
+    seed_key: str,
+    delimiter: str = ", ",
+) -> list[str]:
+    """Bake ``num_variants`` tag-dropout/shuffle variants per base caption.
+
+    Used at the text-embedding caching step so cached embeddings carry dropout/shuffle
+    regularization (one per cached variant), rotated across epochs by the existing
+    ``caption_number`` machinery. Deterministic and order-independent: each variant is
+    seeded by (seed_key, base index, variant index, base caption), so the same config
+    always yields the same strings — which keeps the text-embedding cache fingerprint
+    (a content hash of the caption column) stable until a knob actually changes.
+
+    Returns a flat list of ``len(captions) * num_variants``. With ``num_variants == 1``,
+    dropout disabled and shuffle off this is the identity, so default configs are
+    untouched.
+    """
+    num_variants = max(1, int(num_variants))
+    if num_variants == 1 and not tag_dropout.enabled and not shuffle:
+        return list(captions)
+    out: list[str] = []
+    for base_idx, caption in enumerate(captions):
+        for variant_idx in range(num_variants):
+            seed = int(
+                hashlib.md5(
+                    f"{seed_key}\x00{base_idx}\x00{variant_idx}\x00{caption}".encode(
+                        "utf-8"
+                    )
+                ).hexdigest(),
+                16,
+            )
+            rng = random.Random(seed)
+            variant = apply_tag_dropout(caption, tag_dropout, rng, delimiter=delimiter)
+            if shuffle:
+                parts = split_tags(variant, delimiter)
+                rng.shuffle(parts)
+                variant = join_tags(parts, delimiter)
+            out.append(variant)
+    return out
+
+
 class SizeBucketDataset:
     """Single size bucket from one directory: latents + text embeddings cache, iteration order."""
 
@@ -255,6 +303,7 @@ class SizeBucketDataset:
         metadata_dataset = metadata_dataset.shuffle(seed=seed_from_hash(size_bucket))
         self.metadata_dataset = metadata_dataset
         self._caption_variants = None
+        self._caption_variants_expanded = False
         self.directory_config = directory_config
         self.size_bucket = size_bucket
         # Long-side resolution this bucket was generated for; used by the resolution
@@ -277,6 +326,56 @@ class SizeBucketDataset:
         self.tag_dropout = (
             getattr(directory_dataset, "tag_dropout", None) or TagDropoutConfig()
         )
+
+        # Cached caption variants: when text embeddings are cached, bake K seeded
+        # tag-dropout/shuffle variants per caption into the caption column. Both the
+        # text-embedding cache (keyed by caption content) and the iteration order (which
+        # rotates caption_number across epochs) read this same column, so the existing
+        # multi-caption machinery handles the rest. Only meaningful for the cached path —
+        # the live path applies tag dropout per sample in _sample_from_entry instead.
+        # K = 1 with dropout/shuffle bakes a single fixed augmented variant for the whole
+        # dataset (diffusion-pipe's default behaviour); K >= 2 gives variants that rotate.
+        ds_cfg = getattr(directory_dataset, "dataset_config", None) or {}
+        cache_text_embeddings = bool(
+            getattr(directory_dataset, "cache_text_embeddings", False)
+        )
+        cached_variants = int(ds_cfg.get("cached_caption_variants", 1) or 1)
+        cached_shuffle = bool(ds_cfg.get("cached_caption_shuffle", False))
+        if cache_text_embeddings and (
+            cached_variants > 1 or cached_shuffle or self.tag_dropout.enabled
+        ):
+            tag_dropout = self.tag_dropout
+            if (
+                cached_variants > 1
+                and not tag_dropout.enabled
+                and not cached_shuffle
+                and is_main_process()
+            ):
+                print(
+                    "[data] cached_caption_variants > 1 with no tag dropout and no "
+                    "shuffle bakes identical copies (no regularization); set "
+                    "tag_dropout_enabled or cached_caption_shuffle, or leave variants at 1.",
+                    flush=True,
+                )
+
+            def _expand(example):
+                return {
+                    "caption": expand_caption_variants(
+                        list(example["caption"]),
+                        cached_variants,
+                        tag_dropout,
+                        cached_shuffle,
+                        seed_key=str(example["image_spec"][-1]),
+                    )
+                }
+
+            self.metadata_dataset = self.metadata_dataset.map(
+                _expand,
+                keep_in_memory=True,
+                load_from_cache_file=False,
+                desc="Expanding caption variants",
+            )
+            self._caption_variants_expanded = True
 
         if len(size_bucket) == 4:
             old_cache_dir = cache_base / f"cache_{bucket_suffix(size_bucket[1:])}"
@@ -371,10 +470,27 @@ class SizeBucketDataset:
         )
         assert len(self.latent_dataset) == len(self.metadata_dataset)
 
+        # The iteration order embeds the caption strings and their caption_number slots, so
+        # it must rebuild whenever the captions change — including when cached caption
+        # variants are (re)baked. trust_cache only guards the existence check, so key the
+        # rebuild on a content hash of the caption column stored in a sidecar file.
+        caption_fp = content_fingerprint(
+            self.metadata_dataset,
+            [
+                c
+                for c in ("caption", "image_spec")
+                if c in self.metadata_dataset.column_names
+            ],
+        )
+        caption_fp_file = self.cache_dir / "iteration_order.caption_fp"
+        caption_fp_stale = (
+            not caption_fp_file.exists() or caption_fp_file.read_text() != caption_fp
+        )
         if (
             regenerate_cache
             or not iteration_order_cache_dir.exists()
             or not trust_cache
+            or caption_fp_stale
         ):
             print("Building iteration order")
             image_spec_to_latents_idx = {
@@ -431,6 +547,7 @@ class SizeBucketDataset:
             # The full pool is cached; subsample_ratio/max_images are applied per epoch at access
             # time (see _effective_len / rotation_window_index) so the window can rotate.
             iteration_order.save_to_disk(str(iteration_order_cache_dir))
+            caption_fp_file.write_text(caption_fp)
 
         self.iteration_order = datasets.load_from_disk(
             str(iteration_order_cache_dir)
@@ -470,7 +587,7 @@ class SizeBucketDataset:
         )
         if use_uncond:
             caption = ""
-        elif self.captions_dict:
+        elif self.captions_dict and not self._caption_variants_expanded:
             spec = entry["image_spec"]
             key = spec[-1]
             if key in self.captions_dict:
@@ -482,8 +599,16 @@ class SizeBucketDataset:
                 )
                 caption = ""
         else:
+            # entry["caption"] is the baked variant when cached caption variants are active,
+            # so caption_number resolves to it directly (captions_dict holds only base lines).
             caption = entry["caption"]
-        if not use_uncond and self.tag_dropout.enabled:
+        # When variants are pre-baked, dropout is already in the cached embedding/caption;
+        # re-applying it live would diverge the returned string from the cached embedding.
+        if (
+            not use_uncond
+            and self.tag_dropout.enabled
+            and not self._caption_variants_expanded
+        ):
             caption = apply_tag_dropout(caption, self.tag_dropout, random)
         for ds, uncond_ds in zip(
             self.text_embedding_datasets, self.uncond_text_embeddings
@@ -773,10 +898,14 @@ class DirectoryDataset:
         framerate: float | None = None,
         round_to_multiple: int = 32,
         skip_dataset_validation: bool = False,
+        cache_text_embeddings: bool = False,
     ) -> None:
         self._set_defaults(directory_config, dataset_config)
         self.directory_config = directory_config
         self.dataset_config = dataset_config
+        # Whether the model caches text embeddings (drives cached caption-variant baking
+        # in SizeBucketDataset; the live path applies tag dropout per sample instead).
+        self.cache_text_embeddings = cache_text_embeddings
         if skip_dataset_validation:
             from rengu_flow.data.augmentation import resolve_augmentation_config
 
@@ -1547,6 +1676,10 @@ class Dataset:
                 model.model_specific_dataset_config_validation(
                     dataset_config
                 )
+        try:
+            cache_text_embeddings = bool(model.get_text_encoders())
+        except Exception:
+            cache_text_embeddings = False
         self.directory_datasets = []
         for directory_config in dataset_config["directory"]:
             dir_dataset = DirectoryDataset(
@@ -1558,22 +1691,14 @@ class Dataset:
                     model, "pixels_round_to_multiple", 32
                 ),
                 skip_dataset_validation=skip_dataset_validation,
+                cache_text_embeddings=cache_text_embeddings,
             )
             self.directory_datasets.append(dir_dataset)
-        # Tag dropout rewrites the caption string per sample, which only reaches the
-        # model when captions are encoded at training time. With cached text
-        # embeddings the lookup is keyed by (image_spec, caption_number), so the
-        # rewritten caption would be silently ignored — refuse instead.
-        if (
-            not skip_dataset_validation
-            and any(d.tag_dropout.enabled for d in self.directory_datasets)
-            and model.get_text_encoders()
-        ):
-            raise ValueError(
-                "tag_dropout_enabled is set, but the model caches text embeddings, so "
-                "per-sample caption dropout would have no effect. Set "
-                "cache_text_embeddings = false in the model config to use tag dropout."
-            )
+        # Tag dropout + cached text embeddings is no longer refused: with the cache on, the
+        # dropout distribution is pre-baked into the embedding cache via cached_caption_variants
+        # (K = 1 bakes a single fixed variant for the whole dataset — diffusion-pipe's default;
+        # K >= 2 bakes rotating variants), and with the cache off it is applied live per sample.
+        # Either way the dropout reaches the model, so there is nothing to reject here.
         # Rotation is active when at least one directory limits images (max_images or
         # subsample_ratio < 1) and is not static; the loader uses this to keep workers in sync
         # with the current epoch (see loader.py).

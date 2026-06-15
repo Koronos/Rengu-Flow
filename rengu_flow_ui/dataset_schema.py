@@ -362,6 +362,24 @@ def get_dataset_schema() -> dict[str, Any]:
                     show_if_set=True,
                     description='Per-tag overrides, e.g. [{"tags": ["hero"], "drop_probability": 0.1}].',
                 ),
+                _field(
+                    "cached_caption_variants",
+                    "Cached caption variants (K)",
+                    "integer",
+                    default=1,
+                    min=1,
+                    description="When text embeddings are cached, bake K tag-dropout/shuffle "
+                    "variants per caption into the cache. 1 = identity (or one fixed baked "
+                    "variant with dropout/shuffle, diffusion-pipe-style); >= 2 gives variants "
+                    "that rotate across epochs without lengthening them.",
+                ),
+                _field(
+                    "cached_caption_shuffle",
+                    "Shuffle tags in cached variants",
+                    "boolean",
+                    default=False,
+                    description="Also shuffle tag order in each baked variant (cached path only).",
+                ),
             ],
         },
     ]

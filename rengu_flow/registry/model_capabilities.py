@@ -333,12 +333,6 @@ def _register_builtin_capabilities() -> None:
                     "description": "Finetune only. The embedded Qwen3 LLM adapter is frozen by default (0); set a value to train it.",
                 },
                 {
-                    "path": "model.cache_text_embeddings",
-                    "label": "Cache text embeddings",
-                    "type": "boolean",
-                    "default": True,
-                },
-                {
                     "path": "model.transformer_dtype",
                     "label": "Main model load dtype",
                     "type": "select",

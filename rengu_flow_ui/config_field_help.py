@@ -129,9 +129,10 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "detail": (
             "Strongly recommended for Cosmos/Anima: training skips the live Qwen3 forward "
             "(~22 ms/step) and frees ~1.2 GB VRAM (more activation_memory_budget headroom). "
-            "Incompatible with live tag dropout — to keep dropout WITH the cache, pre-bake "
-            "variants as .txt lines (scripts/generate_caption_variants.py): every line is "
-            "cached and rotates across epochs without inflating them."
+            "For dropout regularization WITH the cache on, enable tag_dropout (and/or "
+            "cached_caption_shuffle) on the dataset: K = cached_caption_variants dropout/shuffle "
+            "variants per caption are baked into the cache. K = 1 bakes one fixed variant; K >= 2 "
+            "rotates them across epochs without inflating them."
         ),
         "doc": "docs/user/dataset-config.md",
     },

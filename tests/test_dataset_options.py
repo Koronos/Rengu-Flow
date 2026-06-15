@@ -182,9 +182,8 @@ def test_directory_dataset_builds_tag_dropout(tmp_path):
     assert not dd2.tag_dropout.enabled
 
 
-def test_dataset_rejects_tag_dropout_with_cached_text_embeddings(tmp_path):
-    import pytest
-
+def test_dataset_tag_dropout_with_cached_text_embeddings_is_allowed(tmp_path):
+    """Tag dropout + cached TE is no longer rejected: it is baked into the cache (K>=1)."""
     from rengu_flow.data.dataset import Dataset
 
     dataset_config = {
@@ -199,9 +198,15 @@ def test_dataset_rejects_tag_dropout_with_cached_text_embeddings(tmp_path):
         def get_text_encoders(self):
             return ["te"]
 
-    with pytest.raises(ValueError, match="tag_dropout"):
-        Dataset(dict(dataset_config), CachedTEModel())
+    # Cache on + dropout + default K=1 -> one fixed baked variant (diffusion-pipe default), no raise.
+    Dataset(dict(dataset_config), CachedTEModel())
 
+    # Cache on + dropout + K >= 2 -> rotating baked variants, no raise.
+    k2_config = dict(dataset_config)
+    k2_config["cached_caption_variants"] = 4
+    Dataset(dict(k2_config), CachedTEModel())
+
+    # Cache off (live encoding) -> live per-sample dropout, no raise.
     class LiveTEModel(CachedTEModel):
         def get_text_encoders(self):
             return []

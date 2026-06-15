@@ -484,6 +484,43 @@ def get_sections() -> list[dict[str, Any]]:
             ],
         },
         {
+            "id": "te_cache",
+            "title": "Text-embedding cache",
+            "description": (
+                "Cache text-encoder outputs once instead of running the encoder every "
+                "step. Baking tag-dropout caption variants into the cache "
+                "(cached_caption_variants / cached_caption_shuffle) is configured per "
+                "dataset in the Dataset form."
+            ),
+            "fields": [
+                _field(
+                    "model.cache_text_embeddings",
+                    "Cache text embeddings",
+                    "boolean",
+                    default=True,
+                    recommended=True,
+                    when=_when_model("cosmos_predict2", "sdxl"),
+                    description=(
+                        "Encode captions once and cache them (faster steps, more disk; "
+                        "frees the text encoder from the GPU). For rotating dropout "
+                        "regularization with caching on, set the dataset's "
+                        "cached_caption_variants >= 2 (1 bakes a single fixed variant)."
+                    ),
+                ),
+                _field("caching_batch_size", "Dataset cache batch size", "integer", default=1),
+                _field("cache_num_proc", "Cache CPU workers", "integer", default=8, min_value=1),
+                _field("cache_keep_in_memory", "Keep HF slice in RAM during cache", "boolean", default=False),
+                _field(
+                    "cache_dedup_text_embeddings",
+                    "Dedup text embeddings on cache",
+                    "boolean",
+                    default=False,
+                    importance="advanced",
+                    description="Reuse TE outputs when captions match (tag-heavy datasets).",
+                ),
+            ],
+        },
+        {
             "id": "training",
             "title": "Training loop",
             "fields": [
@@ -698,17 +735,6 @@ def get_sections() -> list[dict[str, Any]]:
                     description="Where the on-disk compile cache lives (must be ext4/255-char). Default: a 'compile' subdir of the dataset cache_root.",
                 ),
                 _field("x_axis_examples", "TensorBoard x-axis = examples", "boolean"),
-                _field("caching_batch_size", "Dataset cache batch size", "integer", default=1),
-                _field("cache_num_proc", "Cache CPU workers", "integer", default=8, min_value=1),
-                _field("cache_keep_in_memory", "Keep HF slice in RAM during cache", "boolean", default=False),
-                _field(
-                    "cache_dedup_text_embeddings",
-                    "Dedup text embeddings on cache",
-                    "boolean",
-                    default=False,
-                    importance="advanced",
-                    description="Reuse TE outputs when captions match (tag-heavy datasets).",
-                ),
                 _field(
                     "ema_decay",
                     "EMA decay",

@@ -169,15 +169,37 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "doc": "docs/user/dataset-config.md",
     },
     "tag_dropout_enabled": {
-        "summary": "Randomly drop tags at training time (regularizes prompt generalization).",
+        "summary": "Randomly drop tags so the model does not over-rely on any single tag.",
         "detail": (
-            "When on, some caption tags are omitted each step so the model does not over-rely "
-            "on any single tag. Dropout runs at training time only — captions stored in cache "
-            "metadata stay raw. Requires cache_text_embeddings = false in the model config, "
-            "which keeps the text encoder on the GPU (~22 ms/step + ~1.2 GB VRAM). Faster "
-            "alternative with the same distribution: pre-bake K dropout variants as .txt lines "
-            "(scripts/generate_caption_variants.py), keep cache_text_embeddings = true, and "
-            "leave this off — variants rotate across epochs without lengthening them."
+            "Defines the dropout distribution (probability/mode/rules). How it is applied "
+            "depends on the text-embedding cache:\n"
+            "• cache_text_embeddings = false (live): dropout runs per sample at training time "
+            "(keeps the text encoder on the GPU, ~22 ms/step + ~1.2 GB VRAM).\n"
+            "• cache_text_embeddings = true (cached): the dropout is pre-baked into the embedding "
+            "cache. cached_caption_variants = 1 bakes one fixed variant for the whole dataset "
+            "(diffusion-pipe's default); set it >= 2 to bake that many variants that rotate across "
+            "epochs without lengthening them."
+        ),
+        "doc": "docs/user/dataset-config.md",
+    },
+    "cached_caption_variants": {
+        "summary": "How many tag-dropout/shuffle caption variants to bake into the TE cache.",
+        "detail": (
+            "Only used when cache_text_embeddings = true. K = 1 caches the caption as written when "
+            "there is no dropout/shuffle, or bakes a single fixed augmented variant when there is "
+            "(diffusion-pipe's default). K >= 2 samples the tag-dropout distribution (and optional "
+            "tag shuffle) K times per caption, caches each variant's embedding, and rotates them "
+            "across epochs — so an epoch is still one pass over the images. This is the cached-path "
+            "equivalent of live tag dropout; higher K = more regularization and more cache disk."
+        ),
+        "doc": "docs/user/dataset-config.md",
+    },
+    "cached_caption_shuffle": {
+        "summary": "Also shuffle tag order in each baked cached-caption variant.",
+        "detail": (
+            "When generating cached caption variants, randomly reorder the tags in each variant "
+            "(deterministic per image/variant). Composes with tag dropout. Has effect only on "
+            "the cached path with cached_caption_variants active."
         ),
         "doc": "docs/user/dataset-config.md",
     },
