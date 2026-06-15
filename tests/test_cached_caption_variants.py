@@ -29,7 +29,7 @@ def _mock_dir_dataset(dataset_config, tag_dropout=NO_DROP, cache_te=True):
         uncond_fraction=0.0,
         tag_dropout=tag_dropout,
         dataset_config=dataset_config,
-        cache_text_embeddings=cache_te,
+        caches_text_embeddings=cache_te,
         _aug_fingerprint="",
     )
 
@@ -78,6 +78,21 @@ def test_expand_shuffle_reorders_without_dropping():
     for v in out:
         assert {t.strip() for t in v.split(",")} == base_tags  # same tags, no drop
     assert any(v != "alpha, beta, gamma, delta" for v in out)  # some reordered
+
+
+def test_directory_dataset_flag_does_not_shadow_method(tmp_path):
+    """Regression: the cache flag must not shadow DirectoryDataset.cache_text_embeddings()."""
+    from rengu_flow.data.dataset import DirectoryDataset
+
+    dd = DirectoryDataset(
+        {"path": str(tmp_path), "num_repeats": 1},
+        {"resolutions": [512]},
+        "sdxl",
+        skip_dataset_validation=True,
+        cache_text_embeddings=True,
+    )
+    assert dd.caches_text_embeddings is True
+    assert callable(dd.cache_text_embeddings)  # still the method, not the bool flag
 
 
 # --- integration through SizeBucketDataset -------------------------------------

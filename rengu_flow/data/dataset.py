@@ -337,7 +337,7 @@ class SizeBucketDataset:
         # dataset (diffusion-pipe's default behaviour); K >= 2 gives variants that rotate.
         ds_cfg = getattr(directory_dataset, "dataset_config", None) or {}
         cache_text_embeddings = bool(
-            getattr(directory_dataset, "cache_text_embeddings", False)
+            getattr(directory_dataset, "caches_text_embeddings", False)
         )
         cached_variants = int(ds_cfg.get("cached_caption_variants", 1) or 1)
         cached_shuffle = bool(ds_cfg.get("cached_caption_shuffle", False))
@@ -905,7 +905,8 @@ class DirectoryDataset:
         self.dataset_config = dataset_config
         # Whether the model caches text embeddings (drives cached caption-variant baking
         # in SizeBucketDataset; the live path applies tag dropout per sample instead).
-        self.cache_text_embeddings = cache_text_embeddings
+        # Note: distinct name from the cache_text_embeddings() method to avoid shadowing it.
+        self.caches_text_embeddings = cache_text_embeddings
         if skip_dataset_validation:
             from rengu_flow.data.augmentation import resolve_augmentation_config
 
