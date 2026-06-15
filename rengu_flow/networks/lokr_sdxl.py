@@ -70,12 +70,35 @@ def _inject_lokr_into_linear(module, rank, alpha, factor=-1, decompose_both=Fals
     if module.bias is not None:
         module.bias.requires_grad_(False)
 
-    def lokr_forward(x):
+    # If the base linear was quantized (fp8 scaled_mm / bnb 4-bit), route the base matmul
+    # through its quantized path and add the trainable LoKr delta as a separate output term:
+    #   F.linear(x, W + diff) == base(x) + F.linear(x, diff)
+    # This is the QLoRA-style composition and is required for 4-bit (packed weights cannot
+    # be summed with a bf16 diff) and keeps fp8 matmul active under the adapter.
+    base_linear = None
+    try:
+        from rengu_flow.training.quantize_dit import base_linear_of
+
+        base_linear = base_linear_of(module)
+    except Exception:
+        base_linear = None
+
+    def _lokr_delta_weight():
         w1 = module.lokr_w1 if module._lokr_use_w1_full else module.lokr_w1_a @ module.lokr_w1_b
         w2 = module.lokr_w2 if module._lokr_use_w2_full else module.lokr_w2_a @ module.lokr_w2_b
         diff = torch.kron(w1, w2) * module._lokr_scale
-        diff = diff.reshape(module.weight.shape).to(module.weight.dtype)
-        return F.linear(x, module.weight + diff, module.bias)
+        return diff.reshape(out_dim, in_dim)
+
+    if base_linear is not None:
+        def lokr_forward(x):
+            ref = module.lokr_w1 if module._lokr_use_w1_full else module.lokr_w1_a
+            diff = _lokr_delta_weight().to(ref.dtype)
+            base = base_linear(x)
+            return base + F.linear(x.to(ref.dtype), diff).to(base.dtype)
+    else:
+        def lokr_forward(x):
+            diff = _lokr_delta_weight().to(module.weight.dtype)
+            return F.linear(x, module.weight + diff, module.bias)
 
     module.forward = lokr_forward
 

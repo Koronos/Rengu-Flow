@@ -140,11 +140,50 @@ class CosmosPredict2Pipeline(BasePipeline):
                 )
 
         self.transformer = transformer
+        self._maybe_quantize_frozen_dit()
         self.transformer.train()
         for name, p in self.transformer.named_parameters():
             p.original_name = name
             if "adapter" not in self.config:
                 p.requires_grad_(True)
+
+    def _maybe_quantize_frozen_dit(self) -> None:
+        """Optionally quantize the frozen DiT's matmul linears (default-off, A/B knobs).
+
+        ``model.transformer_fp8_matmul`` -> fp8 scaled matmul (``model.fp8_matmul_dtype``,
+        default e5m2). ``model.transformer_4bit`` -> bitsandbytes NF4 base (QLoRA-style).
+        Mutually exclusive. The base stays frozen; no trainable params are added. The LoKr
+        adapter (configured later) composes on top via the quantization-aware vendored forward.
+        """
+        fp8_matmul = bool(self.model_config.get("transformer_fp8_matmul", False))
+        four_bit = bool(self.model_config.get("transformer_4bit", False))
+        if not fp8_matmul and not four_bit:
+            return
+        if fp8_matmul and four_bit:
+            if is_main_process():
+                print(
+                    "rengu_flow: both transformer_fp8_matmul and transformer_4bit set; "
+                    "using transformer_4bit and ignoring fp8."
+                )
+            fp8_matmul = False
+
+        from rengu_flow.training import quantize_dit
+
+        if four_bit:
+            n = quantize_dit.convert_dit_to_4bit(
+                self.transformer, compute_dtype=torch.bfloat16
+            )
+            if is_main_process():
+                print(f"rengu_flow: quantized {n} frozen DiT linears to 4-bit NF4 (bnb).")
+        else:
+            fp8_name = self.model_config.get("fp8_matmul_dtype", "e5m2")
+            fp8_dtype = quantize_dit.resolve_fp8_dtype(fp8_name)
+            n = quantize_dit.convert_dit_to_fp8_matmul(self.transformer, fp8_dtype=fp8_dtype)
+            if is_main_process():
+                print(
+                    f"rengu_flow: converted {n} frozen DiT linears to fp8 scaled matmul "
+                    f"({fp8_name})."
+                )
 
     def model_specific_dataset_config_validation(self, dataset_config):
         frame_buckets = dataset_config.get("frame_buckets")
