@@ -99,7 +99,7 @@ describe("useJobLogStream", () => {
     app.unmount();
   });
 
-  it("stops polling after a clean server close (terminal job), even if the prime resolves late", async () => {
+  it("stops polling once the socket connected and closed, even on an abnormal (1006) close", async () => {
     const jobId = ref<string>("job-T");
     const { stream, app } = mountWith(jobId);
     const ws = wsInstances[wsInstances.length - 1];
@@ -107,16 +107,16 @@ describe("useJobLogStream", () => {
     // connect() fired a prime HTTP poll while the socket was opening.
     expect(deferreds.map((d) => d.id)).toEqual(["job-T"]);
 
-    // The socket opens, delivers the full log, then the server closes it cleanly (job finished).
+    // The socket opens, delivers the full log, then the server closes it WITHOUT a clean handshake
+    // (Starlette closes a finished job's logs socket with code 1006). Polling must not resume.
     ws.onopen?.();
     ws.onmessage?.({ data: "FULL LOG" });
     expect(stream.logText.value).toBe("FULL LOG");
-    ws.onclose?.({ wasClean: true });
+    ws.onclose?.({ wasClean: false });
 
     const callsAtClose = deferreds.length;
 
-    // The prime poll resolves AFTER the clean close — it must neither re-append the log nor
-    // reschedule polling.
+    // The prime poll resolves AFTER the close — it must neither re-append the log nor reschedule.
     deferreds[0].resolve({ chunk: "FULL LOG", offset: 8920709 });
     await flush();
     vi.advanceTimersByTime(10000);
@@ -128,12 +128,12 @@ describe("useJobLogStream", () => {
     app.unmount();
   });
 
-  it("resumes HTTP polling after an abnormal close (mid-run drop)", async () => {
+  it("falls back to HTTP polling only when the socket never connects", async () => {
     const jobId = ref<string>("job-D");
     const { app } = mountWith(jobId);
     const ws = wsInstances[wsInstances.length - 1];
 
-    ws.onopen?.();
+    // No onopen — the socket never connected (WS-hostile env), then it errors/closes.
     ws.onclose?.({ wasClean: false });
     const before = deferreds.length;
 

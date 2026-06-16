@@ -16,6 +16,12 @@ export function useJobLogStream(jobId: Ref<string | undefined> | (() => string |
   let pollTimer: ReturnType<typeof setTimeout> | null = null;
   let httpOffset = 0;
   let wsPrimed = false;
+  // True once the socket has opened at least once this connection. Distinguishes "the server
+  // ended the stream" (connected then closed — nothing left to send) from "the socket can't
+  // connect at all" (WS-hostile env — fall back to HTTP polling). The server closes the logs
+  // socket only when the job is terminal, and it can close abnormally (1006) rather than with a
+  // clean handshake, so the close *code* is not a reliable signal — whether it ever opened is.
+  let hasConnected = false;
   // Bumped on every teardown (job switch / unmount) so a late HTTP response from a previous
   // job can't append to the new job's log or clobber its offset.
   let fetchGen = 0;
@@ -86,6 +92,7 @@ export function useJobLogStream(jobId: Ref<string | undefined> | (() => string |
     disconnect();
     streamError.value = "";
     wsPrimed = false;
+    hasConnected = false;
     httpOffset = 0;
     // Prime immediately over HTTP so existing output (and errors on terminal runs) shows without
     // waiting on the socket. If the WS connects, it takes over and replaces this content.
@@ -98,6 +105,7 @@ export function useJobLogStream(jobId: Ref<string | undefined> | (() => string |
     }
     ws.onopen = () => {
       connected.value = true;
+      hasConnected = true;
       stopPolling();
     };
     ws.onmessage = (event) => {
@@ -113,21 +121,21 @@ export function useJobLogStream(jobId: Ref<string | undefined> | (() => string |
     ws.onerror = () => {
       streamError.value = "Log stream connection error";
     };
-    ws.onclose = (event) => {
+    ws.onclose = () => {
       connected.value = false;
       stopPolling();
-      if (event.wasClean) {
-        // A clean server-initiated close means the stream ended on purpose: the logs socket is
-        // closed only after the server flushes all output when the job reaches a terminal state.
-        // Re-polling then would hammer GET /logs every 2s forever on a finished run (the socket
-        // never reconnects). Bump fetchGen so the in-flight prime fetch (which may resolve after
-        // this close, when `connected` is already false) can't re-append the log or reschedule a
-        // poll. The full log was already delivered over the socket.
+      if (hasConnected) {
+        // The socket opened and delivered the log, then the server closed it. The logs socket is
+        // closed only once the job is terminal (and the close may be abnormal, code 1006, not a
+        // clean handshake — so the close code can't be trusted). There is nothing left to stream,
+        // so do NOT fall back to polling — that is what hammered GET /logs?offset every 2s forever
+        // on a finished run. Bump fetchGen so a late-resolving prime fetch can't re-append or
+        // reschedule a poll either.
         fetchGen++;
         return;
       }
-      // Abnormal close (WS-hostile network or a mid-run drop, where the run may still be
-      // producing output): resume the HTTP fallback.
+      // Never connected (WS-hostile network — e.g. a dev proxy that doesn't forward WS upgrades):
+      // fall back to HTTP polling so the log still shows.
       if (!pollTimer) pollTimer = setTimeout(pollHttp, 2000);
     };
   }
