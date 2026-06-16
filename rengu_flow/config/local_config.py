@@ -37,8 +37,28 @@ LEGACY_UI_DATA_DIRNAMES = (".rengu-flow-ui", ".renga-flow-ui")
 class UiConfig:
     host: str = "127.0.0.1"
     port: int = 8765
+    # When true, bind the UI to all interfaces (0.0.0.0) so other devices on your local network
+    # can reach it, instead of localhost only. Pair with `token` — anyone on the network can then
+    # drive training. Overrides `host` when set.
+    public: bool = False
     data_dir: str = "data"
     token: str | None = None
+
+
+# Hosts that mean "bind every interface" (reachable from the local network), used for the public
+# exposure check.
+_ALL_INTERFACES_HOSTS = ("0.0.0.0", "::", "*")
+
+
+def public_bind_warning(host: str, token: str | None) -> str | None:
+    """Warning text when the UI is exposed to the network without a token, else None."""
+    if host in _ALL_INTERFACES_HOSTS and not token:
+        return (
+            "UI is reachable from your local network (ui.public = true) but no ui.token is set — "
+            "anyone on the network can start/stop training, edit configs, and browse dataset "
+            "paths. Set [ui] token in rengu.local.toml to require a token."
+        )
+    return None
 
 
 @dataclass
@@ -67,6 +87,10 @@ class LocalConfig:
         if p.is_absolute():
             return p.resolve()
         return (self.root / p).resolve()
+
+    def ui_bind_host(self) -> str:
+        """Host the server binds to: all interfaces when `public`, else the configured host."""
+        return "0.0.0.0" if self.ui.public else self.ui.host
 
 
 _loaded: LocalConfig | None = None
@@ -104,6 +128,7 @@ def parse_local_config_dict(data: dict[str, Any], *, root: Path) -> LocalConfig:
     ui = UiConfig(
         host=str(ui_raw.get("host", "127.0.0.1")),
         port=int(ui_raw.get("port", 8765)),
+        public=_boolish(ui_raw.get("public", False)),
         data_dir=raw_data_dir,
         token=str(ui_raw["token"]).strip() if ui_raw.get("token") else None,
     )
@@ -160,7 +185,7 @@ def ensure_local_config_loaded() -> LocalConfig:
 def apply_local_config_to_environ(cfg: LocalConfig | None = None) -> None:
     """Apply UI and maintenance settings to ``os.environ`` (setdefault)."""
     c = cfg if cfg is not None else ensure_local_config_loaded()
-    os.environ["RENGU_FLOW_UI_HOST"] = c.ui.host
+    os.environ["RENGU_FLOW_UI_HOST"] = c.ui_bind_host()
     os.environ["RENGU_FLOW_UI_PORT"] = str(c.ui.port)
     os.environ["RENGU_FLOW_UI_DATA"] = str(c.ui_data_dir())
     if c.ui.token:
@@ -196,6 +221,8 @@ def render_default_local_config() -> str:
         "[ui]\n"
         f'host = "{ui.host}"\n'
         f"port = {ui.port}\n"
+        "# public = true binds the UI to your local network (0.0.0.0); set token when you do.\n"
+        f"public = {str(ui.public).lower()}\n"
         f'data_dir = "{ui.data_dir}"\n'
         '# token = "change-me"\n\n'
         "[maintenance]\n"

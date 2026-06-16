@@ -41,10 +41,15 @@ Copy `rengu.local.toml.example` to `rengu.local.toml` (or run `./rengu init`). E
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `host` | `127.0.0.1` | Bind address |
+| `host` | `127.0.0.1` | Bind address (localhost only) |
 | `port` | `8765` | HTTP port |
+| `public` | `false` | `true` binds to `0.0.0.0` so other devices on your **local network** can open the UI (overrides `host`). Anyone on the network can then drive training — set `token` when you enable it. |
 | `data_dir` | `data` | Config library, job DB, logs (gitignored) |
 | `token` | (optional) | If set, API requests need `X-Rengu-Flow-Token` |
+
+To make the UI reachable from another machine on your LAN, set `public = true` (and ideally a
+`token`), then open `http://<this-machine-ip>:8765/` from the other device. With no token, the
+server prints a warning on startup because the UI can start/stop training and browse dataset paths.
 
 The script does **not** install CUDA, PyTorch, or DeepSpeed. Use your existing training environment for GPU jobs.
 

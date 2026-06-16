@@ -6,9 +6,10 @@ import argparse
 
 import uvicorn
 
+from rengu_flow.config.local_config import public_bind_warning
 from rengu_flow_ui.app import create_app
 from rengu_flow_ui.schema_guard import ensure_schema_compatible
-from rengu_flow_ui.settings import ui_host, ui_port
+from rengu_flow_ui.settings import ui_host, ui_port, ui_token
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -71,6 +72,9 @@ def main(argv: list[str] | None = None) -> None:
         ensure_schema_compatible()
         host = args.host or ui_host()
         port = args.port or ui_port()
+        warning = public_bind_warning(host, ui_token())
+        if warning:
+            print(f"==> WARNING: {warning}", flush=True)
         if args.reload:
             from pathlib import Path
 

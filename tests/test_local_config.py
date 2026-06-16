@@ -9,6 +9,7 @@ from rengu_flow.config.local_config import (
     load_local_config,
     migrate_legacy_ui_data_dir,
     parse_local_config_dict,
+    public_bind_warning,
 )
 
 
@@ -97,6 +98,36 @@ data_dir = "ui-state"
     assert os.environ["RENGU_FLOW_UI_HOST"] == "10.0.0.1"
     # A custom (non-legacy) data_dir is honoured verbatim.
     assert os.environ["RENGU_FLOW_UI_DATA"] == str((tmp_path / "ui-state").resolve())
+
+
+def test_ui_public_binds_all_interfaces():
+    """ui.public flips the bind host to 0.0.0.0 (LAN-reachable); off keeps the configured host."""
+    root = Path("/tmp/rengu-root")
+    cfg = parse_local_config_dict({"ui": {"public": True, "host": "127.0.0.1"}}, root=root)
+    assert cfg.ui.public is True
+    assert cfg.ui_bind_host() == "0.0.0.0"
+
+    cfg_off = parse_local_config_dict({"ui": {"host": "127.0.0.1"}}, root=root)
+    assert cfg_off.ui.public is False
+    assert cfg_off.ui_bind_host() == "127.0.0.1"
+
+
+def test_public_bind_to_environ(monkeypatch, tmp_path):
+    path = tmp_path / "rengu.local.toml"
+    path.write_text("[ui]\npublic = true\n", encoding="utf-8")
+    monkeypatch.delenv("RENGU_FLOW_UI_HOST", raising=False)
+    cfg = load_local_config(path=path, root=tmp_path)
+    apply_local_config_to_environ(cfg)
+    assert os.environ["RENGU_FLOW_UI_HOST"] == "0.0.0.0"
+
+
+def test_public_bind_warning_requires_token():
+    # Exposed to the network without a token -> warn.
+    assert public_bind_warning("0.0.0.0", None) is not None
+    assert public_bind_warning("::", "") is not None
+    # A token set, or a localhost bind -> no warning.
+    assert public_bind_warning("0.0.0.0", "secret") is None
+    assert public_bind_warning("127.0.0.1", None) is None
 
 
 def test_legacy_hidden_data_dir_coerces_to_data():

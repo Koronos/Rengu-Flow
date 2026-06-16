@@ -4,6 +4,9 @@
 [ui]
 host = "127.0.0.1"
 port = 8765
+# public = true makes the UI reachable from other devices on your local network (binds 0.0.0.0
+# instead of localhost). Anyone on the network can then drive training, so set `token` below.
+public = false
 # UI state (jobs.db, staging, logs) — a visible, git-ignored folder at the repo root so you can
 # find and delete it. Leave as "data" unless you want it elsewhere (absolute paths allowed).
 data_dir = "data"

@@ -167,6 +167,15 @@ def _uvicorn_reload_excludes() -> list[str]:
     ]
 
 
+def _warn_public(host: str, token: str | None) -> None:
+    """Print a one-line warning when the UI is exposed to the network without a token."""
+    from rengu_flow.config.local_config import public_bind_warning
+
+    msg = public_bind_warning(host, token)
+    if msg:
+        print(f"==> WARNING: {msg}", flush=True)
+
+
 def _serve(host: str, port: int, *, reload: bool = False) -> None:
     import uvicorn
 
@@ -229,9 +238,10 @@ def run(args: argparse.Namespace) -> None:
             ensure_ui_dependencies()
             reexec_cli()
         _build_web(root, force=rebuild_web)
-        host = cfg.ui.host
+        host = cfg.ui_bind_host()
         port = cfg.ui.port
         _free_port(port, patterns=("rengu", "uvicorn", "rengu-flow-ui"))
+        _warn_public(host, cfg.ui.token)
         browser_host = "127.0.0.1" if host in ("0.0.0.0", "::", "*") else host
         url = f"http://{browser_host}:{port}/"
         health = f"{url.rstrip('/')}/api/v1/health"
@@ -345,8 +355,9 @@ def run(args: argparse.Namespace) -> None:
                 api_proc.kill()
 
     if cmd == "serve":
-        host = args.host or cfg.ui.host
+        host = args.host or cfg.ui_bind_host()
         port = args.port if args.port is not None else cfg.ui.port
+        _warn_public(host, cfg.ui.token)
         _serve(host, port, reload=args.reload)
         return
 
