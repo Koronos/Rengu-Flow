@@ -27,6 +27,36 @@ def get_automagic_lrs(optimizer) -> tuple[torch.Tensor, float]:
     return stacked, stacked.mean().item()
 
 
+def _resolve_lr(optimizer) -> float | None:
+    """Applied learning rate of the first param group (the scheduler updates it in place)."""
+    try:
+        groups = optimizer.param_groups
+    except AttributeError:
+        return None
+    if not groups:
+        return None
+    lr = groups[0].get("lr")
+    return float(lr) if isinstance(lr, (int, float)) else None
+
+
+def _resolve_grad_norm(model_engine, optimizer) -> float | None:
+    """Global grad norm, optimizer-agnostic.
+
+    DeepSpeed computes it whenever ``gradient_clipping`` is set (the repo default is 1.0), so it
+    works for any optimizer. Fall back to ``GenericOptim._grad_norm`` for the gradient-release path
+    (clipping 0, no engine norm). Returns None when neither is available / meaningful.
+    """
+    if model_engine is not None:
+        try:
+            gn = model_engine.get_global_grad_norm()
+        except Exception:
+            gn = None
+        if isinstance(gn, (int, float)) and gn > 0:
+            return float(gn)
+    inner = getattr(optimizer, "_grad_norm", None)
+    return float(inner) if isinstance(inner, (int, float)) else None
+
+
 def log_training_step(
     *,
     sink: Any,
@@ -36,6 +66,7 @@ def log_training_step(
     step: int,
     logging_steps: int,
     is_main: bool,
+    model_engine: Any = None,
 ) -> None:
     """Log scalars (and automagic histogram) on logging_steps boundaries via the tracking sink."""
     if not is_main or step % logging_steps != 0:
@@ -43,8 +74,13 @@ def log_training_step(
 
     sink.scalar("train/loss", loss, x_axis)
 
-    if hasattr(optimizer, "_grad_norm"):
-        sink.scalar("train/grad_norm", optimizer._grad_norm, x_axis)
+    lr = _resolve_lr(optimizer)
+    if lr is not None:
+        sink.scalar("train/lr", lr, x_axis)
+
+    grad_norm = _resolve_grad_norm(model_engine, optimizer)
+    if grad_norm is not None:
+        sink.scalar("train/grad_norm", grad_norm, x_axis)
 
     opt_name = type(optimizer).__name__
     if opt_name == "Prodigy":

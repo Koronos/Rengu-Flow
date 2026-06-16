@@ -1317,6 +1317,7 @@ def _run_training(args, config):
                 step=step,
                 logging_steps=logging_steps,
                 is_main=is_main_process(),
+                model_engine=model_engine,
             )
 
             if (eval_every_n_steps and step % eval_every_n_steps == 0) or (

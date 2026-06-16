@@ -76,6 +76,48 @@ def test_log_training_step_automagic_histogram_when_avg_positive():
     assert avg_calls[0][0][2] == 5
 
 
+def test_log_training_step_logs_lr_and_engine_grad_norm():
+    sink = MagicMock()
+    opt = MagicMock()
+    opt.__class__.__name__ = "AdamW"
+    opt.param_groups = [{"lr": 3e-5}]
+    del opt._grad_norm  # AdamW has none; force the engine path
+    engine = MagicMock()
+    engine.get_global_grad_norm = MagicMock(return_value=1.5)
+    log_training_step(
+        sink=sink,
+        optimizer=opt,
+        loss=0.1,
+        x_axis=10,
+        step=10,
+        logging_steps=10,
+        is_main=True,
+        model_engine=engine,
+    )
+    sink.scalar.assert_any_call("train/lr", 3e-5, 10)
+    sink.scalar.assert_any_call("train/grad_norm", 1.5, 10)
+
+
+def test_log_training_step_grad_norm_falls_back_to_optimizer():
+    sink = MagicMock()
+
+    class GenericOptim:
+        param_groups = [{"lr": 1e-4}]
+        _grad_norm = 0.7
+
+    log_training_step(
+        sink=sink,
+        optimizer=GenericOptim(),
+        loss=0.1,
+        x_axis=5,
+        step=5,
+        logging_steps=5,
+        is_main=True,
+        model_engine=None,
+    )
+    sink.scalar.assert_any_call("train/grad_norm", 0.7, 5)
+
+
 def test_log_training_step_skips_when_not_logging_step():
     sink = MagicMock()
     opt = MagicMock()
