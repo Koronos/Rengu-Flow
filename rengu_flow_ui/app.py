@@ -1396,6 +1396,32 @@ def _run_metrics_payload(run_dir) -> dict[str, Any]:
     }
 
 
+def _run_dir_timestamps(run_dir: Path) -> tuple[str, str]:
+    """(created_at, updated_at) ISO-8601 for a run with no manifest, from filesystem mtimes.
+
+    Derives recency from the TensorBoard event files (first/last write) so the compare sidebar can
+    sort these runs newest-first; falls back to the directory mtime when there are no event files.
+    """
+    from datetime import datetime, timezone
+
+    mtimes = []
+    for event_file in run_dir.glob("events.out.tfevents.*"):
+        try:
+            mtimes.append(event_file.stat().st_mtime)
+        except OSError:
+            continue
+    if not mtimes:
+        try:
+            mtimes.append(run_dir.stat().st_mtime)
+        except OSError:
+            return "", ""
+
+    def iso(ts: float) -> str:
+        return datetime.fromtimestamp(ts, timezone.utc).isoformat()
+
+    return iso(min(mtimes)), iso(max(mtimes))
+
+
 def _compare_config_row(run_dir) -> dict[str, Any] | None:
     """Build a comparison row for a run that has no run.json (trained before tracking).
 
@@ -1409,6 +1435,7 @@ def _compare_config_row(run_dir) -> dict[str, Any] | None:
     has_tb = any(rd.glob("events.out.tfevents.*"))
     if cfg_path is None and not has_tb:
         return None
+    created_at, updated_at = _run_dir_timestamps(rd)
     config: dict[str, Any] = {}
     if cfg_path is not None:
         try:
@@ -1421,8 +1448,8 @@ def _compare_config_row(run_dir) -> dict[str, Any] | None:
         "run_id": rd.name,
         "name": config.get("run_name") or rd.name,
         "status": "imported",
-        "created_at": "",
-        "updated_at": "",
+        "created_at": created_at,
+        "updated_at": updated_at,
         "hparams": flatten_hparams(config),
         "summary": {},
         "system_summary": {},

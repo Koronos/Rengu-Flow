@@ -241,8 +241,9 @@ const search = ref("");
 const folderInput = ref("output");
 
 type SortKey = "name" | "updated" | "created" | "loss" | "status";
-const sortKey = ref<SortKey>("name");
-const sortDir = ref<"asc" | "desc">("asc");
+// Default to newest-first: most recently created runs on top, older ones below.
+const sortKey = ref<SortKey>("created");
+const sortDir = ref<"asc" | "desc">("desc");
 
 // TensorBoard-style refresh, mirroring RunDetailView's loss monitor: manual Reload + opt-in
 // auto-update at a chosen cadence, off by default so the overlay stays put unless asked.
