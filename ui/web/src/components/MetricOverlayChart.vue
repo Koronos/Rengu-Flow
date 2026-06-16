@@ -106,7 +106,10 @@ function makeOpts(width: number): uPlot.Options {
         stroke: r.color,
         width: 1.5,
         points: { show: false },
-        spanGaps: false,
+        // Each run contributes its own steps to the shared x-axis, so every other run's steps land
+        // as nulls in this series. spanGaps must bridge them, else a run whose step grid interleaves
+        // with another's renders as disconnected (invisible) points instead of a continuous line.
+        spanGaps: true,
       })),
     ],
   };
