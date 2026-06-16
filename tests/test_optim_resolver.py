@@ -254,9 +254,10 @@ def test_optimizer_display_labels_vendor_prefix():
     (torch-backed) carry no prefix."""
     from rengu_flow.registry.optimizers import optimizer_display_label, optimizer_options
 
-    # rengu's own registry → no prefix
-    assert optimizer_display_label("adamw") == "adamw"
-    assert optimizer_display_label("sgd") == "sgd"
+    # torch built-ins in the registry → Torch.ClassName
+    assert optimizer_display_label("adamw") == "Torch.AdamW"
+    assert optimizer_display_label("sgd") == "Torch.SGD"
+    assert optimizer_display_label("adam") == "Torch.Adam"
     # external libraries → Vendor.ClassName
     assert optimizer_display_label("adamw8bit") == "Bitsandbytes.AdamW8bit"
     assert optimizer_display_label("prodigy") == "PytorchOptimizer.Prodigy"

@@ -103,8 +103,9 @@ _VENDOR_LABEL = {
 def optimizer_display_label(name: str) -> str:
     """Vendor-prefixed display label for an optimizer alias (value stays ``name``).
 
-    Library/vendored optimizers render as ``Vendor.ClassName``; rengu's own
-    registry entries (adam/adamw/sgd) render as their plain name.
+    Library/vendored optimizers render as ``Vendor.ClassName`` (the torch built-ins
+    in the registry as ``Torch.ClassName``); an optimizer implemented in rengu
+    itself renders as its plain name.
     """
     key = name.lower()
     for table in (VENDOR_OPTIMIZER_ALIASES, OPTIMIZER_ALIASES):
@@ -112,6 +113,9 @@ def optimizer_display_label(name: str) -> str:
             module_path, class_name = table[key]
             vendor = _VENDOR_LABEL.get(module_path.split(".")[0], module_path.split(".")[0].title())
             return f"{vendor}.{class_name}"
+    cls = optimizer_registry.get(key)
+    if cls is not None and getattr(cls, "__module__", "").split(".")[0] == "torch":
+        return f"Torch.{cls.__name__}"
     return name
 
 

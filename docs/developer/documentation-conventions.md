@@ -106,8 +106,9 @@ no prefix. The TOML *value* is always the bare name — the prefix is display on
   `Kaon.Adakaon`, `Optimi.StableAdamW`, `Torchao.CPUOffloadOptimizer`,
   `PytorchOptimizer.Prodigy`, and the diffusion-pipe-vendored optimizers →
   `DiffusionPipe.GenericOptim` / `DiffusionPipe.Automagic` /
-  `DiffusionPipe.AdamW8bitKahan`. The torch-backed registry entries (`adam`,
-  `adamw`, `sgd`) stay unprefixed.
+  `DiffusionPipe.AdamW8bitKahan`. The torch built-ins in the registry render as
+  `Torch.AdamW` / `Torch.Adam` / `Torch.SGD`; only an optimizer implemented in
+  rengu itself would be unprefixed.
 
 When adding a new library-backed adapter or optimizer, give it the `Vendor.Name`
 label; when adding one implemented in rengu itself, leave it bare.
