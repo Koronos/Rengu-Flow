@@ -258,9 +258,27 @@ let autoTimer: ReturnType<typeof setInterval> | null = null;
 
 let controller: AbortController | null = null;
 
+// Remember the last-loaded folder so switching tabs and returning to /compare (which links here
+// without a query) restores it instead of snapping back to the default "output".
+const FOLDER_STORAGE_KEY = "compare.outputDir";
+function rememberedFolder(): string {
+  try {
+    return localStorage.getItem(FOLDER_STORAGE_KEY) || "output";
+  } catch {
+    return "output";
+  }
+}
+function persistFolder(dir: string): void {
+  try {
+    localStorage.setItem(FOLDER_STORAGE_KEY, dir);
+  } catch {
+    // Private mode / storage disabled — folder memory is best-effort.
+  }
+}
+
 const outputDir = computed(() => {
   const q = route.query.output_dir;
-  return typeof q === "string" && q ? q : "output";
+  return typeof q === "string" && q ? q : rememberedFolder();
 });
 
 function parseRunsQuery(): string[] {
@@ -349,12 +367,14 @@ function compareRunsBy(a: CompareRunRow, b: CompareRunRow, key: SortKey): number
 
 onMounted(() => {
   folderInput.value = outputDir.value;
+  persistFolder(outputDir.value);
   loadAll();
 });
 
 // Reload only when the FOLDER changes (selection lives in the URL too but must not refetch).
 watch(outputDir, () => {
   folderInput.value = outputDir.value;
+  persistFolder(outputDir.value);
   loadAll();
 });
 
