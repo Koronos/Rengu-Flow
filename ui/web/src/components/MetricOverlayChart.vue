@@ -5,7 +5,10 @@
       <span v-if="loading" class="overlay-chart__hint">loading…</span>
     </div>
     <div v-if="error" class="overlay-chart__state overlay-chart__state--error">{{ error }}</div>
-    <div v-show="!error" ref="chartEl" class="overlay-chart__canvas"></div>
+    <div v-show="!error" class="overlay-chart__plot">
+      <div ref="chartEl" class="overlay-chart__canvas"></div>
+      <div ref="tip" class="overlay-chart__tip" style="display: none"></div>
+    </div>
     <div v-if="!error && !loading && !hasData" class="overlay-chart__state">
       No data for the selected runs.
     </div>
@@ -48,6 +51,7 @@ const HEIGHT = 200;
 
 const root = ref<HTMLElement | null>(null);
 const chartEl = ref<HTMLElement | null>(null);
+const tip = ref<HTMLElement | null>(null);
 const loading = ref(false);
 const error = ref("");
 const hasData = ref(false);
@@ -59,6 +63,10 @@ let plot: uPlot | null = null;
 let seriesByRun: Record<string, ScalarMetricPoint[]> = {};
 let started = false;
 let currentSig = "";
+// Per-run wall-clock aligned to the chart's x-axis, so the hover tooltip can show elapsed time
+// (point wall_time minus the run's first wall_time). Rebuilt alongside the plotted data.
+let tipMeta: { names: string[]; colors: string[]; walls: (number | null)[][]; base: (number | null)[] } | null =
+  null;
 
 function cssVar(name: string, fallback: string): string {
   if (typeof getComputedStyle === "undefined") return fallback;
@@ -88,7 +96,81 @@ function buildData(): uPlot.AlignedData {
     }
     return arr;
   });
+  const walls: (number | null)[][] = props.runs.map((r) => {
+    const arr: (number | null)[] = new Array(xs.length).fill(null);
+    for (const p of smoothed[r.id]) {
+      const i = xIndex.get(p.step);
+      if (i != null) arr[i] = typeof p.wall_time === "number" ? p.wall_time : null;
+    }
+    return arr;
+  });
+  const base = walls.map((w) => w.find((v) => v != null) ?? null);
+  tipMeta = {
+    names: props.runs.map((r) => r.name),
+    colors: props.runs.map((r) => r.color),
+    walls,
+    base,
+  };
   return [xs, ...ys] as uPlot.AlignedData;
+}
+
+function fmtVal(v: number | null | undefined): string {
+  if (v == null || !Number.isFinite(v)) return "—";
+  const abs = Math.abs(v);
+  if (abs !== 0 && (abs < 1e-3 || abs >= 1e4)) return v.toExponential(3);
+  return String(Math.round(v * 1e6) / 1e6);
+}
+
+function fmtDuration(sec: number | null): string {
+  if (sec == null || !Number.isFinite(sec)) return "—";
+  const s = Math.max(0, Math.round(sec));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const ss = s % 60;
+  if (h) return `${h}h ${m}m`;
+  if (m) return `${m}m ${ss}s`;
+  return `${ss}s`;
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(
+    /[&<>"]/g,
+    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c] as string
+  );
+}
+
+// TensorBoard-style hover popup: step, each run's (smoothed) value, and elapsed wall time.
+function updateTip(u: uPlot): void {
+  const el = tip.value;
+  if (!el) return;
+  const idx = u.cursor.idx;
+  if (idx == null || tipMeta == null) {
+    el.style.display = "none";
+    return;
+  }
+  const step = (u.data[0] as number[])[idx];
+  let rows = "";
+  for (let s = 1; s < u.data.length; s++) {
+    const val = (u.data[s] as (number | null)[])[idx];
+    const wall = tipMeta.walls[s - 1]?.[idx] ?? null;
+    const base = tipMeta.base[s - 1];
+    const rel = wall != null && base != null ? wall - base : null;
+    rows +=
+      `<div class="tip-row"><span class="tip-sw" style="background:${tipMeta.colors[s - 1]}"></span>` +
+      `<span class="tip-name">${escapeHtml(tipMeta.names[s - 1])}</span>` +
+      `<span class="tip-val">${fmtVal(val)}</span>` +
+      `<span class="tip-dt">${fmtDuration(rel)}</span></div>`;
+  }
+  el.innerHTML = `<div class="tip-head">step ${step}</div>${rows}`;
+  el.style.display = "block";
+  // Flip to the cursor's left near the right edge so the popup stays inside the plot.
+  const plotW = u.over?.clientWidth ?? u.width ?? 600;
+  const left = u.cursor.left ?? 0;
+  const top = u.cursor.top ?? 0;
+  const flip = left > plotW / 2;
+  el.style.left = flip ? "auto" : `${left + 14}px`;
+  el.style.right = flip ? `${plotW - left + 14}px` : "auto";
+  el.style.top = `${Math.max(0, top + 12)}px`;
 }
 
 function makeOpts(width: number): uPlot.Options {
@@ -106,6 +188,10 @@ function makeOpts(width: number): uPlot.Options {
     axes: [axis, axis],
     cursor: { sync: { key: props.syncKey }, points: { size: 5 } },
     legend: { show: true },
+    hooks: {
+      setCursor: [updateTip],
+      setData: [updateTip],
+    },
     series: [
       { label: "step" },
       ...props.runs.map((r) => ({
@@ -253,8 +339,55 @@ onBeforeUnmount(() => {
   font-size: 12px;
   color: var(--el-text-color-secondary);
 }
+.overlay-chart__plot {
+  position: relative;
+}
 .overlay-chart__canvas {
   width: 100%;
+}
+.overlay-chart__tip {
+  position: absolute;
+  z-index: 10;
+  pointer-events: none;
+  min-width: 160px;
+  padding: 6px 8px;
+  border: 1px solid var(--el-border-color);
+  border-radius: 5px;
+  background: var(--el-bg-color-overlay, var(--el-bg-color));
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.overlay-chart__tip :deep(.tip-head) {
+  font-weight: 600;
+  margin-bottom: 3px;
+  color: var(--el-text-color-primary);
+}
+.overlay-chart__tip :deep(.tip-row) {
+  display: grid;
+  grid-template-columns: 10px 1fr auto auto;
+  align-items: center;
+  gap: 6px;
+  color: var(--el-text-color-regular);
+}
+.overlay-chart__tip :deep(.tip-sw) {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+.overlay-chart__tip :deep(.tip-name) {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 160px;
+}
+.overlay-chart__tip :deep(.tip-val) {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.overlay-chart__tip :deep(.tip-dt) {
+  font-variant-numeric: tabular-nums;
+  color: var(--el-text-color-secondary);
 }
 .overlay-chart__state {
   color: var(--el-text-color-secondary);
