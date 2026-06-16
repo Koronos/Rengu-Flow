@@ -37,6 +37,13 @@ const props = defineProps<{
   refreshToken?: number;
 }>();
 
+// Reported after each load/render so the parent can hide a metric that has no data for the
+// selected runs (e.g. val/* when no eval dataset ran). Emitted both ways so a metric reappears
+// once a newly selected run does have it.
+const emit = defineEmits<{
+  (e: "data-state", payload: { metric: string; hasData: boolean }): void;
+}>();
+
 const HEIGHT = 200;
 
 const root = ref<HTMLElement | null>(null);
@@ -128,6 +135,7 @@ function render() {
   if (!chartEl.value) return;
   const data = buildData();
   hasData.value = (data[0] as number[]).length > 0;
+  emit("data-state", { metric: props.metric, hasData: hasData.value });
   if (!hasData.value) {
     destroyPlot();
     return;

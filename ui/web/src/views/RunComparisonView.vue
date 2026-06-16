@@ -117,6 +117,7 @@
           <div v-if="chartMetrics.length" class="cmp-charts">
             <MetricOverlayChart
               v-for="m in chartMetrics"
+              v-show="!emptyMetrics.has(m)"
               :key="m"
               :metric="m"
               :runs="selectedRefs"
@@ -126,6 +127,7 @@
               :refresh-token="refreshToken"
               sync-key="compare"
               class="cmp-chart"
+              @data-state="onChartDataState"
             />
           </div>
 
@@ -441,6 +443,18 @@ const chartMetrics = computed(() => {
     sel.some((r) => (r.tags || []).includes(m) || (r.tags || []).length === 0)
   );
 });
+
+// Metrics whose chart reported no data for the current selection — hidden so empty cards (e.g.
+// val/* without an eval dataset, or grad_norm for an optimizer that doesn't expose it) don't show.
+const emptyMetrics = ref<Set<string>>(new Set());
+function onChartDataState(payload: { metric: string; hasData: boolean }) {
+  const has = emptyMetrics.value.has(payload.metric);
+  if (payload.hasData === !has) return; // no change
+  const next = new Set(emptyMetrics.value);
+  if (payload.hasData) next.delete(payload.metric);
+  else next.add(payload.metric);
+  emptyMetrics.value = next;
+}
 
 const hparamCols = computed(() => {
   const seen = new Map<string, Set<string>>();
