@@ -37,6 +37,28 @@ def test_read_installed_profiles_drops_unknown(tmp_path):
     assert read_installed_profiles(tmp_path) == ["ui", "kaon"]
 
 
+def test_install_state_migrates_from_legacy_hidden_dir(tmp_path):
+    """The record moves out of the retired hidden .rengu-flow/ into the visible data/ on access."""
+    import json
+
+    from rengu_flow.install.state import LEGACY_STATE_DIRNAME, installed_profiles_path
+
+    legacy = tmp_path / LEGACY_STATE_DIRNAME
+    legacy.mkdir()
+    (legacy / "installed-profiles.json").write_text(
+        json.dumps({"profiles": ["ui", "cosmos"]}), encoding="utf-8"
+    )
+
+    # Reading triggers the one-time migration.
+    assert read_installed_profiles(tmp_path) == ["ui", "cosmos"]
+    assert installed_profiles_path(tmp_path).is_file()  # now under data/
+    assert not legacy.exists()  # hidden folder removed
+
+    # A subsequent record keeps working against the new location.
+    record_installed_profiles(["optim"], root=tmp_path)
+    assert read_installed_profiles(tmp_path) == ["ui", "cosmos", "optim"]
+
+
 # --- run_uv_pip_install (additive git/VCS specs) -----------------------------------------------
 
 def test_run_uv_pip_install_builds_argv(tmp_path, monkeypatch):
