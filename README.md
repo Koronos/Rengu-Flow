@@ -34,9 +34,20 @@ A **TOML-driven training framework** for diffusion models. You describe a run in
 
 ## Requirements
 
-- **OS** — Linux (required for the `rengu` CLI and for DeepSpeed/CUDA). On Windows, use WSL2 — see the [WSL workflow](docs/developer/wsl-windows-workflow.md).
-- **uv** — Required on `PATH` for `./rengu` and `./start-ui.sh`. uv creates `.venv` and installs Python ≥ 3.10 as needed; no separate system `python3` required.
-- **GPU** — An NVIDIA GPU with CUDA for training. Runtime dependencies (PyTorch, DeepSpeed, diffusers, PEFT, …) are pinned in [pyproject.toml](pyproject.toml) and [uv.lock](uv.lock).
+**You install these (system level):**
+
+- **OS** — Linux, or Windows via **WSL2**. Native Windows is not supported for training; see the [WSL workflow](docs/developer/wsl-windows-workflow.md).
+- **NVIDIA GPU + driver** — a CUDA-capable GPU with a driver recent enough for **CUDA 13.x** (check the "CUDA Version" reported by `nvidia-smi`).
+- **CUDA Toolkit 13.x** — provides **`nvcc`**, which DeepSpeed uses to JIT-compile its C++/CUDA ops. Its major version must match the PyTorch build (CUDA 13); without it, DeepSpeed's compiled ops fail to build. Point `CUDA_HOME` at the toolkit if it is not auto-detected.
+- **uv** — required on `PATH` for `./rengu` and `./start-ui.sh`. uv creates `.venv` and installs a compatible **Python (3.10–3.13)** automatically; no separate system `python3` needed.
+
+**Installed automatically (by `rengu init` / `uv sync`):**
+
+- **PyTorch 2.12 + CUDA 13.0** (`torch==2.12.0+cu130`), torchvision 0.27, and DeepSpeed 0.19, from the [PyTorch `cu130` index](https://download.pytorch.org/whl/cu130).
+- The **CUDA 13 runtime stack — cuDNN, cuBLAS, NCCL, cuFFT, cuRAND, …** — ships *inside* those PyTorch wheels (as `nvidia-*-cu13` packages). You do **not** install cuDNN or the runtime libraries separately.
+- All remaining Python deps (diffusers, PEFT, safetensors, …). Exact versions are pinned in [pyproject.toml](pyproject.toml) and [uv.lock](uv.lock).
+
+> **Tested stack** (May 2026, WSL2 + NVIDIA): Python 3.13, torch 2.12.0+cu130, torchvision 0.27.0+cu130, deepspeed 0.19.0 — verified end-to-end on an 8 GB RTX 3000 Ada (SDXL + Cosmos LoRA and SDXL full-finetune smokes).
 
 ## Installation
 
