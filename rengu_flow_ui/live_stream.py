@@ -81,7 +81,10 @@ async def run_job_live_ws(send_json, job_id: str) -> None:
       - ``{"type": "run_finished", "state"}``
       - ``{"type": "error", "message"}``
     """
-    log_offset = 0
+    # Start near the end of the log: the UI keeps only the recent tail, and emitting a multi-MB
+    # history as one log_line would trip the 1 MB WS frame limit (a 1009 "message too big" close
+    # silently drops the client to HTTP polling). New output streams from this offset onward.
+    log_offset = await asyncio.to_thread(jobs.log_tail_start_offset, job_id)
     last_progress_json: str | None = None
     tick = 0
 
@@ -99,7 +102,9 @@ async def run_job_live_ws(send_json, job_id: str) -> None:
 
         chunk = snap.get("log_chunk")
         if chunk:
-            await send_json({"type": "log_line", "chunk": chunk})
+            # Split so a large tail/burst stays under the WS frame limit (see jobs.iter_log_frames).
+            for frame in jobs.iter_log_frames(chunk):
+                await send_json({"type": "log_line", "chunk": frame})
 
         # Progress is driven by the marker stream; emit whenever it changes. The last
         # parsed marker persists across ticks (parse_last_progress_marker re-reads the

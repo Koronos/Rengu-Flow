@@ -908,7 +908,16 @@ def create_app() -> FastAPI:
                 await websocket.close(code=4401, reason="Invalid token")
                 return
         await websocket.accept()
-        offset = 0
+
+        async def _send_log(text: str) -> None:
+            # Split into sub-frames so a multi-MB tail never trips the 1 MB WS frame limit (a
+            # 1009 "message too big" close would silently drop the client to HTTP polling).
+            for frame in jobs.iter_log_frames(text):
+                await websocket.send_text(frame)
+
+        # Start near the end: the UI keeps only the recent tail, and dumping a multi-MB history
+        # here is what tripped the frame limit. New output is appended from this offset onward.
+        offset = await asyncio.to_thread(jobs.log_tail_start_offset, job_id)
         try:
             while True:
                 try:
@@ -918,7 +927,7 @@ def create_app() -> FastAPI:
                     # duration of each read. Mirrors live_stream.run_job_live_ws.
                     chunk, offset = await asyncio.to_thread(jobs.tail_log, job_id, offset)
                     if chunk:
-                        await websocket.send_text(chunk)
+                        await _send_log(chunk)
                 except KeyError:
                     await websocket.send_text("[error] job not found\n")
                     break
@@ -929,7 +938,7 @@ def create_app() -> FastAPI:
                     try:
                         chunk, offset = await asyncio.to_thread(jobs.tail_log, job_id, offset)
                         if chunk:
-                            await websocket.send_text(chunk)
+                            await _send_log(chunk)
                     except KeyError:
                         pass
                     break

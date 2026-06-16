@@ -108,6 +108,64 @@ def test_job_live_ws_delivers_progress(ui_client, ui_data_tmp: Path) -> None:
         assert "progress" in seen
 
 
+def test_iter_log_frames_bounds_frame_bytes() -> None:
+    assert jobs.iter_log_frames("") == []
+    # 3 MB ASCII split into sub-limit frames; nothing dropped or reordered.
+    big = "x" * (3 * 1024 * 1024)
+    frames = jobs.iter_log_frames(big)
+    assert "".join(frames) == big
+    assert all(len(f.encode()) <= jobs.LOG_WS_FRAME_BYTES for f in frames)
+    # Worst-case multi-byte UTF-8 still stays under the 1 MB WS frame limit.
+    multi = "é" * 500_000
+    assert all(len(f.encode()) < 1_048_576 for f in jobs.iter_log_frames(multi))
+
+
+def test_log_tail_start_offset(ui_data_tmp: Path) -> None:
+    log_path = ui_data_tmp / "logs" / "tail.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_text("X" * (jobs.LOG_WS_TAIL_BYTES + 100_000), encoding="utf-8")
+    job = db.create_job(
+        config_path="x.toml", log_path=str(log_path), output_dir=str(ui_data_tmp / "output")
+    )
+    # Seeks to exactly tail_bytes before EOF; the read from there is just the recent tail.
+    off = jobs.log_tail_start_offset(job.id)
+    assert off == log_path.stat().st_size - jobs.LOG_WS_TAIL_BYTES
+    chunk, eof = jobs.tail_log(job.id, off)
+    assert len(chunk) <= jobs.LOG_WS_TAIL_BYTES
+    assert eof == log_path.stat().st_size
+
+    # A short log is sent in full (offset 0); an unknown job never raises.
+    short = ui_data_tmp / "logs" / "short.log"
+    short.write_text("hi\n", encoding="utf-8")
+    j2 = db.create_job(
+        config_path="x.toml", log_path=str(short), output_dir=str(ui_data_tmp / "output")
+    )
+    assert jobs.log_tail_start_offset(j2.id) == 0
+    assert jobs.log_tail_start_offset("does-not-exist") == 0
+
+
+def test_logs_ws_bounds_frame_size_for_large_log(ui_client, ui_data_tmp: Path) -> None:
+    """A multi-MB log must stream in sub-limit frames instead of one oversized frame.
+
+    A single multi-MB frame previously tripped the 1 MB WS limit (1009 close), silently dropping
+    the client to HTTP polling. We assert the FIRST delivered frame is bounded; reading just one
+    frame off a running job avoids waiting on the server-side close (which hangs the TestClient).
+    """
+    run_dir = ui_data_tmp / "output" / "run_big_ws"
+    run_dir.mkdir(parents=True)
+    log_path = ui_data_tmp / "logs" / "big_ws.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_text("training output line\n" * 200_000, encoding="utf-8")  # ~4 MB
+    job = _running_job(ui_data_tmp, run_dir=run_dir, log_path=log_path)
+
+    with ui_client.websocket_connect(f"/api/v1/jobs/{job.id}/logs/ws") as ws:
+        first = ws.receive_text()
+
+    # The first frame is a bounded slice, well under the 1 MB WS frame limit.
+    assert 0 < len(first.encode()) <= jobs.LOG_WS_FRAME_BYTES
+    assert len(first.encode()) < 1_048_576
+
+
 def test_system_stats_ws_pushes_stats(ui_client) -> None:
     """The global host-stats socket pushes a system_stats message (replaces HTTP polling)."""
     with ui_client.websocket_connect("/api/v1/system/stats/ws") as ws:

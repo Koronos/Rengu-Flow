@@ -293,3 +293,39 @@ def tail_log(job_id: str, offset: int = 0) -> tuple[str, int]:
     # Filter throttled progress markers out of the displayed log; the UI parses them
     # separately for its live bar (see live_stream / progress_stream).
     return strip_progress_markers(text), new_offset
+
+
+# WebSocket log streaming bounds. A multi-MB log dumped in one WS frame trips the 1 MB default
+# frame limit (close code 1009 "message too big"), which silently drops the client back to HTTP
+# polling. So: seek the initial catch-up to the recent tail (the UI only retains ~512 KB anyway),
+# and split every send into frames that stay under the limit.
+LOG_WS_TAIL_BYTES = 512 * 1024
+LOG_WS_FRAME_BYTES = 256 * 1024
+
+
+def log_tail_start_offset(job_id: str, tail_bytes: int = LOG_WS_TAIL_BYTES) -> int:
+    """Byte offset ``tail_bytes`` before EOF (clamped to 0) for seeking a WS stream to the tail.
+
+    Returns 0 for an unknown/missing job so the caller's normal ``tail_log`` path surfaces the
+    "job not found" case instead of raising here.
+    """
+    try:
+        job = db.get_job(job_id)
+    except KeyError:
+        return 0
+    path = Path(job.log_path)
+    if not path.is_file():
+        return 0
+    return max(0, path.stat().st_size - tail_bytes)
+
+
+def iter_log_frames(text: str, limit_bytes: int = LOG_WS_FRAME_BYTES) -> list[str]:
+    """Split ``text`` into pieces whose UTF-8 size stays under ``limit_bytes`` (the WS frame cap).
+
+    The char budget is ``limit_bytes // 4`` so even all-4-byte-UTF-8 text never exceeds the limit;
+    plain ASCII logs simply yield a few more, smaller frames. Empty text yields no frames.
+    """
+    if not text:
+        return []
+    step = max(1, limit_bytes // 4)
+    return [text[i : i + step] for i in range(0, len(text), step)]
