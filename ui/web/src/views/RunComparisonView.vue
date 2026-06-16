@@ -19,6 +19,27 @@
       </el-input>
     </form>
 
+    <!-- Reload + opt-in auto-update for the whole comparison (run statuses, last scalars, and the
+         overlay series), mirroring the loss monitor's controls on the run detail page. -->
+    <div v-if="allRuns.length" class="cmp-refresh-bar">
+      <el-button size="small" :icon="Refresh" :loading="refreshing" @click="reload">Reload</el-button>
+      <el-checkbox v-model="autoUpdate" size="small">Auto-update</el-checkbox>
+      <span class="cmp-cadence" :class="{ 'cmp-cadence--off': !autoUpdate }">
+        every
+        <el-input-number
+          v-model="cadenceSec"
+          :min="1"
+          :max="3600"
+          :step="1"
+          :controls="false"
+          :disabled="!autoUpdate"
+          size="small"
+          class="cmp-cadence-input"
+        />
+        s
+      </span>
+    </div>
+
     <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
     <div v-else-if="loading" class="loading"><el-text type="info">Loading runs…</el-text></div>
     <el-empty
@@ -30,6 +51,23 @@
       <!-- Sidebar: native run selector (light-weight, no per-item EP components) -->
       <aside class="cmp-sidebar">
         <input v-model="search" class="cmp-search" type="search" placeholder="Filter runs…" />
+        <div class="cmp-sidebar__sort">
+          <select v-model="sortKey" class="cmp-sort-select" aria-label="Sort runs by">
+            <option value="name">Name</option>
+            <option value="updated">Recent</option>
+            <option value="created">Created</option>
+            <option value="loss">Loss</option>
+            <option value="status">Status</option>
+          </select>
+          <button
+            type="button"
+            class="cmp-sort-dir"
+            :title="sortDir === 'asc' ? 'Ascending — click for descending' : 'Descending — click for ascending'"
+            @click="toggleSortDir"
+          >
+            {{ sortDir === "asc" ? "↑" : "↓" }}
+          </button>
+        </div>
         <div class="cmp-sidebar__actions">
           <button type="button" @click="selectRecent(4)">Recent 4</button>
           <button type="button" @click="selectAllVisible">All</button>
@@ -85,6 +123,7 @@
               :output-dir="outputDir"
               :smoothing="smoothing"
               :log-scale="logScale"
+              :refresh-token="refreshToken"
               sync-key="compare"
               class="cmp-chart"
             />
@@ -175,8 +214,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { Refresh } from "@element-plus/icons-vue";
 import { api } from "../api";
 import MetricOverlayChart from "../components/MetricOverlayChart.vue";
 import RunComparePreviews from "../components/RunComparePreviews.vue";
@@ -200,6 +240,21 @@ const onlyDiffs = ref(true);
 const search = ref("");
 const folderInput = ref("output");
 
+type SortKey = "name" | "updated" | "created" | "loss" | "status";
+const sortKey = ref<SortKey>("name");
+const sortDir = ref<"asc" | "desc">("asc");
+
+// TensorBoard-style refresh, mirroring RunDetailView's loss monitor: manual Reload + opt-in
+// auto-update at a chosen cadence, off by default so the overlay stays put unless asked.
+const autoUpdate = ref(false);
+const cadenceSec = ref(10);
+// Bumped on each reload so the overlay charts re-fetch their series (their selection didn't change).
+const refreshToken = ref(0);
+// True only during a soft (Reload / auto-update) refetch, so we dim subtly instead of swapping in
+// the full-page "Loading runs…" state and losing the charts.
+const refreshing = ref(false);
+let autoTimer: ReturnType<typeof setInterval> | null = null;
+
 let controller: AbortController | null = null;
 
 const outputDir = computed(() => {
@@ -212,10 +267,13 @@ function parseRunsQuery(): string[] {
   return typeof q === "string" ? q.split(",").map((s) => s.trim()).filter(Boolean) : [];
 }
 
-async function loadAll() {
+async function loadAll(soft = false) {
   controller?.abort();
   controller = new AbortController();
-  loading.value = true;
+  // Soft (Reload / auto-update) refetch keeps the current view; only the first/folder-change load
+  // shows the blocking "Loading runs…" placeholder.
+  if (soft) refreshing.value = true;
+  else loading.value = true;
   error.value = "";
   try {
     const res: CompareRunsResult = await api.compareRuns([], outputDir.value, controller.signal);
@@ -230,7 +288,62 @@ async function loadAll() {
     error.value = e instanceof Error ? e.message : String(e);
   } finally {
     loading.value = false;
+    refreshing.value = false;
   }
+}
+
+// Re-fetch the folder's run rows (statuses, last scalars) AND force the overlay charts to reload
+// their series — neither happens on its own because the selected run ids are unchanged.
+function reload(): void {
+  void loadAll(true);
+  refreshToken.value++;
+}
+
+function clearAutoTimer(): void {
+  if (autoTimer) clearInterval(autoTimer);
+  autoTimer = null;
+}
+function restartAutoTimer(): void {
+  clearAutoTimer();
+  if (autoUpdate.value && cadenceSec.value > 0) {
+    autoTimer = setInterval(reload, cadenceSec.value * 1000);
+  }
+}
+// Enabling auto-update refreshes once immediately, then on the cadence; changing the cadence just
+// reschedules without an extra fetch.
+watch(autoUpdate, (on) => {
+  if (on) reload();
+  restartAutoTimer();
+});
+watch(cadenceSec, restartAutoTimer);
+onUnmounted(clearAutoTimer);
+
+function toggleSortDir(): void {
+  sortDir.value = sortDir.value === "asc" ? "desc" : "asc";
+}
+
+function lossOf(r: CompareRunRow): number {
+  const v = r.last_scalars?.["train/loss"];
+  // Runs without a loss sort last (largest), so they don't crowd the top of an ascending list.
+  return typeof v === "number" && Number.isFinite(v) ? v : Number.POSITIVE_INFINITY;
+}
+function compareRunsBy(a: CompareRunRow, b: CompareRunRow, key: SortKey): number {
+  switch (key) {
+    case "name":
+      return a.name.localeCompare(b.name);
+    case "status":
+      return a.status.localeCompare(b.status) || a.name.localeCompare(b.name);
+    case "created":
+      return (a.created_at || "").localeCompare(b.created_at || "");
+    case "updated":
+      return (a.updated_at || "").localeCompare(b.updated_at || "");
+    case "loss": {
+      const av = lossOf(a);
+      const bv = lossOf(b);
+      return av === bv ? a.name.localeCompare(b.name) : av < bv ? -1 : 1;
+    }
+  }
+  return 0;
 }
 
 onMounted(() => {
@@ -270,16 +383,23 @@ function selectAllVisible() {
   syncSelectionToUrl();
 }
 function selectRecent(n: number) {
-  selectedIds.value = allRuns.value.map((r) => r.run_id).slice(-n);
+  const byRecent = allRuns.value
+    .slice()
+    .sort((a, b) => (b.updated_at || "").localeCompare(a.updated_at || ""));
+  selectedIds.value = byRecent.slice(0, n).map((r) => r.run_id);
   syncSelectionToUrl();
 }
 
 const sidebarRuns = computed(() => {
   const q = search.value.trim().toLowerCase();
-  if (!q) return allRuns.value;
-  return allRuns.value.filter(
-    (r) => r.name.toLowerCase().includes(q) || r.run_id.toLowerCase().includes(q)
-  );
+  const filtered = q
+    ? allRuns.value.filter(
+        (r) => r.name.toLowerCase().includes(q) || r.run_id.toLowerCase().includes(q)
+      )
+    : allRuns.value.slice();
+  const dir = sortDir.value === "asc" ? 1 : -1;
+  filtered.sort((a, b) => dir * compareRunsBy(a, b, sortKey.value));
+  return filtered;
 });
 
 const selectedRuns = computed(() =>
@@ -379,6 +499,25 @@ function hardwareLabel(r: CompareRunRow): string {
 .folder-bar {
   max-width: 560px;
 }
+.cmp-refresh-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.cmp-cadence {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+}
+.cmp-cadence--off {
+  opacity: 0.6;
+}
+.cmp-cadence-input {
+  width: 64px;
+}
 
 .cmp-layout {
   display: flex;
@@ -407,6 +546,34 @@ function hardwareLabel(r: CompareRunRow): string {
   background: var(--el-fill-color-blank);
   color: var(--el-text-color-primary);
   font-size: 13px;
+}
+.cmp-sidebar__sort {
+  display: flex;
+  gap: 6px;
+}
+.cmp-sort-select {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 6px;
+  border: 1px solid var(--el-border-color);
+  border-radius: 4px;
+  background: var(--el-fill-color-blank);
+  color: var(--el-text-color-regular);
+  font-size: 12px;
+}
+.cmp-sort-dir {
+  flex: 0 0 auto;
+  width: 30px;
+  border: 1px solid var(--el-border-color);
+  border-radius: 4px;
+  background: var(--el-fill-color-light);
+  color: var(--el-text-color-regular);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+}
+.cmp-sort-dir:hover {
+  background: var(--el-fill-color);
 }
 .cmp-sidebar__actions {
   display: flex;

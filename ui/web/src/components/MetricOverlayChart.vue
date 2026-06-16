@@ -33,6 +33,8 @@ const props = defineProps<{
   smoothing: number;
   logScale: boolean;
   syncKey: string;
+  /** Bumped by the parent (Reload / auto-update) to force a series re-fetch without an id change. */
+  refreshToken?: number;
 }>();
 
 const HEIGHT = 200;
@@ -202,6 +204,13 @@ watch(
   () => [props.smoothing, props.logScale],
   () => {
     if (started) render();
+  }
+);
+// Parent asked for a refresh (Reload button / auto-update tick) → re-fetch the series.
+watch(
+  () => props.refreshToken,
+  () => {
+    if (started) loadSeries();
   }
 );
 
