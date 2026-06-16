@@ -5,7 +5,7 @@ All optional-dependency logic is centralized in the `rengu_flow.install` package
 ## Modules
 
 - **`install/profiles.py`** — profile→extra mapping (`PROFILE_EXTRAS`), labels/descriptions, `normalize_profiles`, `uv_sync_argv` (always emits `uv sync --inexact …`), `PROFILE_IMPORT_CHECKS` (profile→modules that must import), and `PROFILE_GIT_REQUIREMENTS` (profile→pip/git specs uv can't install via extras).
-- **`install/runner.py`** — subprocess wrappers: `run_uv_venv`, `run_uv_sync(_or_exit)`, `run_uv_pip_install(_or_exit)`, and `require_uv`.
+- **`install/runner.py`** — subprocess wrappers: `run_uv_venv(_or_exit)`, `run_uv_sync(_or_exit)`, `run_uv_pip_install(_or_exit)`, and `require_uv`.
 - **`install/state.py`** — persisted record of enabled profiles at `<repo>/.rengu-flow/installed-profiles.json` (gitignored): `read_installed_profiles`, `record_installed_profiles` (additive merge).
 - **`install/manager.py`** — the on-demand API: `profile_installed` / `missing_profiles` (import probes), `ensure_profiles` (additive install of only what's missing + git requirements + records success), `self_heal` (re-ensure recorded profiles), `ensure_ui_dependencies`, and `profiles_for_config_*` / `ensure_training_extras`.
 

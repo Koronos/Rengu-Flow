@@ -24,9 +24,9 @@ Code entry: **`rengu_flow/main.py`** — `_run_training(args, config)`.
 - **Module:** `rengu_flow.utils.eval`.
 - **Constants:** `TIMESTEP_QUANTILES_FOR_EVAL = [0.1, 0.2, ..., 0.9]`.
 - **Functions:**
-  - **`evaluate_single(model_engine, eval_dataloader, eval_gradient_accumulation_steps, quantile, pbar=None)`** — Sets `eval_dataloader.set_eval_quantile(quantile)`, runs a loop: `get_data_iterator_for_step` → `model_engine.eval_batch(iterator, num_micro_batches=...)` → `eval_dataloader.sync_epoch()`, until `eval_dataloader.epoch == 2`; then `eval_dataloader.reset()`; returns mean loss.
-  - **`_evaluate(model_engine, eval_dataloaders, step, eval_gradient_accumulation_steps, tb_writer, wandb_enable)`** — For each dataset and each quantile, calls `evaluate_single`; logs `{name}/loss_quantile_{q}`, `{name}/loss`, `eval/eval_time_sec` to TensorBoard and optionally WandB.
-  - **`evaluate(model, model_engine, eval_dataloaders, tb_writer, step, eval_gradient_accumulation_steps, disable_block_swap, optimizer=None, wandb_enable=False)`** — If no eval dataloaders, returns. Otherwise: optional `optimizer.eval()`; `empty_cuda_cache()`; `model.prepare_block_swap_inference(disable_block_swap)`; `torch.no_grad()` + `isolate_rng()` (fixed seed per rank); `_evaluate(...)`; `empty_cuda_cache()`; `model.prepare_block_swap_training()`; optional `optimizer.train()`.
+  - **`evaluate_single(model_engine, eval_dataloader, eval_gradient_accumulation_steps, quantile, pbar=None, max_batches=None)`** — Sets `eval_dataloader.set_eval_quantile(quantile)`, runs a loop: `get_data_iterator_for_step` → `model_engine.eval_batch(iterator, num_micro_batches=...)` → `eval_dataloader.sync_epoch()`, until `eval_dataloader.epoch == 2` (or `max_batches` reached); then `eval_dataloader.reset()`; returns mean loss.
+  - **`_evaluate(model_engine, eval_dataloaders, step, eval_gradient_accumulation_steps, sink)`** — For each dataset and each quantile, calls `evaluate_single`; logs `{name}/loss_quantile_{q}`, `{name}/loss`, `eval/eval_time_sec` via the tracking `sink`.
+  - **`evaluate(model, model_engine, eval_dataloaders, sink, step, eval_gradient_accumulation_steps, disable_block_swap, optimizer=None)`** — If no eval dataloaders, returns. Otherwise: optional `optimizer.eval()`; `empty_cuda_cache()`; `model.prepare_block_swap_inference(disable_block_swap)`; `torch.no_grad()` + `isolate_rng()` (fixed seed per rank); `_evaluate(...)`; `empty_cuda_cache()`; `model.prepare_block_swap_training()`; optional `optimizer.train()`.
 
 **When `evaluate()` is called:**
 
@@ -72,25 +72,35 @@ User-facing option tables: **`docs/user/training-loop-and-eval.md`** (Evaluation
 
 **Examples axis:** `x_axis_examples` in config selects whether `log_training_step` and eval/preview logging use `examples` or `step` as the TensorBoard/WandB x-coordinate (`training_metrics.py` / loop in `main.py`).
 
-## WandB initialization
+## Tracking sink (`rengu_track`)
 
-On rank 0, if `monitoring.enable_wandb`:
+All metrics, images, and lifecycle events are routed through a single **tracking sink** built from
+the external `rengu_track` package, not direct TensorBoard/WandB calls. On rank 0, `main.py` builds
+`sink = build_sink(config, run_dir)`; other ranks get a no-op `NullSink()`. Configuration is under
+`config["tracking"]` (see `set_config_defaults`):
 
-```python
-wandb.login(key=mon["wandb_api_key"])  # optional
-wandb.init(project=mon.get("wandb_tracker_name", "rengu-flow"), name=mon.get("wandb_run_name", run_dir), ...)
-```
+| Key | Default | Role |
+|-----|---------|------|
+| `tracking.enabled` | `true` | `false` is the full disconnect (no-op sink). |
+| `tracking.backends` | `["manifest", "tensorboard"]` | Fan-out targets. Add `"wandb"` to enable WandB. |
+| `tracking.capture_lineage` | `true` | `sink.set_lineage(...)` / `sink.set_hardware(...)`. |
+| `tracking.system_sampler.enabled` / `.interval_sec` | `true` / `10` | Background system-metrics sampler. |
+| `tracking.wandb.project` / `.run_name` / `.api_key` | `"rengu-flow"` / `None` / `None` | WandB backend options. |
 
-Failure to import or init WandB sets `wandb_enable = False` for the rest of the run. Keys are under `config["monitoring"]`; see user doc for env var `WANDB_API_KEY` alternative.
-
-## Status file (UI)
-
-When `monitoring.enable_status_file` is true, rank 0 calls **`rengu_flow.control.status_file.write_status_file`** every `logging_steps` with `step`, `examples`, `epoch`, `loss`. Consumed by the web UI; see **`docs/developer/web-ui.md`**.
+The local store in `run_dir` is the manifest (`run.json`), TB event files, and the event log
+(`run_events.jsonl`). Lifecycle events use `sink.event(...)` (e.g. `EVENT_FINISHED`, `EVENT_FAILED`,
+`EVENT_STOP_REQUESTED`) and `sink.close(status=...)`. The web UI reads the manifest
+(`rengu_track.read_manifest`) rather than a separate status file; see **`docs/developer/web-ui.md`**.
 
 ## Where metrics are written
 
-- **TensorBoard:** `SummaryWriter(log_dir=run_dir)` (main process only). Training step logging via **`rengu_flow.utils.training_metrics.log_training_step`**: `train/loss`, `train/grad_norm`, `train/prodigy_d` (Prodigy), `train/automagic_avg_lr` and histogram `train/automagic_lrs` (Automagic / GenericOptim). Epoch: `train/epoch_loss`. Eval: `{name}/loss_quantile_{q}`, `{name}/loss`, `eval/eval_time_sec`. X-axis is `examples` if `x_axis_examples` else `step`.
-- **WandB:** Optional; only if `config["monitoring"]["enable_wandb"]`. Same keys and step/examples as TensorBoard via `wandb.log(...)` in the loop and inside `_evaluate`. Lazy import so WandB is not required at install time.
+Training step logging via **`rengu_flow.utils.training_metrics.log_training_step`** emits through the
+sink: `train/loss`, `train/grad_norm`, `train/prodigy_d` (Prodigy), `train/automagic_avg_lr` and
+histogram `train/automagic_lrs` (Automagic / GenericOptim). Epoch: `train/epoch_loss`. Eval:
+`{name}/loss_quantile_{q}`, `{name}/loss`, `eval/eval_time_sec` (`sink.scalar(...)` in `_evaluate`).
+X-axis is `examples` if `x_axis_examples` else `step`. The configured `backends` decide whether each
+value lands in the manifest, TensorBoard, and/or WandB — the loop and `_evaluate` call `sink.scalar`
+/ `sink.histogram` / `sink.image` once, regardless of backend.
 
 ## Saver and signal files
 

@@ -180,7 +180,7 @@ With DeepSpeed pipeline / multi-GPU:
 
 ### Metrics
 
-- TensorBoard: `train/oom_skip` (total skips), `train/consecutive_oom` on skip when a writer is active.
+- Via the tracking `sink`: `sink.scalar("train/oom_skip", ...)` (total skips) and `sink.scalar("train/consecutive_oom", ...)` on skip.
 - Skipped steps do not call `log_training_step` (no `train/loss` for that step).
 
 ### Tests (fast, no GPU)

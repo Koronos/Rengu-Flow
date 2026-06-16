@@ -89,7 +89,7 @@ caption column ends up with K entries per image; everything below is identical. 
 
 - **`cache_root`** (training TOML) — All v2 caches live under `cache_root/<dataset_hash>/<directory_hash>/<model_name>/`. Default: `cache/` at install root (gitignored). Legacy v1 / co-located `path/cache/` is not supported. If `cache_root` remains in a dataset TOML, it is deprecated: a warning is logged and the value is used only when the training config omits `cache_root`.
 - **`tag_dropout_*`** / **`uncond_fraction`** — See `rengu_flow/data/tag_dropout.py`. `uncond_fraction` works in every mode (cached runs swap in the cached uncond embedding). Tag dropout rewrites the caption string: with `cache_text_embeddings = false` it is applied **live** per sample in `SizeBucketDataset._sample_from_entry`; with the cache on it is **pre-baked** into the embedding cache (`cached_caption_variants = 1` bakes a single fixed variant — diffusion-pipe's default — and `>= 2` bakes rotating variants; see "Caption variants"). Either way the dropout reaches the model, so cache-on + dropout is not rejected.
-- **`rengu_flow.utils.cache_v2.CacheV2`** — Only supported format: `manifest.json` (fingerprint, tensor specs), `tensors/{key}.bin` (stacked payloads; float tensors stored as **bf16**), `meta.db` (per-index JSON for non-tensor fields and optional null tensors). Opened via **`rengu_flow.utils.cache_factory.open_disk_cache`**, which rejects legacy v1 caches (a `metadata.db` directory) with an actionable error.
+- **`rengu_flow.utils.cache_v2.CacheV2`** — Only supported format: `manifest.json` (fingerprint, tensor specs), `tensors/{key}.bin` (stacked payloads; float tensors stored as **bf16**), `meta.db` (per-index JSON for non-tensor fields and optional null tensors). Opened via **`rengu_flow.utils.cache_factory.open_disk_cache`**, which rejects legacy v1 caches (a `metadata.db` file) with an actionable error.
 - **`rengu_flow.data.cache_utils._map_and_cache`** — Maps over a HuggingFace `datasets.Dataset` with a `map_fn(example, rank)`, persists results via `open_disk_cache`. Fingerprint from dataset `_fingerprint` + optional `new_fingerprint_args` + `cache_format=…`. If `map_fn is None`, loads existing cache only (used after worker cache run). Config: `cache_num_proc` (pool size, default `min(8, cpu_count)`), `cache_keep_in_memory` (default `false` for resume slices).
 - **`PipelineDataLoader` prefetch** — `dataloader_prefetch=true` uses a background thread when `dataloader_num_workers=0`; `prepare_inputs` stays on the main process. See `dataloader_num_workers`, `dataloader_pin_memory`, `dataloader_prefetch_factor` in the main TOML.
 - **`rengu_flow.data.manager.DatasetManager`** — Holds model (VAE, text encoders), registers datasets, and runs **`cache()`**: spawns a worker process that runs `_cache_fn` (metadata → latents → text embeddings); main processes handle GPU work via a queue. After cache, VAE/TE can be unloaded; then all ranks load datasets from cache (`cache_metadata(trust_cache=True)`, `cache_latents(None, trust_cache=True)`, `cache_text_embeddings(None, i)`).
@@ -119,7 +119,7 @@ Contract for the object passed to the orchestrator as the training dataset:
 |------|----------|
 | Config loading | `rengu_flow.config.loader`: `load_config`, `load_dataset_config`, `load_eval_dataset_config` |
 | Dataset config validation | `rengu_flow.data.dataset_config`: `validate_dataset_config_for_real_data`, `DatasetConfigError` |
-| Cache (disk) | `rengu_flow.utils.cache`: `Cache` (v1); `rengu_flow.utils.cache_v2`: `CacheV2`; `rengu_flow.utils.cache_factory`: `open_disk_cache`, `detect_cache_format` |
+| Cache (disk) | `rengu_flow.utils.cache_v2`: `CacheV2` (only supported format); `rengu_flow.utils.cache_factory`: `open_disk_cache`, `detect_cache_format` (rejects legacy v1) |
 | Map and cache helpers | `rengu_flow.data.cache_utils`: `_map_and_cache`, `bucket_suffix`, `dedup_and_sort` |
 | Dataset hierarchy | `rengu_flow.data.dataset`: `Dataset`, `DirectoryDataset`, `SizeBucketDataset`, `ConcatenatedBatchedDataset`, `ARBucketDataset`, `TextEmbeddingDataset`, `_cache_text_embeddings`, caption helpers |
 | Cache orchestration | `rengu_flow.data.manager`: `_cache_fn`, `DatasetManager` |
@@ -136,7 +136,6 @@ See the full table in [Testing — Dataset and data loading tests](testing.md#da
 - **`tests/test_dataset_captions.py`** — `.txt` (one caption per line), `captions.json` (list or string), multi-caption `iteration_order`, `online_captions`.
 - **`tests/test_dump_dataset.py`**, **`tests/test_smoke_cc0_dataset.py`** — `dump_dataset` and the versioned CC0 fixture.
 - **`tests/test_sdxl_cache_hooks.py`**, **`tests/test_sdxl_cached_prepare_inputs.py`** — SDXL cache hooks and cached training path (mocked).
-- **`tests/test_cache.py`** — disk `Cache` fingerprint and shards (v1).
 - **`tests/test_cache_v2.py`** — v2 round-trip, resume, fingerprint, factory detect.
 
 ## Model hooks for cache

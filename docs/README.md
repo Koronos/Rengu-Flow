@@ -5,12 +5,13 @@
   - [Training Cosmos Predict2 / Anima](user/training-cosmos-predict2-lora-lokr-finetune.md) — LoRA, LoKr, and full finetune for Cosmos Predict2 DiT checkpoints.
   - [Full-model finetuning (SDXL)](user/full-model-training-sdxl.md) — Training the full model (no adapter), optional UNet-only with `freeze_text_encoders`.
   - [Dataset configuration](user/dataset-config.md) — Dataset TOML, resolutions, directories, and eval datasets.
-  - [Dataset augmentation](user/dataset-augmentation.md) — Planned diversity presets, cache interaction, references (Kohya, OneTrainer).
+  - [Dataset augmentation](user/dataset-augmentation.md) — Diversity presets (MVP), cache interaction, references (Kohya, OneTrainer).
+  - [Dataset Studio (`rengu prep`)](user/dataset-prep.md) — Tagging, captioning, watermark cleanup, and the bulk tag editor.
   - [Optimizer and scheduler](user/optimizer-and-scheduler.md) — Choosing optimizer and LR scheduler in TOML, built-in names, qualified path, runtime tokens, warmup.
   - [Training loop, evaluation, and logging](user/training-loop-and-eval.md) — Eval datasets, TensorBoard/WandB, resume from checkpoint, activation checkpointing.
   - [Checkpoints, model export, and retention](user/checkpoint-and-save.md) — Resume checkpoints vs inference export, `max_checkpoints_to_keep`, scheduled saves.
-  - [Training previews](user/previews.md) — Sample images during training, TensorBoard IMAGES tab, schedules and `preview` signal.
-  - [Signal files](user/signal-files.md) — Control runs with `save`, `save_quit`, `export_model`, `export_model_quit`, and `preview`.
+  - [Training previews](user/previews.md) — Sample images during training, TensorBoard IMAGES tab, schedules and `preview_now` signal.
+  - [Signal files](user/signal-files.md) — Control runs with `save`, `save_quit`, `export_model`, `export_model_quit`, and `preview_now`.
   - [CLI (`rengu`)](user/cli.md) — Setup, training launcher, UI, `rengu.local.toml`.
   - [Web UI](user/web-ui.md) — Optional local UI: `./rengu ui start`, configs, jobs, signals, progress.
   - [Maintenance](user/maintenance.md) — Dev-only UI/CLI: reset library DB, submodules, dependency extras.

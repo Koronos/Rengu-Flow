@@ -19,7 +19,7 @@ Training produces two kinds of artifacts in the **run directory** (under `output
 | **`save_every_n_examples`** | Same as `save_every_n_steps`, but counted in total examples seen; converted using global batch size. | Positive integer. | Omitted. |
 | **`save_dtype`** | Cast exported weights to this dtype. | `bfloat16`, `float16`, `float32`, etc. | Model dtype. |
 
-**Full-model export:** Omit the `[adapter]` section so training exports `model.safetensors` on each save. A top-level **`save_full_model`** toggle for adapter runs is **not implemented** yet — see [Specification: `save_full_model` flag](../spec/save-full-model-flag.md).
+**Full-model export:** Omit the `[adapter]` section so training exports `model.safetensors` on each save. A top-level **`save_full_model`** toggle for adapter runs is **not implemented** yet (tracked as BACKLOG P3-1); full export today means omitting `[adapter]`.
 
 Example:
 
@@ -79,6 +79,6 @@ While paused, you can also use:
 | `export_model_quit` | Retry export, then exit. |
 | `quit` | Exit **without** saving (destructive). |
 
-Enable **`monitoring.enable_status_file = true`** so the web UI can show phase `waiting_disk_export` on the Runs page and run detail.
+The web UI surfaces the `waiting_disk_export` phase on the Runs page and run detail automatically — it is emitted as a stdout progress marker, no config key required.
 
 **Async model export:** `async_model_export = true` (optional, single-GPU) offloads export work to a background thread so training can continue sooner. See [developer checkpoint guide](../developer/checkpoint-and-save.md#async-model-export-poc).

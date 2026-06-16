@@ -12,7 +12,7 @@ rengu-flow does **not** depend on diffusion-pipe at runtime. A local clone of [d
 | `models/llm_adapter.py` | Yes | **In-repo** → `rengu_flow/model/cosmos_predict2/llm_adapter.py` |
 | `models/wan/vae2_1.py` | Yes | **In-repo** → `rengu_flow/model/cosmos_predict2/wan_vae.py` |
 | `configs/qwen3_06b`, `t5_old` | Yes | **In-repo** → `assets/` + `package-data` |
-| `utils/offloading.py` | Only with `blocks_to_swap` | Ideas ported to [`rengu_flow/training/block_swap.py`](../training/block_swap.py); no full upstream fork |
+| `utils/offloading.py` | Only with `blocks_to_swap` | Ideas ported to [`rengu_flow/training/block_swap.py`](../../rengu_flow/training/block_swap.py); no full upstream fork |
 | PyPI: einops, transformers, accelerate, torchvision | Yes | Optional extra `[cosmos_predict2]` |
 
 ## Local diffusion-pipe diffs to mirror (already ported)

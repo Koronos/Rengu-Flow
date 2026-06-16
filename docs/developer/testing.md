@@ -9,15 +9,15 @@ How to run and extend the test suite for Rengu Flow.
 ```bash
 pip install -e ".[dev]"
 # or with uv:
-uv sync
+uv sync --extra dev
 ```
 
 **Run all tests:**
 
 ```bash
 pytest
-# or from repo root:
-uv run pytest
+# or from repo root (pytest lives in the dev extra):
+uv run --extra dev pytest
 python -m pytest tests/
 ```
 
@@ -75,7 +75,7 @@ Tests are designed to run in a few seconds. They do **not** use GPU, real checkp
 Run the UI-focused suite (no browser, no GPU):
 
 ```bash
-pytest tests/test_ui_api.py tests/test_configs_store.py tests/test_config_form.py \
+pytest tests/test_ui_api.py tests/test_run_staging.py tests/test_config_form.py \
   tests/test_dataset_form.py tests/test_dataset_field_help.py tests/test_datasets_store.py \
   tests/test_dataset_scan.py tests/test_job_queue.py tests/test_ui_job_queue.py \
   tests/test_rengu_flow_ui.py tests/test_docs_reader.py tests/test_system_stats.py \
@@ -86,7 +86,7 @@ pytest tests/test_ui_api.py tests/test_configs_store.py tests/test_config_form.p
 |-----------|--------|
 | `tests/conftest.py` | `ui_data_tmp`, `ui_client`, auth fixtures |
 | `tests/test_ui_api.py` | FastAPI routes: configs, datasets, jobs, schema, docs, stats |
-| `tests/test_configs_store.py` | Staging paths, validation, `_safe_id` |
+| `tests/test_run_staging.py` | Run TOML validation (`validate_toml_text`), job staging (`materialize_staging`), run-name helpers |
 | `tests/test_config_form.py` | TOML ↔ form, schema help, registries |
 | `tests/test_dataset_form.py` | Dataset TOML ↔ form, directory rows |
 | `tests/test_ui_job_queue.py` | Queue reorder, delete pending, `try_start_next` |

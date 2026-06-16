@@ -12,7 +12,7 @@ User-facing options: `docs/user/previews.md`.
 | `previews_configured(config)` | True if prompts exist and `enabled` is not false. |
 | `normalize_preview_prompts(preview_cfg)` | `(tag, prompt)` list for logging. |
 | `should_run_previews(...)` | Schedule + `forced` from signal. |
-| `run_previews(model, config, tb_writer, step, ...)` | Distributed barriers; inference on rank 0 only. |
+| `run_previews(model, config, sink, step, ...)` | Distributed barriers; inference on rank 0 only. Images logged via the tracking `sink`. |
 | `_run_sdxl_previews(...)` | Calls `StableDiffusionXLPipeline.__call__` with `output_type="pil"`. |
 | `_run_cosmos_previews(...)` | `prepare_preview_memory` → `CosmosPredict2Pipeline.generate_preview_image` → TensorBoard. |
 
@@ -48,17 +48,20 @@ Same pattern as **`evaluate()`**: `prepare_block_swap_inference(disable_block_sw
 - Eval uses top-level **`disable_block_swap_for_eval`** (passed from `main.py` into `evaluate()`).
 - Previews use **`disable_block_swap_for_preview`** (passed into `run_previews()`). When omitted, behavior matches eval’s default in the preview module.
 
-## TensorBoard
+## Image logging (tracking sink)
+
+Preview images are logged through the tracking `sink` (`rengu_track`), which fans out to the
+configured backends (e.g. TensorBoard):
 
 ```python
-tb_writer.add_image(f"preview/{name}", chw_float_0_1, global_step)
+sink.image(f"preview/{name}", chw_float_0_1, global_step)
 ```
 
 CHW float tensor in `[0, 1]` from PIL via `_pil_to_chw_float`.
 
 ## Signals
 
-**`rengu_flow.utils.signal_files`**: `SIGNAL_PREVIEW = "preview"` → `SignalResult.should_preview`.
+**`rengu_flow.utils.signal_files`**: `SIGNAL_PREVIEW = "preview_now"` → `SignalResult.should_preview`.
 
 Extend `SignalResult` and `broadcast_object_list` length when adding signals.
 

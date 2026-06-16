@@ -13,7 +13,7 @@ checkpoint_path = "path/to/sdxl.safetensors"
 type = "lokr"
 rank = 16
 # dim = 16        # alias for rank (Kohya-style)
-# alpha = 16      # default: same as rank (scale 1.0). Increase for stronger effect, decrease for weaker.
+# Do NOT set `alpha`: rengu-flow forces alpha=rank for Comfy-compatible saves and rejects an explicit value.
 
 [optimizer]
 type = "adamw"

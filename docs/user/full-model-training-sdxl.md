@@ -93,7 +93,7 @@ Top-level `compile = true` applies `torch.compile` to the whole pipeline model (
 | Key | Purpose | Values | Default |
 |-----|---------|--------|---------|
 | **compile** | Enable `pipeline_model.compile()` | `true` / `false` | `false` |
-| **compile_mode** | Inductor mode → `torch.compile(mode=...)` | `"reduce-overhead"` (CUDA-graph based, lowest per-step overhead — best for fixed-shape steps, costs a little extra VRAM for graph pools), `"max-autotune"`, `"max-autotune-no-cudagraphs"` | `"default"` if unset |
+| **compile_mode** | Inductor mode → `torch.compile(mode=...)` | unset → `"default"` (the validated choice); `"max-autotune-no-cudagraphs"` (much longer per-shape warmup, marginal gain). The CUDA-graph modes `"reduce-overhead"` and `"max-autotune"` **crash on the first step** under DeepSpeed's per-layer compile — do not use them. | `"default"` if unset |
 | **compile_dynamic** | `torch.compile(dynamic=True)` for varying input shapes | `true` / `false` | `false` |
 
-The first steps pay a one-time Inductor/CUDA-graph **warmup** (slower while graphs build), then steady-state steps are faster — worthwhile when the run is long enough to amortize the slow early steps. Short smokes mix warmup into the average and are not representative. `reduce-overhead` can further reduce step time over the default mode on fixed-shape steps; benchmark per setup. See [Shared training techniques — torch.compile](../developer/training-techniques.md#torchcompile).
+The first steps pay a one-time Inductor **warmup** (slower while graphs build), then steady-state steps are faster — worthwhile when the run is long enough to amortize the slow early steps. Short smokes mix warmup into the average and are not representative. Leave `compile_mode` unset (`"default"`); the CUDA-graph modes are incompatible with the pipeline compile. See [Shared training techniques — torch.compile](../developer/training-techniques.md#torchcompile).

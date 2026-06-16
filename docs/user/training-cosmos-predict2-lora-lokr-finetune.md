@@ -258,4 +258,4 @@ Optional: `[train.oom_skip]` for single-GPU OOM resilience — see [Training loo
 
 Out of scope for this austere path: **`load_and_fuse_adapter`** (use `load_adapter_weights` only), ComfyUI submodule. **Block swap** during training is supported for both adapters and full finetune (full finetune also needs `optimizer.gradient_release = true`), with `pipeline_stages = 1` — see [training loop](training-loop-and-eval.md#block-swap) and [VRAM optimization](../developer/vram-optimization.md). Dataset **augmentation MVP** is supported — see [dataset augmentation](dataset-augmentation.md).
 
-**Training previews** are supported via `[preview]` and the `preview` signal file when `pipeline_stages = 1` — see [Training previews](previews.md). For **Anima**, a practical default is `num_inference_steps = 20`, `guidance_scale = 4`, `width`/`height = 512` on 16 GB GPUs.
+**Training previews** are supported via `[preview]` and the `preview_now` signal file when `pipeline_stages = 1` — see [Training previews](previews.md). For **Anima**, a practical default is `num_inference_steps = 20`, `guidance_scale = 4`, `width`/`height = 512` on 16 GB GPUs.

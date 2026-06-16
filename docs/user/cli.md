@@ -29,7 +29,7 @@ so the UI port and training defaults always exist. An existing file is never ove
 
 | Command | Description |
 |---------|-------------|
-| `rengu init [profiles…]` | Create `rengu.local.toml`, UI data dir, `uv sync` (profiles: `base`, `ui`, `cosmos`, `optim`, `lycoris`, `dev`, `kaon`, `all`) |
+| `rengu init [profiles…]` | Create `rengu.local.toml`, UI data dir, `uv sync` (profiles: `base`, `ui`, `cosmos`, `optim`, `lycoris`, `dev`, `kaon`, `prep`, `all`) |
 | `rengu init --only-config` | Local TOML + dirs only; skip `uv sync` |
 | `rengu update [profiles…]` | Fast-forward pull from the project repo, re-sync from `uv.lock`, and recompile the UI if it was built here. Besides any profiles you list, it also refreshes the optional profiles you already installed (so git-pinned extras like `kaon` move to a bumped commit pin) — profiles you never installed are left untouched. (`--all-extras` for every documented extra; `--no-pull` to skip the git pull; `--force` to discard local *tracked* code changes and hard-reset to upstream when a fast-forward is blocked — never deletes untracked/ignored files, so the UI data dir and `jobs.db` are safe) |
 | `rengu version` / `rengu --version` | Print the renga version, git commit, and installed kaon version |
@@ -37,6 +37,7 @@ so the UI port and training defaults always exist. An existing file is never ove
 | `rengu validate --config PATH` | Validate training config and exit |
 | `rengu cache --config PATH` | Run dataset cache only (`--cache_only` on trainer) |
 | `rengu dump-dataset PATH` | Inspect dataset TOML |
+| `rengu prep <tag\|caption\|clean\|models>` | Dataset Studio: tagging, captioning, watermark cleanup, model list/download (see [Dataset Studio](dataset-prep.md)) |
 | `rengu ui` / `rengu ui start` | `uv sync --extra ui`, build `ui/web/dist`, serve API, open browser (bare `rengu ui` defaults to `start`) |
 | `rengu ui serve` | API only (`--host`, `--port`, `--reload`) |
 | `rengu ui dev` | API with reload + Vite dev server |
@@ -75,6 +76,8 @@ Same as `train` but the launcher appends `--cache_only`. Extra args after `--` a
 | `optim` | Extended optimizers |
 | `lycoris` | LoKr (LyCORIS) |
 | `dev` | Dev tools |
+| `kaon` | K-Optimizers (git-pinned: Adakaon, AdaMuon, KProdigy, …) |
+| `prep` | Dataset Studio (taggers, captioners, watermark cleanup) |
 | `all` | All documented extras |
 
 ### `rengu ui` flags

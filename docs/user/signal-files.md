@@ -69,7 +69,7 @@ touch /path/to/output/20250217_14-30-00/continue
 touch /path/to/output/20250217_14-30-00/quit
 ```
 
-**From the web UI:** Open a run under **Runs** (job or folder on disk). The **Signals** section lists the same actions as above; hover a button for a short hint, or open **Signal files guide** for this page. The **Train** live panel shows **Continue export** when `status.json` reports `waiting_disk_export`.
+**From the web UI:** Open a run under **Runs** (job or folder on disk). The **Signals** section lists the same actions as above; hover a button for a short hint, or open **Signal files guide** for this page. The **Train** live panel shows **Continue export** when the run's stdout progress markers report the `waiting_disk_export` phase.
 
 **From a script or manager:**
 

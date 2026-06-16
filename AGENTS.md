@@ -25,13 +25,14 @@ Rengu Flow is a **TOML-driven, registry-based** training framework for diffusion
 deepspeed --num_gpus=1 -m rengu_flow.main --config x.toml   # train without the wrapper
 
 # Tests (run inside WSL). No GPU needed — CPU + mocks, tiny batches.
-uv run pytest
-uv run pytest tests/test_dataset_config.py            # single file
-uv run pytest tests/test_install.py::test_name        # single test
-uv run pytest -k augmentation -x
+# pytest is in the `dev` extra, so pass --extra dev (add --extra ui/cosmos_predict2/lycoris for those suites).
+uv run --extra dev pytest
+uv run --extra dev pytest tests/test_dataset_config.py            # single file
+uv run --extra dev pytest tests/test_install.py::test_name        # single test
+uv run --extra dev pytest -k augmentation -x
 
 # GPU smoke tests (optional, local, needs real checkpoints via .env)
-scripts/run_model_smoke.sh sdxl|cosmos
+scripts/run_model_smoke.sh sdxl|sdxl_lokr|cosmos|cosmos_lokr
 ```
 
 There is **no linter/formatter/typechecker configured** for the Python side. Don't invent a `ruff`/`black` step. The Vue frontend in `ui/web/` uses `npm` (`npm run build`, `npm run dev`, `npm run test` via Vitest, `vue-tsc` for types) — separate from Python.

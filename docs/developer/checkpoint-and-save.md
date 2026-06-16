@@ -10,7 +10,7 @@ User-facing option tables: `docs/user/checkpoint-and-save.md`.
 |--------|------|
 | `save_checkpoint` | DeepSpeed checkpoint; returns `False` on ENOSPC after rollback; `_prune_old_checkpoints` on success. |
 | `save_model` | Export with ENOSPC wait loop (`wait_for_export_recovery`); `_prune_old_exports` on success. |
-| `save_adapter` / `save_full_model` | Gather shards via `prepare_export_tmp`; delegate to model/network save (atomic safetensors). |
+| `_save_model_once` → `_run_pipeline_export` (sync/async) → `_persist_export` | Gather shards via `prepare_export_tmp`; `_persist_export` delegates to `model.save_adapter` / `model.save_model` (atomic safetensors) based on `is_adapter`. |
 | `process_epoch_boundary` / `process_step` | Per-epoch saves (named by the **completed** epoch from `EpochSchedule`) + `process_signals`. |
 
 **Helpers**: `rengu_flow.utils.save_io` — `is_disk_full_error`, `atomic_save_safetensors`, `rollback_failed_checkpoint`, `cleanup_export_dir`, export retention parsing.
@@ -32,7 +32,7 @@ Both keys optional; intersection policy (see user doc).
 
 ## Export paths and dtypes
 
-Adapter vs full export: driven by **`bool(config.get("adapter"))`**, not the TOML key `save_full_model` ([spec](../spec/save-full-model-flag.md), BACKLOG P3-1). `save_dtype` via `DTYPE_MAP` in defaults.
+Adapter vs full export: driven by **`bool(config.get("adapter"))`** (`main.py`), not the TOML key `save_full_model` (BACKLOG P3-1). `save_dtype` via `DTYPE_MAP` in defaults.
 
 ## Async model export (POC)
 

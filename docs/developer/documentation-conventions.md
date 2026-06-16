@@ -44,7 +44,7 @@ When documenting config keys, CLI flags, or API parameters that are **optional**
 - [ ] **Index**: `docs/README.md` links user, developer, and spec sections.
 - [ ] **UI hints**: `FIELD_HELP` / `doc_path` if the field appears in the web UI.
 
-## UI field hints (FieldHelpIcon / field_help.py)
+## UI field hints (FieldHelpIcon / config_field_help.py + dataset_field_help.py)
 
 Audience is mixed (hobbyists + advanced). Every form field gets a hint; each hint is
 at most two sentences, in this order:

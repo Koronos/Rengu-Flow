@@ -9,7 +9,7 @@ Reference: `rengu_flow/model/base.py`, implementations `rengu_flow/model/sdxl.py
 | `load_diffusion_model` | Implemented | Implemented |
 | `get_vae` | Implemented | Implemented (Wan VAE) |
 | `get_text_encoders` | Implemented when `cache_text_embeddings` (default true) | Implemented when `cache_text_embeddings` |
-| `configure_adapter` | Implemented (`lora` / `lokr`) | Implemented via `adapter_dit` |
+| `configure_adapter` | Implemented (`lora` / `lokr` / `lycoris_*`) | Implemented via `adapter_dit` (`lora` / `lokr` / `lycoris_*`) |
 | `save_adapter` | Implemented | Implemented (Comfy keys) |
 | `load_adapter_weights` | Implemented | Implemented |
 | `load_and_fuse_adapter` | Implemented | **Not supported** — raises `NotImplementedError` (documented) |

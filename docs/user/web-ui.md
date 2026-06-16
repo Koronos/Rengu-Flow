@@ -1,6 +1,6 @@
 # Web UI (user guide)
 
-Rengu Flow includes an **optional** local web interface to manage training configs, start and stop jobs, send [signal files](signal-files.md), and inspect progress. It runs on the same machine as training and does not change the training process unless you enable `monitoring.enable_status_file` in config (see below).
+Rengu Flow includes an **optional** local web interface to manage training configs, start and stop jobs, send [signal files](signal-files.md), and inspect progress. It runs on the same machine as training and does not change the training process: live progress (step, loss, ETA, and the disk-export-wait phase) is parsed from the job's stdout markers, so no extra config key is required.
 
 ## Quick start
 
@@ -121,16 +121,12 @@ On **Runs**, when launching a job:
 |-----|---------|--------|---------|
 | **`run_name`** | Label for output folders and TensorBoard | Letters, digits, `.`, `_`, `-`; max 80 chars; no `/` or `\` | Omitted → timestamp-only folder |
 
-## Optional status file (low overhead)
+## Live progress (no config required)
 
-In your training TOML:
-
-```toml
-[monitoring]
-enable_status_file = true
-```
-
-When enabled, rank 0 writes `status.json` in the run directory every `logging_steps` for faster progress in the UI. Default is `false`.
+Live progress in the UI is parsed from the job's **stdout progress markers** (rank 0
+emits step/loss/ETA, the caching phase, and the disk-export-wait phase). There is no
+per-iteration `status.json` and no config key to enable — it always works for jobs
+launched from or imported into the UI.
 
 ## Advanced: run server only
 

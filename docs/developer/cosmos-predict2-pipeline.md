@@ -15,7 +15,7 @@
 | `rengu_flow/networks/adapter_dit.py` | LoRA (PEFT) and LoKr save/load (Comfy prefix) |
 | `rengu_flow/data/preprocess_media.py` | `PreprocessMediaFile` for dataset cache |
 
-Registry: `register_model("cosmos_predict2")` only (Anima is a checkpoint branding name in user docs, not a `type` value).
+Registry: `@register_model("cosmos_predict2")` is the canonical type; `register_model_alias("anima", "cosmos_predict2")` also accepts `type = "anima"` as a legacy alias (and `aliases=["anima"]` on the capability). Anima is the checkpoint branding name.
 
 ## Cache hooks
 

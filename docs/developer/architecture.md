@@ -50,7 +50,7 @@ Execution is launched from a main TOML (and optional dataset TOML), similar to d
 |-----------|----------------------|--------|
 | Model | `rengu_flow.registry.models` | `sdxl`, `cosmos_predict2` (+ alias `anima`) |
 | Optimizer | `rengu_flow.registry.optimizers` + `optim/resolver.py` | Aliases + qualified paths + vendor optimizers |
-| Scheduler | `rengu_flow.registry.schedulers` | constant, linear, cosine, paths |
+| Scheduler | `scheduler_registry` / `register_scheduler` in `optim/resolver.py` | constant, linear, cosine, rex, paths |
 | Adapter | Branches in pipeline + `rengu_flow/networks/*` | LoRA/LoKr; **no adapter registry yet** — see BACKLOG P0-3 |
 | Dataset | `Dataset` / `DirectoryDataset` + `DatasetManager` | Directory + buckets |
 | Step/epoch callbacks | `Saver`, eval, previews | **No generic callback registry** — BACKLOG P0-4 |

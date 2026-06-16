@@ -6,7 +6,7 @@ Cross-model VRAM, speed, and quality helpers. Pipeline models only supply **whic
 
 | Module | Purpose | Config keys |
 |--------|---------|-------------|
-| [`block_swap.py`](../../rengu_flow/training/block_swap.py) | `BlockSwapOffloader` / `NoopOffloader` | `blocks_to_swap`, `disable_block_swap_for_eval`, `disable_block_swap_for_preview` |
+| [`block_swap.py`](../../rengu_flow/training/block_swap.py) | `HookBlockSwapOffloader` (training) / `BlockSwapOffloader` (Cosmos preview) / `NoopOffloader` | `blocks_to_swap`, `disable_block_swap_for_eval`, `disable_block_swap_for_preview` |
 | [`loss_weighting.py`](../../rengu_flow/training/loss_weighting.py) | min-SNR, debiased estimation | `model.min_snr_gamma`, `model.debiased_estimation_loss` (SDXL) |
 | [`ema.py`](../../rengu_flow/training/ema.py) | CPU EMA shadow weights | `ema_decay` |
 | [`optimizer_hooks.py`](../../rengu_flow/training/optimizer_hooks.py) | Fused optimizer validation | `optimizer.fused_backward`, `optimizer.fused_optimizer_groups` |
@@ -15,12 +15,15 @@ Cross-model VRAM, speed, and quality helpers. Pipeline models only supply **whic
 
 ## Block swap
 
-- **Base:** [`BasePipeline.enable_block_swap`](../../rengu_flow/model/base.py) calls `get_block_swap_modules()`.
-- **Cosmos:** `transformer.blocks` — [`TransformerLayer`](../../rengu_flow/model/cosmos_predict2/layers.py).
-- **SDXL:** UNet `down_blocks` / `mid_block` / `up_blocks` via hook-based `HookBlockSwapOffloader`
-  ([`SDXLPipeline.enable_block_swap`](../../rengu_flow/model/sdxl.py)) — works for adapters AND
-  full-model (full-model additionally requires `optimizer.gradient_release`).
-- **Preview (Cosmos):** `preview.preview_blocks_to_swap` uses the same `BlockSwapOffloader`.
+- **Base:** [`BasePipeline.enable_block_swap`](../../rengu_flow/model/base.py) builds the hook-based
+  `HookBlockSwapOffloader` from `get_block_swap_modules()`; neither SDXL nor Cosmos overrides it, so
+  both use this offloader for **training**.
+- **Cosmos:** `transformer.blocks` — [`TransformerLayer`](../../rengu_flow/model/cosmos_predict2/layers.py)
+  (its `wait_for_block` / `submit_move_blocks_forward` calls are no-ops under the hook offloader).
+- **SDXL:** UNet `down_blocks` / `mid_block` / `up_blocks` — supplies `get_block_swap_modules()` /
+  `_block_swap_root_modules()`; works for adapters AND full-model (full-model additionally requires
+  `optimizer.gradient_release`).
+- **Preview (Cosmos):** `preview.preview_blocks_to_swap` uses the layer-driven `BlockSwapOffloader`.
 - Requires `pipeline_stages = 1`. DeepSpeed places the model on the GPU; `main.py` then calls
   `prepare_block_swap_training()` after `deepspeed.initialize` to push swappable blocks to CPU.
 

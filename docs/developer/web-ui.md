@@ -12,7 +12,8 @@ User guide: **`docs/user/web-ui.md`**.
 | `rengu_flow_ui/settings.py` | `RENGU_FLOW_UI_DATA`, `repo_root()`, `web_dist_dir()` |
 | `rengu_flow_ui/paths.py` | `resolve_repo_path()` — relative paths under repo root |
 | `rengu_flow_ui/library_db.py` | SQLite tables `training_configs` + `datasets` (TOML content + index columns) |
-| `rengu_flow_ui/configs_store.py` | Training config CRUD (via library_db), validate, staging |
+| `rengu_flow_ui/run_staging.py` | Training config validation (`validate_toml_text`), staging (`materialize_staging`), run-name helpers |
+| `rengu_flow_ui/run_config.py` | Run-folder TOML as source of truth for resume / continue |
 | `rengu_flow_ui/datasets_store.py` | Dataset CRUD (via library_db), `compose_datasets()`, picker refs |
 | `rengu_flow_ui/dataset_scan.py` | `scan_folder()`, `preview_dataset_config()` for UI previews |
 | `rengu_flow_ui/dataset_image_preview.py` | Signed tokens, list/serve images under `[[directory]]` paths |
@@ -24,7 +25,7 @@ User guide: **`docs/user/web-ui.md`**.
 | `rengu_flow_ui/dataset_field_help.py` | Same for dataset form |
 | `rengu_flow_ui/docs_reader.py` | Safe read of `docs/**/*.md` for in-app help drawer |
 | `rengu_flow_ui/registry_probe.py` | `POST /registry/probe` — import-check optimizer/scheduler names |
-| `rengu_flow_ui/system_stats.py` | `GET /system/stats` — CPU/RAM/GPU via `psutil` + `nvidia-smi` |
+| `rengu_track/system_stats.py` | `GET /system/stats` — CPU/RAM/GPU via `psutil` + `nvidia-smi` |
 | `rengu_flow_ui/job_queue.py` | Pending job queue ordering, `try_start_next()` |
 | `rengu_flow_ui/jobs.py` | Subprocess launcher (`deepspeed` / `python -m rengu_flow.main`) |
 | `rengu_flow_ui/db.py` | SQLite job registry |
@@ -33,9 +34,9 @@ User guide: **`docs/user/web-ui.md`**.
 | `rengu_flow_ui/subprocess_util.py` | `popen_repo_subprocess()` shared by jobs and TensorBoard |
 | `rengu_flow_ui/runs_scanner.py` | List/discover runs under `output_dir` |
 | `rengu_flow_ui/signals.py` | Touch signal files via `rengu_flow.utils.signal_files` constants |
-| `rengu_flow/control/status_file.py` | Opt-in `status.json` writer (trainer hook in `main.py`) |
+| `rengu_flow/control/status_file.py` | Legacy `status.json` read/write helpers. The trainer **no longer writes** `status.json` (live progress flows via stdout markers — `control/progress_stream.py` → `live_stream.py`); `read_status_file` is still used by `job_import.py` to recognize legacy runs on disk. |
 | `ui/web/` | Vite + Vue 3 + Element Plus SPA; build output `ui/web/dist/` |
-| `start-ui.sh` | User entrypoint: install `[ui]`, build web, `rengu-flow-ui serve` |
+| `start-ui.sh` | User entrypoint: `uv sync --extra ui`, then `rengu ui start --skip-sync` (builds web + serves) |
 | `scripts/start-ui-dev.sh` | Developer-only: API `--reload` + Vite on port 5173 (proxies `/api`) |
 
 ## Local development (UI)
@@ -171,7 +172,7 @@ Dataset form: same pattern in **`dataset_field_help.py`** and **`tests/test_data
 
 ## Host metrics
 
-**`system_stats.collect_system_stats()`** — blocking CPU sample (~0.15s), `psutil` RAM, optional `nvidia-smi` CSV for GPU util/VRAM/temp. Returned JSON: `summary` (compact) + `detail` (per-core CPU, sensors, per-GPU extras). No trainer involvement; safe to poll every 2s from the SPA header.
+**`rengu_track.system_stats.collect_system_stats()`** — blocking CPU sample (~0.15s), `psutil` RAM, optional `nvidia-smi` CSV for GPU util/VRAM/temp. Returned JSON: `summary` (compact) + `detail` (per-core CPU, sensors, per-GPU extras). No trainer involvement; safe to poll every 2s from the SPA header.
 
 ## Signals
 

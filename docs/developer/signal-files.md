@@ -13,9 +13,9 @@ This page describes the **technical contract** and **implementation** of the fil
 ## Where the code lives
 
 - **Module**: `rengu_flow.utils.signal_files`
-- **Constants**: `SIGNAL_SAVE`, `SIGNAL_SAVE_QUIT`, `SIGNAL_EXPORT_MODEL`, `SIGNAL_EXPORT_MODEL_QUIT`, `SIGNAL_PREVIEW`, `SIGNAL_CONTINUE`, `SIGNAL_QUIT`
+- **Constants**: `SIGNAL_SAVE`, `SIGNAL_SAVE_QUIT`, `SIGNAL_EXPORT_MODEL`, `SIGNAL_EXPORT_MODEL_QUIT`, `SIGNAL_PREVIEW` (`= "preview_now"`), `SIGNAL_RELOAD_CONFIG`, `SIGNAL_CONTINUE`, `SIGNAL_QUIT`
 - **Export wait**: `ExportRecoveryAction`, `wait_for_export_recovery(run_dir) -> ExportRecoveryAction`
-- **Return type**: `SignalResult(should_checkpoint, should_quit, should_export_model, should_export_quit, should_preview)`
+- **Return type**: `SignalResult(should_checkpoint, should_quit, should_export_model, should_export_quit, should_preview, should_reload_config)`
 - **Function**: `process_signals(run_dir: str | Path) -> SignalResult`
 - **Call site**: `rengu_flow.utils.saver.Saver.process_step` — reacts to export signals with `save_model(f"signal_step{step}")`, checkpoint signals with `save_checkpoint`, and `sys.exit(0)` when `should_quit` or `should_export_quit`.
 
@@ -29,13 +29,15 @@ class SignalResult(NamedTuple):
     should_quit: bool
     should_export_model: bool
     should_export_quit: bool
+    should_preview: bool
+    should_reload_config: bool
 
 def process_signals(run_dir: str | Path) -> SignalResult:
     ...
 ```
 
 - **Input**: `run_dir` — directory that holds DeepSpeed checkpoints and signal files.
-- **Output**: Four booleans; multiple signals in one step can all be true if several files were touched before the step (unusual).
+- **Output**: Six booleans; multiple signals in one step can all be true if several files were touched before the step (unusual).
 - **Distributed**: Uses `deepspeed.comm.dist.barrier()` and `torch.distributed.broadcast_object_list` when DeepSpeed is initialized.
 
 ## Adding a new signal

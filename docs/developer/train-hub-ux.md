@@ -1,8 +1,7 @@
 # Train hub UX (developer note)
 
-The full **Train hub** design (unified nav, live panel, merged run list) is a **specification**, not the current UI.
+The **Train hub** (unified run list combining queued/active jobs with progress and previews) is **shipped**. See the [Web UI developer guide](web-ui.md) for the full layout.
 
-- **Specification:** [spec/train-hub-ux.md](../spec/train-hub-ux.md)
-- **Shipped today:** [Web UI](web-ui.md) — nav **Datasets**, **Configs**, **Runs**; launch and queue in `ui/web/src/views/JobsView.vue` (`/runs`).
-
-When implementing the spec, extend `rengu_flow_ui/app.py` and `JobsView.vue` per the spec’s API section; keep backward compatibility with existing `/jobs` and `/runs` routes.
+- **Nav** (`ui/web/src/App.vue`): **Runs**, **Compare**, **Datasets**, **Studio** (plus **Docs** and, when enabled, **Maintenance**). There is no separate "Configs" item — training-config editing happens inside the run form (`RunFormView.vue`).
+- **Run list / progress** lives in `rengu_flow_ui/training_hub.py` (`list_training_runs`, `compute_run_progress`, `resolve_job_run_dir`), wired into `rengu_flow_ui/app.py`.
+- **Launch and queue**: `ui/web/src/views/JobsView.vue` at `/runs`. Legacy `/jobs` and `/jobs/{id}` routes redirect to `/runs` (`ui/web/src/router.ts`).

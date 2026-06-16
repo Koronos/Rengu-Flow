@@ -5,21 +5,21 @@ This page describes how **full-model finetuning** is implemented so you can exte
 ## How the mode is chosen
 
 - **Adapter mode**: `config.get("adapter")` is truthy. The orchestrator calls `model.configure_adapter(adapter_config)` and sets `is_adapter = True`. Saving uses `save_adapter`; only adapter weights are written.
-- **Full-model mode**: `config.get("adapter")` is absent or falsy. No adapter is configured; all (or a subset of) parameters remain trainable. Saving uses **`save_full_model`** → **`model.save_model(save_dir, state_dict)`**.
+- **Full-model mode**: `config.get("adapter")` is absent or falsy. No adapter is configured; all (or a subset of) parameters remain trainable. Saving routes to **`model.save_model(save_dir, state_dict)`**.
 
-The decision is in `rengu_flow/main.py`: `is_adapter = bool(config.get("adapter"))`. The **Saver** (`rengu_flow/utils/saver.py`) branches on `is_adapter` in `save_model()`: adapter path calls `save_adapter(name)`, full-model path calls `save_full_model(name)`.
+The decision is in `rengu_flow/main.py`: `is_adapter = bool(config.get("adapter"))`. The **Saver** (`rengu_flow/utils/saver.py`) has a single `save_model(name)` entry point that calls `_run_pipeline_export(adapter_only=self.is_adapter)`; the per-stage state dict is collected by `_partial_export_state_dict(adapter_only=...)` and written by `_persist_export`, which branches on `adapter_only`: adapter path calls `model.save_adapter(...)`, full-model path calls `model.save_model(...)`.
 
 ## Save path for full model
 
-1. **Saver.save_full_model(name)**  
-   - Collects parameters from the pipeline that have `original_name` (set by the model so keys match diffusers/Comfy prefixes).  
-   - Gathers partial state dicts from all pipeline stages into a single `state_dict`, then calls **`model.save_model(save_dir, state_dict)`**.
+1. **Saver `_partial_export_state_dict(adapter_only=False)`**  
+   - Collects parameters from the pipeline that have `original_name` (set by the model so keys match diffusers/Comfy prefixes), keyed by `p.original_name`.  
+   - Per-stage partial dicts are gathered across all pipeline stages into a single `state_dict`, then `_persist_export` calls **`model.save_model(save_dir, state_dict)`**.
 
 2. **model.save_model(save_dir, diffusers_sd)**  
    - Implemented per model (e.g. SDXL in `rengu_flow/model/sdxl.py`).  
    - Splits `diffusers_sd` by prefix (`unet.`, `text_encoder.`, `text_encoder_2.`), converts to the target format (e.g. Comfy single-file), and writes the checkpoint (e.g. `model.safetensors`) plus VAE and text encoders.
 
-So: full-model save is **save_full_model** → **model.save_model()**. No adapter state dict is involved.
+So: full-model save is **Saver.save_model** → **model.save_model()** (adapter mode instead calls **model.save_adapter()**). No adapter state dict is involved in the full-model path.
 
 ## Freeze text encoders (SDXL)
 
@@ -41,8 +41,11 @@ on each block's leaf modules and pulls the block onto the GPU on demand (LRU evi
 calls `model.prepare_block_swap_training()` after `deepspeed.initialize` to push swappable blocks to
 CPU. Full-model block swap **requires `optimizer.gradient_release`** so the per-parameter step runs
 inside the backward while the block is resident (enforced in `main.py`). `pipeline_stages` must be 1.
-Cosmos still uses the layer-driven `BlockSwapOffloader` (its `TransformerLayer.forward` calls
-`wait_for_block`/`submit_move_blocks_forward`).
+Cosmos training does **not** override `enable_block_swap`, so it inherits the same hook-based
+`HookBlockSwapOffloader` from `BasePipeline` (`rengu_flow/model/base.py`); the `wait_for_block` /
+`submit_move_blocks_forward` calls in its `TransformerLayer.forward` become no-ops under the hook
+offloader. The layer-driven `BlockSwapOffloader` is only used for Cosmos **preview/inference**
+sampling (`preview_blocks_to_swap`), not training.
 
 ## Dataset cache and VAE unload (SDXL)
 

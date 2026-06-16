@@ -19,14 +19,7 @@ Add a `[preview]` section with at least one prompt:
 
 ```toml
 [preview]
-prompts = [
-  "photo of a red sports car, studio lighting",
-]
-
-[[preview.prompts]]
-name = "portrait"
-prompt = "1woman, soft light, detailed face"
-
+# Sampling settings apply to all prompts — they are read at the [preview] level, not per prompt.
 negative_prompt = "blurry, low quality"
 width = 1024
 height = 1024
@@ -36,6 +29,15 @@ seed = 42
 preview_every_n_steps = 500
 # preview_every_n_epochs = 1
 # preview_before_first_step = false
+
+# Each prompt entry is a string, or a [[preview.prompts]] table that reads only `name` and `prompt`.
+prompts = [
+  "photo of a red sports car, studio lighting",
+]
+
+[[preview.prompts]]
+name = "portrait"
+prompt = "1woman, soft light, detailed face"
 ```
 
 | Key | Description | Values | Default |
@@ -91,14 +93,14 @@ Then select your run (e.g. `20260527_00-50-09_smoke_signals`) in the left sideba
 
 Select the **IMAGES** tab. The step axis matches training scalars unless you set `x_axis_examples = true` (then previews use the examples axis too).
 
-If WandB is enabled (`monitoring.enable_wandb = true`), preview images are also logged there.
+If WandB is enabled (add `"wandb"` to `tracking.backends`), preview images are also logged there.
 
 ## Force a preview with a signal
 
-Create a file named **`preview`** in the run directory (same place as `save` / `export_model`):
+Create a file named **`preview_now`** in the run directory (same place as `save` / `export_model`). The name is `preview_now`, not `preview`, so it cannot collide with the run folder's `preview/` image directory:
 
 ```bash
-touch /path/to/output/20250217_14-30-00/preview
+touch /path/to/output/20250217_14-30-00/preview_now
 ```
 
 On the **next training step**, the run generates all configured prompts and logs them to TensorBoard, then removes the file. See [Signal files](signal-files.md).

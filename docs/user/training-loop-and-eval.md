@@ -76,7 +76,7 @@ Eval metrics: `{dataset}/loss`, `{dataset}/loss_quantile_{q}`, `eval/eval_time_s
 
 - **train/loss** — Loss per step (and optionally **train/grad_norm**, **train/epoch_loss**).
 - **eval** — Per-dataset loss and **eval/eval_time_sec** when evaluation runs.
-- **preview/** — Sample images when `[preview]` is configured or the `preview` signal is used. See [Training previews](previews.md).
+- **preview/** — Sample images when `[preview]` is configured or the `preview_now` signal is used. See [Training previews](previews.md).
 
 View with:
 
@@ -84,24 +84,32 @@ View with:
 tensorboard --logdir output
 ```
 
-### WandB (optional)
+### Experiment tracking and WandB (optional)
+
+Tracking is configured under a **`[tracking]`** section. One sink fans out to the
+backends you list; the local store (TensorBoard event files, `run.json`,
+`run_events.jsonl`) lives in the run directory. WandB is **opt-in** by adding
+`"wandb"` to `backends`.
 
 | Key | Description | Values | Default |
 |-----|-------------|--------|---------|
-| **`[monitoring]`** | Section for logging and tracking. | Table. | — |
-| **`monitoring.enable_wandb`** | Enable Weights & Biases logging. | `true` or `false`. | `false` |
-| **`monitoring.wandb_api_key`** | API key for WandB (or set `WANDB_API_KEY` env). | String or omit. | `null` |
-| **`monitoring.wandb_tracker_name`** | WandB project name. | String. | `"rengu-flow"` |
-| **`monitoring.wandb_run_name`** | Run name in WandB. If omitted, run directory path is used. | String or omit. | `null` |
+| **`[tracking]`** | Section for experiment tracking. | Table. | — |
+| **`tracking.enabled`** | Master switch. `false` is the full disconnect (no-op sink). | `true` or `false`. | `true` |
+| **`tracking.backends`** | Backends the sink writes to. Add `"wandb"` to enable Weights & Biases. | List of `"manifest"`, `"tensorboard"`, `"wandb"`. | `["manifest", "tensorboard"]` |
+| **`tracking.wandb.project`** | WandB project name. | String. | `"rengu-flow"` |
+| **`tracking.wandb.run_name`** | Run name in WandB. If omitted, the run directory name is used. | String or omit. | `null` |
+| **`tracking.wandb.api_key`** | API key for WandB (or set `WANDB_API_KEY` env). | String or omit. | `null` |
 
 Example:
 
 ```toml
-[monitoring]
-enable_wandb = true
-wandb_tracker_name = "my-project"
-wandb_run_name = "sdxl-lora-v1"
-# wandb_api_key = "..."   # optional if WANDB_API_KEY is set
+[tracking]
+backends = ["manifest", "tensorboard", "wandb"]
+
+[tracking.wandb]
+project = "my-project"
+run_name = "sdxl-lora-v1"
+# api_key = "..."   # optional if WANDB_API_KEY is set
 ```
 
 ### X-axis (steps vs examples)
