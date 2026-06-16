@@ -172,11 +172,13 @@ def compute_run_progress(
 
     # Prefer the cheap manifest scalar index (run.json: last value per tag + last step) over
     # parsing TensorBoard event files — this is what keeps the runs list fast as runs accumulate.
+    manifest_present = False
     if has_dir and None in (step, loss, val_loss, val_gap):
         from rengu_track import read_manifest
 
         _man = read_manifest(run_dir)
         if _man is not None:
+            manifest_present = True
             last = _man.last_scalars or {}
             if step is None:
                 step = _man.last_step
@@ -187,24 +189,28 @@ def compute_run_progress(
             if val_gap is None and "val/gap" in last:
                 val_gap = last["val/gap"]
 
-    # TB fallback only for runs without a manifest (trained before tracking) or missing the value
-    # there. Downsampled to the endpoints so we read the last point without loading the full series.
-    if (step is None or loss is None) and has_dir:
-        series = metrics_tb.read_scalars(run_dir, max_points=2).get("train/loss") or []
-        if series:
-            last = series[-1]
-            step = step if step is not None else last.get("step")
-            loss = loss if loss is not None else last.get("value")
-    if (val_loss is None or val_gap is None) and has_dir:
-        scalars = metrics_tb.read_scalars(run_dir, tag_prefix="", max_points=2)
-        if val_loss is None:
-            vseries = scalars.get("val/loss") or []
-            if vseries:
-                val_loss = vseries[-1].get("value")
-        if val_gap is None:
-            gseries = scalars.get("val/gap") or []
-            if gseries:
-                val_gap = gseries[-1].get("value")
+    # TB fallback ONLY for runs without a manifest (trained before tracking). The manifest's
+    # last_scalars is the authoritative index, so a value missing there means the run never logged
+    # that tag — parsing the (often multi-MB) event files just to confirm an absence is what made
+    # the runs list cost seconds per run. With a manifest we never touch TensorBoard here.
+    if not manifest_present and has_dir:
+        if step is None or loss is None:
+            # Downsampled to the endpoints so we read the last point without loading the full series.
+            series = metrics_tb.read_scalars(run_dir, max_points=2).get("train/loss") or []
+            if series:
+                last = series[-1]
+                step = step if step is not None else last.get("step")
+                loss = loss if loss is not None else last.get("value")
+        if val_loss is None or val_gap is None:
+            scalars = metrics_tb.read_scalars(run_dir, tag_prefix="", max_points=2)
+            if val_loss is None:
+                vseries = scalars.get("val/loss") or []
+                if vseries:
+                    val_loss = vseries[-1].get("value")
+            if val_gap is None:
+                gseries = scalars.get("val/gap") or []
+                if gseries:
+                    val_gap = gseries[-1].get("value")
 
     # Prefer the marker's own max_steps/percent (it knows epoch-derived totals too),
     # falling back to the config-derived budget.
@@ -282,6 +288,7 @@ def _enrich_training_run(stub: dict[str, Any]) -> dict[str, Any]:
     job: db.JobRecord = stub.pop("_job")
     run_dir = resolve_job_run_dir(job)
     progress = compute_run_progress(run_dir)
+    _backfill_manifest_from_progress(job, run_dir, progress)
     run_name = (_run_folder_name(run_dir) or stub["run_name"])
     label = (progress or {}).get("run_name_label") or run_name
     stub["run_dir"] = str(run_dir) if run_dir else job.run_dir
@@ -290,6 +297,48 @@ def _enrich_training_run(stub: dict[str, Any]) -> dict[str, Any]:
     stub["progress"] = progress
     stub["has_tensorboard"] = bool(run_dir and list(run_dir.glob("events.out.tfevents.*")))
     return stub
+
+
+def _backfill_manifest_from_progress(
+    job: db.JobRecord, run_dir: Path | None, progress: dict[str, Any] | None
+) -> None:
+    """Write a minimal ``run.json`` for a terminal run that has none, so later list loads skip the
+    expensive TensorBoard parse (compute_run_progress falls back to event files only when there is
+    no manifest). One-time migration for runs trained before the manifest backend existed.
+
+    Skipped for active runs (the trainer's tracking sink owns their manifest) and best-effort: a
+    write failure must never break the listing.
+    """
+    if run_dir is None or not run_dir.is_dir() or not progress:
+        return
+    if job.state in ACTIVE_STATES:
+        return
+    from rengu_track import read_manifest
+    from rengu_track.run import RunManifest, write_manifest
+
+    if read_manifest(run_dir) is not None:
+        return
+    last_scalars: dict[str, float] = {}
+    for tag, key in (("train/loss", "loss"), ("val/loss", "val_loss"), ("val/gap", "val_gap")):
+        val = progress.get(key)
+        if val is not None:
+            try:
+                last_scalars[tag] = float(val)
+            except (TypeError, ValueError):
+                pass
+    try:
+        write_manifest(
+            run_dir,
+            RunManifest(
+                run_id=run_dir.name,
+                name=progress.get("run_name_label") or run_dir.name,
+                status=job.state,
+                last_scalars=last_scalars,
+                last_step=progress.get("step"),
+            ),
+        )
+    except OSError:
+        pass
 
 
 def _job_to_training_run(job: db.JobRecord) -> dict[str, Any]:
