@@ -10,6 +10,8 @@ public = false
 # UI state (jobs.db, staging, logs) — a visible, git-ignored folder at the repo root so you can
 # find and delete it. Leave as "data" unless you want it elsewhere (absolute paths allowed).
 data_dir = "data"
+# Require a token on every API request (header X-Rengu-Flow-Token). STRONGLY recommended whenever
+# public = true — without it, anyone on your local network can start/stop training and browse paths.
 # token = "change-me"
 
 [maintenance]

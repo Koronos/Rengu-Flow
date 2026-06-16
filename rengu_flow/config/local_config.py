@@ -224,6 +224,8 @@ def render_default_local_config() -> str:
         "# public = true binds the UI to your local network (0.0.0.0); set token when you do.\n"
         f"public = {str(ui.public).lower()}\n"
         f'data_dir = "{ui.data_dir}"\n'
+        "# Token required on every API request. STRONGLY recommended when public = true —\n"
+        "# without it anyone on your network can drive training.\n"
         '# token = "change-me"\n\n'
         "[maintenance]\n"
         f"enabled = {str(maint.enabled).lower()}\n"
