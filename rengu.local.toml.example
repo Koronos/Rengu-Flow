@@ -4,7 +4,9 @@
 [ui]
 host = "127.0.0.1"
 port = 8765
-data_dir = ".rengu-flow-ui"
+# UI state (jobs.db, staging, logs) — a visible, git-ignored folder at the repo root so you can
+# find and delete it. Leave as "data" unless you want it elsewhere (absolute paths allowed).
+data_dir = "data"
 # token = "change-me"
 
 [maintenance]

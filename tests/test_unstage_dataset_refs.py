@@ -16,7 +16,7 @@ def _set_existing(monkeypatch, ids: set[int]) -> None:
 
 def test_staging_lib_path_reverts_to_library_ref(monkeypatch):
     _set_existing(monkeypatch, {3})
-    content = 'dataset = "/data/.rengu-flow-ui/staging/1/3.dataset.toml"\n'
+    content = 'dataset = "/data/staging/1/3.dataset.toml"\n'
     out = job_import.unstage_config_dataset_refs(content)
     assert toml.loads(out)["dataset"] == "rengu-flow-dataset:3"
 
@@ -26,16 +26,16 @@ def test_staging_lib_path_deleted_dataset_falls_back_to_run_copy(monkeypatch, tm
     run_dir = tmp_path / "run"
     run_dir.mkdir()
     (run_dir / "3.dataset.toml").write_text("resolutions = [512]\n", encoding="utf-8")
-    content = 'dataset = "/data/.rengu-flow-ui/staging/1/3.dataset.toml"\n'
+    content = 'dataset = "/data/staging/1/3.dataset.toml"\n'
     out = job_import.unstage_config_dataset_refs(content, run_dir=run_dir)
     assert toml.loads(out)["dataset"] == str((run_dir / "3.dataset.toml").resolve())
 
 
 def test_staging_lib_path_deleted_no_copy_is_unchanged(monkeypatch):
     _set_existing(monkeypatch, set())
-    content = 'dataset = "/data/.rengu-flow-ui/staging/1/3.dataset.toml"\n'
+    content = 'dataset = "/data/staging/1/3.dataset.toml"\n'
     out = job_import.unstage_config_dataset_refs(content)
-    assert toml.loads(out)["dataset"] == "/data/.rengu-flow-ui/staging/1/3.dataset.toml"
+    assert toml.loads(out)["dataset"] == "/data/staging/1/3.dataset.toml"
 
 
 def test_merged_staging_path_uses_run_copy(monkeypatch, tmp_path):
@@ -43,7 +43,7 @@ def test_merged_staging_path_uses_run_copy(monkeypatch, tmp_path):
     run_dir = tmp_path / "run"
     run_dir.mkdir()
     (run_dir / "training_dataset_merged.toml").write_text("resolutions=[512]\n", encoding="utf-8")
-    content = 'dataset = "/data/.rengu-flow-ui/staging/2/training_dataset_merged.toml"\n'
+    content = 'dataset = "/data/staging/2/training_dataset_merged.toml"\n'
     out = job_import.unstage_config_dataset_refs(content, run_dir=run_dir)
     assert toml.loads(out)["dataset"] == str((run_dir / "training_dataset_merged.toml").resolve())
 
@@ -62,8 +62,8 @@ def test_list_form_reverts_each_entry(monkeypatch):
     _set_existing(monkeypatch, {3, 7})
     content = (
         'dataset = ['
-        '"/data/.rengu-flow-ui/staging/1/3.dataset.toml", '
-        '"/data/.rengu-flow-ui/staging/1/7.dataset.toml"]\n'
+        '"/data/staging/1/3.dataset.toml", '
+        '"/data/staging/1/7.dataset.toml"]\n'
     )
     out = toml.loads(job_import.unstage_config_dataset_refs(content))
     assert out["dataset"] == ["rengu-flow-dataset:3", "rengu-flow-dataset:7"]
@@ -80,7 +80,7 @@ def test_eval_datasets_entries_reverted(monkeypatch):
     _set_existing(monkeypatch, {5})
     content = (
         'dataset = "rengu-flow-dataset:5"\n'
-        'eval_datasets = ["/data/.rengu-flow-ui/staging/9/5.dataset.toml"]\n'
+        'eval_datasets = ["/data/staging/9/5.dataset.toml"]\n'
     )
     out = toml.loads(job_import.unstage_config_dataset_refs(content))
     assert out["eval_datasets"] == ["rengu-flow-dataset:5"]

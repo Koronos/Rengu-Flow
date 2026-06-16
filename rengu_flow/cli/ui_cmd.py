@@ -153,7 +153,6 @@ def _uvicorn_reload_excludes() -> list[str]:
         "**/.git",
         "**/.venv",
         "**/data",
-        "**/.rengu-flow-ui",
         "**/output",
         "**/ui/web/node_modules",
         "**/ui/web/dist",

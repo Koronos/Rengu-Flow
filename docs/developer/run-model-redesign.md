@@ -87,6 +87,14 @@ Move local UI state out of the hidden `.rengu-flow-ui/` into a **non-hidden, git
 to find the DB, logs, and staging. Update `.gitignore`, `settings.py`, launcher scripts,
 and docs together.
 
+The default is `data/` everywhere (`settings.py`, `local_config.UiConfig`, and the
+`rengu.local.toml.example`). Legacy values are retired without a migration map: a configured
+`data_dir` of `.rengu-flow-ui` / `.renga-flow-ui` (the historical typo) is dropped to the `data/`
+default by `parse_local_config_dict`, and `migrate_legacy_ui_data_dir` moves an existing hidden
+folder's contents into `data/` on startup (adopt-only when `data/` has no `jobs.db` yet — it never
+clobbers; a conflicting legacy folder is left for the user to delete). `LEGACY_UI_DATA_DIRNAMES`
+in `local_config.py` lists the retired names.
+
 ## 7. Phased implementation (proposal)
 
 1. **Independent, low-risk now** (no model change): data dir → `data/`; schema-version
