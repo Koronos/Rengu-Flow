@@ -912,18 +912,22 @@ def create_app() -> FastAPI:
         try:
             while True:
                 try:
-                    chunk, offset = jobs.tail_log(job_id, offset)
+                    # Offload to a worker thread: tail_log/poll_job do blocking file + SQLite
+                    # I/O, and running them inline on this single-worker event loop would freeze
+                    # every other request (the /live/ws insights stream, the board) for the
+                    # duration of each read. Mirrors live_stream.run_job_live_ws.
+                    chunk, offset = await asyncio.to_thread(jobs.tail_log, job_id, offset)
                     if chunk:
                         await websocket.send_text(chunk)
                 except KeyError:
                     await websocket.send_text("[error] job not found\n")
                     break
-                job = jobs.poll_job(job_id)
+                job = await asyncio.to_thread(jobs.poll_job, job_id)
                 if job.state not in ("running", "stopping"):
                     # Job reached a terminal state — flush any trailing output and close,
                     # rather than tailing a dead job forever until the client disconnects.
                     try:
-                        chunk, offset = jobs.tail_log(job_id, offset)
+                        chunk, offset = await asyncio.to_thread(jobs.tail_log, job_id, offset)
                         if chunk:
                             await websocket.send_text(chunk)
                     except KeyError:

@@ -64,10 +64,28 @@ class JobRecord:
     kind: str = "train"
 
 
+def _apply_connection_pragmas(conn: sqlite3.Connection) -> None:
+    """Tune every connection so the dashboard stays responsive while a run is training.
+
+    WAL lets readers (the board's ``list_jobs``/``get_job``, the runs/datasets pages via
+    ``library_db``) run concurrently with the frequent small writes ``poll_job`` issues for
+    active runs. Under SQLite's default rollback journal a writer blocks all readers and vice
+    versa, which is what made the board "tarda mucho en cargar" exactly while something was
+    running. ``busy_timeout`` rides out the brief exclusive lock taken during a WAL checkpoint
+    instead of failing with "database is locked"; ``synchronous=NORMAL`` is the WAL-safe
+    durability tradeoff for this local single-user tool. WAL itself is persisted in the DB
+    header, but ``busy_timeout``/``synchronous`` are per-connection, so set them every time.
+    """
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA busy_timeout=5000")
+
+
 def _connect() -> sqlite3.Connection:
     ensure_data_dirs()
     conn = sqlite3.connect(db_path())
     conn.row_factory = sqlite3.Row
+    _apply_connection_pragmas(conn)
     return conn
 
 

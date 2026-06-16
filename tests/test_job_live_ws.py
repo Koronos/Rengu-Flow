@@ -62,6 +62,31 @@ def test_tail_log_strips_progress_markers(ui_data_tmp: Path) -> None:
     assert offset == log_path.stat().st_size
 
 
+def test_tail_log_reads_incrementally_and_resets_on_truncation(ui_data_tmp: Path) -> None:
+    run_dir = ui_data_tmp / "output" / "run_incr"
+    run_dir.mkdir(parents=True)
+    log_path = ui_data_tmp / "logs" / "incr.log"
+    log_path.write_text("first\n", encoding="utf-8")
+    job = _running_job(ui_data_tmp, run_dir=run_dir, log_path=log_path)
+
+    text, offset = jobs.tail_log(str(job.id))
+    assert text == "first\n"
+    assert offset == log_path.stat().st_size
+
+    # A tail from the saved offset returns ONLY the bytes appended since (not the whole file).
+    with log_path.open("a", encoding="utf-8") as f:
+        f.write("second\n")
+    text2, offset2 = jobs.tail_log(str(job.id), offset)
+    assert text2 == "second\n"
+    assert offset2 == log_path.stat().st_size
+
+    # Truncation/rotation: file shrinks below the saved offset -> restart from the top.
+    log_path.write_text("fresh\n", encoding="utf-8")
+    text3, offset3 = jobs.tail_log(str(job.id), offset2)
+    assert text3 == "fresh\n"
+    assert offset3 == log_path.stat().st_size
+
+
 def test_job_live_ws_delivers_progress(ui_client, ui_data_tmp: Path) -> None:
     run_dir = ui_data_tmp / "output" / "run_ws_api"
     run_dir.mkdir(parents=True)

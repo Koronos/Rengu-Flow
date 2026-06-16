@@ -163,22 +163,37 @@ def poll_job(job_id: str) -> db.JobRecord:
     return db.get_job(job_id)
 
 
-def _read_log_text(job: db.JobRecord) -> str:
+# Cap how much of a (possibly tens-of-MB) log we read for run-dir / exit-code parsing. The
+# trainer prints "Run dir:" once near a run's start and the exit markers near its end, so the
+# most recent 256 KB reliably contains whichever we're after on a ~1 s poll while bounding the
+# per-tick cost — reading the whole growing file every poll is what pinned the GIL and starved
+# the dashboard. Mirrors read_raw_log_tail's tail-read approach.
+_PARSE_TAIL_BYTES = 262_144
+
+
+def _read_log_text(job: db.JobRecord, *, tail_bytes: int | None = None) -> str:
     path = Path(job.log_path)
     if not path.is_file():
         return ""
+    if tail_bytes is not None and path.stat().st_size > tail_bytes:
+        with path.open("rb") as f:
+            f.seek(-tail_bytes, 2)
+            data = f.read()
+        return data.decode("utf-8", errors="replace")
     return path.read_bytes().decode("utf-8", errors="replace")
 
 
-def _current_run_log(job: db.JobRecord) -> str:
+def _current_run_log(job: db.JobRecord, *, tail_bytes: int | None = None) -> str:
     """Log text for this job's MOST RECENT run only.
 
     The log file is appended across runs (same job id -> same log_path), each run prefixed with a
     ``--- rengu-flow-ui job <id> ---`` header. Scoping to the last segment keeps exit-code and
     run-dir parsing from picking up a PREVIOUS run's error/Run-dir (which marked a clean run failed
-    and pinned a stale run folder).
+    and pinned a stale run folder). With ``tail_bytes`` only the most recent slice is read: when
+    the marker isn't in it the run has already produced more than that, so the whole slice is the
+    current run anyway.
     """
-    text = _read_log_text(job)
+    text = _read_log_text(job, tail_bytes=tail_bytes)
     marker = f"--- rengu-flow-ui job {job.id} ---"
     idx = text.rfind(marker)
     return text[idx:] if idx != -1 else text
@@ -189,7 +204,7 @@ _RUN_DIR_RE = re.compile(r"^Run dir:\s*(.+?)\s*$", re.MULTILINE)
 
 def _parse_run_dir_from_log(job: db.JobRecord) -> str | None:
     """The trainer prints `Run dir: <path>` (relative to the repo root) on rank 0."""
-    m = _RUN_DIR_RE.search(_current_run_log(job))
+    m = _RUN_DIR_RE.search(_current_run_log(job, tail_bytes=_PARSE_TAIL_BYTES))
     if not m:
         return None
     from rengu_flow_ui import settings
@@ -202,7 +217,7 @@ def _parse_run_dir_from_log(job: db.JobRecord) -> str | None:
 
 def _read_exit_code(job: db.JobRecord) -> int | None:
     """Best-effort exit code parsed from the job log (the process is detached, no wait())."""
-    text = _current_run_log(job)
+    text = _current_run_log(job, tail_bytes=_PARSE_TAIL_BYTES)
     if not text:
         return None
     codes = re.findall(r"exits with return code\s*=\s*(-?\d+)", text)
@@ -264,10 +279,17 @@ def tail_log(job_id: str, offset: int = 0) -> tuple[str, int]:
     path = Path(job.log_path)
     if not path.is_file():
         return "", 0
-    data = path.read_bytes()
-    if offset > len(data):
-        offset = len(data)
-    text = data[offset:].decode("utf-8", errors="replace")
+    # Read only the bytes appended since `offset` instead of slurping the whole (growing,
+    # multi-MB) file on every poll/WS tick — the previous read_bytes() made each tail cost
+    # O(filesize), which pinned the GIL under the log-poll flood and stalled other endpoints.
+    if offset > path.stat().st_size:
+        # File shrank below the saved offset (rotated/truncated/reset) — restart from the top.
+        offset = 0
+    with path.open("rb") as f:
+        f.seek(offset)
+        data = f.read()
+        new_offset = f.tell()
+    text = data.decode("utf-8", errors="replace")
     # Filter throttled progress markers out of the displayed log; the UI parses them
     # separately for its live bar (see live_stream / progress_stream).
-    return strip_progress_markers(text), len(data)
+    return strip_progress_markers(text), new_offset
