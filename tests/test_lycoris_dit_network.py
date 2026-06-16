@@ -154,7 +154,7 @@ def test_capabilities_expose_cosmos_lycoris():
     cosmos = capabilities_for_api()["cosmos_predict2"]
     for adapter_type in COSMOS_TYPES:
         assert adapter_type in cosmos["adapters"]
-        assert cosmos["adapter_labels"][adapter_type].startswith("LyCORIS · ")
+        assert cosmos["adapter_labels"][adapter_type].startswith("Lycoris.")
 
 
 def test_targeting_on_dit():

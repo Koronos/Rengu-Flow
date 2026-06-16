@@ -22,11 +22,7 @@ from rengu_flow_ui.optim_kv_defaults import (
     SUGGESTED_SCHEDULER_FQNS,
 )
 from rengu_flow_ui.scheduler_form import attach_scheduler_visibility
-from rengu_flow.registry.optimizers import (
-    OPTIMIZER_ALIASES,
-    VENDOR_OPTIMIZER_ALIASES,
-    optimizer_registry,
-)
+from rengu_flow.registry.optimizers import optimizer_options
 
 DTYPE_OPTIONS = list(DTYPE_MAP.keys())
 ACTIVATION_CHECKPOINTING_OPTIONS = [False, True, "auto"]
@@ -343,11 +339,9 @@ def get_registries() -> dict[str, Any]:
     from rengu_flow_ui import datasets_store
 
     dataset_picker = datasets_store.list_for_training_picker()
-    optimizers = sorted(
-        set(optimizer_registry.keys())
-        | set(VENDOR_OPTIMIZER_ALIASES.keys())
-        | set(OPTIMIZER_ALIASES.keys())
-    )
+    optimizer_pairs = optimizer_options()
+    optimizers = [value for value, _label in optimizer_pairs]
+    optimizer_labels = [label for _value, label in optimizer_pairs]
     from rengu_flow_ui.preview_form import get_preview_entry_fields
 
     return {
@@ -355,6 +349,7 @@ def get_registries() -> dict[str, Any]:
         "model_capabilities": capabilities_for_api(),
         "preview_entry_fields": get_preview_entry_fields(),
         "optimizers": optimizers,
+        "optimizer_labels": optimizer_labels,
         "optimizer_allow_custom": True,
         "schedulers": sorted(set(scheduler_registry.keys()) | set(SUGGESTED_SCHEDULER_FQNS)),
         "scheduler_allow_custom": True,
@@ -851,7 +846,9 @@ def get_schema() -> dict[str, Any]:
             if field["path"] == "model.type":
                 field["options"] = registries["models"]
             if field["path"] == "optimizer.type":
-                field["options"] = registries["optimizers"]
+                # Raw alias is the value (goes to TOML); vendor-prefixed label is display.
+                field["option_values"] = registries["optimizers"]
+                field["options"] = registries["optimizer_labels"]
             if field["path"] == "lr_scheduler":
                 field["options"] = registries["schedulers"]
             if field["path"] == "dataset":

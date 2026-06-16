@@ -75,7 +75,7 @@ describe("adapterOptionsForModel", () => {
     sdxl: {
       type_id: "sdxl",
       adapters: ["lora", "lokr", "lycoris_locon"],
-      adapter_labels: { lora: "LoRA (PEFT)", lokr: "LoKr", lycoris_locon: "LyCORIS · LoCon" },
+      adapter_labels: { lora: "Peft.LoRA", lokr: "LoKr", lycoris_locon: "Lycoris.LoCon" },
     },
     other: {
       type_id: "other",
@@ -86,9 +86,9 @@ describe("adapterOptionsForModel", () => {
   it("returns labeled options using adapter_labels", () => {
     const opts = adapterOptionsForModel(caps, "sdxl");
     expect(opts).toEqual([
-      { value: "lora", label: "LoRA (PEFT)" },
+      { value: "lora", label: "Peft.LoRA" },
       { value: "lokr", label: "LoKr" },
-      { value: "lycoris_locon", label: "LyCORIS · LoCon" },
+      { value: "lycoris_locon", label: "Lycoris.LoCon" },
     ]);
   });
 

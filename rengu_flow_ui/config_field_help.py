@@ -252,7 +252,7 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "detail": (
             "Splits each adapted weight into a trained magnitude (dora_scale) and the algorithm's delta "
             "as direction. Often tracks full finetuning better at low rank, at a per-step compute cost. "
-            "For plain LoRA + DoRA pick the LyCORIS · DoRA type instead of toggling this."
+            "For plain LoRA + DoRA pick the Lycoris.DoRA type instead of toggling this."
         ),
         "doc": "docs/user/training-sdxl-lora-lokr.md",
     },

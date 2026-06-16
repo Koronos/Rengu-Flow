@@ -72,6 +72,37 @@ factor = -1
 
 Example: `examples/minimal_config_cosmos_predict2_lokr.toml`.
 
+#### Why are there two LoKr types? (`lokr` vs `lycoris_lokr`)
+
+They share the same math (Kronecker factorization) and the same export format, so a
+trained file from either loads the same way in ComfyUI. They differ in backend and
+trade-offs:
+
+| | `lokr` (built-in) | `lycoris_lokr` (LyCORIS library) |
+|---|---|---|
+| Backend | rengu's own implementation, params injected onto each `nn.Linear` | `lycoris-lora` `LokrModule` via the shared attach seam |
+| Extra knobs | `factor`, `decompose_both`, `full_matrix` | all of those **plus** `dropout`/`rank_dropout`/`module_dropout`, `use_tucker`, `use_scalar`, `dora_wd` (DoRA on top), `unbalanced_factorization`, and `target_include`/`target_exclude` |
+| Quantized base (`transformer_fp8_matmul` / `transformer_4bit`) | **Supported** — quantization-aware (routes the base matmul through the quantized `base_linear`, adds the Kronecker delta on top) | **Not supported** — the LyCORIS backend matches targets by exact class name `Linear`, so it skips the quantized linears (`Fp8MatmulLinear` / `Linear4bit`) entirely; config validation rejects the combination |
+
+**Rule of thumb:** use the built-in **`lokr`** for the canonical/quantized-base
+recipe; reach for **`lycoris_lokr`** (or another `lycoris_*` type) on an
+unquantized base when you want the extra knobs (DoRA, dropout, Tucker, module
+targeting).
+
+#### A note on VRAM (why the LyCORIS types can need more than the built-in LoKr)
+
+The built-in `lokr` adds a tiny Kronecker delta per layer and is the lightweight
+baseline. Some `lycoris_*` types are heavier by design and need extra VRAM levers,
+which is why their fixtures differ from the plain `lokr` one:
+
+- **Diag-OFT / BOFT** rebuild the full weight matrix each step (orthogonal rotation),
+  so they are the most memory-hungry — add `blocks_to_swap` on 16 GB cards.
+- **DyLoRA** cannot use activation checkpointing (random sub-rank per forward), and
+  the DiT's full activations do not fit 16 GB at 512px even with block swap — train
+  it at a lower resolution (e.g. 256px) plus `blocks_to_swap`.
+- The plain `lokr`/`lycoris_lokr`/`lycoris_loha`/`lycoris_dora` types keep the same
+  light footprint as the original LoKr.
+
 ### LyCORIS networks
 
 All eight LyCORIS algorithms are available for the DiT (same library backend as SDXL —

@@ -85,6 +85,44 @@ register_optimizer("sgd")(torch.optim.SGD)
 register_optimizer("adam")(torch.optim.Adam)
 
 
+# Display-label vendor prefixes (UI/CLI). Convention: anything sourced from an
+# external library or vendored from another project is labelled "Vendor.Name";
+# rengu's own entries (the torch-backed registry) carry no prefix. Keyed by the
+# leading module segment of the alias' import path.
+_VENDOR_LABEL = {
+    "bitsandbytes": "Bitsandbytes",
+    "optimi": "Optimi",
+    "torchao": "Torchao",
+    "pytorch_optimizer": "PytorchOptimizer",
+    "kaon": "Kaon",
+    # rengu_flow.vendor.diffusion_pipe_optimizers.* — code vendored from diffusion-pipe
+    "rengu_flow": "DiffusionPipe",
+}
+
+
+def optimizer_display_label(name: str) -> str:
+    """Vendor-prefixed display label for an optimizer alias (value stays ``name``).
+
+    Library/vendored optimizers render as ``Vendor.ClassName``; rengu's own
+    registry entries (adam/adamw/sgd) render as their plain name.
+    """
+    key = name.lower()
+    for table in (VENDOR_OPTIMIZER_ALIASES, OPTIMIZER_ALIASES):
+        if key in table:
+            module_path, class_name = table[key]
+            vendor = _VENDOR_LABEL.get(module_path.split(".")[0], module_path.split(".")[0].title())
+            return f"{vendor}.{class_name}"
+    return name
+
+
+def optimizer_options() -> list[tuple[str, str]]:
+    """Sorted ``(value, label)`` pairs for every known optimizer alias."""
+    names = sorted(
+        set(optimizer_registry) | set(VENDOR_OPTIMIZER_ALIASES) | set(OPTIMIZER_ALIASES)
+    )
+    return [(n, optimizer_display_label(n)) for n in names]
+
+
 def get_optimizer_class(optim_type: str) -> Type[torch.optim.Optimizer]:
     """Resolve optimizer class from string.
 

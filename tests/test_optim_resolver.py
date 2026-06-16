@@ -247,3 +247,28 @@ def test_register_scheduler_custom_resolved_by_resolve_scheduler():
         assert sched.factor == 0.5
     finally:
         del scheduler_registry["custom_test_constant"]
+
+
+def test_optimizer_display_labels_vendor_prefix():
+    """Library/vendored optimizers render as Vendor.Name; rengu's own registry entries
+    (torch-backed) carry no prefix."""
+    from rengu_flow.registry.optimizers import optimizer_display_label, optimizer_options
+
+    # rengu's own registry → no prefix
+    assert optimizer_display_label("adamw") == "adamw"
+    assert optimizer_display_label("sgd") == "sgd"
+    # external libraries → Vendor.ClassName
+    assert optimizer_display_label("adamw8bit") == "Bitsandbytes.AdamW8bit"
+    assert optimizer_display_label("prodigy") == "PytorchOptimizer.Prodigy"
+    assert optimizer_display_label("adakaon") == "Kaon.Adakaon"
+    assert optimizer_display_label("stableadamw") == "Optimi.StableAdamW"
+    assert optimizer_display_label("offload") == "Torchao.CPUOffloadOptimizer"
+    # vendored from diffusion-pipe → DiffusionPipe.ClassName
+    assert optimizer_display_label("genericoptim") == "DiffusionPipe.GenericOptim"
+    assert optimizer_display_label("automagic") == "DiffusionPipe.Automagic"
+    # unknown / custom name passes through unchanged
+    assert optimizer_display_label("my.custom.Path") == "my.custom.Path"
+    # options() returns (value, label) pairs and every value maps to its label
+    pairs = optimizer_options()
+    assert ("adakaon", "Kaon.Adakaon") in pairs
+    assert all(label == optimizer_display_label(value) for value, label in pairs)

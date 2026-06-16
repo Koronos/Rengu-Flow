@@ -91,3 +91,23 @@ Every field follows the same visual contract:
 4. **Hint**: every field carries a FieldHelpIcon following the hint rules above.
 5. Inputs without a placeholder slot (selects, switches) communicate the default by
    their initial state; the hint states it when the state alone is ambiguous.
+
+## Vendor-prefixed option labels (adapters, optimizers)
+
+Selectable backends that come from a **third-party library or are vendored from
+another project** are labelled `Vendor.Name`; entries that are **rengu's own** carry
+no prefix. The TOML *value* is always the bare name — the prefix is display only.
+
+- Adapters (`ModelCapability.adapter_labels` / `DEFAULT_ADAPTER_LABELS`): `lora` →
+  `Peft.LoRA`, the `lycoris_*` family → `Lycoris.LoCon` / `Lycoris.LoHa` / …; the
+  built-in `lokr` is rengu's own implementation → plain `LoKr` (no prefix).
+- Optimizers (`rengu_flow.registry.optimizers.optimizer_display_label`): derived
+  from each alias' import module — e.g. `Bitsandbytes.AdamW8bit`,
+  `Kaon.Adakaon`, `Optimi.StableAdamW`, `Torchao.CPUOffloadOptimizer`,
+  `PytorchOptimizer.Prodigy`, and the diffusion-pipe-vendored optimizers →
+  `DiffusionPipe.GenericOptim` / `DiffusionPipe.Automagic` /
+  `DiffusionPipe.AdamW8bitKahan`. The torch-backed registry entries (`adam`,
+  `adamw`, `sgd`) stay unprefixed.
+
+When adding a new library-backed adapter or optimizer, give it the `Vendor.Name`
+label; when adding one implemented in rengu itself, leave it bare.

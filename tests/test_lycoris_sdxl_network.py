@@ -316,9 +316,10 @@ def test_capabilities_expose_lycoris_with_labels():
     sdxl = capabilities_for_api()["sdxl"]
     for adapter_type in LYCORIS_ADAPTER_TYPES:
         assert adapter_type in sdxl["adapters"]
-        assert sdxl["adapter_labels"][adapter_type].startswith("LyCORIS · ")
+        assert sdxl["adapter_labels"][adapter_type].startswith("Lycoris.")
         assert ADAPTER_FIELD_TEMPLATES.get(adapter_type), adapter_type
-    assert sdxl["adapter_labels"]["lora"] == "LoRA (PEFT)"
+    assert sdxl["adapter_labels"]["lora"] == "Peft.LoRA"
+    assert sdxl["adapter_labels"]["lokr"] == "LoKr"  # rengu's own → no vendor prefix
 
 
 def test_install_profile_routing():

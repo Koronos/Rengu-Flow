@@ -56,6 +56,8 @@ The LyCORIS package exposes eight adapter algorithms beyond plain LoRA. All eigh
 
 When `adapter.type` starts with `lycoris_`, rengu installs the `lycoris` dependency profile automatically before training (the same profile the LoKr types use).
 
+> **`lokr` vs `lycoris_lokr`:** both are Kronecker LoKr with the same export format. The built-in `lokr` is rengu's own lightweight implementation (`factor`/`decompose_both`/`full_matrix`); `lycoris_lokr` is the LyCORIS-library version with extra knobs (dropout, Tucker, `use_scalar`, DoRA via `dora_wd`, module targeting). On SDXL pick whichever fits — they train the same base. (On Cosmos there is one more difference: only the built-in `lokr` works on a quantized base — see that model's guide.)
+
 ### Practical recipe
 
 ```toml

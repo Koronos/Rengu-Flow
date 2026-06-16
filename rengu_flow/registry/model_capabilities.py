@@ -11,18 +11,21 @@ from typing import Any
 
 from rengu_flow.networks.lycoris_meta import LYCORIS_ADAPTER_TYPES
 
-# Human-readable labels for adapter kinds shown in the UI.
+# Display labels for adapter kinds. Convention (matches the optimizer registry):
+# anything from an external library is "Vendor.Name"; rengu's own implementations
+# carry no prefix. LoRA comes from PEFT; the lycoris_* family from lycoris-lora;
+# the built-in `lokr` is rengu's own vendored implementation (no prefix).
 DEFAULT_ADAPTER_LABELS: dict[str, str] = {
-    "lora": "LoRA (PEFT)",
+    "lora": "Peft.LoRA",
     "lokr": "LoKr",
-    "lycoris_locon": "LyCORIS · LoCon",
-    "lycoris_loha": "LyCORIS · LoHa",
-    "lycoris_lokr": "LyCORIS · LoKr",
-    "lycoris_dora": "LyCORIS · DoRA",
-    "lycoris_dylora": "LyCORIS · DyLoRA",
-    "lycoris_glora": "LyCORIS · GLoRA",
-    "lycoris_diag_oft": "LyCORIS · Diag-OFT",
-    "lycoris_boft": "LyCORIS · BOFT",
+    "lycoris_locon": "Lycoris.LoCon",
+    "lycoris_loha": "Lycoris.LoHa",
+    "lycoris_lokr": "Lycoris.LoKr",
+    "lycoris_dora": "Lycoris.DoRA",
+    "lycoris_dylora": "Lycoris.DyLoRA",
+    "lycoris_glora": "Lycoris.GLoRA",
+    "lycoris_diag_oft": "Lycoris.DiagOFT",
+    "lycoris_boft": "Lycoris.BOFT",
 }
 
 # Field groups for LyCORIS adapters: (field_spec, frozenset_of_adapter_kinds).
