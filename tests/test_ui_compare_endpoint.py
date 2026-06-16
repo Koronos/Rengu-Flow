@@ -94,5 +94,7 @@ def test_compare_endpoint_discovers_unmanifested_runs(ui_client, tmp_path: Path)
     assert row is not None
     assert row["status"] == "imported"
     assert row["hparams"]["optimizer.lr"] == 0.0003
+    # Timestamps come from the filesystem so the sidebar can sort these runs newest-first.
+    assert row["created_at"] and row["updated_at"]
     # curated metrics offered so the legacy run's curves can load lazily.
     assert "train/loss" in data["metrics"]
