@@ -113,9 +113,21 @@ export function useJobLogStream(jobId: Ref<string | undefined> | (() => string |
     ws.onerror = () => {
       streamError.value = "Log stream connection error";
     };
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       connected.value = false;
-      // Socket dropped — resume HTTP polling (the run may still be active).
+      stopPolling();
+      if (event.wasClean) {
+        // A clean server-initiated close means the stream ended on purpose: the logs socket is
+        // closed only after the server flushes all output when the job reaches a terminal state.
+        // Re-polling then would hammer GET /logs every 2s forever on a finished run (the socket
+        // never reconnects). Bump fetchGen so the in-flight prime fetch (which may resolve after
+        // this close, when `connected` is already false) can't re-append the log or reschedule a
+        // poll. The full log was already delivered over the socket.
+        fetchGen++;
+        return;
+      }
+      // Abnormal close (WS-hostile network or a mid-run drop, where the run may still be
+      // producing output): resume the HTTP fallback.
       if (!pollTimer) pollTimer = setTimeout(pollHttp, 2000);
     };
   }
