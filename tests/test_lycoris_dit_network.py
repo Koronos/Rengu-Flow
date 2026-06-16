@@ -9,12 +9,12 @@ try:
     import lycoris  # noqa: F401
     from rengu_flow.networks import lycoris_attach, lycoris_dit
     from rengu_flow.networks.lycoris_export_check import check_export
-    from rengu_flow.networks.lycoris_meta import apply_lycoris_defaults
+    from rengu_flow.networks.lycoris_meta import LYCORIS_ADAPTER_TYPES, apply_lycoris_defaults
 except ImportError as e:  # pragma: no cover
     pytest.skip(f"Cannot import torch/lycoris networks: {e}", allow_module_level=True)
 
-# The subset exposed for cosmos_predict2 (see model_capabilities).
-COSMOS_TYPES = ("lycoris_locon", "lycoris_loha", "lycoris_lokr", "lycoris_dora")
+# Cosmos exposes the full catalog (with documented runtime constraints, not exclusions).
+COSMOS_TYPES = LYCORIS_ADAPTER_TYPES
 
 
 class Block(nn.Module):  # class NAME is the adapter target match
@@ -43,7 +43,8 @@ class DummyDiT(nn.Module):
 
 
 def _config(adapter_type):
-    cfg = {"type": adapter_type, "rank": 4, "alpha": 4, "dtype": torch.float32}
+    rank = 8 if adapter_type == "lycoris_dylora" else 4
+    cfg = {"type": adapter_type, "rank": rank, "alpha": rank, "dtype": torch.float32}
     apply_lycoris_defaults(cfg)
     return cfg
 
@@ -102,9 +103,17 @@ def test_save_export_check_and_load_round_trip(adapter_type, tmp_path):
     model2 = DummyDiT()
     lycoris_dit.configure(model2, _config(adapter_type))
     lycoris_dit.load(model2, tmp_path)
-    with torch.no_grad():
-        loaded = model2(x)
-    assert torch.allclose(loaded, expected, atol=1e-5)
+    if adapter_type == "lycoris_dylora":
+        # DyLoRA samples a random sub-rank per forward; compare loaded params.
+        loaded_params = {
+            p.original_name: p.detach() for p in model2.parameters() if p.requires_grad
+        }
+        for key, value in snapshot.items():
+            assert torch.allclose(loaded_params[key], value, atol=1e-6), key
+    else:
+        with torch.no_grad():
+            loaded = model2(x)
+        assert torch.allclose(loaded, expected, atol=1e-5)
 
 
 def test_dora_exports_dora_scale_cosmos(tmp_path):
@@ -146,8 +155,6 @@ def test_capabilities_expose_cosmos_lycoris():
     for adapter_type in COSMOS_TYPES:
         assert adapter_type in cosmos["adapters"]
         assert cosmos["adapter_labels"][adapter_type].startswith("LyCORIS · ")
-    assert "lycoris_dylora" not in cosmos["adapters"]
-    assert "lycoris_boft" not in cosmos["adapters"]
 
 
 def test_targeting_on_dit():
@@ -194,6 +201,21 @@ def test_rs_lora_on_dit(tmp_path):
     state = safetensors.torch.load_file(tmp_path / "adapter_model.safetensors")
     alphas = [float(v) for k, v in state.items() if k.endswith(".alpha")]
     assert alphas and all(a == pytest.approx(8.0) for a in alphas)
+
+
+def test_llm_adapter_blocks_excluded():
+    """TransformerBlocks inside an llm_adapter (frozen Qwen3 conditioning) must not be
+    adapted — it is frozen by default and its DyLoRA params would crash DeepSpeed's
+    checkpoint save."""
+    torch.manual_seed(0)
+    model = DummyDiT()
+    # Graft an llm_adapter holding its own blocks, like the real Cosmos DiT.
+    model.llm_adapter = nn.Module()
+    model.llm_adapter.blocks = nn.ModuleList([Block(), Block()])
+    lycoris_dit.configure(model, _config("lycoris_dora"))
+    attached = [p for p, _ in lycoris_attach.iter_attached_adapters(model)]
+    assert len(attached) == 8  # only the 2 DiT blocks, not the llm_adapter's
+    assert not any("llm_adapter" in p for p in attached)
 
 
 def test_train_norm_rejected_on_dit_without_affine_norms():

@@ -74,12 +74,14 @@ Example: `examples/minimal_config_cosmos_predict2_lokr.toml`.
 
 ### LyCORIS networks
 
-Four LyCORIS algorithms are available for the DiT (same library backend as SDXL, see the
-type reference in `training-sdxl-lora-lokr.md` for what each one is):
+All eight LyCORIS algorithms are available for the DiT (same library backend as SDXL —
+see the type reference in `training-sdxl-lora-lokr.md` for what each one is):
+`lycoris_locon`, `lycoris_loha`, `lycoris_lokr`, `lycoris_dora`, `lycoris_dylora`,
+`lycoris_glora`, `lycoris_diag_oft`, `lycoris_boft`.
 
 ```toml
 [adapter]
-type = "lycoris_loha"   # or lycoris_locon / lycoris_lokr / lycoris_dora
+type = "lycoris_loha"   # any of the eight types above
 rank = 8
 ```
 
@@ -89,9 +91,21 @@ rank = 8
   per-module `.alpha`.
 - Per-type extras match the SDXL table (`dora_wd`, LoKr's `factor`/`full_matrix`/…),
   including `rs_lora` (locon/dora) and `target_include`/`target_exclude` module
-  globs (paths look like `blocks.0.self_attn.q_proj`). `train_norm` is not
-  available here: the Cosmos DiT has no trainable norm weights, and requesting it
-  fails at startup.
+  globs (paths look like `blocks.0.self_attn.q_proj`).
+
+Two types carry runtime constraints on the DiT (verified on the 2B / 2048-channel
+Anima checkpoint):
+
+- **`lycoris_dylora`** requires `activation_checkpointing = false` (its random
+  sub-rank per forward breaks checkpoint recompute); pair with `blocks_to_swap` to
+  recover the VRAM that disabling checkpointing costs.
+- **`lycoris_diag_oft` / `lycoris_boft`** rebuild full weight matrices each step, so
+  they are the most VRAM-hungry — add `blocks_to_swap` on 16 GB cards. BOFT also
+  needs `rank` large enough to factorize every layer width: the DiT has widths with
+  a factor of 5, so use `rank = 16` (smaller ranks fail at startup with "impossible
+  to decompose").
+- **`train_norm`** is *not* available here: the Cosmos DiT has no affine norm
+  weights, and requesting it fails at startup.
 - DyLoRA and the OFT family are exposed for SDXL only: DyLoRA conflicts with
   `activation_checkpointing` (standard in cosmos configs), and Diag-OFT/BOFT's staged
   weight rebuild does not fit the DiT on 16 GB cards.

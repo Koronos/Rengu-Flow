@@ -1,0 +1,29 @@
+# Cosmos Predict2 LyCORIS BOFT smoke (12 steps), smoke_cc0 fixture.
+#   .venv/bin/python -m rengu_flow.config.local_env tests/fixtures/smoke/train_cosmos_predict2_lycoris_boft.toml
+
+dataset = "tests/fixtures/smoke/dataset_cc0.toml"
+output_dir = "output"
+max_steps = 12
+epochs = 999
+micro_batch_size_per_gpu = 1
+gradient_accumulation_steps = 1
+pipeline_stages = 1
+blocks_to_swap = 16
+activation_checkpointing = true
+logging_steps = 1
+caching_batch_size = 1
+save_every_n_epochs = 999
+bench = true
+
+[model]
+type = "cosmos_predict2"
+dtype = "bfloat16"
+cache_text_embeddings = true
+
+[adapter]
+type = "lycoris_boft"
+rank = 16
+
+[optimizer]
+type = "adamw"
+lr = 3.0e-5

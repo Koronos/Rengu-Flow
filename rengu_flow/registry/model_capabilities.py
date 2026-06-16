@@ -261,16 +261,17 @@ def _register_builtin_capabilities() -> None:
             ],
         )
     )
-    # Cosmos ships the proven everyday subset: DyLoRA conflicts with activation
-    # checkpointing (canonical cosmos configs use it) and the OFT family's staged
-    # weight rebuild is too VRAM-hungry for the DiT on 16 GB cards.
-    cosmos_lycoris = ["lycoris_locon", "lycoris_loha", "lycoris_lokr", "lycoris_dora"]
+    # Cosmos exposes the full LyCORIS catalog. Two carry runtime constraints (not
+    # exclusions): DyLoRA needs activation_checkpointing = false (its random
+    # sub-rank per forward breaks checkpoint recompute) and the OFT family's
+    # staged weight rebuild is VRAM-hungry — pair with blocks_to_swap on small
+    # cards. See docs/user/training-cosmos-predict2-lora-lokr-finetune.md.
     register_model_capability(
         ModelCapability(
             type_id="cosmos_predict2",
             display_name="Cosmos Predict2",
             aliases=["anima"],
-            adapters=["lora", "lokr", *cosmos_lycoris],
+            adapters=["lora", "lokr", *LYCORIS_ADAPTER_TYPES],
             full_finetune=True,
             preview=True,
             features={"preview": True, "block_swap": True},

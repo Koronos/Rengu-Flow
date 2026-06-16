@@ -26,7 +26,7 @@ ALGO=""
 SDXL_LYCORIS_STEM="train_sdxl_lycoris"
 COSMOS_LYCORIS_STEM="train_cosmos_predict2_lycoris"
 SDXL_LYCORIS_ALGOS="locon loha lokr dora dylora glora diag_oft boft"
-COSMOS_LYCORIS_ALGOS="locon loha lokr dora"
+COSMOS_LYCORIS_ALGOS="locon loha lokr dora dylora glora diag_oft boft"
 LYCORIS_STYLE="kohya"
 LYCORIS_STEM="${SDXL_LYCORIS_STEM}"
 LYCORIS_ALGOS="${SDXL_LYCORIS_ALGOS}"
@@ -39,7 +39,7 @@ case "${MODEL}" in
   sdxl_lycoris_locon|sdxl_lycoris_loha|sdxl_lycoris_lokr|sdxl_lycoris_dora|sdxl_lycoris_dylora|sdxl_lycoris_glora|sdxl_lycoris_diag_oft|sdxl_lycoris_boft)
     IS_LYCORIS=1; ALGO="${MODEL#sdxl_lycoris_}"
     CONFIG="${REPO_ROOT}/tests/fixtures/smoke/${SDXL_LYCORIS_STEM}_${ALGO}.toml" ;;
-  cosmos_lycoris_locon|cosmos_lycoris_loha|cosmos_lycoris_lokr|cosmos_lycoris_dora)
+  cosmos_lycoris_locon|cosmos_lycoris_loha|cosmos_lycoris_lokr|cosmos_lycoris_dora|cosmos_lycoris_dylora|cosmos_lycoris_glora|cosmos_lycoris_diag_oft|cosmos_lycoris_boft)
     IS_LYCORIS=1; ALGO="${MODEL#cosmos_lycoris_}"; LYCORIS_STYLE="cosmos"
     CONFIG="${REPO_ROOT}/tests/fixtures/smoke/${COSMOS_LYCORIS_STEM}_${ALGO}.toml" ;;
   # extras fixtures: locon/dora plus rs_lora + train_norm (SDXL) + target globs
@@ -139,11 +139,21 @@ SMOKE_EXIT=0
 
 if [[ "${IS_LYCORIS_ALL}" == "1" ]]; then
   read -r -a ALGOS <<< "${LYCORIS_ALGOS}"
-  echo "Smoke ${MODEL} (cache_only once + ${#ALGOS[@]} algos x 12 steps) -> ${LOG_FILE}"
+  echo "Smoke ${MODEL} (cache each distinct dataset + ${#ALGOS[@]} algos x 12 steps) -> ${LOG_FILE}"
   {
-    echo "=== cache_only (shared) ==="
-    "${DEEPSPEED}" --num_gpus=1 --master_port="${MASTER_PORT}" --module rengu_flow.main \
-      --config "${CONFIG}" --cache_only
+    # Most algos share one dataset (cache once); a few use a low-VRAM variant
+    # (e.g. cosmos dylora at 256px), so cache each distinct dataset before training.
+    declare -A _cached_ds
+    for algo in "${ALGOS[@]}"; do
+      algo_config="${REPO_ROOT}/tests/fixtures/smoke/${LYCORIS_STEM}_${algo}.toml"
+      ds="$(grep -m1 '^dataset = ' "${algo_config}")"
+      if [[ -z "${_cached_ds[${ds}]:-}" ]]; then
+        echo "=== cache_only (${ds}) ==="
+        "${DEEPSPEED}" --num_gpus=1 --master_port="${MASTER_PORT}" --module rengu_flow.main \
+          --config "${algo_config}" --cache_only
+        _cached_ds[${ds}]=1
+      fi
+    done
     for algo in "${ALGOS[@]}"; do
       algo_config="${REPO_ROOT}/tests/fixtures/smoke/${LYCORIS_STEM}_${algo}.toml"
       echo "=== train lycoris_${algo} max_steps=12 ==="

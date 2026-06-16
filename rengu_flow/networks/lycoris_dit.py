@@ -21,11 +21,23 @@ EXPORT_PREFIX = "diffusion_model."
 
 
 def _block_containers(transformer):
-    return [
-        module
-        for _name, module in transformer.named_modules()
-        if module.__class__.__name__ in ADAPTER_TARGET_MODULES
-    ]
+    # The LLM adapter (Qwen3 conditioning) also holds TransformerBlock modules, but
+    # it is frozen by default (llm_adapter_lr = 0) and degrades easily, so it is not
+    # an adapter target — only the diffusion blocks are. Skipping it also avoids a
+    # DeepSpeed checkpoint-save crash for DyLoRA, whose renamed ParameterList state
+    # dict trips exclude_frozen_parameters on those frozen submodules.
+    out, seen = [], set()
+    for name, module in transformer.named_modules():
+        if module.__class__.__name__ not in ADAPTER_TARGET_MODULES:
+            continue
+        if "llm_adapter" in name:
+            continue
+        # Skip blocks nested inside an already-selected container (no double-attach).
+        if any(name == s or name.startswith(s + ".") for s in seen):
+            continue
+        out.append(module)
+        seen.add(name)
+    return out
 
 
 def configure(transformer, adapter_config):
