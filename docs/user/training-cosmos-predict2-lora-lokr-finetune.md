@@ -106,6 +106,13 @@ Anima checkpoint):
   to decompose").
 - **`train_norm`** is *not* available here: the Cosmos DiT has no affine norm
   weights, and requesting it fails at startup.
+- **Quantized base (`transformer_fp8_matmul` / `transformer_4bit`):** not supported
+  with `lycoris_*`. The LyCORIS backend matches targets by exact class name
+  (`Linear`), so it silently skips the quantized linears (`Fp8MatmulLinear` /
+  `Linear4bit`) and would adapt only the unquantized minority — config validation
+  rejects the combination. Only the built-in `lokr` is quantization-aware (it routes
+  through the quantized `base_linear` and adds the Kronecker delta on top), so use
+  `adapter.type = "lokr"` when training on a quantized base.
 - DyLoRA and the OFT family are exposed for SDXL only: DyLoRA conflicts with
   `activation_checkpointing` (standard in cosmos configs), and Diag-OFT/BOFT's staged
   weight rebuild does not fit the DiT on 16 GB cards.

@@ -218,6 +218,36 @@ def test_llm_adapter_blocks_excluded():
     assert not any("llm_adapter" in p for p in attached)
 
 
+def test_lycoris_rejected_on_quantized_base():
+    """lycoris_* skips quantized linears (matches exact class 'Linear'), so config
+    validation must reject it on an fp8/4bit base and point to the quant-aware lokr."""
+    from rengu_flow.config.validation import collect_validation_errors
+
+    def issues(model_extra):
+        cfg = {
+            "dataset": "examples/minimal_dataset.toml",
+            "model": {"type": "cosmos_predict2", "dtype": "bfloat16",
+                      "transformer_path": "x.safetensors", "llm_path": "y.safetensors", **model_extra},
+            "optimizer": {"type": "adamw", "lr": 1e-4},
+            "adapter": {"type": "lycoris_lokr", "rank": 8},
+        }
+        return [i for i in collect_validation_errors(cfg) if "quantized base" in i]
+
+    assert issues({"transformer_fp8_matmul": True})
+    assert issues({"transformer_4bit": True})
+    assert not issues({})  # unquantized base is fine
+    # the built-in quant-aware lokr stays allowed on a quantized base
+    cfg = {
+        "dataset": "examples/minimal_dataset.toml",
+        "model": {"type": "cosmos_predict2", "dtype": "bfloat16",
+                  "transformer_path": "x.safetensors", "llm_path": "y.safetensors",
+                  "transformer_4bit": True},
+        "optimizer": {"type": "adamw", "lr": 1e-4},
+        "adapter": {"type": "lokr", "rank": 8},
+    }
+    assert not [i for i in collect_validation_errors(cfg) if "quantized base" in i]
+
+
 def test_train_norm_rejected_on_dit_without_affine_norms():
     """The cosmos-style DiT has no affine LayerNorm/GroupNorm: train_norm must fail
     loudly instead of silently training nothing extra."""

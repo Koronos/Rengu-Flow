@@ -162,6 +162,20 @@ def collect_validation_errors(
                     "lycoris_dylora requires activation_checkpointing = false "
                     "(its random sub-rank per forward breaks checkpoint recompute)."
                 )
+            elif is_lycoris_type(adapter["type"]) and isinstance(config.get("model"), dict) and (
+                config["model"].get("transformer_fp8_matmul") or config["model"].get("transformer_4bit")
+            ):
+                # The LyCORIS backend matches targets by exact class name "Linear", so
+                # it silently skips quantized linears (Fp8MatmulLinear / Linear4bit) —
+                # adapting only the unquantized minority. Only the built-in `lokr` is
+                # quantization-aware (routes through base_linear). Fail instead of
+                # training a near-empty adapter.
+                issues.append(
+                    "lycoris_* adapters are not compatible with a quantized base "
+                    "(model.transformer_fp8_matmul / transformer_4bit) — they skip the "
+                    "quantized layers. Use adapter.type = \"lokr\" (quantization-aware) "
+                    "or train on the unquantized base."
+                )
             elif "rank" not in adapter and "dim" not in adapter:
                 issues.append("adapter.rank (or adapter.dim) is required for adapter training.")
 
