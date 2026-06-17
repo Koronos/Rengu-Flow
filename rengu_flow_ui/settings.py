@@ -32,6 +32,10 @@ def logs_dir() -> Path:
     return ui_data_dir() / "logs"
 
 
+def toolbox_dir() -> Path:
+    return ui_data_dir() / "toolbox"
+
+
 def db_path() -> Path:
     return ui_data_dir() / "jobs.db"
 
@@ -66,5 +70,5 @@ def queue_poll_interval() -> float:
 
 
 def ensure_data_dirs() -> None:
-    for d in (ui_data_dir(), staging_dir(), logs_dir()):
+    for d in (ui_data_dir(), staging_dir(), logs_dir(), toolbox_dir()):
         d.mkdir(parents=True, exist_ok=True)

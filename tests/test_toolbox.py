@@ -14,3 +14,11 @@ def test_toolbox_enabled_reads_truthy_values(tmp_path: Path):
 
     cfg2 = lc.parse_local_config_dict({"toolbox": {"enabled": True}}, root=tmp_path)
     assert cfg2.toolbox.enabled is True
+
+
+def test_toolbox_dir_under_ui_data_dir(ui_data_tmp):
+    from rengu_flow_ui import settings
+
+    assert settings.toolbox_dir() == ui_data_tmp / "toolbox"
+    settings.ensure_data_dirs()
+    assert settings.toolbox_dir().is_dir()
