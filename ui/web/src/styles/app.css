@@ -131,6 +131,28 @@ html.dark[data-theme="midnight"] {
   --el-box-shadow-light: 0 2px 12px rgba(3, 10, 20, 0.4);
 }
 
+/* Theme: Original — the classic black/neutral Element Plus dark. Only re-state the
+   bits the midnight theme changed away from EP's defaults; everything else falls back
+   to EP's built-in dark tokens (neutral grays + the default blue accent). */
+html.dark[data-theme="original"] {
+  --el-bg-color: #141414;
+  --el-bg-color-page: #0a0a0a;
+  --el-bg-color-overlay: #1d1e1f;
+
+  /* Keep filled buttons on EP's blue (the midnight deep-cyan token would otherwise leak). */
+  --rf-btn-primary-bg: #409eff;
+  --rf-btn-primary-hover: #79bbff;
+  --rf-btn-primary-active: #337ecc;
+}
+/* Restore EP's built-in empty illustration for the classic theme. */
+html.dark[data-theme="original"] .el-empty__image {
+  aspect-ratio: auto;
+  background: none;
+}
+html.dark[data-theme="original"] .el-empty__image > svg {
+  display: block;
+}
+
 /* Theme-agnostic mappings — reference the active theme's tokens via var(), so a
    new theme inherits them for free: sidebar menu accent + hover. */
 html.dark {

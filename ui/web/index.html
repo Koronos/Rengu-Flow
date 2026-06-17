@@ -16,6 +16,14 @@
       rel="stylesheet"
     />
     <title>Rengu Flow UI</title>
+    <script>
+      // Apply the saved color theme before first paint to avoid a flash.
+      try {
+        var t = localStorage.getItem("rengu-flow-theme");
+        if (t === "midnight" || t === "original")
+          document.documentElement.dataset.theme = t;
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="app"></div>

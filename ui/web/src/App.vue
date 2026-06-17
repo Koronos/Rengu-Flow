@@ -41,6 +41,7 @@
           </a>
         </div>
         <div class="app-menu-bottom">
+          <ThemeToggle />
           <el-menu :default-active="activeMenu" class="app-menu app-menu--footer" router>
             <el-menu-item index="/docs">
               <el-icon><Document /></el-icon>
@@ -104,6 +105,7 @@
           </el-menu-item>
         </el-menu>
         <div class="app-menu-bottom">
+          <ThemeToggle />
           <el-menu
             :default-active="activeMenu"
             class="app-menu app-menu--footer"
@@ -139,6 +141,7 @@ import DatasetGalleryHost from "./components/DatasetGalleryHost.vue";
 import DatasetImageViewerHost from "./components/DatasetImageViewerHost.vue";
 import DatasetFormModalHost from "./components/DatasetFormModalHost.vue";
 import HostStatsBar from "./components/HostStatsBar.vue";
+import ThemeToggle from "./components/ThemeToggle.vue";
 
 const route = useRoute();
 const { isMobile } = useBreakpoint();
