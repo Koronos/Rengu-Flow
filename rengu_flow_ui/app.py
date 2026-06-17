@@ -272,8 +272,10 @@ def create_app() -> FastAPI:
         )
 
     from rengu_flow_ui.prep_routes import register_prep_routes
+    from rengu_flow_ui.toolbox_routes import register_toolbox_routes
 
     register_prep_routes(app)
+    register_toolbox_routes(app)
 
     # --- Training config TOML: validation + export (no standalone library) ---
     def _training_export_response(content: str, bundle_stem: str) -> Response:
