@@ -1,23 +1,24 @@
 /** Distinguishable, stable colors per run for the comparison overlay (sidebar swatch == chart series). */
 
-// Tableau-10 + extras: high-contrast, color-blind-friendly-ish, distinct at small sizes.
+// Bright, saturated qualitative palette tuned to pop on the dark navy theme (the muted
+// Tableau set read as dim on dark). Ordered for max distinctness at small sizes.
 export const RUN_COLOR_PALETTE = [
-  "#4e79a7",
-  "#f28e2b",
-  "#59a14f",
-  "#e15759",
-  "#76b7b2",
-  "#edc948",
-  "#b07aa1",
-  "#ff9da7",
-  "#9c755f",
-  "#bab0ac",
-  "#1f77b4",
-  "#ff7f0e",
-  "#2ca02c",
-  "#d62728",
-  "#9467bd",
-  "#8c564b",
+  "#38bdf8", // sky
+  "#fb923c", // orange
+  "#4ade80", // green
+  "#f87171", // red
+  "#c084fc", // purple
+  "#facc15", // yellow
+  "#f472b6", // pink
+  "#2dd4bf", // teal
+  "#a3e635", // lime
+  "#60a5fa", // blue
+  "#fbbf24", // amber
+  "#34d399", // emerald
+  "#e879f9", // fuchsia
+  "#fca5a5", // soft red
+  "#93c5fd", // soft blue
+  "#d8b4fe", // soft purple
 ] as const;
 
 export function colorForRun(index: number): string {

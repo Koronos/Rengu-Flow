@@ -363,7 +363,7 @@ function makeOpts(width: number): uPlot.Options {
       ...props.runs.map((r, ri) => ({
         label: r.name,
         stroke: r.color,
-        width: 1.5,
+        width: 1.75,
         points: { show: false },
         // Each run contributes its own steps to the shared x-axis, so every other run's steps land
         // as nulls in this series. spanGaps must bridge them, else a run whose step grid interleaves
