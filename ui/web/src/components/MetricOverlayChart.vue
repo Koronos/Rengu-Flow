@@ -360,7 +360,7 @@ function makeOpts(width: number): uPlot.Options {
     },
     series: [
       { label: "step" },
-      ...props.runs.map((r) => ({
+      ...props.runs.map((r, ri) => ({
         label: r.name,
         stroke: r.color,
         width: 1.5,
@@ -369,6 +369,15 @@ function makeOpts(width: number): uPlot.Options {
         // as nulls in this series. spanGaps must bridge them, else a run whose step grid interleaves
         // with another's renders as disconnected (invisible) points instead of a continuous line.
         spanGaps: true,
+        // Show each run's value at the NEAREST step in the legend, not the x-aligned cell: runs
+        // rarely share exact steps, so the raw cell is null for whichever run lacks a sample at the
+        // cursor's x, which made the legend flip between showing one run or the other instead of
+        // both (the readout strip below already does this).
+        value: (u: uPlot, _raw: number, _si: number, idx: number | null): string => {
+          if (!tipMeta || idx == null) return "--";
+          const p = nearestPoint(tipMeta.points[ri], (u.data[0] as number[])[idx]);
+          return p ? fmtVal(p.value) : "--";
+        },
       })),
     ],
   };
