@@ -117,17 +117,8 @@ html.dark[data-theme="midnight"] {
   --el-text-color-placeholder: #7589a3;
   --el-text-color-disabled: #566980;
 
-  /* el-empty illustration: navy/slate ramp so it sits on navy instead of clashing charcoal */
-  --el-empty-fill-color-0: #060d18;
-  --el-empty-fill-color-1: #47648c;
-  --el-empty-fill-color-2: #33496c;
-  --el-empty-fill-color-3: #1d2e48;
-  --el-empty-fill-color-4: #263a57;
-  --el-empty-fill-color-5: #21344f;
-  --el-empty-fill-color-6: #223450;
-  --el-empty-fill-color-7: #1b2b43;
-  --el-empty-fill-color-8: #1c2d46;
-  --el-empty-fill-color-9: #18273c;
+  /* el-empty illustration: a custom on-brand SVG (per theme) instead of EP's charcoal box */
+  --rf-empty-image: url("/empty-state.svg");
 
   --el-mask-color: rgba(8, 18, 32, 0.7);
   --el-box-shadow: 0 8px 24px rgba(3, 10, 20, 0.5);
@@ -640,6 +631,17 @@ html.dark {
   background: var(--el-color-primary-light-9);
   box-shadow: inset 3px 0 0 var(--el-color-primary);
   font-weight: 600;
+}
+
+/* Empty states: swap EP's built-in charcoal illustration for our on-brand SVG
+   (--rf-empty-image, set per theme). aspect-ratio keeps it square at whatever
+   image-size each view requests. */
+.el-empty__image > svg {
+  display: none;
+}
+.el-empty__image {
+  aspect-ratio: 1 / 1;
+  background: var(--rf-empty-image) center / contain no-repeat;
 }
 
 /* Card and table headers: firmer weight, a touch more presence. */
