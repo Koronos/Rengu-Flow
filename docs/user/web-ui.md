@@ -74,6 +74,7 @@ In Docker, mount that folder (set `data_dir` in `rengu.local.toml` to the mount 
 | **Configs** | `/configs` | Training config TOML library (form + raw TOML) |
 | **Runs** | `/runs` | Launch jobs, queue, live monitor, output folders, run detail |
 | **Studio** | `/prep` | Dataset Studio: tagging/captioning/cleanup jobs and the tag editor (`/prep/tags`) — see [dataset prep](dataset-prep.md) |
+| **Configuration** | `/settings` | Edit `rengu.local.toml` from the browser (gear icon) |
 
 **Maintenance** (`/maintenance`) appears only when `RENGUFLOW_MAINTENANCE=1` — see [Maintenance](maintenance.md).
 
@@ -132,6 +133,24 @@ Live progress in the UI is parsed from the job's **stdout progress markers** (ra
 emits step/loss/ETA, the caching phase, and the disk-export-wait phase). There is no
 per-iteration `status.json` and no config key to enable — it always works for jobs
 launched from or imported into the UI.
+
+## Configuration
+
+The **Configuration** page (sidebar gear icon) edits `rengu.local.toml` from the browser:
+
+- **Appearance** — the color theme. This is a per-browser preference saved in your browser, not
+  written to the config file.
+- **Training** — `num_gpus`, `master_port`, `extra_args`. Applied to the next `rengu train` run
+  (each run reloads the file); CLI flags still override these.
+- **Training environment** — the `training.env` table of environment variables for the training
+  subprocess.
+- **Maintenance** — toggles the Maintenance tools. Applied immediately.
+- **Server** — `ui.public` and `ui.token` are editable but **require a server restart** to take
+  effect; `ui.host`, `ui.port`, and `ui.data_dir` are shown read-only (edit the file directly to
+  change them, then restart).
+
+Saving writes only these fields back to `rengu.local.toml`; comments and any other content in the
+file are preserved.
 
 ## Advanced: run server only
 
