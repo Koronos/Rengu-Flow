@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="ui/web/public/icon.svg" alt="Rengu Flow" width="104" height="104" />
+  <img src="ui/web/public/icon.svg" alt="Rengu Flow" width="132" height="132" />
 </p>
 
-# Rengu Flow
+<h1 align="center">Rengu Flow</h1>
 
 <p align="center">
   <a href="LICENSE"><img alt="License: GPL-3.0-or-later" src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg"></a>
