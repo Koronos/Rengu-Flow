@@ -3,13 +3,6 @@
     <div class="overlay-chart__head">
       <span class="overlay-chart__title">{{ metric }}</span>
       <span v-if="loading" class="overlay-chart__hint">loading…</span>
-      <!-- Which colour is which run — the always-visible "signal" for the readout values below. -->
-      <div class="overlay-chart__legend">
-        <span v-for="r in runs" :key="r.id" class="ov-leg" :title="r.name">
-          <span class="ov-leg__sw" :style="{ background: r.color }"></span>
-          <span class="ov-leg__name">{{ r.name }}</span>
-        </span>
-      </div>
     </div>
     <div v-if="error" class="overlay-chart__state overlay-chart__state--error">{{ error }}</div>
     <div v-show="!error" class="overlay-chart__plot">
@@ -236,7 +229,12 @@ function renderReadout(): void {
       `<span class="tip-dt">${fmtDuration(rel)}</span></div>`;
   }
   const pinned = props.pinnedStep != null ? ' · <span class="tip-pin">pinned</span>' : "";
-  el.innerHTML = `<div class="tip-head">step ${step}${pinned}</div>${rows}`;
+  // Column labels so the numbers are legible: each run's metric value at this step, and the wall
+  // time elapsed since that run started.
+  const header =
+    `<div class="tip-row tip-hrow"><span></span><span>run</span>` +
+    `<span>value</span><span>elapsed</span></div>`;
+  el.innerHTML = `<div class="tip-head">step ${step}${pinned}</div>${header}${rows}`;
 }
 
 // Drag-zoom changed the x range → tell the parent whether this board is zoomed (it shows one
@@ -264,6 +262,40 @@ function resetZoom(): void {
   setZoomed(false);
 }
 
+// Pinned-point crosshair: a dashed vertical line at the pinned step plus a dot on each run, mirroring
+// the hover cursor so you can see where the pin landed on every board (the readout below stays text).
+function drawPin(u: uPlot): void {
+  if (props.pinnedStep == null) return;
+  const xs = u.data[0] as number[];
+  if (!xs.length) return;
+  const idx = nearestIndex(xs, props.pinnedStep);
+  const cx = Math.round(u.valToPos(xs[idx], "x", true));
+  const { left, top, width: w, height: h } = u.bbox;
+  if (cx < left || cx > left + w) return;
+  const ctx = u.ctx;
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(left, top, w, h);
+  ctx.clip();
+  ctx.strokeStyle = cssVar("--el-color-primary", "#409eff");
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 3]);
+  ctx.beginPath();
+  ctx.moveTo(cx, top);
+  ctx.lineTo(cx, top + h);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  for (let s = 1; s < u.series.length; s++) {
+    const yv = (u.data[s] as (number | null)[])[idx];
+    if (yv == null || !Number.isFinite(yv)) continue;
+    ctx.beginPath();
+    ctx.fillStyle = (u.series[s].stroke as string) || "#888";
+    ctx.arc(cx, Math.round(u.valToPos(yv, "y", true)), 3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
 function makeOpts(width: number): uPlot.Options {
   const axisColor = cssVar("--el-text-color-secondary", "#909399");
   const gridColor = cssVar("--el-border-color-lighter", "#ebeef5");
@@ -277,11 +309,14 @@ function makeOpts(width: number): uPlot.Options {
     height: HEIGHT,
     scales: { x: { time: false }, y: { distr: props.logScale ? 3 : 1 } },
     axes: [axis, axis],
-    // uPlot's own legend is off: it duplicated the readout below and showed a redundant inline
-    // "step". The head colour legend is the signal; the strip below shows the per-step values.
+    // uPlot's legend stays on for its per-run swatches and click-to-toggle (show/hide a run); only
+    // its redundant "step" row is hidden via CSS, since the step is in the readout strip below.
     cursor: { sync: { key: props.syncKey }, points: { size: 5 } },
-    legend: { show: false },
+    legend: { show: true },
     hooks: {
+      // Draw the pinned crosshair (vertical line + per-run markers) so the pinned point is visible
+      // on the chart, like the hover cursor, across every synced board.
+      draw: [drawPin],
       ready: [
         (u: uPlot) => {
           // Track real pointer presence so the readout shows only for the hovered chart (the synced
@@ -448,10 +483,14 @@ watch(
     if (plot && zoomed.value) resetZoom();
   }
 );
-// Pinned step changed (set/cleared by the parent) → re-render the frozen/live readout.
+// Pinned step changed (set/cleared by the parent) → re-render the frozen/live readout and redraw
+// the chart so the pin crosshair appears/moves/clears.
 watch(
   () => props.pinnedStep,
-  () => renderReadout()
+  () => {
+    renderReadout();
+    plot?.redraw();
+  }
 );
 
 onBeforeUnmount(() => {
@@ -481,34 +520,6 @@ onBeforeUnmount(() => {
 .overlay-chart__hint {
   font-size: 12px;
   color: var(--el-text-color-secondary);
-}
-.overlay-chart__legend {
-  margin-left: auto;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 12px;
-  justify-content: flex-end;
-  max-width: 70%;
-}
-.ov-leg {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 11px;
-  color: var(--el-text-color-secondary);
-  min-width: 0;
-}
-.ov-leg__sw {
-  width: 10px;
-  height: 10px;
-  border-radius: 2px;
-  flex: 0 0 auto;
-}
-.ov-leg__name {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 140px;
 }
 .overlay-chart__plot {
   position: relative;
@@ -548,6 +559,13 @@ onBeforeUnmount(() => {
   gap: 6px;
   color: var(--el-text-color-regular);
 }
+/* Column header labelling the value / elapsed columns. */
+.overlay-chart__tip :deep(.tip-hrow) {
+  font-size: 11px;
+  color: var(--el-text-color-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
 .overlay-chart__tip :deep(.tip-sw) {
   width: 10px;
   height: 10px;
@@ -574,5 +592,17 @@ onBeforeUnmount(() => {
 }
 .overlay-chart__state--error {
   color: var(--el-color-danger);
+}
+/* uPlot legend: compact, and hide its first row — the x-axis "step" — since the step is shown once
+   in the readout strip below. The remaining rows are the runs (click a run to show/hide its line). */
+.overlay-chart :deep(.u-legend) {
+  font-size: 12px;
+}
+.overlay-chart :deep(.u-legend .u-marker) {
+  width: 10px;
+  height: 10px;
+}
+.overlay-chart :deep(.u-legend tr.u-series:first-child) {
+  display: none;
 }
 </style>

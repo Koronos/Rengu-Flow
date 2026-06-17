@@ -118,9 +118,13 @@
                global and live in one sticky bar that overlaps the top-right as you scroll. -->
           <div v-if="chartMetrics.length" class="cmp-boards">
             <div v-show="anyZoomed || pinnedStep != null" class="cmp-board-tools">
-              <span v-if="pinnedStep != null" class="cmp-board-pin">📌 step {{ pinnedStep }}</span>
-              <button v-if="pinnedStep != null" type="button" class="cmp-board-btn" @click="unpin">
-                Unpin
+              <button
+                v-if="pinnedStep != null"
+                type="button"
+                class="cmp-board-btn cmp-board-btn--unpin"
+                @click="unpin"
+              >
+                📌 Unpin step {{ pinnedStep }}
               </button>
               <button v-if="anyZoomed" type="button" class="cmp-board-btn" @click="resetAllZoom">
                 Reset zoom
@@ -780,16 +784,6 @@ function hardwareLabel(r: CompareRunRow): string {
 .cmp-board-tools > * {
   pointer-events: auto;
 }
-.cmp-board-pin {
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  color: var(--el-text-color-regular);
-  background: var(--el-bg-color-overlay, var(--el-bg-color));
-  border: 1px solid var(--el-border-color);
-  border-radius: 4px;
-  padding: 2px 8px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
-}
 .cmp-board-btn {
   font-size: 12px;
   padding: 3px 10px;
@@ -802,6 +796,18 @@ function hardwareLabel(r: CompareRunRow): string {
 }
 .cmp-board-btn:hover {
   background: var(--el-fill-color);
+}
+/* The pin is easy to forget about, so its Unpin stands out: filled accent, bolder, tabular step. */
+.cmp-board-btn--unpin {
+  background: var(--el-color-warning);
+  border-color: var(--el-color-warning);
+  color: #fff;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.cmp-board-btn--unpin:hover {
+  background: var(--el-color-warning-dark-2, var(--el-color-warning));
+  filter: brightness(1.05);
 }
 .cmp-charts {
   display: grid;
