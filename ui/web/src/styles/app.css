@@ -226,18 +226,18 @@ html.dark {
   margin-bottom: var(--rf-space-md);
 }
 
-.page-collapse :deep(.el-collapse-item__header) {
+.page-collapse .el-collapse-item__header {
   font-weight: 600;
   height: 44px;
   line-height: 44px;
   border-bottom: 1px solid var(--el-border-color-lighter);
 }
 
-.page-collapse :deep(.el-collapse-item__wrap) {
+.page-collapse .el-collapse-item__wrap {
   border-bottom: none;
 }
 
-.page-collapse :deep(.el-collapse-item__content) {
+.page-collapse .el-collapse-item__content {
   padding: var(--rf-space-sm) 0 var(--rf-space-xs);
 }
 
@@ -260,17 +260,17 @@ html.dark {
   margin-bottom: 0;
 }
 
-.app-main :deep(.el-card) {
+.app-main .el-card {
   max-width: 100%;
   min-width: 0;
 }
 
-.app-main :deep(.el-card__header) {
+.app-main .el-card__header {
   overflow: hidden;
   min-width: 0;
 }
 
-.app-main :deep(.el-card__body) {
+.app-main .el-card__body {
   min-width: 0;
   overflow-x: auto;
 }

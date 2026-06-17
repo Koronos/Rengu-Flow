@@ -1393,9 +1393,14 @@ def create_app() -> FastAPI:
             if full_path.startswith("api"):
                 raise HTTPException(404)
             target = dist / full_path
-            if full_path and target.is_file():
+            if full_path and target.is_file() and target.name != "index.html":
                 return FileResponse(target)
-            return FileResponse(dist / "index.html")
+            # index.html pins the current build's hashed asset URLs, so it must always be
+            # revalidated — a cached copy keeps loading an old build after `rengu update` (the
+            # "had to Ctrl-F5" problem). The hashed files under /assets stay cacheable as-is.
+            return FileResponse(
+                dist / "index.html", headers={"Cache-Control": "no-cache"}
+            )
 
     return app
 

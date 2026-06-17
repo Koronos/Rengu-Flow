@@ -1,27 +1,32 @@
 import { createRouter, createWebHistory } from "vue-router";
-import DatasetsListView from "./views/DatasetsListView.vue";
-import DocsView from "./views/DocsView.vue";
-import MaintenanceView from "./views/MaintenanceView.vue";
-import JobsView from "./views/JobsView.vue";
-import RunComparisonView from "./views/RunComparisonView.vue";
-import RunDetailView from "./views/RunDetailView.vue";
-import RunFormView from "./views/RunFormView.vue";
-import TagEditorView from "./views/TagEditorView.vue";
-import PrepJobsView from "./views/PrepJobsView.vue";
-import PrepJobFormView from "./views/PrepJobFormView.vue";
+
+// Lazy-loaded views: each becomes its own chunk so the initial load ships only the shell + the
+// landing route, not every view (and their heavy deps — uPlot for compare, marked/dompurify for
+// docs, the tag editor, etc.). The rest load on navigation. RunDetailView and RunFormView back
+// several routes, so their import is shared (one promise) to avoid duplicating the chunk.
+const RunDetailView = () => import("./views/RunDetailView.vue");
+const RunFormView = () => import("./views/RunFormView.vue");
 
 const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: "/", redirect: "/runs" },
-    { path: "/docs", name: "docs", component: DocsView },
-    { path: "/maintenance", name: "maintenance", component: MaintenanceView },
+    { path: "/docs", name: "docs", component: () => import("./views/DocsView.vue") },
+    {
+      path: "/maintenance",
+      name: "maintenance",
+      component: () => import("./views/MaintenanceView.vue"),
+    },
     { path: "/runs/new", name: "run-new", component: RunFormView },
     { path: "/runs/jobs/:id/edit", name: "run-edit", component: RunFormView },
     { path: "/runs/jobs/:id/continue", name: "run-continue", component: RunFormView },
     { path: "/runs/jobs/:id", name: "job-detail", component: RunDetailView, props: { mode: "job" } },
-    { path: "/runs", name: "jobs", component: JobsView },
-    { path: "/compare", name: "run-comparison", component: RunComparisonView },
+    { path: "/runs", name: "jobs", component: () => import("./views/JobsView.vue") },
+    {
+      path: "/compare",
+      name: "run-comparison",
+      component: () => import("./views/RunComparisonView.vue"),
+    },
     {
       path: "/runs/:name",
       name: "run-detail",
@@ -30,10 +35,18 @@ const router = createRouter({
     },
     { path: "/jobs/:id", redirect: (to) => `/runs/jobs/${to.params.id}` },
     { path: "/jobs", redirect: "/runs" },
-    { path: "/datasets", name: "datasets-list", component: DatasetsListView },
-    { path: "/prep", name: "prep-jobs", component: PrepJobsView },
-    { path: "/prep/new/:stage", name: "prep-new", component: PrepJobFormView },
-    { path: "/prep/tags", name: "prep-tags", component: TagEditorView },
+    {
+      path: "/datasets",
+      name: "datasets-list",
+      component: () => import("./views/DatasetsListView.vue"),
+    },
+    { path: "/prep", name: "prep-jobs", component: () => import("./views/PrepJobsView.vue") },
+    {
+      path: "/prep/new/:stage",
+      name: "prep-new",
+      component: () => import("./views/PrepJobFormView.vue"),
+    },
+    { path: "/prep/tags", name: "prep-tags", component: () => import("./views/TagEditorView.vue") },
   ],
 });
 
