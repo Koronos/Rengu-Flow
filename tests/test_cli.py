@@ -28,7 +28,9 @@ def test_uv_sync_argv_ui_extra():
 
 def test_uv_sync_argv_base_is_inexact():
     argv = uv_sync_argv(["base"])
-    assert argv == ["uv", "sync", "--inexact"]
+    # Additive sync, plus a forced reinstall of just the editable project package so a version-only
+    # bump in pyproject is reflected in the installed metadata after `rengu update`.
+    assert argv == ["uv", "sync", "--inexact", "--reinstall-package", "rengu-flow"]
 
 
 def test_legacy_train_dispatch(monkeypatch):

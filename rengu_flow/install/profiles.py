@@ -97,9 +97,15 @@ def uv_sync_argv(profiles: list[str]) -> list[str]:
     Git-sourced extras (e.g. ``kaon``) are pinned to an exact commit in [tool.uv.sources], so
     selecting the extra installs exactly that revision; the package only changes when the pin is
     bumped in pyproject — uv re-locks and applies it on the next sync.
+
+    ``--reinstall-package rengu-flow`` forces a reinstall of just the project's own (editable)
+    package every sync. A plain ``uv sync`` skips it on a version-only bump (no resolution change),
+    so the installed distribution metadata — and anything reading it, e.g. ``importlib.metadata`` —
+    lags behind a pulled ``pyproject`` version until a force reinstall. Reinstalling only this one
+    package is cheap (editable, ~tens of ms) and keeps the installed version in step after `update`.
     """
     normalized = normalize_profiles(profiles)
-    cmd = ["uv", "sync", "--inexact"]
+    cmd = ["uv", "sync", "--inexact", "--reinstall-package", "rengu-flow"]
     extras: set[str] = set()
     for p in normalized:
         extra = PROFILE_EXTRAS.get(p)
