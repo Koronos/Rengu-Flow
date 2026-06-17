@@ -9,6 +9,8 @@
   --rf-space-xs: 8px;
   --rf-space-sm: 12px;
   --rf-space-md: 16px;
+  /* Shared height for the brand row and the page header, so they line up exactly. */
+  --rf-topbar-height: 56px;
 }
 
 /* Row action groups: library lists (configs/datasets) and dataset directories. */
@@ -61,9 +63,15 @@ body,
   -webkit-font-smoothing: antialiased;
 }
 
-/* rengu theme — cyan accent on navy surfaces, derived from the logo (navy badge + cyan flow) and
-   the Poet mascot. Re-skins the whole UI by overriding Element Plus's dark CSS variables here. */
-html.dark {
+/* ════════════════════════════════════════════════════════════════════════════
+   THEMES. Each theme is one block of raw color values keyed by `data-theme` on
+   <html> (set in index.html). Everything else (fonts, spacing, layout heights,
+   var()-based mappings, component tweaks) is theme-agnostic and lives outside
+   these blocks. To add a theme: copy the `midnight` block, rename data-theme,
+   change the values, then point <html data-theme="..."> at it (or add a switcher).
+
+   Theme: Midnight (default) — cyan accent on deep navy, from the logo + Poet. */
+html.dark[data-theme="midnight"] {
   /* Primary: cyan */
   --el-color-primary: #22b8e6;
   --el-color-primary-light-3: #1f9bc2;
@@ -72,6 +80,15 @@ html.dark {
   --el-color-primary-light-8: #123c4b;
   --el-color-primary-light-9: #0f2935;
   --el-color-primary-dark-2: #56ccf0;
+
+  /* Info semantic → cool slate (EP's default #909399 is a warm gray that clashes on navy) */
+  --el-color-info: #7488a3;
+  --el-color-info-light-3: #556780;
+  --el-color-info-light-5: #405268;
+  --el-color-info-light-7: #2c3c50;
+  --el-color-info-light-8: #223145;
+  --el-color-info-light-9: #172639;
+  --el-color-info-dark-2: #8c9eb6;
 
   /* Navy surfaces — deep dark theme; separation comes from a darker page + defined borders, not lighter cards */
   --el-bg-color: #0d1b2d;
@@ -115,8 +132,11 @@ html.dark {
   --el-mask-color: rgba(8, 18, 32, 0.7);
   --el-box-shadow: 0 8px 24px rgba(3, 10, 20, 0.5);
   --el-box-shadow-light: 0 2px 12px rgba(3, 10, 20, 0.4);
+}
 
-  /* Sidebar menu: cyan accent, navy hover */
+/* Theme-agnostic mappings — reference the active theme's tokens via var(), so a
+   new theme inherits them for free: sidebar menu accent + hover. */
+html.dark {
   --el-menu-active-color: var(--el-color-primary);
   --el-menu-text-color: var(--el-text-color-regular);
   --el-menu-hover-bg-color: var(--el-fill-color-light);
@@ -145,7 +165,9 @@ html.dark {
   display: flex;
   align-items: center;
   gap: 9px;
-  padding: 16px;
+  box-sizing: border-box;
+  height: var(--rf-topbar-height);
+  padding: 0 16px;
   font-size: 1.1rem;
   font-weight: 600;
   border-bottom: 1px solid var(--el-border-color);
@@ -196,8 +218,9 @@ html.dark {
   display: flex;
   align-items: center;
   gap: 8px;
+  box-sizing: border-box;
   padding: 0 12px 0 12px;
-  min-height: 56px;
+  min-height: var(--rf-topbar-height);
   height: auto;
   flex-wrap: nowrap;
   justify-content: space-between;
