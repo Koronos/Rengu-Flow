@@ -86,13 +86,24 @@ html.dark {
 }
 
 .app-brand {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 9px;
   padding: 16px;
   font-size: 1.1rem;
   font-weight: 600;
   border-bottom: 1px solid var(--el-border-color);
   color: inherit;
   text-decoration: none;
+}
+.app-brand__icon {
+  flex: 0 0 auto;
+  border-radius: 6px;
+}
+.app-brand--drawer {
+  padding: 0;
+  border-bottom: none;
+  font-size: 1.05rem;
 }
 .app-brand:hover {
   color: var(--el-color-primary);

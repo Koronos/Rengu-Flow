@@ -2,7 +2,10 @@
   <el-config-provider>
   <el-container class="app-shell">
     <el-aside v-if="!isMobile" width="220px" class="app-aside hide-mobile">
-      <router-link to="/" class="app-brand">Rengu Flow UI</router-link>
+      <router-link to="/" class="app-brand">
+        <img src="/icon.svg" class="app-brand__icon" alt="" width="24" height="24" />
+        <span>Rengu Flow UI</span>
+      </router-link>
       <nav class="app-nav">
         <el-menu :default-active="activeMenu" class="app-menu app-menu--main" router>
           <el-menu-item index="/runs">
@@ -69,12 +72,13 @@
       </el-main>
     </el-container>
 
-    <el-drawer
-      v-model="drawerOpen"
-      direction="ltr"
-      size="260px"
-      title="Rengu Flow UI"
-    >
+    <el-drawer v-model="drawerOpen" direction="ltr" size="260px">
+      <template #header>
+        <span class="app-brand app-brand--drawer">
+          <img src="/icon.svg" class="app-brand__icon" alt="" width="22" height="22" />
+          <span>Rengu Flow UI</span>
+        </span>
+      </template>
       <nav class="app-nav app-nav--drawer">
         <el-menu
           :default-active="activeMenu"
