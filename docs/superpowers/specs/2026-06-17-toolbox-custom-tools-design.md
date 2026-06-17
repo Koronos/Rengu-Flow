@@ -1,16 +1,22 @@
-# Studio Custom Tools — Design
+# Toolbox — Custom Python Tools — Design
 
 **Date:** 2026-06-17
 **Status:** Approved (pre-implementation), iterating from here.
 
 ## Summary
 
-A framework in the Studio section that lets users author small Python "tools":
+A new top-level **Toolbox** section that lets users author small Python "tools":
 paste a Python script that exposes an entrypoint function, declare its input
 controls in the UI, and run it via `uv` with PEP 723 inline requirements — fully
 isolated from rengu's own virtualenv. Tools form a personal, always-at-hand
 toolset shown with name, description, and creation/modification dates, intended
 for custom dataset treatment or other ad-hoc processing.
+
+Toolbox is **separate from the Studio (`/prep`) section**. Studio is built around
+queued jobs and TOML configs; Toolbox is not — it has no queue, no TOML job
+config, and a single last-run record per tool. They share only low-level
+infrastructure (the data dir, the subprocess launcher, and the live-log WebSocket
+hub).
 
 Execution is gated by a flag in the local TOML. The section, authoring, and
 saving remain available even when execution is disabled; only running is blocked.
@@ -23,7 +29,7 @@ saving remain available even when execution is disabled; only running is blocked
   becomes PEP 723 inline dependencies that uv resolves and caches in an ephemeral
   environment — never touching rengu's venv.
 - Surface a live log (REST snapshot + WebSocket incremental updates) using the
-  same mechanism the prep jobs already use.
+  same WebSocket hub the existing jobs already use.
 - Persist a personal toolset: one folder per tool, listed with name, description,
   and created/modified dates.
 - Keep a single last-run record per tool (inputs + status + log); re-running
@@ -32,7 +38,8 @@ saving remain available even when execution is disabled; only running is blocked
 
 ## Non-Goals
 
-- No queue, no multi-run history, no TOML job enqueue.
+- No queue, no multi-run history, no TOML job enqueue. (This is what keeps it out
+  of the Studio/prep section.)
 - No auto-parsing of the function signature (inputs are declared manually).
 - No path/file-picker control type in v1 (a plain `text`/string field is used to
   paste paths, matching existing prep usage).
@@ -44,19 +51,19 @@ saving remain available even when execution is disabled; only running is blocked
 `rengu.local.toml`:
 
 ```toml
-[studio_tools]
+[toolbox]
 enabled = false   # default OFF; gates EXECUTION only
 ```
 
-Backend exposes `studio_tools_enabled()` reading the local TOML. Behavior:
+Parsed in `rengu_flow/config/local_config.py` (new `ToolboxConfig` dataclass on
+`LocalConfig`), exposed via a `toolbox_enabled()` helper. Behavior:
 
-- The Studio Tools nav item and section are **always visible** (unlike the
-  maintenance module, which hides itself).
+- The Toolbox nav item and section are **always visible**.
 - Creating, editing, saving, and deleting tools **always works**, regardless of
   the flag.
-- Only `POST /api/v1/studio/tools/{id}/run` validates the flag. When off it
-  returns an error with a clear message, and the UI disables the **Run** button
-  and shows a banner: *"Execution disabled in rengu.local.toml → [studio_tools].enabled"*.
+- Only `POST /api/v1/toolbox/tools/{id}/run` validates the flag. When off it
+  returns HTTP 409 with a clear message, and the UI disables the **Run** button
+  and shows a banner: *"Execution disabled in rengu.local.toml → [toolbox].enabled"*.
 
 ## Storage Layout
 
@@ -64,7 +71,7 @@ One folder per tool under the managed data dir (`RENGU_FLOW_UI_DATA` or
 `<repo>/data`), per the "no hidden folders, use data/" convention:
 
 ```
-data/studio_tools/<slug-id>/
+data/toolbox/<slug-id>/
 ├── tool.py          # user's script (contains the entrypoint function)
 ├── tool.json        # metadata + input definitions
 ├── inputs.json      # inputs of the last run (overwritten each run)
@@ -143,7 +150,8 @@ if result is not None:
 ```
 
 Launch: `uv run --no-project --isolated _runner.py`, started through the existing
-`subprocess_util.popen_*` helper, with stdout/stderr redirected to `last_run.log`.
+`subprocess_util.popen_repo_subprocess` helper, with stdout/stderr redirected to
+`last_run.log`.
 
 - `--no-project --isolated` makes uv resolve the inline `dependencies` in an
   ephemeral, cached environment without touching rengu's `.venv` or pyproject.
@@ -151,56 +159,63 @@ Launch: `uv run --no-project --isolated _runner.py`, started through the existin
   runner injects requirements and dispatches kwargs.
 - If `uv` is missing from PATH, the backend raises a clear error (same pattern as
   `tensorboard_server.build_tensorboard_cmd`).
-- One active run per tool; starting a run while one is active is rejected (or
-  cancel-and-replace — finalized in the implementation plan).
+- One active run per tool; starting a run while one is active is rejected (HTTP
+  409).
 
 ## Backend
 
-New module `rengu_flow_ui/studio_tools.py`: CRUD over `data/studio_tools/<id>/`
+New module `rengu_flow_ui/toolbox.py`: CRUD over `data/toolbox/<id>/`
 (create/list/read/update/delete, slug-id resolution from the name, read/write
-`tool.json` and `last_run.json`), plus the runner launch and input→kwargs casting.
+`tool.json` and `last_run.json`), plus the runner generation, input→kwargs
+casting, and run launch/status tracking (in-process registry of the active
+`Popen` per tool id — no DB, no queue).
 
-New routes module `rengu_flow_ui/studio_routes.py`, registered in `app.py` the
+New routes module `rengu_flow_ui/toolbox_routes.py`, registered in `app.py` the
 same way `prep_routes.register_prep_routes(app)` is:
 
-| Method | Route                                   | Action                                              |
-|--------|-----------------------------------------|-----------------------------------------------------|
-| GET    | `/api/v1/studio/enabled`                | `{enabled}` from the local TOML (drives the banner) |
-| GET    | `/api/v1/studio/tools`                  | list: id, name, description, created/updated, last_run.status |
-| POST   | `/api/v1/studio/tools`                  | create                                              |
-| GET    | `/api/v1/studio/tools/{id}`             | full `tool.json` + last_run                         |
-| PUT    | `/api/v1/studio/tools/{id}`             | update (touches `updated_at`)                       |
-| DELETE | `/api/v1/studio/tools/{id}`             | delete folder                                       |
-| POST   | `/api/v1/studio/tools/{id}/run`         | validate flag; cast inputs→kwargs, write `inputs.json`, launch runner (overwrites last_run) |
-| GET    | `/api/v1/studio/tools/{id}/run/log`     | log snapshot + status                               |
-| POST   | `/api/v1/studio/tools/{id}/run/cancel`  | kill the running process                            |
+| Method | Route                                     | Action                                              |
+|--------|-------------------------------------------|-----------------------------------------------------|
+| GET    | `/api/v1/toolbox/enabled`                 | `{enabled}` from the local TOML (drives the banner) |
+| GET    | `/api/v1/toolbox/tools`                   | list: id, name, description, created/updated, last_run.status |
+| POST   | `/api/v1/toolbox/tools`                   | create                                              |
+| GET    | `/api/v1/toolbox/tools/{id}`              | full `tool.json` + last_run                         |
+| PUT    | `/api/v1/toolbox/tools/{id}`              | update (touches `updated_at`)                       |
+| DELETE | `/api/v1/toolbox/tools/{id}`              | delete folder                                       |
+| POST   | `/api/v1/toolbox/tools/{id}/run`          | validate flag; cast inputs→kwargs, write `inputs.json`, launch runner (overwrites last_run) |
+| GET    | `/api/v1/toolbox/tools/{id}/run`          | last_run status + inputs                            |
+| GET    | `/api/v1/toolbox/tools/{id}/log`          | log snapshot (offset-based) + status                |
+| POST   | `/api/v1/toolbox/tools/{id}/run/cancel`   | kill the running process                            |
 
-Live log technique (mirrors prep): the client fetches the current log snapshot
-via REST (`/run/log`), then subscribes to incremental updates over the existing
-WebSocket hub used by prep jobs until `done`/`failed`. The exact WS channel is
-confirmed in the implementation plan so the existing `PrepJobLivePanel` / WS
-client is reused rather than duplicated.
+Live log technique mirrors the existing jobs: the client fetches the current log
+snapshot via REST (`/log`), then subscribes to incremental updates over a
+WebSocket. The backend reuses the same tail mechanism behind a Toolbox-specific WS
+route `/api/v1/toolbox/tools/{id}/log/ws`, so the frontend can reuse the
+`useJobLogStream` composable pattern.
 
 ## Frontend (Vue 3 + Element Plus)
 
-- `StudioToolsView.vue` — route `/studio/tools`, nav item always visible. Card per
-  tool: name, description, created/modified dates, last-run status badge
-  (idle/running/done/failed). Actions: New, Run, Edit, Delete.
-- `StudioToolFormView.vue` — tool editor: name, description, entrypoint (prefilled
-  `run`), requirements (one per line → `dependencies`), Python script editor, and
-  the **inputs builder**: add/remove/reorder inputs with `param`, label, control
-  type (`number`/`text`/`textarea`/`switch`/`select`), default, options (select),
-  min/max/step (number), hint.
-- `StudioToolRunPanel` — renders the inputs as a form (reusing `ConfigFormField`),
-  a **Run** button (disabled + banner when execution is off), the live log panel
-  (REST snapshot + WS), and the last run's inputs/status when re-entering.
+New top-level nav item **Toolbox** (always visible), separate from Studio.
 
-Plumbing: API client additions in `api.ts`, a route in `router.ts`, and a nav item
-in `App.vue`. All UI strings in English.
+- `ToolboxView.vue` — route `/toolbox`. Card per tool: name, description,
+  created/modified dates, last-run status badge (idle/running/done/failed).
+  Actions: New, Run, Edit, Delete.
+- `ToolboxToolFormView.vue` — route `/toolbox/new` and `/toolbox/:id/edit`. Tool
+  editor: name, description, entrypoint (prefilled `run`), requirements (one per
+  line → `dependencies`), Python script editor, and the **inputs builder**:
+  add/remove/reorder inputs with `param`, label, control type
+  (`number`/`text`/`textarea`/`switch`/`select`), default, options (select),
+  min/max/step (number), hint.
+- `ToolboxRunPanel.vue` — renders the inputs as a form, a **Run** button (disabled
+  + banner when execution is off), the live log panel (REST snapshot + WS reusing
+  the `useJobLogStream` pattern), and the last run's inputs/status when
+  re-entering.
+
+Plumbing: API client additions in `api.ts`, routes in `router.ts`, and a nav item
+in `App.vue` (both the main menu and the mobile drawer). All UI strings in English.
 
 ## Error Handling
 
-- Execution disabled → `/run` returns an error with a clear message; UI shows the
+- Execution disabled → `/run` returns HTTP 409 with a clear message; UI shows the
   banner and disables Run.
 - `uv` missing → clear error with install guidance.
 - Script error → status `failed`, exit code and traceback captured in
@@ -211,12 +226,13 @@ in `App.vue`. All UI strings in English.
 
 ## Testing (automated only)
 
-- `studio_tools.py`: create/list/update/delete, slug-id generation, created/updated
-  dates, last-run overwrite.
-- Runner: correct PEP 723 header built from `requirements`; input→kwargs casting per
-  control type.
-- Toggle: `studio_tools_enabled()` reads the local TOML; `/run` rejects when off;
-  CRUD still works when off.
+- `toolbox.py`: create/list/update/delete, slug-id generation, created/updated
+  dates, last-run overwrite, input→kwargs casting per control type, runner PEP 723
+  header built from `requirements`.
+- Routes: CRUD via FastAPI TestClient (reusing the `ui_client` / `ui_data_tmp`
+  fixtures); `/run` rejects with 409 when the toggle is off; CRUD still works when
+  off.
+- Toggle: `toolbox_enabled()` reads `[toolbox].enabled` from the local TOML.
 - Smoke e2e: a `sumar(num1, num2)` tool with **no requirements** run via
   `uv run --no-project --isolated`, asserting the result in the log (fast, no
   network). Guarded with a Monitor + timeout, since uv runs can take time.
