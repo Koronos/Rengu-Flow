@@ -15,6 +15,12 @@ FIXTURE_JPG = (
 )
 
 
+@pytest.fixture(autouse=True)
+def _isolate_prep_storage(tmp_path, monkeypatch):
+    # Prep backups/quarantine now live under the app data dir; isolate them per test.
+    monkeypatch.setenv("RENGU_FLOW_UI_DATA", str(tmp_path / "appdata"))
+
+
 @pytest.fixture
 def img_dir(tmp_path):
     d = tmp_path / "images"
@@ -157,9 +163,10 @@ def test_quarantine_json_format_rewrites_captions_json(img_dir):
 
 def test_prep_dir_invisible_to_discovery(img_dir):
     cs = CaptionStore.open(img_dir)
-    cs.snapshot()
+    backup = cs.snapshot()
     cs2 = CaptionStore.open(img_dir)
-    # Backup dir lives under .rengu_prep and never shows up as images.
+    # Backups live under the app data dir, outside the dataset — never seen as images.
+    assert not str(backup).startswith(str(img_dir))
     assert sorted(cs2.images) == ["a.jpg", "b.jpg", "c.jpg"]
 
 

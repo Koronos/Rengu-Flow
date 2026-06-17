@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from rengu_flow.prep.config import STAGES, PrepConfig, load_prep_config
+from rengu_flow.prep.storage import prep_storage_dir
 
 
 def add_parser(sub: argparse._SubParsersAction) -> None:
@@ -49,7 +50,7 @@ def add_parser(sub: argparse._SubParsersAction) -> None:
     c.add_argument("--overwrite", action="store_true", default=None,
                    help="Re-caption images that already have a caption line")
     cl.add_argument("--in-place", action="store_true", default=None,
-                    help="Rewrite sources (originals backed up under .rengu_prep/)")
+                    help="Rewrite sources (originals backed up under the app data dir)")
     cl.add_argument("--output-dir", default=None,
                     help="Destination for cleaned copies (default <path>/cleaned)")
 
@@ -92,7 +93,7 @@ def _build_config(args: argparse.Namespace) -> PrepConfig:
 
 def _default_job_dir(config: PrepConfig, stage: str) -> Path:
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    return Path(config.path) / ".rengu_prep" / "jobs" / f"{stage}-{ts}"
+    return prep_storage_dir(config.path) / "jobs" / f"{stage}-{ts}"
 
 
 def _run_models(args: argparse.Namespace) -> None:

@@ -4,7 +4,8 @@ Reads/writes the two caption layouts the trainer understands (rengu_flow/data/da
 per-image sidecar text files (one caption variant per line, customizable extension) and a
 composite ``captions.json`` (``{image_filename: [captions]}``). All mutations stay in memory
 until ``save()``; writes are atomic, and ``snapshot()``/``restore_snapshot()`` give a full
-caption backup under ``<folder>/.rengu_prep/`` so a bad bulk edit is always recoverable.
+caption backup under the managed app data dir (see ``prep_storage_dir``) so a bad bulk
+edit is always recoverable.
 """
 
 from __future__ import annotations
@@ -17,8 +18,9 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
+from rengu_flow.prep.storage import prep_storage_dir
+
 CAPTIONS_JSON_FILE = "captions.json"
-PREP_DIR_NAME = ".rengu_prep"
 BACKUPS_DIR_NAME = "backups"
 QUARANTINE_DIR_NAME = "quarantine"
 MANIFEST_FILE = "manifest.json"
@@ -156,7 +158,7 @@ class CaptionSet:
 
     def snapshot(self) -> Path:
         """Copy every caption file (sidecars and captions.json) to a timestamped backup."""
-        backups_root = self.folder / PREP_DIR_NAME / BACKUPS_DIR_NAME
+        backups_root = prep_storage_dir(self.folder) / BACKUPS_DIR_NAME
         backup_dir = backups_root / _utc_stamp()
         suffix = 0
         while backup_dir.exists():
@@ -190,7 +192,7 @@ class CaptionSet:
 
     def quarantine(self, keys: list[str]) -> Path:
         """Move images (and their sidecars) out of the dataset — never delete."""
-        qdir = self.folder / PREP_DIR_NAME / QUARANTINE_DIR_NAME / _utc_stamp()
+        qdir = prep_storage_dir(self.folder) / QUARANTINE_DIR_NAME / _utc_stamp()
         qdir.mkdir(parents=True, exist_ok=True)
         entries = {}
         for key in keys:
@@ -288,7 +290,7 @@ class CaptionStore:
 
     @staticmethod
     def list_backups(folder: str | Path) -> list[dict]:
-        backups_root = Path(folder) / PREP_DIR_NAME / BACKUPS_DIR_NAME
+        backups_root = prep_storage_dir(folder) / BACKUPS_DIR_NAME
         results = []
         if not backups_root.is_dir():
             return results
@@ -313,7 +315,7 @@ class CaptionStore:
     def restore_snapshot(folder: str | Path, backup_name: str) -> list[str]:
         """Restore caption files exactly as snapshotted (extra caption files are removed)."""
         folder = Path(folder)
-        backup_dir = folder / PREP_DIR_NAME / BACKUPS_DIR_NAME / backup_name
+        backup_dir = prep_storage_dir(folder) / BACKUPS_DIR_NAME / backup_name
         manifest_file = backup_dir / MANIFEST_FILE
         if not manifest_file.is_file():
             raise FileNotFoundError(f"Backup not found: {backup_dir}")
@@ -338,7 +340,7 @@ class CaptionStore:
 
     @staticmethod
     def list_quarantine(folder: str | Path) -> list[dict]:
-        qroot = Path(folder) / PREP_DIR_NAME / QUARANTINE_DIR_NAME
+        qroot = prep_storage_dir(folder) / QUARANTINE_DIR_NAME
         results = []
         if not qroot.is_dir():
             return results
@@ -361,7 +363,7 @@ class CaptionStore:
     def restore_quarantine(folder: str | Path, batch_name: str) -> list[str]:
         """Move a quarantine batch back into the dataset folder."""
         folder = Path(folder)
-        qdir = folder / PREP_DIR_NAME / QUARANTINE_DIR_NAME / batch_name
+        qdir = prep_storage_dir(folder) / QUARANTINE_DIR_NAME / batch_name
         manifest_file = qdir / MANIFEST_FILE
         if not manifest_file.is_file():
             raise FileNotFoundError(f"Quarantine batch not found: {qdir}")

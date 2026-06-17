@@ -32,6 +32,12 @@ FIXTURE_JPG = (
 )
 
 
+@pytest.fixture(autouse=True)
+def _isolate_prep_storage(tmp_path: Path, monkeypatch) -> None:
+    # In-place originals backups now live under the app data dir; isolate per test.
+    monkeypatch.setenv("RENGU_FLOW_UI_DATA", str(tmp_path / "appdata"))
+
+
 @pytest.fixture()
 def img_dir(tmp_path: Path) -> Path:
     """Two JPEG images in a temp directory."""
@@ -256,7 +262,7 @@ def test_clean_folder_report_counts(img_dir: Path):
 
 
 def test_clean_folder_inplace_backup_and_replacement(img_dir: Path):
-    """in_place=True: detected image replaced; original backed up under .rengu_prep/."""
+    """in_place=True: detected image replaced; original backed up under the app data dir."""
     per_name = {
         "clean.jpg": [],
         "with_mark.jpg": [[10, 10, 40, 40]],
@@ -269,9 +275,10 @@ def test_clean_folder_inplace_backup_and_replacement(img_dir: Path):
         inpainter_factory=fake_inpainter_factory,
     )
 
-    # Backup dir created
+    # Backup dir created under the managed app data dir, not inside the dataset folder
     backup_dir = Path(report["originals_backup"])
     assert backup_dir.is_dir()
+    assert not str(backup_dir).startswith(str(img_dir))
 
     # manifest.json lists the backed-up file
     manifest = json.loads((backup_dir / "manifest.json").read_text())

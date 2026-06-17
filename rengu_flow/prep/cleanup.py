@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import shutil
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -18,7 +18,8 @@ from typing import Any, Callable
 import numpy as np
 from PIL import Image, ImageDraw
 
-from rengu_flow.prep.caption_store import IMAGE_EXTENSIONS, PREP_DIR_NAME
+from rengu_flow.prep.caption_store import IMAGE_EXTENSIONS
+from rengu_flow.prep.storage import prep_storage_dir
 from rengu_flow.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -273,7 +274,7 @@ def clean_folder(
     originals_manifest: list[str] = []
     if config.in_place:
         ts = _utc_stamp()
-        originals_backup_dir = src / PREP_DIR_NAME / CLEANUP_ORIGINALS_DIR / ts
+        originals_backup_dir = prep_storage_dir(src) / CLEANUP_ORIGINALS_DIR / ts
         originals_backup_dir.mkdir(parents=True, exist_ok=True)
         report["originals_backup"] = str(originals_backup_dir)
 

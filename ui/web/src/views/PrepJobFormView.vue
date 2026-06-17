@@ -510,7 +510,7 @@
 
             <el-form-item>
               <template #label>
-                In-place <FieldHelpIcon :field="help('Overwrites originals rather than writing to a separate folder (originals are backed up to .rengu_prep/cleanup_originals/ first). Use it when you want the training folder itself to contain only cleaned images and do not need the side-by-side comparison.')" />
+                In-place <FieldHelpIcon :field="help('Overwrites originals rather than writing to a separate folder (originals are backed up under the app data dir first, not inside the dataset). Use it when you want the training folder itself to contain only cleaned images and do not need the side-by-side comparison.')" />
                 <FieldPathTag path="clean.in_place" />
               </template>
               <el-switch v-model="cleanForm.in_place" />
@@ -521,7 +521,7 @@
                 show-icon
                 :closable="false"
                 class="mt-8"
-                title="Originals are backed up under .rengu_prep/ before cleaning"
+                title="Originals are backed up under the app data dir before cleaning"
               />
             </el-form-item>
 
