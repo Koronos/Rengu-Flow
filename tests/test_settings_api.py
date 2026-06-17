@@ -37,10 +37,11 @@ def test_put_settings_writes_training(ui_client, cfg_file: Path) -> None:
     assert "num_gpus = 2" in cfg_file.read_text(encoding="utf-8")
 
 
-def test_put_settings_maintenance_applies_to_env(ui_client, cfg_file: Path) -> None:
-    import os
-
-    os.environ.pop("RENGUFLOW_MAINTENANCE", None)
+def test_put_settings_maintenance_applies_to_env(
+    ui_client, cfg_file: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("RENGUFLOW_MAINTENANCE", raising=False)
+    monkeypatch.delenv("RENGUFLOW_MAINTENANCE_ALLOW_PIP", raising=False)
     r = ui_client.put("/api/v1/settings", json={"maintenance": {"enabled": True}})
     assert r.status_code == 200
     # maintenance now reads as enabled live
