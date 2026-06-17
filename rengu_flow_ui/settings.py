@@ -55,6 +55,16 @@ def ui_token() -> str | None:
     return os.environ.get("RENGU_FLOW_UI_TOKEN") or None
 
 
+def queue_poll_interval() -> float:
+    """Seconds between background queue-poller ticks (advances the queue when a run ends).
+
+    Set ``RENGU_FLOW_UI_QUEUE_POLL_SECS`` to tune how soon the next queued run starts after the
+    current one finishes. The poller runs independently of UI activity, so this is the worst-case
+    delay before an idle browser-less queue advances.
+    """
+    return float(os.environ.get("RENGU_FLOW_UI_QUEUE_POLL_SECS", "3"))
+
+
 def ensure_data_dirs() -> None:
     for d in (ui_data_dir(), staging_dir(), logs_dir()):
         d.mkdir(parents=True, exist_ok=True)

@@ -32,7 +32,7 @@ from rengu_flow_ui.dataset_schema import get_dataset_schema
 from rengu_flow_ui.config_form import coerce_preview_prompts_for_toml, form_to_toml, toml_to_form
 from rengu_flow_ui.config_schema import get_schema
 from rengu_flow_ui.docs_reader import DocNotFoundError, DocPathError, read_doc
-from rengu_flow_ui import tensorboard_server
+from rengu_flow_ui import queue_poller, tensorboard_server
 from rengu_flow_ui.paths import PathError, resolve_example_path, resolve_repo_path
 from rengu_track.system_stats import collect_system_stats
 from rengu_flow_ui.settings import (
@@ -225,7 +225,11 @@ def create_app() -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
+        # Drain the queue independently of UI activity: without this background poller, a finished
+        # run's successor only starts when an HTTP request triggers refresh_all_jobs.
+        queue_poller.start_poller()
         yield
+        queue_poller.stop_poller()
         tensorboard_server.stop_tensorboard()
 
     app = FastAPI(title="Rengu Flow UI", version=package_version(), lifespan=lifespan)
