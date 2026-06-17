@@ -120,6 +120,12 @@ html.dark[data-theme="midnight"] {
   /* el-empty illustration: a custom on-brand SVG (per theme) instead of EP's charcoal box */
   --rf-empty-image: url("/empty-state.svg");
 
+  /* Filled primary buttons: a slightly deeper cyan than the accent, so big filled
+     blocks don't glare on the dark page (accents/links keep the brighter primary). */
+  --rf-btn-primary-bg: #1ea3cc;
+  --rf-btn-primary-hover: #39b4dd;
+  --rf-btn-primary-active: #198eb4;
+
   --el-mask-color: rgba(8, 18, 32, 0.7);
   --el-box-shadow: 0 8px 24px rgba(3, 10, 20, 0.5);
   --el-box-shadow-light: 0 2px 12px rgba(3, 10, 20, 0.4);
@@ -642,6 +648,31 @@ html.dark {
 .el-empty__image {
   aspect-ratio: 1 / 1;
   background: var(--rf-empty-image) center / contain no-repeat;
+}
+
+/* Quick-add preset chips read as plain default buttons that blend into the card —
+   give them a filled, lifted surface so they stand out as tappable pills. */
+.preset-row .el-button {
+  --el-button-bg-color: var(--el-fill-color);
+  --el-button-border-color: var(--el-border-color-dark);
+  --el-button-hover-bg-color: var(--el-fill-color-dark);
+  --el-button-hover-border-color: var(--el-color-primary);
+  --el-button-hover-text-color: var(--el-color-primary);
+}
+
+/* Filled primary buttons + the active view-mode segment: use the deeper primary
+   so they don't glare on the dark page. */
+.el-button--primary {
+  --el-button-bg-color: var(--rf-btn-primary-bg);
+  --el-button-border-color: var(--rf-btn-primary-bg);
+  --el-button-hover-bg-color: var(--rf-btn-primary-hover);
+  --el-button-hover-border-color: var(--rf-btn-primary-hover);
+  --el-button-active-bg-color: var(--rf-btn-primary-active);
+  --el-button-active-border-color: var(--rf-btn-primary-active);
+}
+.el-radio-button {
+  --el-radio-button-checked-bg-color: var(--rf-btn-primary-bg);
+  --el-radio-button-checked-border-color: var(--rf-btn-primary-bg);
 }
 
 /* Card and table headers: firmer weight, a touch more presence. */
