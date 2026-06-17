@@ -47,6 +47,17 @@ const router = createRouter({
       component: () => import("./views/PrepJobFormView.vue"),
     },
     { path: "/prep/tags", name: "prep-tags", component: () => import("./views/TagEditorView.vue") },
+    { path: "/toolbox", name: "toolbox", component: () => import("./views/ToolboxView.vue") },
+    {
+      path: "/toolbox/new",
+      name: "toolbox-new",
+      component: () => import("./views/ToolboxToolFormView.vue"),
+    },
+    {
+      path: "/toolbox/:id/edit",
+      name: "toolbox-edit",
+      component: () => import("./views/ToolboxToolFormView.vue"),
+    },
   ],
 });
 

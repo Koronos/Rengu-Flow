@@ -24,6 +24,10 @@
             <el-icon><MagicStick /></el-icon>
             <span>Studio</span>
           </el-menu-item>
+          <el-menu-item index="/toolbox">
+            <el-icon><Tools /></el-icon>
+            <span>Toolbox</span>
+          </el-menu-item>
         </el-menu>
         <div v-if="versionLabel" class="app-brand-version">
           <span class="app-brand-version__label" :title="versionTitle">{{ versionLabel }}</span>
@@ -103,6 +107,10 @@
             <el-icon><MagicStick /></el-icon>
             <span>Studio</span>
           </el-menu-item>
+          <el-menu-item index="/toolbox">
+            <el-icon><Tools /></el-icon>
+            <span>Toolbox</span>
+          </el-menu-item>
         </el-menu>
         <div class="app-menu-bottom">
           <ThemeToggle />
@@ -180,6 +188,7 @@ const activeMenu = computed(() => {
   if (name === "run-comparison") return "/compare";
   if (name.startsWith("datasets-")) return "/datasets";
   if (name.startsWith("prep-")) return "/prep";
+  if (name.startsWith("toolbox")) return "/toolbox";
   return "/runs";
 });
 
@@ -198,6 +207,9 @@ const pageTitle = computed(() => {
     "prep-jobs": "Dataset Studio",
     "prep-new": "Dataset Studio · New job",
     "prep-tags": "Dataset Studio · Tag editor",
+    toolbox: "Toolbox",
+    "toolbox-new": "Toolbox · New tool",
+    "toolbox-edit": "Toolbox · Edit tool",
   };
   return names[routeName.value] || "Rengu Flow UI";
 });
