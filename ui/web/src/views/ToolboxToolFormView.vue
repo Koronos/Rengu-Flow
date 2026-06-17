@@ -77,6 +77,16 @@ function addInput() {
 }
 function removeInput(i: number) {
   form.inputs!.splice(i, 1);
+  // Rebuild optionsText: drop key i, shift keys > i down by one.
+  const next: Record<number, string> = {};
+  for (const k in optionsText) {
+    const idx = Number(k);
+    if (idx < i) next[idx] = optionsText[idx];
+    else if (idx > i) next[idx - 1] = optionsText[idx];
+    // idx === i is dropped
+  }
+  Object.keys(optionsText).forEach((k) => delete optionsText[Number(k)]);
+  Object.assign(optionsText, next);
 }
 function syncOptions(i: number) {
   form.inputs![i].options = (optionsText[i] || "").split(",").map((s) => s.trim()).filter(Boolean);

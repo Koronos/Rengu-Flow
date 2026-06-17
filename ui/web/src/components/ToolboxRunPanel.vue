@@ -45,12 +45,10 @@ const statusType = computed(() =>
 );
 
 let ws: WebSocket | null = null;
-let offset = 0;
 
 async function loadSnapshot() {
   const r = await api.toolboxLog(props.toolId, 0);
   log.value = r.chunk;
-  offset = r.offset;
   status.value = r.status;
 }
 
@@ -71,7 +69,6 @@ async function refreshStatus() {
 
 async function run() {
   log.value = "";
-  offset = 0;
   await api.runToolboxTool(props.toolId, { ...values });
   status.value = "running";
   openWs();
@@ -89,8 +86,16 @@ onMounted(async () => {
     if (inp.default !== undefined && inp.default !== null) values[inp.param] = inp.default;
   }
   if (tool.value.last_run?.inputs) Object.assign(values, tool.value.last_run.inputs);
-  await loadSnapshot();
-  if (status.value === "running") openWs();
+  // Check last_run status to decide how to load the log.
+  const lastStatus = tool.value.last_run?.status;
+  if (lastStatus === "running") {
+    // Stream the live log from the beginning via WS (no REST snapshot — avoids duplication).
+    log.value = "";
+    openWs();
+  } else {
+    // Tool is idle/done/failed: load final log once via REST.
+    await loadSnapshot();
+  }
 });
 
 onUnmounted(() => ws?.close());
