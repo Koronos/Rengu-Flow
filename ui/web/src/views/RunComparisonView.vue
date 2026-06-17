@@ -112,7 +112,6 @@
               <span class="cmp-ctrl__val">{{ smoothing.toFixed(2) }}</span>
             </label>
             <label class="cmp-ctrl"><input v-model="logScale" type="checkbox" /> Log scale (y)</label>
-            <label class="cmp-ctrl"><input v-model="onlyDiffs" type="checkbox" /> Only differing hparams</label>
           </div>
 
           <!-- Overlay charts -->
@@ -135,7 +134,14 @@
 
           <!-- Hparams -->
           <el-card class="cmp-card">
-            <template #header><span>Hyperparameters</span></template>
+            <template #header>
+              <div class="cmp-card-head">
+                <span>Hyperparameters</span>
+                <label class="cmp-ctrl">
+                  <input v-model="onlyDiffs" type="checkbox" /> Only differing hparams
+                </label>
+              </div>
+            </template>
             <div class="table-scroll">
               <table class="cmp-table">
                 <thead>
@@ -728,6 +734,12 @@ function hardwareLabel(r: CompareRunRow): string {
 
 .cmp-card {
   width: 100%;
+}
+.cmp-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 .table-scroll {
   overflow-x: auto;
