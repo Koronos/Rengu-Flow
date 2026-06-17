@@ -1,4 +1,17 @@
+<p align="center">
+  <img src="ui/web/public/icon.svg" alt="Rengu Flow" width="104" height="104" />
+</p>
+
 # Rengu Flow
+
+<p align="center">
+  <a href="LICENSE"><img alt="License: GPL-3.0-or-later" src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg"></a>
+  <img alt="Python 3.10–3.13" src="https://img.shields.io/badge/python-3.10%E2%80%933.13-3776ab.svg?logo=python&logoColor=white">
+  <img alt="PyTorch 2.12 (CUDA 13)" src="https://img.shields.io/badge/PyTorch-2.12%20%C2%B7%20CUDA%2013-ee4c2c.svg?logo=pytorch&logoColor=white">
+  <img alt="DeepSpeed 0.19" src="https://img.shields.io/badge/DeepSpeed-0.19-1a73e8.svg">
+  <img alt="Packaged with uv" src="https://img.shields.io/badge/packaging-uv-de5fe9.svg">
+  <img alt="Status: preliminary v0.2.x" src="https://img.shields.io/badge/status-preliminary%20v0.2.x-f59e0b.svg">
+</p>
 
 > **Preliminary release (v0.2.x)** — Rengu Flow is under active development. APIs, config keys, CLI commands, and documentation may change in breaking or non-breaking ways between releases. Pin versions and re-read the docs when upgrading.
 
