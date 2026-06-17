@@ -162,7 +162,7 @@
                 </label>
               </div>
             </template>
-            <div class="table-scroll">
+            <div class="table-scroll cmp-hparams-scroll">
               <table class="cmp-table">
                 <thead>
                   <tr>
@@ -831,6 +831,22 @@ function hardwareLabel(r: CompareRunRow): string {
 }
 .table-scroll {
   overflow-x: auto;
+}
+/* A wide full-hparams table buried its horizontal scrollbar at the very bottom (you had to scroll
+   past every row to reach it). Cap the height so it scrolls within a box — the horizontal scrollbar
+   then stays at the box's bottom edge, always reachable — and keep the header row pinned. */
+.cmp-hparams-scroll {
+  max-height: 60vh;
+  overflow: auto;
+}
+.cmp-hparams-scroll .cmp-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--el-bg-color);
+}
+.cmp-hparams-scroll .cmp-table thead th.k-col {
+  z-index: 3; /* above both the sticky row and the sticky first column where they cross */
 }
 .cmp-table {
   border-collapse: collapse;
