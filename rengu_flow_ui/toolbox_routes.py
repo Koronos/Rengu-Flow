@@ -116,9 +116,11 @@ def register_toolbox_routes(app: FastAPI) -> None:
     @app.websocket(f"{API_PREFIX}/toolbox/tools/{{tool_id}}/log/ws")
     async def toolbox_log_ws(websocket: WebSocket, tool_id: str) -> None:
         token = ui_token()
-        if token and websocket.query_params.get("token", "") != token:
-            await websocket.close(code=4401, reason="Invalid token")
-            return
+        if token:
+            qs_token = websocket.query_params.get("token", "")
+            if qs_token != token:
+                await websocket.close(code=4401, reason="Invalid token")
+                return
         await websocket.accept()
         offset = 0
         try:
@@ -126,9 +128,8 @@ def register_toolbox_routes(app: FastAPI) -> None:
                 chunk, offset = await asyncio.to_thread(toolbox.read_log, tool_id, offset)
                 if chunk:
                     await websocket.send_text(chunk)
-                status = await asyncio.to_thread(
-                    lambda: toolbox.run_status(tool_id).get("status", "idle")
-                )
+                status_dict = await asyncio.to_thread(toolbox.run_status, tool_id)
+                status = status_dict.get("status", "idle")
                 if status != "running":
                     chunk, offset = await asyncio.to_thread(toolbox.read_log, tool_id, offset)
                     if chunk:
