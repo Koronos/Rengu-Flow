@@ -187,3 +187,61 @@ def _read_last_run(tool_id: str) -> dict[str, Any] | None:
     if not path.is_file():
         return None
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+_TRUTHY = {"1", "true", "yes", "on"}
+
+
+def _cast_number(raw: Any) -> int | float:
+    text = str(raw).strip()
+    try:
+        if re.fullmatch(r"[+-]?\d+", text):
+            return int(text)
+        return float(text)
+    except ValueError as e:
+        raise ValueError(f"Expected a number, got {raw!r}") from e
+
+
+def cast_inputs(inputs_def: list[dict], values: dict[str, Any]) -> dict[str, Any]:
+    kwargs: dict[str, Any] = {}
+    for spec in inputs_def:
+        param = spec["param"]
+        control = spec.get("control", "text")
+        if param not in values or values[param] is None or values[param] == "":
+            if spec.get("default") is not None:
+                raw = spec["default"]
+            else:
+                raise ValueError(f"Missing value for input {param!r}")
+        else:
+            raw = values[param]
+        if control == "number":
+            kwargs[param] = _cast_number(raw)
+        elif control == "switch":
+            kwargs[param] = raw is True or str(raw).strip().lower() in _TRUTHY
+        else:  # text, textarea, select
+            kwargs[param] = str(raw)
+    return kwargs
+
+
+def build_runner_source(entrypoint: str, requirements: list[str]) -> str:
+    deps = ", ".join(json.dumps(r) for r in requirements)
+    entry = (entrypoint or DEFAULT_ENTRYPOINT).strip()
+    entry_quoted = json.dumps(entry)
+    return f'''# /// script
+# requires-python = ">=3.11"
+# dependencies = [{deps}]
+# ///
+import importlib.util
+import json
+from pathlib import Path
+
+here = Path(__file__).parent
+spec = importlib.util.spec_from_file_location("user_tool", here / "tool.py")
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+
+kwargs = json.loads((here / "inputs.json").read_text(encoding="utf-8"))
+result = getattr(mod, {entry_quoted})(**kwargs)
+if result is not None:
+    print(result)
+'''
