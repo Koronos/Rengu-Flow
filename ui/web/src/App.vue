@@ -174,6 +174,7 @@ const activeMenu = computed(() => {
   const name = routeName.value;
   if (name === "docs") return "/docs";
   if (name === "maintenance") return "/maintenance";
+  if (name === "run-comparison") return "/compare";
   if (name.startsWith("datasets-")) return "/datasets";
   if (name.startsWith("prep-")) return "/prep";
   return "/runs";
