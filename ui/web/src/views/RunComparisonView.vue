@@ -866,8 +866,13 @@ function hardwareLabel(r: CompareRunRow): string {
   left: 0;
   background: var(--el-bg-color);
 }
+/* Differing hyperparameters: a subtle on-brand cyan wash (was a muddy warning brown). */
 .cmp-table tr.varies td {
-  background: var(--el-color-warning-light-9);
+  background: var(--el-color-primary-light-9);
+}
+.cmp-table tr.varies td.k-col {
+  background: var(--el-color-primary-light-9);
+  box-shadow: inset 2px 0 0 var(--el-color-primary);
 }
 .th-swatch {
   display: inline-block;
