@@ -103,6 +103,12 @@ html.dark {
   --el-mask-color: rgba(8, 18, 32, 0.7);
   --el-box-shadow: 0 8px 24px rgba(3, 10, 20, 0.5);
   --el-box-shadow-light: 0 2px 12px rgba(3, 10, 20, 0.4);
+
+  /* Sidebar menu: cyan accent, navy hover */
+  --el-menu-active-color: var(--el-color-primary);
+  --el-menu-text-color: var(--el-text-color-regular);
+  --el-menu-hover-bg-color: var(--el-fill-color-light);
+  --el-menu-bg-color: transparent;
 }
 
 .app-shell {
@@ -433,7 +439,7 @@ html.dark {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.72);
+  background: var(--el-mask-color);
   backdrop-filter: blur(4px);
   pointer-events: auto;
 }
@@ -552,4 +558,60 @@ html.dark {
   .hide-mobile {
     display: none !important;
   }
+}
+
+/* ── Global polish (theme crusade) ──────────────────────────────────────────
+   App-wide refinements that ride on the theme tokens: thin navy scrollbars, a
+   cyan keyboard-focus ring, a sidebar active-item accent, and a slightly
+   firmer card/table header treatment. These cascade to every view. */
+
+/* Thin, navy scrollbars instead of the chunky OS default on dark surfaces. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--el-fill-color-dark) transparent;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--el-fill-color-dark);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  border-radius: 6px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--el-fill-color-darker);
+  background-clip: padding-box;
+}
+
+/* Visible cyan focus ring for keyboard users (mouse clicks stay clean). */
+:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: 1px;
+  border-radius: 2px;
+}
+.el-button:focus-visible,
+.el-menu-item:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: 2px;
+}
+
+/* Sidebar active item: cyan left accent + faint tint so the current section reads at a glance. */
+.app-menu .el-menu-item.is-active {
+  background: var(--el-color-primary-light-9);
+  box-shadow: inset 3px 0 0 var(--el-color-primary);
+  font-weight: 600;
+}
+
+/* Card and table headers: firmer weight, a touch more presence. */
+.app-main .el-card__header {
+  font-weight: 600;
+}
+.el-table th.el-table__cell {
+  font-weight: 600;
+  color: var(--el-text-color-regular);
 }
