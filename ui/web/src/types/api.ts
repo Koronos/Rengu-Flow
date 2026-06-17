@@ -663,6 +663,35 @@ export interface RunPreviewsResult {
   previews: RunPreviewImageRef[];
 }
 
+// --- Settings ---
+
+export interface LocalSettings {
+  path: string;
+  exists: boolean;
+  editable: {
+    training: {
+      num_gpus: number;
+      master_port: number;
+      extra_args: string;
+      env: Record<string, string>;
+    };
+    maintenance: { enabled: boolean; allow_pip: boolean };
+  };
+  restartRequired: { ui: { public: boolean; token: string | null } };
+  readOnly: { ui: { host: string; port: number; data_dir: string } };
+}
+
+export interface LocalSettingsPatch {
+  training?: Partial<{
+    num_gpus: number;
+    master_port: number;
+    extra_args: string;
+    env: Record<string, string>;
+  }>;
+  maintenance?: Partial<{ enabled: boolean; allow_pip: boolean }>;
+  ui?: Partial<{ public: boolean; token: string | null }>;
+}
+
 // --- Maintenance ---
 
 export interface MaintenanceEnabledResult {
