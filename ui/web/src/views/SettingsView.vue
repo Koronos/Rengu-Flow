@@ -114,7 +114,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, toRaw } from "vue";
 import { ElMessage } from "element-plus";
 import { api } from "../api";
 import type { LocalSettings, LocalSettingsPatch } from "../types/api";
@@ -151,8 +151,16 @@ async function onSave(): Promise<void> {
   saving.value = true;
   savedAt.value = false;
   error.value = "";
+  // KeyValueListField emits "" when the last row is cleared; normalize to a
+  // valid Record<string,string> so the backend does not reject with HTTP 422.
+  // toRaw unwraps the Vue reactive proxy before iterating entries.
+  const rawEnv = toRaw(form.value.editable.training.env) as unknown;
+  const env: Record<string, string> = {};
+  if (rawEnv && typeof rawEnv === "object") {
+    for (const [k, v] of Object.entries(rawEnv as Record<string, unknown>)) env[k] = String(v);
+  }
   const patch: LocalSettingsPatch = {
-    training: { ...form.value.editable.training },
+    training: { ...form.value.editable.training, env },
     maintenance: { ...form.value.editable.maintenance },
     ui: { ...form.value.restartRequired.ui },
   };
@@ -168,6 +176,9 @@ async function onSave(): Promise<void> {
 }
 
 onMounted(load);
+
+// Expose internals needed by unit tests (does not affect template or public API).
+defineExpose({ form, onSave });
 </script>
 
 <style scoped>
