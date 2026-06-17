@@ -106,6 +106,7 @@ def test_write_creates_file_when_missing(tmp_path: Path) -> None:
 
 def test_apply_maintenance_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("RENGUFLOW_MAINTENANCE", raising=False)
+    monkeypatch.delenv("RENGUFLOW_MAINTENANCE_ALLOW_PIP", raising=False)
     settings = {"editable": {"maintenance": {"enabled": True, "allow_pip": False}}}
     settings_store.apply_maintenance_env(settings)
     import os

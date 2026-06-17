@@ -36,6 +36,11 @@ def config_path() -> Path:
 
 
 def read_settings(path: Path | None = None) -> dict[str, Any]:
+    """Return the current settings as a structured dict.
+
+    Reads ``rengu.local.toml`` when it exists; falls back to compiled defaults otherwise.
+    The returned dict groups fields into ``editable``, ``restartRequired``, and ``readOnly``.
+    """
     p = path or config_path()
     exists = p.is_file()
     if exists:
@@ -65,6 +70,7 @@ def read_settings(path: Path | None = None) -> dict[str, Any]:
 
 
 def _validate_patch(patch: dict[str, Any]) -> None:
+    """Raise ``SettingsError`` if *patch* contains unknown sections or invalid values."""
     allowed_sections = {"training", "maintenance", "ui"}
     unknown = set(patch) - allowed_sections
     if unknown:
@@ -76,11 +82,10 @@ def _validate_patch(patch: dict[str, Any]) -> None:
         raise SettingsError(f"Non-editable training key(s): {', '.join(sorted(bad))}")
     if "num_gpus" in training and (not isinstance(training["num_gpus"], int) or training["num_gpus"] < 1):
         raise SettingsError("num_gpus must be an integer >= 1")
-    for port_key in ("master_port",):
-        if port_key in training:
-            v = training[port_key]
-            if not isinstance(v, int) or not (1 <= v <= 65535):
-                raise SettingsError(f"{port_key} must be an integer in 1..65535")
+    if "master_port" in training:
+        v = training["master_port"]
+        if not isinstance(v, int) or not (1 <= v <= 65535):
+            raise SettingsError("master_port must be an integer in 1..65535")
     if "extra_args" in training and not isinstance(training["extra_args"], str):
         raise SettingsError("extra_args must be a string")
     if "env" in training:
@@ -146,9 +151,9 @@ def write_settings(patch: dict[str, Any], path: Path | None = None) -> dict[str,
             u["public"] = patch["ui"]["public"]
         if "token" in patch["ui"]:
             tok = patch["ui"]["token"]
-            if tok:  # non-empty string
+            if tok:
                 u["token"] = tok
-            elif "token" in u:  # empty/None clears it
+            elif "token" in u:  # falsy (None or empty string) — clear the key
                 del u["token"]
 
     tmp = p.with_suffix(p.suffix + ".tmp")
