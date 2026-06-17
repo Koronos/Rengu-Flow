@@ -73,7 +73,7 @@
       <div v-else class="run-rows">
         <div v-for="row in runningRuns" :key="row.key" class="run-row run-row--active">
           <div class="run-row__main">
-            <el-tag :type="stateTag(row.state)" size="small" effect="dark">{{ row.state }}</el-tag>
+            <el-tag :type="stateTag(row.state)" size="small" effect="dark">{{ stateLabel(row.state) }}</el-tag>
             <span class="run-row__name">{{ runLabel(row) }}</span>
             <span v-if="row.progress?.step != null" class="run-row__progress">
               step {{ row.progress.step }}<template v-if="row.progress.max_steps">/{{ row.progress.max_steps }}</template>
@@ -458,6 +458,7 @@ import { useBreakpoint } from "../composables/useBreakpoint";
 import { useTrainLiveStream } from "../composables/useTrainLiveStream";
 import { TRAIN_LIVE_REFRESH_STORAGE_KEY } from "../lib/autoRefresh";
 import { formatError } from "../lib/formatError";
+import { runStateTag as stateTag, runStateLabel as stateLabel } from "../lib/runState";
 import { useConfigEditorStore } from "../stores/configEditor";
 import type { ImportCandidatesResult, ImportRunPreview, TrainingRunRow } from "../types/api";
 
@@ -532,24 +533,6 @@ function sortHistoryState(a: TrainingRunRow, b: TrainingRunRow): number {
 }
 function sortHistoryProgress(a: TrainingRunRow, b: TrainingRunRow): number {
   return (a.progress?.step ?? -1) - (b.progress?.step ?? -1);
-}
-
-function stateTag(state: string | undefined): "primary" | "success" | "warning" | "info" | "danger" {
-  if (state === "running" || state === "stopping") return "success";
-  if (state === "pending") return "warning";
-  if (state === "new") return "info";
-  if (state === "finished") return "info";
-  if (state === "stopped") return "warning";
-  if (state === "failed") return "danger";
-  return "info";
-}
-
-function stateLabel(state: string | undefined): string {
-  if (state === "new") return "Saved";
-  if (state === "finished") return "Finished";
-  if (state === "stopped") return "Stopped";
-  if (state === "failed") return "Error";
-  return String(state ?? "—");
 }
 
 function formatTime(iso: string | null | undefined): string {

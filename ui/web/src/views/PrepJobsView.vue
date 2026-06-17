@@ -170,6 +170,7 @@ import { useBreakpoint } from "../composables/useBreakpoint";
 import { useDatasetFormModal } from "../composables/useDatasetFormModal";
 import { useJobsEvents } from "../composables/useJobsEvents";
 import { formatError } from "../lib/formatError";
+import { runStateTag as stateTag } from "../lib/runState";
 import { DEFAULT_DATASET_TOML } from "../stores/datasetEditor";
 import type { JobRecord, PrepStage } from "../types/api";
 
@@ -241,15 +242,6 @@ function isActive(job: JobRecord): boolean {
 
 function isTerminal(job: JobRecord): boolean {
   return job.state === "finished" || job.state === "failed" || job.state === "stopped";
-}
-
-function stateTag(state: string): "primary" | "success" | "warning" | "info" | "danger" {
-  if (state === "running" || state === "stopping") return "success";
-  if (state === "pending") return "warning";
-  if (state === "finished") return "info";
-  if (state === "stopped") return "warning";
-  if (state === "failed") return "danger";
-  return "info";
 }
 
 function formatTime(iso: string | null | undefined): string {

@@ -62,8 +62,8 @@
           <el-text class="mono" truncated>{{ runDir || "—" }}</el-text>
         </el-descriptions-item>
         <el-descriptions-item v-if="job" label="State">
-          <el-tag :type="job.state === 'running' ? 'success' : 'info'" size="small">
-            {{ job.state }}
+          <el-tag :type="runStateTag(job.state)" size="small">
+            {{ runStateLabel(job.state) }}
           </el-tag>
         </el-descriptions-item>
         <el-descriptions-item v-if="job" label="PID">
@@ -154,6 +154,7 @@ import { useJobLogStream } from "../composables/useJobLogStream";
 import { useTrainLiveStream } from "../composables/useTrainLiveStream";
 import { useTensorboard } from "../composables/useTensorboard";
 import { formatError } from "../lib/formatError";
+import { runStateTag, runStateLabel } from "../lib/runState";
 import RunLossMonitor from "../components/RunLossMonitor.vue";
 import type { ScalarPoint } from "../lib/scalarChart";
 import type { RunPreviewImageRef, RunProgress as RunProgressData } from "../types/api";
