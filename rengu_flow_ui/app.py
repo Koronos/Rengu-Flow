@@ -123,6 +123,12 @@ class DepsInstallBody(BaseModel):
     confirm: bool = False
 
 
+class SettingsUpdateBody(BaseModel):
+    training: dict[str, Any] | None = None
+    maintenance: dict[str, Any] | None = None
+    ui: dict[str, Any] | None = None
+
+
 class JobImportPreviewBody(BaseModel):
     run_path: str
 
@@ -1328,6 +1334,28 @@ def create_app() -> FastAPI:
             )
         except ValueError as e:
             raise HTTPException(400, str(e))
+
+    @app.get(f"{API_PREFIX}/settings")
+    def get_settings() -> dict[str, Any]:
+        from rengu_flow_ui import settings_store
+
+        return settings_store.read_settings()
+
+    @app.put(f"{API_PREFIX}/settings")
+    def put_settings(body: SettingsUpdateBody) -> dict[str, Any]:
+        from rengu_flow.config.local_config import load_local_config
+        from rengu_flow_ui import settings_store
+
+        patch = body.model_dump(exclude_none=True)
+        try:
+            result = settings_store.write_settings(patch)
+        except settings_store.SettingsError as e:
+            raise HTTPException(422, str(e))
+        # Refresh the cached LocalConfig and re-apply maintenance flags so they take effect
+        # without a server restart (training.* is read fresh per job subprocess already).
+        load_local_config()
+        settings_store.apply_maintenance_env(result)
+        return result
 
     @app.get(f"{API_PREFIX}/system/stats")
     def system_stats() -> dict[str, Any]:
