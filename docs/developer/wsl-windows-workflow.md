@@ -22,6 +22,7 @@ and contributors.
 | Install (base) | `uv sync` |
 | Install + web UI | `uv sync --extra ui` |
 | CLI | `./rengu <cmd>` — or `uv run rengu <cmd>` if the launcher won't execute (see CRLF below) |
+| Update | `./rengu update` — or **`git pull` then `uv run rengu update`** on the `uv run` path (see note) |
 | Web UI (dev) | `uv run rengu ui dev --no-open` → Vite `http://127.0.0.1:5173`, API `:8765` |
 | Tests | `uv run --extra dev pytest` (pytest is in the `dev` extra) |
 | UI/Cosmos/LoKr tests | add `--extra ui --extra cosmos_predict2 --extra lycoris` |
@@ -47,6 +48,13 @@ the file was checked out with CRLF. Fixes:
 - On Windows: `git config --global core.autocrlf input` (do **not** use `true` for this repo).
 - Quick local unblock without touching git: `sed -i 's/\r$//' rengu scripts/*.sh`, or just use
   `uv run rengu ...` (runs the console-script entry point, bypassing the shebang).
+
+> **Updating via `uv run`:** `uv run` parses `uv.lock` *before* it runs the command, so it dies up
+> front on a malformed lock — `uv run rengu update` then never reaches its own `git pull`, and you
+> can't self-heal through the broken tool. `./rengu update` doesn't have this problem (it pulls
+> first, *then* syncs). On the `uv run` path, **`git pull` yourself first** so the fixed lock is in
+> place before uv reads it: `git pull && uv run rengu update`. (Plain `git pull` is also the generic
+> recovery if a bad lock ever bricks `uv run`.)
 
 ## Pitfall #2 — git worktrees created from Windows
 A git worktree created **from Windows** gets a `.git` file pointing at a UNC gitdir:
