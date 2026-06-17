@@ -1,6 +1,58 @@
 import { errorMessageFromResponseBody } from "./lib/formatError";
 import { filenameFromContentDisposition } from "./lib/downloadBlob";
 import type { FormValues } from "./types/forms";
+
+export interface ToolboxInput {
+  param: string;
+  label: string;
+  control: "number" | "text" | "textarea" | "switch" | "select";
+  default?: unknown;
+  options?: string[];
+  min?: number | null;
+  max?: number | null;
+  step?: number | null;
+  hint?: string;
+}
+
+export interface ToolboxToolSummary {
+  id: string;
+  name: string;
+  description: string;
+  created_at: string;
+  updated_at: string;
+  last_run_status: string;
+}
+
+export interface ToolboxRun {
+  status: string;
+  started_at?: string;
+  finished_at?: string | null;
+  exit_code?: number | null;
+  inputs?: Record<string, unknown>;
+}
+
+export interface ToolboxTool {
+  id: string;
+  name: string;
+  description: string;
+  entrypoint: string;
+  requirements: string[];
+  inputs: ToolboxInput[];
+  script: string;
+  created_at: string;
+  updated_at: string;
+  last_run: ToolboxRun | null;
+}
+
+export interface ToolboxToolWrite {
+  name: string;
+  description?: string;
+  entrypoint?: string;
+  requirements?: string[];
+  script?: string;
+  inputs?: ToolboxInput[];
+}
+
 import type {
   CheckpointsResult,
   CompareRunsResult,
@@ -629,4 +681,28 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+
+  // --- Toolbox ---
+
+  toolboxEnabled: () => request<{ enabled: boolean }>("/toolbox/enabled"),
+  listToolboxTools: () => request<ToolboxToolSummary[]>("/toolbox/tools"),
+  createToolboxTool: (body: ToolboxToolWrite) =>
+    request<ToolboxTool>("/toolbox/tools", { method: "POST", body: JSON.stringify(body) }),
+  getToolboxTool: (id: string) => request<ToolboxTool>(`/toolbox/tools/${id}`),
+  updateToolboxTool: (id: string, body: Partial<ToolboxToolWrite>) =>
+    request<ToolboxTool>(`/toolbox/tools/${id}`, { method: "PUT", body: JSON.stringify(body) }),
+  deleteToolboxTool: (id: string) =>
+    request<{ ok: boolean }>(`/toolbox/tools/${id}`, { method: "DELETE" }),
+  runToolboxTool: (id: string, values: Record<string, unknown>) =>
+    request<ToolboxRun>(`/toolbox/tools/${id}/run`, {
+      method: "POST",
+      body: JSON.stringify({ values }),
+    }),
+  toolboxRunStatus: (id: string) => request<ToolboxRun>(`/toolbox/tools/${id}/run`),
+  toolboxLog: (id: string, offset = 0) =>
+    request<{ chunk: string; offset: number; status: string }>(
+      `/toolbox/tools/${id}/log?offset=${offset}`,
+    ),
+  cancelToolboxRun: (id: string) =>
+    request<{ ok: boolean }>(`/toolbox/tools/${id}/run/cancel`, { method: "POST" }),
 };
