@@ -335,6 +335,32 @@ def series_for_tag(
     return {_run_id_for(d): by_name.get(Path(d).name, {}).get(tag, []) for d in run_dirs}
 
 
+def scalars_for_run(
+    run_dir: str | Path,
+    tag_prefix: str = "",
+    *,
+    max_points: int | None = None,
+) -> dict[str, list[dict[str, Any]]]:
+    """All scalar tags for ONE run → {tag: [points]}, served by the Rust data server.
+
+    The single-run analogue of :func:`series_for_tag`: the run-detail metrics view (and its live
+    WebSocket snapshot) read every ``train/*`` scalar for one run, so route that through the same
+    fast data server instead of the Python EventAccumulator. Falls back to the (cached, incremental)
+    EventAccumulator path on any data-server failure. With ``max_points`` unset the full series is
+    returned via EventAccumulator, since the data server always samples server-side.
+    """
+    if not max_points or max_points <= 0:
+        return read_scalars(run_dir, tag_prefix, max_points=max_points)
+    root = Path(run_dir)
+    try:
+        from rengu_track import scalar_server
+
+        by_name = scalar_server.read_scalars(root.parent, [root.name], max_points=max_points)
+    except Exception:  # noqa: BLE001 - DataServerUnavailable or any glue failure -> EventAccumulator
+        return read_scalars(run_dir, tag_prefix, max_points=max_points)
+    return _filter_by_prefix(by_name.get(root.name, {}), tag_prefix)
+
+
 def preview_images(run_dir: str | Path, *, limit: int = 2000) -> list[dict[str, Any]]:
     """List a run's preview frames with parsed ``step`` and ``prompt`` so the UI can show the
     evolution along steps (group by prompt, order by step) instead of a flat dump.

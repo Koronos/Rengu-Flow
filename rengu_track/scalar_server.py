@@ -70,20 +70,32 @@ def _data_provider(logdir: str) -> Any:
         return ingester.data_provider
 
 
-def _await_initial_load(provider: Any, *, deadline_secs: float = 8.0) -> None:
-    """Wait until the server's run set is non-empty and stable (initial scan done), or timeout."""
+def _await_initial_load(
+    provider: Any, *, deadline_secs: float = 8.0, min_empty_wait: float = 0.8
+) -> None:
+    """Wait until the server's initial scan settles, then return.
+
+    Settled = the run-name set is stable across two polls. A non-empty stable set means the runs
+    loaded; a stable *empty* set is only trusted after ``min_empty_wait`` so we don't mistake a scan
+    that hasn't started for a logdir with no runs (e.g. a brand-new run with no events yet, or a
+    cold empty dir in tests) — without that floor an empty logdir would block for the full deadline.
+    """
     from tensorboard.context import RequestContext
 
     ctx = RequestContext()
     previous: set[str] | None = None
-    end = time.monotonic() + deadline_secs
+    start = time.monotonic()
+    end = start + deadline_secs
     while time.monotonic() < end:
         try:
             current = {run.run_name for run in provider.list_runs(ctx, experiment_id="")}
         except Exception:  # noqa: BLE001 - let the subsequent read surface/await the error
             return
-        if current and current == previous:
-            return  # two identical non-empty scans → the initial load has settled
+        if current == previous:
+            if current:
+                return  # runs found and stable
+            if time.monotonic() - start >= min_empty_wait:
+                return  # consistently empty past the floor → genuinely no runs
         previous = current
         time.sleep(0.2)
 

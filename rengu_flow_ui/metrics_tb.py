@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from rengu_track.reader import invalidate_scalars_cache
-from rengu_track.reader import read_scalars as _read_scalars
+from rengu_track.reader import scalars_for_run as _scalars_for_run
 
 __all__ = ["read_scalars", "invalidate_scalars_cache"]
 
@@ -24,6 +24,7 @@ def read_scalars(
 ) -> dict[str, list[dict[str, Any]]]:
     """Return {tag: [{step, value, wall_time}, ...]} (defaults to train/* for the metrics view).
 
-    ``max_points`` downsamples each series (the detail view caps to keep long runs snappy).
+    Served by the Rust data server (same fast path as the comparison view) with an EventAccumulator
+    fallback. ``max_points`` downsamples each series (the detail view caps to keep long runs snappy).
     """
-    return _read_scalars(run_dir, tag_prefix, max_points=max_points)
+    return _scalars_for_run(run_dir, tag_prefix, max_points=max_points)

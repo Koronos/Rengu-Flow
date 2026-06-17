@@ -67,6 +67,49 @@ def test_series_for_tag_end_to_end(tmp_path: Path) -> None:
     assert [p["step"] for p in series["run20260101"]] == [0, 1, 2, 3, 4]
 
 
+def test_scalars_for_run_end_to_end(tmp_path: Path) -> None:
+    """scalars_for_run returns one run's tags (the detail-view board path) via data server/fallback."""
+    from rengu_track import reader, scalar_server
+
+    out, run = _write_run(tmp_path)
+    reader.invalidate_scalars_cache()
+    try:
+        scalars = reader.scalars_for_run(run, "train/", max_points=600)
+    finally:
+        scalar_server.shutdown()
+        reader.invalidate_scalars_cache()
+    assert [p["step"] for p in scalars["train/loss"]] == [0, 1, 2, 3, 4]
+
+
+def test_scalars_for_run_falls_back_and_filters_prefix(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """On data-server failure it uses EventAccumulator, and the tag_prefix still filters."""
+    from rengu_track import reader, scalar_server
+
+    run = tmp_path / "out" / "run"
+    run.mkdir(parents=True)
+
+    def _unavailable(*_a, **_k):
+        raise scalar_server.DataServerUnavailable("forced")
+
+    monkeypatch.setattr(scalar_server, "read_scalars", _unavailable)
+    monkeypatch.setattr(
+        reader,
+        "_load_scalars",
+        lambda _rd: {
+            "train/loss": [{"step": 0, "value": 0.5, "wall_time": 0.0}],
+            "val/loss": [{"step": 0, "value": 0.9, "wall_time": 0.0}],
+        },
+    )
+    monkeypatch.setattr(reader, "_latest_event_mtime", lambda _rd: 1.0)
+    reader.invalidate_scalars_cache()
+
+    out = reader.scalars_for_run(run, "train/", max_points=600)
+    assert "train/loss" in out
+    assert "val/loss" not in out  # prefix filter applied on the fallback path too
+
+
 def test_series_for_tag_falls_back_when_server_unavailable(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
