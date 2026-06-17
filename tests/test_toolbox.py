@@ -116,3 +116,22 @@ def test_build_runner_source_has_pep723_header():
     src2 = toolbox.build_runner_source("main", [])
     assert "dependencies = []" in src2
     assert 'getattr(mod, "main")(**kwargs)' in src2
+
+
+def test_run_tool_rejected_when_execution_disabled(ui_data_tmp, monkeypatch):
+    from rengu_flow.config import local_config as lc
+    from rengu_flow_ui import toolbox
+
+    monkeypatch.setattr(lc, "toolbox_enabled", lambda: False)
+    toolbox.create_tool(name="T", script="def run():\n    return 1\n")
+    with pytest.raises(toolbox.ExecutionDisabledError):
+        toolbox.run_tool("t", {})
+
+
+def test_uv_run_argv_shape(ui_data_tmp):
+    from rengu_flow_ui import toolbox
+
+    toolbox.create_tool(name="T")
+    argv = toolbox.uv_run_argv("t")
+    assert argv[1:4] == ["run", "--no-project", "--isolated"]
+    assert argv[-1].endswith("_runner.py")

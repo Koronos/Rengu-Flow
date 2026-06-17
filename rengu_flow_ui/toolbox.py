@@ -223,6 +223,122 @@ def cast_inputs(inputs_def: list[dict], values: dict[str, Any]) -> dict[str, Any
     return kwargs
 
 
+import shutil
+import subprocess  # noqa: E402  (grouped with run-engine code)
+
+from rengu_flow.config import local_config
+
+# In-process registry of the single active process per tool id.
+_active: dict[str, subprocess.Popen[Any]] = {}
+
+
+class ExecutionDisabledError(RuntimeError):
+    pass
+
+
+class RunActiveError(RuntimeError):
+    pass
+
+
+def _log_path(tool_id: str) -> Path:
+    return tool_dir(tool_id) / "last_run.log"
+
+
+def _last_run_path(tool_id: str) -> Path:
+    return tool_dir(tool_id) / "last_run.json"
+
+
+def _write_last_run(tool_id: str, data: dict[str, Any]) -> dict[str, Any]:
+    _last_run_path(tool_id).write_text(
+        json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+    return data
+
+
+def uv_run_argv(tool_id: str) -> list[str]:
+    uv = shutil.which("uv")
+    if not uv:
+        raise FileNotFoundError(
+            "uv is not on PATH. Install uv (https://docs.astral.sh/uv/) to run Toolbox tools."
+        )
+    runner = tool_dir(tool_id) / "_runner.py"
+    return [uv, "run", "--no-project", "--isolated", str(runner)]
+
+
+def run_tool(tool_id: str, values: dict[str, Any]) -> dict[str, Any]:
+    if not local_config.toolbox_enabled():
+        raise ExecutionDisabledError(
+            "Execution disabled in rengu.local.toml -> [toolbox].enabled"
+        )
+    data = _read_tool_json(tool_id)  # raises KeyError if missing
+    existing = _active.get(tool_id)
+    if existing is not None and existing.poll() is None:
+        raise RunActiveError("A run is already active for this tool")
+
+    kwargs = cast_inputs(data.get("inputs", []), values)
+    d = tool_dir(tool_id)
+    (d / "inputs.json").write_text(json.dumps(kwargs), encoding="utf-8")
+    (d / "_runner.py").write_text(
+        build_runner_source(data["entrypoint"], data.get("requirements", [])),
+        encoding="utf-8",
+    )
+    argv = uv_run_argv(tool_id)  # raises FileNotFoundError if uv missing
+    # Fresh log each run (single last-run record; overwrite).
+    log_path = _log_path(tool_id)
+    if log_path.exists():
+        log_path.unlink()
+    started = _now_iso()
+    last = _write_last_run(
+        tool_id,
+        {"status": "running", "started_at": started, "finished_at": None,
+         "exit_code": None, "inputs": kwargs},
+    )
+    from rengu_flow_ui.subprocess_util import popen_repo_subprocess
+
+    header = f"--- toolbox tool {tool_id} ---\nCMD: {' '.join(argv)}\n\n".encode()
+    proc, _log_f = popen_repo_subprocess(argv, log_path, log_header=header)
+    _active[tool_id] = proc
+    return last
+
+
+def run_status(tool_id: str) -> dict[str, Any]:
+    last = _read_last_run(tool_id)
+    if last is None:
+        return {"status": "idle"}
+    proc = _active.get(tool_id)
+    if last.get("status") == "running" and proc is not None:
+        code = proc.poll()
+        if code is not None:
+            last["status"] = "done" if code == 0 else "failed"
+            last["exit_code"] = code
+            last["finished_at"] = _now_iso()
+            _write_last_run(tool_id, last)
+            _active.pop(tool_id, None)
+    return last
+
+
+def read_log(tool_id: str, offset: int = 0) -> tuple[str, int]:
+    path = _log_path(tool_id)
+    if not path.is_file():
+        return "", 0
+    raw = path.read_bytes()
+    chunk = raw[offset:]
+    return chunk.decode("utf-8", errors="replace"), len(raw)
+
+
+def cancel_run(tool_id: str) -> None:
+    proc = _active.get(tool_id)
+    if proc is not None and proc.poll() is None:
+        proc.terminate()
+    last = _read_last_run(tool_id)
+    if last and last.get("status") == "running":
+        last["status"] = "failed"
+        last["exit_code"] = -15
+        last["finished_at"] = _now_iso()
+        _write_last_run(tool_id, last)
+    _active.pop(tool_id, None)
+
+
 def build_runner_source(entrypoint: str, requirements: list[str]) -> str:
     deps = ", ".join(json.dumps(r) for r in requirements)
     entry = (entrypoint or DEFAULT_ENTRYPOINT).strip()
