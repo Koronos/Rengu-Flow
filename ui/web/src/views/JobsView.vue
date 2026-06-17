@@ -1027,6 +1027,10 @@ function continueRun(row: TrainingRunRow) {
 .runs-table {
   width: 100%;
 }
+/* Rows open the run on click — signal it. */
+.runs-table :deep(.el-table__body tr) {
+  cursor: pointer;
+}
 .queue-header {
   display: flex;
   align-items: center;

@@ -39,16 +39,20 @@ Semantic: keep EP success/warning/danger/info (tune only if they clash on navy).
 3. Local commits per logical step on `ui-theme`. No push until approved.
 
 ## Sections checklist (status)
-- [ ] Global tokens (app.css + index.html theme-color) + shell (sidebar/header/brand, CPU/RAM/GPU chips)
-- [ ] Runs (JobsView): queue, history table, run-state colors, button hierarchy, empty states
-- [ ] Compare (RunComparisonView): already iterated; align to tokens (board controls, legend, hparams)
-- [ ] Datasets (DatasetsListView)
-- [ ] Studio / Prep (PrepJobsView, PrepJobFormView, TagEditorView)
-- [ ] Run detail (RunDetailView): loss monitor, previews, lineage/timeline
-- [ ] Forms (RunFormView): config form fields, hints, sections
-- [ ] Docs (DocsView), Maintenance (MaintenanceView)
-- [ ] Run-state color map (running/pending/finished/failed/stopped) — consistent across views
-- [ ] Usability pass: focus-visible, empty states, hover affordances, table readability, button hierarchy
+- [x] Global tokens (app.css + index.html theme-color) + shell (sidebar/header/brand, CPU/RAM/GPU chips)
+- [x] Runs (JobsView): queue, history table, run-state colors, button hierarchy, empty states
+- [x] Compare (RunComparisonView): aligned to tokens; uPlot reads cyan/navy via cssVar
+- [x] Datasets (DatasetsListView)
+- [x] Studio / Prep (PrepJobsView, PrepJobFormView, TagEditorView)
+- [x] Run detail (RunDetailView): loss monitor (cyan line), previews
+- [x] Forms (RunFormView): config form fields, hints, sections
+- [x] Docs (DocsView), Maintenance (MaintenanceView)
+- [x] Run-state color map → shared `lib/runState.ts` (running=green, finished=cyan, pending=amber, new/stopped=gray, failed=red)
+- [x] Usability pass: cyan focus-visible ring, sidebar active accent, Compare nav highlight fix, clickable-row cursor, thin navy scrollbars
+
+## Known follow-ups (out of this crusade, surfaced during it)
+- FastAPI serves Swagger at `/docs`, shadowing the SPA DocsView on hard reloads (in-app nav works).
+  Backend route change — not touched here.
 
 ## Out of scope (YAGNI)
 No feature/layout restructuring, no new components, no light-mode redesign (stays dark), no logo/mascot changes.
