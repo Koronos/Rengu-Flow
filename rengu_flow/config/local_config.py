@@ -76,11 +76,17 @@ class TrainingConfig:
 
 
 @dataclass
+class ToolboxConfig:
+    enabled: bool = False
+
+
+@dataclass
 class LocalConfig:
     root: Path
     ui: UiConfig = field(default_factory=UiConfig)
     maintenance: MaintenanceConfig = field(default_factory=MaintenanceConfig)
     training: TrainingConfig = field(default_factory=TrainingConfig)
+    toolbox: ToolboxConfig = field(default_factory=ToolboxConfig)
 
     def ui_data_dir(self) -> Path:
         p = Path(self.ui.data_dir)
@@ -142,7 +148,9 @@ def parse_local_config_dict(data: dict[str, Any], *, root: Path) -> LocalConfig:
         extra_args=str(train_raw.get("extra_args", "")).strip(),
         env=_parse_training_env(env_raw),
     )
-    return LocalConfig(root=root, ui=ui, maintenance=maintenance, training=training)
+    toolbox_raw = data.get("toolbox") if isinstance(data.get("toolbox"), dict) else {}
+    toolbox = ToolboxConfig(enabled=_boolish(toolbox_raw.get("enabled", False)))
+    return LocalConfig(root=root, ui=ui, maintenance=maintenance, training=training, toolbox=toolbox)
 
 
 def load_local_config(path: Path | None = None, *, root: Path | None = None) -> LocalConfig | None:
@@ -163,6 +171,11 @@ def load_local_config(path: Path | None = None, *, root: Path | None = None) -> 
 
 def get_local_config() -> LocalConfig | None:
     return _loaded
+
+
+def toolbox_enabled() -> bool:
+    """True when Toolbox tool *execution* is allowed (authoring is always allowed)."""
+    return ensure_local_config_loaded().toolbox.enabled
 
 
 def default_local_config(root: Path | None = None) -> LocalConfig:
