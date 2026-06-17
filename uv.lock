@@ -2025,7 +2025,7 @@ wheels = [
 
 [[package]]
 name = "optimum-quanto"
-version = "0.2.7"
+version = "0.2.8"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "huggingface-hub" },
@@ -2805,7 +2805,7 @@ wheels = [
 
 [[package]]
 name = "rengu-flow"
-version = "0.2.7"
+version = "0.2.8"
 source = { editable = "." }
 dependencies = [
     { name = "datasets" },

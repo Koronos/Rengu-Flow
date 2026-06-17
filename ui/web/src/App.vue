@@ -185,6 +185,7 @@ const pageTitle = computed(() => {
     "run-edit": "Edit run",
     "run-continue": "Continue training",
     "datasets-list": "Datasets",
+    "run-comparison": "Compare runs",
     "run-detail": "Run detail",
     "prep-jobs": "Dataset Studio",
     "prep-new": "Dataset Studio · New job",

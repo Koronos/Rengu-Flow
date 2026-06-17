@@ -3,12 +3,22 @@
     <div class="overlay-chart__head">
       <span class="overlay-chart__title">{{ metric }}</span>
       <span v-if="loading" class="overlay-chart__hint">loading…</span>
+      <button
+        v-show="zoomed"
+        type="button"
+        class="overlay-chart__reset"
+        title="Reset zoom (or double-click the chart)"
+        @click="resetZoom"
+      >
+        Reset zoom
+      </button>
     </div>
     <div v-if="error" class="overlay-chart__state overlay-chart__state--error">{{ error }}</div>
     <div v-show="!error" class="overlay-chart__plot">
       <div ref="chartEl" class="overlay-chart__canvas"></div>
-      <div ref="tip" class="overlay-chart__tip" style="display: none"></div>
     </div>
+    <!-- Hover readout BELOW the plot (not over it) so it never covers the curve being inspected. -->
+    <div ref="tip" class="overlay-chart__tip"></div>
     <div v-if="!error && !loading && !hasData" class="overlay-chart__state">
       No data for the selected runs.
     </div>
@@ -55,6 +65,8 @@ const tip = ref<HTMLElement | null>(null);
 const loading = ref(false);
 const error = ref("");
 const hasData = ref(false);
+// True while the x-axis is zoomed in (drag-selected a sub-range), so the "Reset zoom" button shows.
+const zoomed = ref(false);
 
 let observer: IntersectionObserver | null = null;
 let resizeObs: ResizeObserver | null = null;
@@ -63,6 +75,9 @@ let plot: uPlot | null = null;
 let seriesByRun: Record<string, ScalarMetricPoint[]> = {};
 let started = false;
 let currentSig = "";
+// Full x extent of the current data ([first step, last step]); lets the setScale hook tell whether
+// the view is zoomed and lets resetZoom restore the whole range.
+let xDomain: [number, number] | null = null;
 // True only while the pointer is physically over THIS chart. The cursor is synced across all
 // overlay charts (shared vertical line for comparison), so setCursor fires on every chart; without
 // this guard each one would pop its own tooltip and we'd see N tooltips at once. The popup is shown
@@ -109,6 +124,7 @@ function buildData(): uPlot.AlignedData {
     for (const p of s) stepSet.add(p.step);
   }
   const xs = [...stepSet].sort((a, b) => a - b);
+  xDomain = xs.length ? [xs[0], xs[xs.length - 1]] : null;
   const xIndex = new Map(xs.map((step, i) => [step, i]));
   const ys: (number | null)[][] = props.runs.map((r) => {
     const arr: (number | null)[] = new Array(xs.length).fill(null);
@@ -160,14 +176,15 @@ function escapeHtml(s: string): string {
   );
 }
 
-// TensorBoard-style hover popup: step, each run's (smoothed) value at the nearest step, and elapsed
-// wall time. Shown only on the chart under the pointer (the synced cursor fires this on every chart).
+// TensorBoard-style hover readout: step, each run's (smoothed) value at the nearest step, and
+// elapsed wall time. Rendered in the strip BELOW the plot (never over the curve), and only for the
+// chart under the pointer (the synced cursor fires this on every chart).
 function updateTip(u: uPlot): void {
   const el = tip.value;
   if (!el) return;
   const idx = u.cursor.idx;
   if (!isHovered || idx == null || tipMeta == null) {
-    el.style.display = "none";
+    el.innerHTML = "";
     return;
   }
   const step = (u.data[0] as number[])[idx];
@@ -187,15 +204,23 @@ function updateTip(u: uPlot): void {
       `<span class="tip-dt">${fmtDuration(rel)}</span></div>`;
   }
   el.innerHTML = `<div class="tip-head">step ${step}</div>${rows}`;
-  el.style.display = "block";
-  // Pin to the top edge, flipped to the side opposite the cursor, so the popup never sits on top of
-  // the curve it's describing (following the cursor's y put it right over the data).
-  const plotW = u.over?.clientWidth ?? u.width ?? 600;
-  const left = u.cursor.left ?? 0;
-  const flip = left > plotW / 2;
-  el.style.left = flip ? "auto" : `${left + 14}px`;
-  el.style.right = flip ? `${plotW - left + 14}px` : "auto";
-  el.style.top = "4px";
+}
+
+// Drag-zoom changed the x range → reflect it in the Reset button's visibility.
+function onSetScale(u: uPlot, key: string): void {
+  if (key !== "x" || !xDomain) return;
+  const sc = u.scales.x;
+  const eps = (xDomain[1] - xDomain[0]) * 1e-6;
+  zoomed.value =
+    sc.min != null && sc.max != null && (sc.min > xDomain[0] + eps || sc.max < xDomain[1] - eps);
+}
+
+// Restore the full x range. Rebuilding the plot (clear the sig so render recreates it) resets both
+// axes to auto — simpler and more reliable than nudging scales by hand.
+function resetZoom(): void {
+  currentSig = "";
+  render();
+  zoomed.value = false;
 }
 
 function makeOpts(width: number): uPlot.Options {
@@ -223,12 +248,13 @@ function makeOpts(width: number): uPlot.Options {
           });
           u.over.addEventListener("mouseleave", () => {
             isHovered = false;
-            if (tip.value) tip.value.style.display = "none";
+            if (tip.value) tip.value.innerHTML = "";
           });
         },
       ],
       setCursor: [updateTip],
       setData: [updateTip],
+      setScale: [onSetScale],
     },
     series: [
       { label: "step" },
@@ -377,24 +403,40 @@ onBeforeUnmount(() => {
   font-size: 12px;
   color: var(--el-text-color-secondary);
 }
+.overlay-chart__reset {
+  margin-left: auto;
+  padding: 1px 8px;
+  font-size: 11px;
+  border: 1px solid var(--el-border-color);
+  border-radius: 4px;
+  background: var(--el-fill-color-light);
+  color: var(--el-text-color-regular);
+  cursor: pointer;
+}
+.overlay-chart__reset:hover {
+  background: var(--el-fill-color);
+}
 .overlay-chart__plot {
   position: relative;
 }
 .overlay-chart__canvas {
   width: 100%;
 }
+/* Make uPlot's drag-to-zoom selection rectangle clearly visible (its default is barely tinted,
+   which vanishes on a dark theme). */
+.overlay-chart__plot :deep(.u-select) {
+  background: color-mix(in srgb, var(--el-color-primary) 22%, transparent);
+  border: 1px solid var(--el-color-primary);
+}
+/* Hover readout below the plot — a reserved strip so showing it never shifts the layout, scrolls
+   when many runs are overlaid. */
 .overlay-chart__tip {
-  position: absolute;
-  z-index: 10;
-  pointer-events: none;
-  min-width: 160px;
-  padding: 6px 8px;
-  border: 1px solid var(--el-border-color);
-  border-radius: 5px;
-  background: var(--el-bg-color-overlay, var(--el-bg-color));
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
+  min-height: 1.6em;
+  max-height: 108px;
+  overflow-y: auto;
   font-size: 12px;
   line-height: 1.5;
+  color: var(--el-text-color-regular);
 }
 .overlay-chart__tip :deep(.tip-head) {
   font-weight: 600;

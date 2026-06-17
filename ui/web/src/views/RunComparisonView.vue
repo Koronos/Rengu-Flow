@@ -1,10 +1,12 @@
 <template>
   <div class="run-comparison">
     <div class="page-head">
-      <h2>Compare runs</h2>
-      <el-text v-if="allRuns.length" type="info" size="small">
-        {{ selectedIds.length }}/{{ allRuns.length }} selected in “{{ outputDir }}”
-      </el-text>
+      <div class="page-head-text">
+        <p class="page-subtitle">Overlay metrics and compare hyperparameters across runs</p>
+        <el-text v-if="allRuns.length" type="info" size="small" class="page-head-meta">
+          {{ selectedIds.length }}/{{ allRuns.length }} selected in “{{ outputDir }}”
+        </el-text>
+      </div>
     </div>
 
     <form class="folder-bar" @submit.prevent="applyFolder">
@@ -106,7 +108,7 @@
           <div class="cmp-toolbar">
             <label class="cmp-ctrl">
               Smoothing
-              <input v-model.number="smoothing" type="range" min="0" max="0.95" step="0.05" />
+              <input v-model.number="smoothing" type="range" min="0" max="0.99" step="0.01" />
               <span class="cmp-ctrl__val">{{ smoothing.toFixed(2) }}</span>
             </label>
             <label class="cmp-ctrl"><input v-model="logScale" type="checkbox" /> Log scale (y)</label>
