@@ -73,32 +73,44 @@ html.dark {
   --el-color-primary-light-9: #0f2935;
   --el-color-primary-dark-2: #56ccf0;
 
-  /* Navy surfaces */
-  --el-bg-color: #0f1f33;
-  --el-bg-color-page: #0a1626;
-  --el-bg-color-overlay: #15263d;
-  --el-fill-color-blank: #0f1f33;
-  --el-fill-color-light: #16273e;
-  --el-fill-color-lighter: #132137;
-  --el-fill-color-extra-light: #112036;
-  --el-fill-color: #1d3049;
-  --el-fill-color-dark: #22364f;
-  --el-fill-color-darker: #273c57;
+  /* Navy surfaces — deep dark theme; separation comes from a darker page + defined borders, not lighter cards */
+  --el-bg-color: #0d1b2d;
+  --el-bg-color-page: #060d18;
+  --el-bg-color-overlay: #122236;
+  --el-fill-color-blank: #0d1b2d;
+  --el-fill-color-light: #142337;
+  --el-fill-color-lighter: #111d31;
+  --el-fill-color-extra-light: #0f1b2e;
+  --el-fill-color: #1a2b43;
+  --el-fill-color-dark: #1f3149;
+  --el-fill-color-darker: #243750;
 
-  /* Navy borders */
-  --el-border-color: #2a4565;
-  --el-border-color-light: #233a57;
-  --el-border-color-lighter: #1d3049;
-  --el-border-color-extra-light: #172841;
-  --el-border-color-dark: #335078;
-  --el-border-color-darker: #3a597f;
+  /* Navy borders — a touch brighter for definition (the main contrast lever now) */
+  --el-border-color: #2e4a6c;
+  --el-border-color-light: #264062;
+  --el-border-color-lighter: #1d3149;
+  --el-border-color-extra-light: #182840;
+  --el-border-color-dark: #38547d;
+  --el-border-color-darker: #426089;
 
-  /* Cool light text */
-  --el-text-color-primary: #e8eef7;
-  --el-text-color-regular: #c4cfe1;
-  --el-text-color-secondary: #8ba1bc;
-  --el-text-color-placeholder: #6b7f99;
-  --el-text-color-disabled: #51637c;
+  /* Cool light text — crisper */
+  --el-text-color-primary: #f0f4fa;
+  --el-text-color-regular: #d2dcec;
+  --el-text-color-secondary: #9db2ce;
+  --el-text-color-placeholder: #7589a3;
+  --el-text-color-disabled: #566980;
+
+  /* el-empty illustration: navy/slate ramp so it sits on navy instead of clashing charcoal */
+  --el-empty-fill-color-0: #060d18;
+  --el-empty-fill-color-1: #47648c;
+  --el-empty-fill-color-2: #33496c;
+  --el-empty-fill-color-3: #1d2e48;
+  --el-empty-fill-color-4: #263a57;
+  --el-empty-fill-color-5: #21344f;
+  --el-empty-fill-color-6: #223450;
+  --el-empty-fill-color-7: #1b2b43;
+  --el-empty-fill-color-8: #1c2d46;
+  --el-empty-fill-color-9: #18273c;
 
   --el-mask-color: rgba(8, 18, 32, 0.7);
   --el-box-shadow: 0 8px 24px rgba(3, 10, 20, 0.5);
