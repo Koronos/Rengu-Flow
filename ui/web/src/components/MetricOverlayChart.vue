@@ -63,10 +63,35 @@ let plot: uPlot | null = null;
 let seriesByRun: Record<string, ScalarMetricPoint[]> = {};
 let started = false;
 let currentSig = "";
-// Per-run wall-clock aligned to the chart's x-axis, so the hover tooltip can show elapsed time
-// (point wall_time minus the run's first wall_time). Rebuilt alongside the plotted data.
-let tipMeta: { names: string[]; colors: string[]; walls: (number | null)[][]; base: (number | null)[] } | null =
-  null;
+// True only while the pointer is physically over THIS chart. The cursor is synced across all
+// overlay charts (shared vertical line for comparison), so setCursor fires on every chart; without
+// this guard each one would pop its own tooltip and we'd see N tooltips at once. The popup is shown
+// only on the chart under the pointer.
+let isHovered = false;
+// Per-run smoothed points (sorted by step) plus first wall-clock, so the tooltip can look up each
+// run's value at the nearest step to the cursor — runs rarely share exact steps, so reading the
+// x-aligned cell would show a value for just one run and "—" for the rest. Rebuilt with the data.
+let tipMeta:
+  | { names: string[]; colors: string[]; points: ScalarMetricPoint[][]; base: (number | null)[] }
+  | null = null;
+
+/** Nearest point to ``step`` in a step-ascending series (binary search), or null if empty. */
+function nearestPoint(points: ScalarMetricPoint[], step: number): ScalarMetricPoint | null {
+  const n = points.length;
+  if (!n) return null;
+  let lo = 0;
+  let hi = n - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (points[mid].step < step) lo = mid + 1;
+    else hi = mid;
+  }
+  // lo is the first point with step >= target; compare it with its predecessor and keep the closer.
+  if (lo > 0 && Math.abs(points[lo - 1].step - step) <= Math.abs(points[lo].step - step)) {
+    return points[lo - 1];
+  }
+  return points[lo];
+}
 
 function cssVar(name: string, fallback: string): string {
   if (typeof getComputedStyle === "undefined") return fallback;
@@ -96,19 +121,15 @@ function buildData(): uPlot.AlignedData {
     }
     return arr;
   });
-  const walls: (number | null)[][] = props.runs.map((r) => {
-    const arr: (number | null)[] = new Array(xs.length).fill(null);
-    for (const p of smoothed[r.id]) {
-      const i = xIndex.get(p.step);
-      if (i != null) arr[i] = typeof p.wall_time === "number" ? p.wall_time : null;
-    }
-    return arr;
+  const points = props.runs.map((r) => smoothed[r.id]);
+  const base = points.map((pts) => {
+    const first = pts.find((p) => typeof p.wall_time === "number");
+    return first ? (first.wall_time as number) : null;
   });
-  const base = walls.map((w) => w.find((v) => v != null) ?? null);
   tipMeta = {
     names: props.runs.map((r) => r.name),
     colors: props.runs.map((r) => r.color),
-    walls,
+    points,
     base,
   };
   return [xs, ...ys] as uPlot.AlignedData;
@@ -139,38 +160,42 @@ function escapeHtml(s: string): string {
   );
 }
 
-// TensorBoard-style hover popup: step, each run's (smoothed) value, and elapsed wall time.
+// TensorBoard-style hover popup: step, each run's (smoothed) value at the nearest step, and elapsed
+// wall time. Shown only on the chart under the pointer (the synced cursor fires this on every chart).
 function updateTip(u: uPlot): void {
   const el = tip.value;
   if (!el) return;
   const idx = u.cursor.idx;
-  if (idx == null || tipMeta == null) {
+  if (!isHovered || idx == null || tipMeta == null) {
     el.style.display = "none";
     return;
   }
   const step = (u.data[0] as number[])[idx];
   let rows = "";
-  for (let s = 1; s < u.data.length; s++) {
-    const val = (u.data[s] as (number | null)[])[idx];
-    const wall = tipMeta.walls[s - 1]?.[idx] ?? null;
-    const base = tipMeta.base[s - 1];
+  for (let i = 0; i < tipMeta.points.length; i++) {
+    // Each run keeps its own step grid, so read the nearest point rather than the x-aligned cell
+    // (which is null for every run that lacks a sample at exactly this step).
+    const p = nearestPoint(tipMeta.points[i], step);
+    const val = p ? p.value : null;
+    const wall = p && typeof p.wall_time === "number" ? p.wall_time : null;
+    const base = tipMeta.base[i];
     const rel = wall != null && base != null ? wall - base : null;
     rows +=
-      `<div class="tip-row"><span class="tip-sw" style="background:${tipMeta.colors[s - 1]}"></span>` +
-      `<span class="tip-name">${escapeHtml(tipMeta.names[s - 1])}</span>` +
+      `<div class="tip-row"><span class="tip-sw" style="background:${tipMeta.colors[i]}"></span>` +
+      `<span class="tip-name">${escapeHtml(tipMeta.names[i])}</span>` +
       `<span class="tip-val">${fmtVal(val)}</span>` +
       `<span class="tip-dt">${fmtDuration(rel)}</span></div>`;
   }
   el.innerHTML = `<div class="tip-head">step ${step}</div>${rows}`;
   el.style.display = "block";
-  // Flip to the cursor's left near the right edge so the popup stays inside the plot.
+  // Pin to the top edge, flipped to the side opposite the cursor, so the popup never sits on top of
+  // the curve it's describing (following the cursor's y put it right over the data).
   const plotW = u.over?.clientWidth ?? u.width ?? 600;
   const left = u.cursor.left ?? 0;
-  const top = u.cursor.top ?? 0;
   const flip = left > plotW / 2;
   el.style.left = flip ? "auto" : `${left + 14}px`;
   el.style.right = flip ? `${plotW - left + 14}px` : "auto";
-  el.style.top = `${Math.max(0, top + 12)}px`;
+  el.style.top = "4px";
 }
 
 function makeOpts(width: number): uPlot.Options {
@@ -189,6 +214,19 @@ function makeOpts(width: number): uPlot.Options {
     cursor: { sync: { key: props.syncKey }, points: { size: 5 } },
     legend: { show: true },
     hooks: {
+      // Track real pointer presence on this chart's overlay so updateTip can suppress the popup on
+      // the synced (non-hovered) charts. mouseleave also clears any popup left from the last move.
+      ready: [
+        (u: uPlot) => {
+          u.over.addEventListener("mouseenter", () => {
+            isHovered = true;
+          });
+          u.over.addEventListener("mouseleave", () => {
+            isHovered = false;
+            if (tip.value) tip.value.style.display = "none";
+          });
+        },
+      ],
       setCursor: [updateTip],
       setData: [updateTip],
     },
