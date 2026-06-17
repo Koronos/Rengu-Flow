@@ -31,7 +31,8 @@ describe("settings api", () => {
       .spyOn(globalThis, "fetch")
       .mockResolvedValue(new Response(JSON.stringify(SAMPLE), { status: 200 }));
     await api.updateSettings({ training: { num_gpus: 2 } });
-    const [, opts] = fetchMock.mock.calls[0];
+    const [url, opts] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/v1/settings");
     expect(opts?.method).toBe("PUT");
     expect(JSON.parse(opts?.body as string)).toEqual({ training: { num_gpus: 2 } });
   });
