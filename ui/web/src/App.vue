@@ -41,8 +41,11 @@
           </a>
         </div>
         <div class="app-menu-bottom">
-          <ThemeToggle />
           <el-menu :default-active="activeMenu" class="app-menu app-menu--footer" router>
+            <el-menu-item index="/settings">
+              <el-icon><Setting /></el-icon>
+              <span>Configuration</span>
+            </el-menu-item>
             <el-menu-item index="/docs">
               <el-icon><Document /></el-icon>
               <span>Docs</span>
@@ -105,13 +108,16 @@
           </el-menu-item>
         </el-menu>
         <div class="app-menu-bottom">
-          <ThemeToggle />
           <el-menu
             :default-active="activeMenu"
             class="app-menu app-menu--footer"
             router
             @select="drawerOpen = false"
           >
+            <el-menu-item index="/settings">
+              <el-icon><Setting /></el-icon>
+              <span>Configuration</span>
+            </el-menu-item>
             <el-menu-item index="/docs">
               <el-icon><Document /></el-icon>
               <span>Docs</span>
@@ -134,14 +140,13 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { useRoute } from "vue-router";
-import { Document, Files, MagicStick, Menu, Tools, TrendCharts, VideoPlay } from "@element-plus/icons-vue";
+import { Document, Files, MagicStick, Menu, Setting, Tools, TrendCharts, VideoPlay } from "@element-plus/icons-vue";
 import { api } from "./api";
 import { useBreakpoint } from "./composables/useBreakpoint";
 import DatasetGalleryHost from "./components/DatasetGalleryHost.vue";
 import DatasetImageViewerHost from "./components/DatasetImageViewerHost.vue";
 import DatasetFormModalHost from "./components/DatasetFormModalHost.vue";
 import HostStatsBar from "./components/HostStatsBar.vue";
-import ThemeToggle from "./components/ThemeToggle.vue";
 
 const route = useRoute();
 const { isMobile } = useBreakpoint();
@@ -177,6 +182,7 @@ const activeMenu = computed(() => {
   const name = routeName.value;
   if (name === "docs") return "/docs";
   if (name === "maintenance") return "/maintenance";
+  if (name === "settings") return "/settings";
   if (name === "run-comparison") return "/compare";
   if (name.startsWith("datasets-")) return "/datasets";
   if (name.startsWith("prep-")) return "/prep";
@@ -187,6 +193,7 @@ const pageTitle = computed(() => {
   const names: Record<string, string> = {
     docs: "Docs",
     maintenance: "Maintenance",
+    settings: "Configuration",
     jobs: "Runs",
     "job-detail": "Run detail",
     "run-new": "New run",
