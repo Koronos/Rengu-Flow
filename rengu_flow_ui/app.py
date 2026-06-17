@@ -230,6 +230,9 @@ def create_app() -> FastAPI:
         queue_poller.start_poller()
         yield
         queue_poller.stop_poller()
+        from rengu_track import scalar_server
+
+        scalar_server.shutdown()
         tensorboard_server.stop_tensorboard()
 
     app = FastAPI(title="Rengu Flow UI", version=package_version(), lifespan=lifespan)
@@ -1175,9 +1178,8 @@ def create_app() -> FastAPI:
             raise HTTPException(400, "tag is required")
         root = resolve_repo_path(output_dir)
         names = [n.strip() for n in runs.split(",") if n.strip()]
-        run_dirs = [root / n for n in names] if names else reader.list_run_dirs(root)
         cap = max_points if max_points and max_points > 0 else None
-        return {"tag": tag, "series": reader.series_for(run_dirs, tag, max_points=cap)}
+        return {"tag": tag, "series": reader.series_for_tag(root, names, tag, max_points=cap)}
 
     @app.get(f"{API_PREFIX}/runs/{{run_name}}")
     def get_fs_run(run_name: str, output_dir: str = "output") -> dict[str, Any]:

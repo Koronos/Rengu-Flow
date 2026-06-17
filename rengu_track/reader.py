@@ -28,13 +28,23 @@ _PREVIEW_RE = re.compile(r"^step(\d+)_(.+)\.(?:png|jpe?g|webp)$", re.IGNORECASE)
 # run_dir key -> (latest event mtime, parsed scalars)
 _scalar_cache: dict[str, tuple[float, dict[str, list[dict[str, Any]]]]] = {}
 
-# Serializes the cache check-then-load so concurrent per-metric requests don't stampede. The
-# Compare view mounts one chart per metric, each firing a series request at once for the SAME run
-# set; without this lock they all miss the not-yet-populated cache and each launches a full
-# EventAccumulator.Reload() of the same (potentially large) event files in parallel — N×M parallel
-# re-parses that pin the GIL and exhaust memory until the server saturates. Holding the lock across
-# the load collapses them to a single parse per run whose result the others read from cache.
+# A short-lived lock PER run dir, plus a meta-lock guarding the cache/lock dicts. The Compare view
+# mounts one chart per metric, each firing a series request at once for the SAME run set; without
+# this the concurrent requests all miss the not-yet-populated cache and each launches a full
+# EventAccumulator.Reload() of the same event files — N×M parallel re-parses that pin the GIL.
+# Per-run (not global) locks collapse that stampede to one parse per run while still letting
+# DIFFERENT runs parse in parallel, so an N-run comparison loads concurrently instead of serially.
 _cache_lock = threading.Lock()
+_run_locks: dict[str, threading.Lock] = {}
+
+
+def _run_lock(key: str) -> threading.Lock:
+    with _cache_lock:
+        lock = _run_locks.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _run_locks[key] = lock
+        return lock
 
 # Default cap on points returned per scalar tag. Charts are a few hundred px wide, so loading
 # every step is wasted work; the full series stays cached and is downsampled on the way out.
@@ -64,11 +74,14 @@ def _downsample(series: list[dict[str, Any]], max_points: int) -> list[dict[str,
 
 
 def invalidate_scalars_cache(run_dir: str | Path | None = None) -> None:
-    """Drop cached scalars for one run or all runs."""
+    """Drop cached scalars (and the persistent accumulator) for one run or all runs."""
     if run_dir is None:
         _scalar_cache.clear()
+        _accumulators.clear()
         return
-    _scalar_cache.pop(str(Path(run_dir).resolve()), None)
+    key = str(Path(run_dir).resolve())
+    _scalar_cache.pop(key, None)
+    _accumulators.pop(key, None)
 
 
 def _latest_event_mtime(run_dir: Path) -> float:
@@ -99,13 +112,22 @@ def read_scalars(
         return {}
     mtime = _latest_event_mtime(root)
     key = str(root)
-    with _cache_lock:
-        cached = _scalar_cache.get(key)
-        if cached is not None and cached[0] >= mtime:
-            data = cached[1]
-        else:
-            data = _load_scalars(root)
-            _scalar_cache[key] = (mtime, data)
+
+    def _cached_fresh() -> dict[str, list[dict[str, Any]]] | None:
+        with _cache_lock:
+            entry = _scalar_cache.get(key)
+        return entry[1] if entry is not None and entry[0] >= mtime else None
+
+    data = _cached_fresh()
+    if data is None:
+        # Only one thread per run parses; others wait here, then take the result from cache via the
+        # re-check below. Different runs hold different locks, so they parse concurrently.
+        with _run_lock(key):
+            data = _cached_fresh()
+            if data is None:
+                data = _load_scalars(root)
+                with _cache_lock:
+                    _scalar_cache[key] = (mtime, data)
 
     # Filter/downsample outside the lock: both build fresh lists from the cached data without
     # mutating it, so they're safe to run concurrently once the parse is cached.
@@ -130,18 +152,29 @@ def _filter_by_prefix(
 # ``max_points`` on the way out), so a 10k-per-tag reservoir is already far more than is shown.
 _SCALARS_PER_TAG_CAP = 10000
 
+# Persistent EventAccumulator per run dir. ``Reload()`` is INCREMENTAL — it continues from the last
+# file offset, so re-reading a growing (live) run costs ~1ms instead of re-parsing the whole stream.
+# This is what makes TensorBoard fast on these same files; recreating the accumulator every call (as
+# before) re-decoded the entire multi-MB stream (~4.5s, dominated by embedded preview-image bytes)
+# on every poll of a running run. Accessed only under the caller's per-run lock (not thread-safe).
+_accumulators: dict[str, Any] = {}
+
 
 def _load_scalars(run_dir: Path) -> dict[str, list[dict[str, Any]]]:
+    key = str(run_dir)
+    acc = _accumulators.get(key)
+    if acc is None:
+        try:
+            from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
+        except ImportError:
+            return {}
+        acc = EventAccumulator(key, size_guidance={"scalars": _SCALARS_PER_TAG_CAP})
+        _accumulators[key] = acc
     try:
-        from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
-    except ImportError:
-        return {}
-
-    acc = EventAccumulator(str(run_dir), size_guidance={"scalars": _SCALARS_PER_TAG_CAP})
-    try:
-        acc.Reload()
+        acc.Reload()  # incremental: only events appended since the last call are parsed
     except Exception:
-        return {}
+        # Keep whatever the accumulator already holds from earlier reloads rather than dropping it.
+        pass
     out: dict[str, list[dict[str, Any]]] = {}
     for tag in acc.Tags().get("scalars", []):
         out[tag] = [
@@ -255,7 +288,7 @@ def series_for(
     """On-demand: load ONE metric's downsampled series for each run → {run_id: [points]}.
 
     This is the lazy path the comparison UI calls per metric. Only the runs being compared are
-    touched, and only when their chart is actually viewed; the mtime cache makes repeated
+    touched, and only when their chart is actually viewed; the persistent accumulator makes repeated
     per-metric fetches for the same run cheap (the run is parsed once).
     """
     out: dict[str, list[dict[str, Any]]] = {}
@@ -264,6 +297,42 @@ def series_for(
         rid = manifest.run_id if manifest is not None else Path(run_dir).name
         out[rid] = read_scalars(run_dir, max_points=max_points).get(tag, [])
     return out
+
+
+def _run_id_for(run_dir: str | Path) -> str:
+    manifest = read_manifest(run_dir)
+    return manifest.run_id if manifest is not None else Path(run_dir).name
+
+
+def series_for_tag(
+    output_dir: str | Path,
+    run_names: list[str],
+    tag: str,
+    *,
+    max_points: int | None = DEFAULT_MAX_POINTS,
+) -> dict[str, list[dict[str, Any]]]:
+    """One metric's series per run → {run_id: [points]}, served by the Rust data server.
+
+    Delegates to TensorBoard's ``tensorboard-data-server`` (Rust: parses in parallel, downsamples
+    and reloads incrementally), the same fast path TensorBoard uses — ~0.8s vs ~4.5s for the Python
+    EventAccumulator on an image-heavy run. Falls back to the per-run EventAccumulator path
+    (:func:`series_for`) when the data server is unavailable.
+
+    ``output_dir`` is the logdir the server indexes; ``run_names`` are dir names under it (empty =
+    all runs). Run dir name == ``run_id`` for tracked runs, so results are keyed by ``run_id``.
+    """
+    root = Path(output_dir)
+    run_dirs = [root / n for n in run_names] if run_names else list_run_dirs(root)
+    cap = max_points if max_points and max_points > 0 else DEFAULT_MAX_POINTS
+    try:
+        from rengu_track import scalar_server
+
+        by_name = scalar_server.read_scalars(
+            root, [Path(d).name for d in run_dirs], tags=[tag], max_points=cap
+        )
+    except Exception:  # noqa: BLE001 - DataServerUnavailable or any glue failure -> EventAccumulator
+        return series_for(run_dirs, tag, max_points=max_points)
+    return {_run_id_for(d): by_name.get(Path(d).name, {}).get(tag, []) for d in run_dirs}
 
 
 def preview_images(run_dir: str | Path, *, limit: int = 2000) -> list[dict[str, Any]]:
