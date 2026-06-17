@@ -114,22 +114,38 @@
             <label class="cmp-ctrl"><input v-model="logScale" type="checkbox" /> Log scale (y)</label>
           </div>
 
-          <!-- Overlay charts -->
-          <div v-if="chartMetrics.length" class="cmp-charts">
-            <MetricOverlayChart
-              v-for="m in chartMetrics"
-              v-show="!emptyMetrics.has(m)"
-              :key="m"
-              :metric="m"
-              :runs="selectedRefs"
-              :output-dir="outputDir"
-              :smoothing="smoothing"
-              :log-scale="logScale"
-              :refresh-token="refreshToken"
-              sync-key="compare"
-              class="cmp-chart"
-              @data-state="onChartDataState"
-            />
+          <!-- Overlay charts. Zoom + cursor are synced across every board, so their controls are
+               global and live in one sticky bar that overlaps the top-right as you scroll. -->
+          <div v-if="chartMetrics.length" class="cmp-boards">
+            <div v-show="anyZoomed || pinnedStep != null" class="cmp-board-tools">
+              <span v-if="pinnedStep != null" class="cmp-board-pin">📌 step {{ pinnedStep }}</span>
+              <button v-if="pinnedStep != null" type="button" class="cmp-board-btn" @click="unpin">
+                Unpin
+              </button>
+              <button v-if="anyZoomed" type="button" class="cmp-board-btn" @click="resetAllZoom">
+                Reset zoom
+              </button>
+            </div>
+            <div class="cmp-charts">
+              <MetricOverlayChart
+                v-for="m in chartMetrics"
+                v-show="!emptyMetrics.has(m)"
+                :key="m"
+                :metric="m"
+                :runs="selectedRefs"
+                :output-dir="outputDir"
+                :smoothing="smoothing"
+                :log-scale="logScale"
+                :refresh-token="refreshToken"
+                :pinned-step="pinnedStep"
+                :reset-token="resetToken"
+                sync-key="compare"
+                class="cmp-chart"
+                @data-state="onChartDataState"
+                @pin="onPin"
+                @zoom-state="onZoomState"
+              />
+            </div>
           </div>
 
           <!-- Hparams -->
@@ -464,6 +480,29 @@ function onChartDataState(payload: { metric: string; hasData: boolean }) {
   emptyMetrics.value = next;
 }
 
+// Global board controls. Zoom + cursor are synced across boards (uPlot sync), so zoom-reset and the
+// pinned point are shared state rather than per-chart.
+const pinnedStep = ref<number | null>(null);
+const resetToken = ref(0);
+const zoomedMetrics = ref<Set<string>>(new Set());
+const anyZoomed = computed(() => zoomedMetrics.value.size > 0);
+
+function onZoomState(payload: { metric: string; zoomed: boolean }) {
+  const next = new Set(zoomedMetrics.value);
+  if (payload.zoomed) next.add(payload.metric);
+  else next.delete(payload.metric);
+  zoomedMetrics.value = next;
+}
+function onPin(step: number) {
+  pinnedStep.value = step;
+}
+function unpin() {
+  pinnedStep.value = null;
+}
+function resetAllZoom() {
+  resetToken.value += 1;
+}
+
 const hparamCols = computed(() => {
   const seen = new Map<string, Set<string>>();
   for (const r of selectedRuns.value) {
@@ -720,6 +759,49 @@ function hardwareLabel(r: CompareRunRow): string {
   font-variant-numeric: tabular-nums;
   color: var(--el-text-color-secondary);
   min-width: 2.5em;
+}
+.cmp-boards {
+  position: relative;
+}
+/* Global zoom/pin controls that stay reachable while scrolling the boards: a 0-height sticky strip
+   so it doesn't push the grid down, with the buttons floating over the top-right corner. */
+.cmp-board-tools {
+  position: sticky;
+  top: 8px;
+  z-index: 6;
+  height: 0;
+  overflow: visible;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  pointer-events: none;
+}
+.cmp-board-tools > * {
+  pointer-events: auto;
+}
+.cmp-board-pin {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--el-text-color-regular);
+  background: var(--el-bg-color-overlay, var(--el-bg-color));
+  border: 1px solid var(--el-border-color);
+  border-radius: 4px;
+  padding: 2px 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+.cmp-board-btn {
+  font-size: 12px;
+  padding: 3px 10px;
+  border: 1px solid var(--el-border-color);
+  border-radius: 4px;
+  background: var(--el-bg-color-overlay, var(--el-fill-color-light));
+  color: var(--el-text-color-regular);
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+.cmp-board-btn:hover {
+  background: var(--el-fill-color);
 }
 .cmp-charts {
   display: grid;

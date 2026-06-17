@@ -3,15 +3,13 @@
     <div class="overlay-chart__head">
       <span class="overlay-chart__title">{{ metric }}</span>
       <span v-if="loading" class="overlay-chart__hint">loading…</span>
-      <button
-        v-show="zoomed"
-        type="button"
-        class="overlay-chart__reset"
-        title="Reset zoom (or double-click the chart)"
-        @click="resetZoom"
-      >
-        Reset zoom
-      </button>
+      <!-- Which colour is which run — the always-visible "signal" for the readout values below. -->
+      <div class="overlay-chart__legend">
+        <span v-for="r in runs" :key="r.id" class="ov-leg" :title="r.name">
+          <span class="ov-leg__sw" :style="{ background: r.color }"></span>
+          <span class="ov-leg__name">{{ r.name }}</span>
+        </span>
+      </div>
     </div>
     <div v-if="error" class="overlay-chart__state overlay-chart__state--error">{{ error }}</div>
     <div v-show="!error" class="overlay-chart__plot">
@@ -48,13 +46,21 @@ const props = defineProps<{
   syncKey: string;
   /** Bumped by the parent (Reload / auto-update) to force a series re-fetch without an id change. */
   refreshToken?: number;
+  /** Pinned x (step) shared across all boards: when set, the readout freezes here regardless of
+   *  hover, so you can scroll away without losing the inspected point. null = follow the cursor. */
+  pinnedStep?: number | null;
+  /** Bumped by the parent's global "Reset zoom" to restore the full x range on every board. */
+  resetToken?: number;
 }>();
 
-// Reported after each load/render so the parent can hide a metric that has no data for the
-// selected runs (e.g. val/* when no eval dataset ran). Emitted both ways so a metric reappears
-// once a newly selected run does have it.
 const emit = defineEmits<{
+  // Reported after each load/render so the parent can hide a metric that has no data for the
+  // selected runs (e.g. val/* when no eval dataset ran).
   (e: "data-state", payload: { metric: string; hasData: boolean }): void;
+  // Clicking a board pins this x (step) across all boards (cursor is synced).
+  (e: "pin", step: number): void;
+  // Whether THIS board is zoomed in, so the parent can show one global "Reset zoom".
+  (e: "zoom-state", payload: { metric: string; zoomed: boolean }): void;
 }>();
 
 const HEIGHT = 200;
@@ -176,18 +182,44 @@ function escapeHtml(s: string): string {
   );
 }
 
-// TensorBoard-style hover readout: step, each run's (smoothed) value at the nearest step, and
-// elapsed wall time. Rendered in the strip BELOW the plot (never over the curve), and only for the
-// chart under the pointer (the synced cursor fires this on every chart).
-function updateTip(u: uPlot): void {
+/** Index in the (ascending) x array nearest to ``step``. */
+function nearestIndex(xs: number[], step: number): number {
+  let lo = 0;
+  let hi = xs.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (xs[mid] < step) lo = mid + 1;
+    else hi = mid;
+  }
+  if (lo > 0 && Math.abs(xs[lo - 1] - step) <= Math.abs(xs[lo] - step)) return lo - 1;
+  return lo;
+}
+
+// Which x to read the readout at: the pinned step (frozen, survives hover/scroll) takes precedence;
+// otherwise the live cursor while the pointer is over THIS chart; otherwise nothing.
+function readoutIndex(): number | null {
+  if (!plot) return null;
+  const xs = plot.data[0] as number[];
+  if (!xs.length) return null;
+  if (props.pinnedStep != null) return nearestIndex(xs, props.pinnedStep);
+  if (isHovered) return plot.cursor.idx ?? null;
+  return null;
+}
+
+// Readout below the plot: step + each run's (smoothed) value at the nearest step + elapsed wall
+// time. Rendered for the hovered chart, or frozen on the pinned step across all boards.
+function renderReadout(): void {
   const el = tip.value;
-  if (!el) return;
-  const idx = u.cursor.idx;
-  if (!isHovered || idx == null || tipMeta == null) {
+  if (!el || !plot || !tipMeta) {
+    if (el) el.innerHTML = "";
+    return;
+  }
+  const idx = readoutIndex();
+  if (idx == null) {
     el.innerHTML = "";
     return;
   }
-  const step = (u.data[0] as number[])[idx];
+  const step = (plot.data[0] as number[])[idx];
   let rows = "";
   for (let i = 0; i < tipMeta.points.length; i++) {
     // Each run keeps its own step grid, so read the nearest point rather than the x-aligned cell
@@ -203,16 +235,25 @@ function updateTip(u: uPlot): void {
       `<span class="tip-val">${fmtVal(val)}</span>` +
       `<span class="tip-dt">${fmtDuration(rel)}</span></div>`;
   }
-  el.innerHTML = `<div class="tip-head">step ${step}</div>${rows}`;
+  const pinned = props.pinnedStep != null ? ' · <span class="tip-pin">pinned</span>' : "";
+  el.innerHTML = `<div class="tip-head">step ${step}${pinned}</div>${rows}`;
 }
 
-// Drag-zoom changed the x range → reflect it in the Reset button's visibility.
+// Drag-zoom changed the x range → tell the parent whether this board is zoomed (it shows one
+// global Reset zoom, since uPlot syncs the zoom across all boards).
+function setZoomed(z: boolean): void {
+  if (z === zoomed.value) return;
+  zoomed.value = z;
+  emit("zoom-state", { metric: props.metric, zoomed: z });
+}
+
 function onSetScale(u: uPlot, key: string): void {
   if (key !== "x" || !xDomain) return;
   const sc = u.scales.x;
   const eps = (xDomain[1] - xDomain[0]) * 1e-6;
-  zoomed.value =
-    sc.min != null && sc.max != null && (sc.min > xDomain[0] + eps || sc.max < xDomain[1] - eps);
+  setZoomed(
+    sc.min != null && sc.max != null && (sc.min > xDomain[0] + eps || sc.max < xDomain[1] - eps)
+  );
 }
 
 // Restore the full x range. Rebuilding the plot (clear the sig so render recreates it) resets both
@@ -220,7 +261,7 @@ function onSetScale(u: uPlot, key: string): void {
 function resetZoom(): void {
   currentSig = "";
   render();
-  zoomed.value = false;
+  setZoomed(false);
 }
 
 function makeOpts(width: number): uPlot.Options {
@@ -236,24 +277,50 @@ function makeOpts(width: number): uPlot.Options {
     height: HEIGHT,
     scales: { x: { time: false }, y: { distr: props.logScale ? 3 : 1 } },
     axes: [axis, axis],
+    // uPlot's own legend is off: it duplicated the readout below and showed a redundant inline
+    // "step". The head colour legend is the signal; the strip below shows the per-step values.
     cursor: { sync: { key: props.syncKey }, points: { size: 5 } },
-    legend: { show: true },
+    legend: { show: false },
     hooks: {
-      // Track real pointer presence on this chart's overlay so updateTip can suppress the popup on
-      // the synced (non-hovered) charts. mouseleave also clears any popup left from the last move.
       ready: [
         (u: uPlot) => {
+          // Track real pointer presence so the readout shows only for the hovered chart (the synced
+          // cursor fires setCursor on every board).
           u.over.addEventListener("mouseenter", () => {
             isHovered = true;
           });
           u.over.addEventListener("mouseleave", () => {
             isHovered = false;
-            if (tip.value) tip.value.innerHTML = "";
+            renderReadout(); // clears unless a step is pinned
+          });
+          // Click (not a drag-zoom) pins the cursor's step across all boards.
+          let down = false;
+          let dragged = false;
+          let downX = 0;
+          let downY = 0;
+          u.over.addEventListener("mousedown", (e: MouseEvent) => {
+            down = true;
+            dragged = false;
+            downX = e.clientX;
+            downY = e.clientY;
+          });
+          u.over.addEventListener("mousemove", (e: MouseEvent) => {
+            if (down && (Math.abs(e.clientX - downX) > 4 || Math.abs(e.clientY - downY) > 4)) {
+              dragged = true;
+            }
+          });
+          u.over.addEventListener("mouseup", () => {
+            down = false;
+          });
+          u.over.addEventListener("click", () => {
+            if (dragged) return; // that gesture was a drag-zoom, not a pin
+            const idx = u.cursor.idx;
+            if (idx != null) emit("pin", (u.data[0] as number[])[idx]);
           });
         },
       ],
-      setCursor: [updateTip],
-      setData: [updateTip],
+      setCursor: [() => renderReadout()],
+      setData: [() => renderReadout()],
       setScale: [onSetScale],
     },
     series: [
@@ -374,6 +441,18 @@ watch(
     if (started) loadSeries();
   }
 );
+// Parent's global "Reset zoom" → restore the full range on this board too.
+watch(
+  () => props.resetToken,
+  () => {
+    if (plot && zoomed.value) resetZoom();
+  }
+);
+// Pinned step changed (set/cleared by the parent) → re-render the frozen/live readout.
+watch(
+  () => props.pinnedStep,
+  () => renderReadout()
+);
 
 onBeforeUnmount(() => {
   controller?.abort();
@@ -392,7 +471,7 @@ onBeforeUnmount(() => {
 }
 .overlay-chart__head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 10px;
 }
 .overlay-chart__title {
@@ -403,18 +482,33 @@ onBeforeUnmount(() => {
   font-size: 12px;
   color: var(--el-text-color-secondary);
 }
-.overlay-chart__reset {
+.overlay-chart__legend {
   margin-left: auto;
-  padding: 1px 8px;
-  font-size: 11px;
-  border: 1px solid var(--el-border-color);
-  border-radius: 4px;
-  background: var(--el-fill-color-light);
-  color: var(--el-text-color-regular);
-  cursor: pointer;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  justify-content: flex-end;
+  max-width: 70%;
 }
-.overlay-chart__reset:hover {
-  background: var(--el-fill-color);
+.ov-leg {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--el-text-color-secondary);
+  min-width: 0;
+}
+.ov-leg__sw {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex: 0 0 auto;
+}
+.ov-leg__name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 140px;
 }
 .overlay-chart__plot {
   position: relative;
@@ -442,6 +536,10 @@ onBeforeUnmount(() => {
   font-weight: 600;
   margin-bottom: 3px;
   color: var(--el-text-color-primary);
+}
+.overlay-chart__tip :deep(.tip-pin) {
+  font-weight: 600;
+  color: var(--el-color-primary);
 }
 .overlay-chart__tip :deep(.tip-row) {
   display: grid;
@@ -476,13 +574,5 @@ onBeforeUnmount(() => {
 }
 .overlay-chart__state--error {
   color: var(--el-color-danger);
-}
-/* uPlot legend tweaks so many-run legends stay compact. */
-.overlay-chart :deep(.u-legend) {
-  font-size: 12px;
-}
-.overlay-chart :deep(.u-legend .u-marker) {
-  width: 10px;
-  height: 10px;
 }
 </style>
