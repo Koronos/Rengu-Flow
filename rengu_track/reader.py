@@ -12,6 +12,7 @@ tensorboard event accumulator.
 from __future__ import annotations
 
 import re
+import threading
 from pathlib import Path
 from typing import Any, Callable
 
@@ -26,6 +27,14 @@ _PREVIEW_RE = re.compile(r"^step(\d+)_(.+)\.(?:png|jpe?g|webp)$", re.IGNORECASE)
 
 # run_dir key -> (latest event mtime, parsed scalars)
 _scalar_cache: dict[str, tuple[float, dict[str, list[dict[str, Any]]]]] = {}
+
+# Serializes the cache check-then-load so concurrent per-metric requests don't stampede. The
+# Compare view mounts one chart per metric, each firing a series request at once for the SAME run
+# set; without this lock they all miss the not-yet-populated cache and each launches a full
+# EventAccumulator.Reload() of the same (potentially large) event files in parallel — N×M parallel
+# re-parses that pin the GIL and exhaust memory until the server saturates. Holding the lock across
+# the load collapses them to a single parse per run whose result the others read from cache.
+_cache_lock = threading.Lock()
 
 # Default cap on points returned per scalar tag. Charts are a few hundred px wide, so loading
 # every step is wasted work; the full series stays cached and is downsampled on the way out.
@@ -90,13 +99,16 @@ def read_scalars(
         return {}
     mtime = _latest_event_mtime(root)
     key = str(root)
-    cached = _scalar_cache.get(key)
-    if cached is not None and cached[0] >= mtime:
-        data = cached[1]
-    else:
-        data = _load_scalars(root)
-        _scalar_cache[key] = (mtime, data)
+    with _cache_lock:
+        cached = _scalar_cache.get(key)
+        if cached is not None and cached[0] >= mtime:
+            data = cached[1]
+        else:
+            data = _load_scalars(root)
+            _scalar_cache[key] = (mtime, data)
 
+    # Filter/downsample outside the lock: both build fresh lists from the cached data without
+    # mutating it, so they're safe to run concurrently once the parse is cached.
     filtered = _filter_by_prefix(data, tag_prefix)
     if max_points is None:
         return filtered
@@ -112,13 +124,20 @@ def _filter_by_prefix(
     return {tag: points for tag, points in data.items() if tag.startswith(tag_prefix)}
 
 
+# Cap on scalar events kept PER TAG when reading an event file (TensorBoard's own default). The
+# previous ``0`` meant "unlimited", so a long run that logs a scalar every step balloons memory and
+# parse time without bound. Charts only render a few hundred points (the series is downsampled to
+# ``max_points`` on the way out), so a 10k-per-tag reservoir is already far more than is shown.
+_SCALARS_PER_TAG_CAP = 10000
+
+
 def _load_scalars(run_dir: Path) -> dict[str, list[dict[str, Any]]]:
     try:
         from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
     except ImportError:
         return {}
 
-    acc = EventAccumulator(str(run_dir), size_guidance={"scalars": 0})
+    acc = EventAccumulator(str(run_dir), size_guidance={"scalars": _SCALARS_PER_TAG_CAP})
     try:
         acc.Reload()
     except Exception:
