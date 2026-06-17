@@ -985,6 +985,32 @@ def create_app() -> FastAPI:
         except WebSocketDisconnect:
             pass
 
+    @app.websocket(f"{API_PREFIX}/jobs/events/ws")
+    async def jobs_events_ws(websocket: WebSocket):
+        # Push a "jobs-changed" frame whenever any job row is written (created/updated/deleted) —
+        # including a run the queue poller transitions to finished/failed — so the Runs/Prep lists
+        # refresh on demand instead of each client polling GET /jobs on a timer. Watches the in-memory
+        # db.jobs_version() counter (no DB query per tick) and sends only on a change; the first frame
+        # is sent on connect so a client that missed changes before connecting reconciles immediately.
+        await websocket.accept()
+        last = -1
+        try:
+            while True:
+                version = db.jobs_version()
+                if version != last:
+                    last = version
+                    await websocket.send_text(json.dumps({"type": "jobs-changed", "version": version}))
+                # Wait one tick OR until the client disconnects, whichever comes first — receiving is
+                # how we notice an idle client going away (there may be no send to fail on).
+                try:
+                    message = await asyncio.wait_for(websocket.receive(), timeout=1.0)
+                except asyncio.TimeoutError:
+                    continue
+                if message.get("type") == "websocket.disconnect":
+                    break
+        except WebSocketDisconnect:
+            pass
+
     @app.get(f"{API_PREFIX}/signals")
     def list_signals() -> dict[str, Any]:
         return signals.list_signal_definitions()

@@ -11,6 +11,22 @@ from typing import Any, Iterator
 from rengu_flow_ui.library_db import init_library_tables
 from rengu_flow_ui.settings import db_path, ensure_data_dirs
 
+# Monotonic counter bumped on every job row write (create / update / delete). The jobs-events
+# WebSocket watches it so UI clients refresh their job list the moment anything changes — including
+# a run the queue poller transitions to finished/failed — instead of polling the API on a timer.
+# A plain int suffices (writes happen under the GIL; readers tolerate a stale read for one tick).
+_jobs_version = 0
+
+
+def jobs_version() -> int:
+    return _jobs_version
+
+
+def _bump_jobs_version() -> None:
+    global _jobs_version
+    _jobs_version += 1
+
+
 # Bump ONLY on an *incompatible* schema change (a column removed/renamed, or its semantics
 # changed). Stored in the file via PRAGMA user_version and stamped on init. Startup compares it
 # (see schema_guard.ensure_schema_compatible) and, on a real mismatch, asks the user to
@@ -271,6 +287,7 @@ def create_imported_job(
             ),
         )
         job_id = int(cur.lastrowid)
+    _bump_jobs_version()
     return get_job(job_id)
 
 
@@ -321,6 +338,7 @@ def create_job(
             ),
         )
         job_id = int(cur.lastrowid)
+    _bump_jobs_version()
     return get_job(job_id)
 
 
@@ -337,6 +355,7 @@ def delete_job(job_id: str | int) -> None:
     jid = _coerce_job_id(job_id)
     with _cursor() as cur:
         cur.execute("DELETE FROM jobs WHERE id = ?", (jid,))
+    _bump_jobs_version()
 
 
 def list_jobs(limit: int = 200) -> list[JobRecord]:
@@ -380,4 +399,5 @@ def update_job(job_id: str | int, **fields: Any) -> JobRecord:
     values.append(jid)
     with _cursor() as cur:
         cur.execute(f"UPDATE jobs SET {', '.join(parts)} WHERE id = ?", values)
+    _bump_jobs_version()
     return get_job(jid)

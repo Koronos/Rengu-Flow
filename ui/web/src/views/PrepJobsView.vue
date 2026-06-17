@@ -151,7 +151,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from "vue";
+import { onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import {
@@ -168,6 +168,7 @@ import { api } from "../api";
 import PrepJobLivePanel from "../components/PrepJobLivePanel.vue";
 import { useBreakpoint } from "../composables/useBreakpoint";
 import { useDatasetFormModal } from "../composables/useDatasetFormModal";
+import { useJobsEvents } from "../composables/useJobsEvents";
 import { formatError } from "../lib/formatError";
 import { DEFAULT_DATASET_TOML } from "../stores/datasetEditor";
 import type { JobRecord, PrepStage } from "../types/api";
@@ -199,7 +200,6 @@ async function loadJobLog(jobId: string | number, force = false): Promise<void> 
   }
 }
 
-let pollTimer: ReturnType<typeof setInterval> | null = null;
 
 const activeJob = ref<JobRecord | null>(null);
 
@@ -390,15 +390,11 @@ function goNewJob(stage: PrepStage): void {
   router.push({ name: "prep-new", params: { stage } });
 }
 
-onMounted(async () => {
-  await refresh();
-  pollTimer = setInterval(() => void refresh(), 5000);
-});
+onMounted(() => void refresh());
 
-onUnmounted(() => {
-  if (pollTimer) clearInterval(pollTimer);
-  pollTimer = null;
-});
+// Refresh the list on server-pushed job changes (create/update/delete, including a run the queue
+// poller transitions to finished/failed) instead of polling GET /jobs?kind=prep on a timer.
+useJobsEvents(() => void refresh());
 </script>
 
 <style scoped>
