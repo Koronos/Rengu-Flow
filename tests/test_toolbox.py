@@ -105,6 +105,19 @@ def test_cast_inputs_rejects_bad_number():
         toolbox.cast_inputs([{"param": "n", "control": "number"}], {"n": "not-a-number"})
 
 
+def test_cast_inputs_blank_without_default_is_none():
+    from rengu_flow_ui import toolbox
+
+    defs = [
+        {"param": "a", "control": "number"},  # no default -> None
+        {"param": "b", "control": "number", "default": 0},  # default used
+        {"param": "c", "control": "text"},  # no default -> None
+    ]
+    # Nothing provided, and an explicit empty string.
+    assert toolbox.cast_inputs(defs, {}) == {"a": None, "b": 0, "c": None}
+    assert toolbox.cast_inputs(defs, {"a": "", "c": ""}) == {"a": None, "b": 0, "c": None}
+
+
 def test_build_runner_source_has_pep723_header():
     from rengu_flow_ui import toolbox
 

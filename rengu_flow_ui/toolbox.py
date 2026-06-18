@@ -214,10 +214,12 @@ def cast_inputs(inputs_def: list[dict], values: dict[str, Any]) -> dict[str, Any
         param = spec["param"]
         control = spec.get("control", "text")
         if param not in values or values[param] is None or values[param] == "":
-            if spec.get("default") is not None:
-                raw = spec["default"]
-            else:
-                raise ValueError(f"Missing value for input {param!r}")
+            default = spec.get("default")
+            if default is None:
+                # Left blank with no default: pass None and let the script decide.
+                kwargs[param] = None
+                continue
+            raw = default
         else:
             raw = values[param]
         if control == "number":
