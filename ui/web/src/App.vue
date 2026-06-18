@@ -28,6 +28,10 @@
             <el-icon><Tools /></el-icon>
             <span>Toolbox</span>
           </el-menu-item>
+          <el-menu-item index="/settings">
+            <el-icon><Setting /></el-icon>
+            <span>Configuration</span>
+          </el-menu-item>
         </el-menu>
         <div v-if="versionLabel" class="app-brand-version">
           <span class="app-brand-version__label" :title="versionTitle">{{ versionLabel }}</span>
@@ -46,10 +50,6 @@
         </div>
         <div class="app-menu-bottom">
           <el-menu :default-active="activeMenu" class="app-menu app-menu--footer" router>
-            <el-menu-item index="/settings">
-              <el-icon><Setting /></el-icon>
-              <span>Configuration</span>
-            </el-menu-item>
             <el-menu-item index="/docs">
               <el-icon><Document /></el-icon>
               <span>Docs</span>
@@ -114,6 +114,10 @@
             <el-icon><Tools /></el-icon>
             <span>Toolbox</span>
           </el-menu-item>
+          <el-menu-item index="/settings">
+            <el-icon><Setting /></el-icon>
+            <span>Configuration</span>
+          </el-menu-item>
         </el-menu>
         <div class="app-menu-bottom">
           <el-menu
@@ -122,10 +126,6 @@
             router
             @select="drawerOpen = false"
           >
-            <el-menu-item index="/settings">
-              <el-icon><Setting /></el-icon>
-              <span>Configuration</span>
-            </el-menu-item>
             <el-menu-item index="/docs">
               <el-icon><Document /></el-icon>
               <span>Docs</span>
