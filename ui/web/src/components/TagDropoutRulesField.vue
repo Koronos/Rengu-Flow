@@ -18,16 +18,11 @@
           <el-button type="danger" link :icon="Delete" @click="removeRow(idx)" />
         </div>
 
-        <el-select
+        <el-input-tag
           v-if="row.source === 'tags'"
           :model-value="row.tags"
-          multiple
-          filterable
-          allow-create
-          default-first-option
-          collapse-tags
-          collapse-tags-tooltip
-          :max-collapse-tags="4"
+          clearable
+          delimiter=","
           placeholder="Type a tag and press Enter"
           class="field-full tags-select"
           @update:model-value="(v) => updateRow(idx, { tags: normalizeTags(v) })"

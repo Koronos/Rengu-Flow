@@ -1,6 +1,7 @@
 <template>
   <div class="string-list">
     <el-select
+      v-if="hasPresetOptions"
       :model-value="tagValues"
       multiple
       filterable
@@ -20,6 +21,15 @@
         :value="opt"
       />
     </el-select>
+    <el-input-tag
+      v-else
+      :model-value="tagValues"
+      clearable
+      delimiter=","
+      :placeholder="placeholder"
+      class="field-full"
+      @update:model-value="onSelectChange"
+    />
     <el-text v-if="hint" type="info" size="small" class="list-hint">{{ hint }}</el-text>
   </div>
 </template>
@@ -43,12 +53,18 @@ const sortedValues = computed(() => parseStringList(props.modelValue));
 
 const tagValues = computed(() => sortedValues.value);
 
+// Only render the dropdown when there are real preset options to pick. Otherwise
+// it is free-entry (user-typed tags only) and a caret would be misleading.
+const hasPresetOptions = computed(
+  () => (props.presetOptions || []).map((o) => String(o).trim()).filter(Boolean).length > 0
+);
+
 const presetOptions = computed(() => {
   const fromSchema = (props.presetOptions || []).map((o) => String(o).trim()).filter(Boolean);
   return [...new Set([...fromSchema, ...sortedValues.value])];
 });
 
-function onSelectChange(raw: string[]): void {
+function onSelectChange(raw?: string[]): void {
   const strings = parseStringList(raw ?? []);
   emit("update:modelValue", strings.length ? strings : "");
 }
