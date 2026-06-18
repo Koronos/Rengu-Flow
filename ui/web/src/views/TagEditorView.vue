@@ -1,5 +1,10 @@
 <template>
   <div class="tag-editor">
+    <div class="page-head tag-editor__head">
+      <el-button :icon="ArrowLeft" @click="$router.push('/prep')">Dataset Studio</el-button>
+      <span class="tag-editor__title">Tag editor</span>
+    </div>
+
     <el-card shadow="never" class="tag-editor__open">
       <template #header>Open a folder</template>
       <p class="page-hint">
@@ -247,6 +252,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { ElMessage } from "element-plus";
+import { ArrowLeft } from "@element-plus/icons-vue";
 import { api } from "../api";
 import { useTagSession } from "../composables/useTagSession";
 import { useDatasetImageViewer } from "../composables/useDatasetImageViewer";
@@ -465,6 +471,16 @@ async function restoreQuarantine(name: string): Promise<void> {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+.tag-editor__head {
+  justify-content: flex-start;
+  align-items: center;
+  gap: var(--rf-space-sm);
+  margin-bottom: 0;
+}
+.tag-editor__title {
+  font-size: 16px;
+  font-weight: 600;
 }
 .tag-editor__open-row {
   display: flex;
