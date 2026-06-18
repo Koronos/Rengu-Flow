@@ -107,7 +107,7 @@
         </el-descriptions-item>
       </el-descriptions>
 
-      <div v-if="(cpu?.per_core as number[] | undefined)?.length" class="core-grid mb-16">
+      <div v-if="(cpu?.per_core as number[] | undefined)?.length" class="core-grid">
         <div
           v-for="(pct, i) in (cpu?.per_core as number[])"
           :key="i"
@@ -457,6 +457,7 @@ function loadClass(pct: number | null | undefined): string {
   gap: 4px;
   align-items: flex-end;
   max-height: 80px;
+  margin-bottom: 28px;
 }
 .core-cell {
   width: 14px;
