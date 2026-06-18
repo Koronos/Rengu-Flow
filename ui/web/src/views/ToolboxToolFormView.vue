@@ -16,22 +16,38 @@
       <section class="authoring">
         <el-form label-position="top">
           <div class="meta-row">
-            <el-form-item label="Name" class="meta-name">
+            <el-form-item class="meta-name">
+              <template #label>
+                Name
+                <FieldHelpIcon :field="help('Shown in the Toolbox list and used to derive the tool id.')" />
+              </template>
               <el-input v-model="form.name" placeholder="e.g. Resize dataset images" />
             </el-form-item>
-            <el-form-item label="Entrypoint function" class="meta-entry">
+            <el-form-item class="meta-entry">
+              <template #label>
+                Entrypoint function
+                <FieldHelpIcon :field="help('The function Toolbox calls in your script. Defaults to run; its parameters are the inputs you define below.')" />
+              </template>
               <el-input v-model="form.entrypoint" placeholder="run" />
             </el-form-item>
           </div>
-          <el-form-item label="Description">
+          <el-form-item>
+            <template #label>
+              Description
+              <FieldHelpIcon :field="help('One line shown under the name in the Toolbox list.')" />
+            </template>
             <el-input v-model="form.description" placeholder="What this tool does" />
           </el-form-item>
-          <el-form-item label="Required packages">
+          <el-form-item>
+            <template #label>
+              Required packages
+              <FieldHelpIcon :field="help('Added as PEP 723 inline dependencies; uv resolves and caches them in an isolated environment per run, leaving the rengu venv untouched. Empty means standard library only.')" />
+            </template>
             <el-input
               v-model="requirementsText"
               type="textarea"
               :rows="2"
-              placeholder="one per line — uv resolves them inline, isolated from this app&#10;e.g. pillow&#10;numpy>=2.0"
+              placeholder="one per line, e.g. pillow&#10;numpy>=2.0"
             />
           </el-form-item>
         </el-form>
@@ -54,10 +70,14 @@
         <!-- Inputs builder -->
         <div class="inputs-section">
           <div class="inputs-section__head">
-            <h3>Inputs</h3>
+            <h3 class="inputs-section__title">Inputs</h3>
             <el-button size="small" :icon="Plus" @click="addInput">Add input</el-button>
           </div>
-          <p class="hint">Each input becomes a keyword argument of your entrypoint function.</p>
+          <p class="hint">
+            Each input renders a control on Run and is passed as a keyword argument to your
+            entrypoint. The param must match a function parameter; blank without a default
+            arrives as <code>None</code>.
+          </p>
 
           <el-empty
             v-if="!form.inputs?.length"
@@ -112,12 +132,18 @@ import { ElMessage } from "element-plus";
 import { Delete, Plus } from "@element-plus/icons-vue";
 import { api, type ToolboxInput, type ToolboxToolWrite } from "../api";
 import CodeEditor from "../components/CodeEditor.vue";
+import FieldHelpIcon from "../components/FieldHelpIcon.vue";
 import ToolboxRunPanel from "../components/ToolboxRunPanel.vue";
 
 const route = useRoute();
 const router = useRouter();
 const controls = ["number", "text", "textarea", "switch", "select"] as const;
 const scriptPlaceholder = "def run(num1, num2):\n    print(num1 + num2)";
+
+// Build a minimal field descriptor for the shared FieldHelpIcon (popover + doc link).
+function help(text: string) {
+  return { path: "", type: "string", help: text, doc_path: "user/toolbox.md" };
+}
 
 const isEdit = computed(() => Boolean(route.params.id));
 const savedId = ref<string | null>((route.params.id as string) || null);
@@ -281,7 +307,9 @@ onMounted(async () => {
   justify-content: space-between;
   gap: var(--rf-space-sm);
 }
-.inputs-section__head h3 {
+.inputs-section__title {
+  font-size: 18px;
+  font-weight: 600;
   margin: var(--rf-space-sm) 0;
 }
 .input-card {
@@ -327,6 +355,9 @@ onMounted(async () => {
   color: var(--el-text-color-secondary);
   font-size: 12px;
   margin: 4px 0 var(--rf-space-xs);
+}
+.hint code {
+  font-family: var(--rf-font-mono);
 }
 
 /* Run column */

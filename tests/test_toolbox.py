@@ -31,8 +31,8 @@ def test_create_and_get_tool_roundtrip(ui_data_tmp):
     from rengu_flow_ui import toolbox
 
     saved = toolbox.create_tool(
-        name="Sumar dos números",
-        description="Suma num1 + num2",
+        name="Add two numbers",
+        description="Adds num1 + num2",
         entrypoint="run",
         requirements=["numpy>=2.0"],
         script="def run(num1, num2):\n    return num1 + num2\n",
@@ -41,17 +41,24 @@ def test_create_and_get_tool_roundtrip(ui_data_tmp):
             {"param": "num2", "label": "Number 2", "control": "number", "default": 0},
         ],
     )
-    assert saved["id"] == "sumar-dos-numeros"
+    assert saved["id"] == "add-two-numbers"
     assert saved["created_at"].endswith("Z")
     assert saved["created_at"] == saved["updated_at"]
 
-    full = toolbox.get_tool("sumar-dos-numeros")
+    full = toolbox.get_tool("add-two-numbers")
     assert full["script"].startswith("def run(")
     assert full["requirements"] == ["numpy>=2.0"]
     assert full["last_run"] is None
     # tool.json is on disk
-    on_disk = json.loads((toolbox.tool_dir("sumar-dos-numeros") / "tool.json").read_text())
+    on_disk = json.loads((toolbox.tool_dir("add-two-numbers") / "tool.json").read_text())
     assert on_disk["entrypoint"] == "run"
+
+
+def test_slugify_strips_accents(ui_data_tmp):
+    from rengu_flow_ui import toolbox
+
+    # NFKD decomposition + ASCII strip: accented Latin collapses to plain ASCII.
+    assert toolbox.slugify("Café Résumé") == "cafe-resume"
 
 
 def test_create_tool_dedupes_slug(ui_data_tmp):

@@ -64,7 +64,7 @@ log updates live during the run (REST snapshot + WebSocket stream).
 **Script**
 
 ```python
-def sumar(num1: float, num2: float) -> None:
+def add(num1: float, num2: float) -> None:
     print(f"{num1} + {num2} = {num1 + num2}")
 ```
 
@@ -72,7 +72,7 @@ def sumar(num1: float, num2: float) -> None:
 
 | Field | Value |
 |-------|-------|
-| Entrypoint | `sumar` |
+| Entrypoint | `add` |
 | Required packages | *(empty)* |
 
 **Declared inputs**

@@ -1,5 +1,10 @@
 <template>
   <div class="toolbox-view">
+    <p class="view-intro">
+      Author and run your own Python tools — executed by uv in an isolated environment, separate
+      from rengu's venv. Authoring always works; running requires <code>[toolbox].enabled</code> in
+      <code>rengu.local.toml</code>. See the Toolbox guide under Docs.
+    </p>
     <div class="toolbar">
       <el-input
         v-model="query"
@@ -114,6 +119,16 @@ onMounted(load);
 </script>
 
 <style scoped>
+.view-intro {
+  margin: 0 0 var(--rf-space-sm);
+  max-width: 70ch;
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.view-intro code {
+  font-family: var(--rf-font-mono);
+}
 .toolbar {
   display: flex;
   align-items: center;

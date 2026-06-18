@@ -15,7 +15,7 @@ def test_crud_works_even_when_execution_disabled(ui_client, monkeypatch):
 
     monkeypatch.setattr(lc, "toolbox_enabled", lambda: False)
 
-    created = _create(ui_client, name="Sumar", script="def run(a, b):\n    return a+b\n")
+    created = _create(ui_client, name="Adder", script="def run(a, b):\n    return a+b\n")
     tool_id = created["id"]
 
     listed = ui_client.get("/api/v1/toolbox/tools").json()
@@ -37,7 +37,7 @@ def test_run_returns_409_when_execution_disabled(ui_client, monkeypatch):
     from rengu_flow.config import local_config as lc
 
     monkeypatch.setattr(lc, "toolbox_enabled", lambda: False)
-    created = _create(ui_client, name="Sumar", script="def run():\n    return 1\n")
+    created = _create(ui_client, name="Adder", script="def run():\n    return 1\n")
     res = ui_client.post(f"/api/v1/toolbox/tools/{created['id']}/run", json={"values": {}})
     assert res.status_code == 409, res.text
 
