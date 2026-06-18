@@ -176,9 +176,6 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.toolbox-form {
-  max-width: var(--rf-page-max);
-}
 .form-head {
   display: flex;
   align-items: flex-end;
@@ -206,7 +203,7 @@ onMounted(async () => {
 
 .editor-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 400px);
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 460px);
   gap: var(--rf-space-md);
   align-items: start;
 }

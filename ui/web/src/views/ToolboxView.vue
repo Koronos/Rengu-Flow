@@ -114,9 +114,6 @@ onMounted(load);
 </script>
 
 <style scoped>
-.toolbox-view {
-  max-width: var(--rf-page-max);
-}
 .toolbar {
   display: flex;
   align-items: center;
