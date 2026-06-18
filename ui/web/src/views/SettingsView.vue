@@ -4,7 +4,7 @@
       <div class="page-head-text">
         <p class="page-subtitle">
           Edit <code>rengu.local.toml</code> ({{ form?.path }}). Training changes apply to the next
-          run; maintenance applies immediately; server fields need a restart.
+          run; server fields need a restart.
         </p>
       </div>
     </div>
@@ -54,32 +54,6 @@
             hint="Literal os.environ keys for the training subprocess (values are strings). Empty = inherit only the parent env."
           />
         </div>
-      </el-card>
-
-      <el-card shadow="never" class="mb-12">
-        <template #header>Maintenance</template>
-        <el-form label-position="top">
-          <el-form-item>
-            <template #label>Enable maintenance tools <code class="toml-key">maintenance.enabled</code></template>
-            <el-switch v-model="form.editable.maintenance.enabled" />
-            <p class="field-hint">
-              Shows the Maintenance page (destructive DB reset, submodule update). Applies
-              immediately — no restart needed.
-            </p>
-          </el-form-item>
-        </el-form>
-        <el-descriptions :column="1" size="small" border class="mt-12">
-          <el-descriptions-item label="allow_pip (maintenance.allow_pip)">
-            <el-tag size="small" :type="form.readOnly.maintenance.allow_pip ? 'warning' : 'info'">
-              {{ form.readOnly.maintenance.allow_pip ? "true — pip allowed" : "false — pip blocked" }}
-            </el-tag>
-          </el-descriptions-item>
-        </el-descriptions>
-        <p class="field-hint">
-          Lets the dependency installer run <code>pip</code>. Read-only here because it grants
-          package installation — set <code>[maintenance].allow_pip</code> in
-          <code>rengu.local.toml</code> directly and restart to change it.
-        </p>
       </el-card>
 
       <el-card shadow="never" class="mb-12">
@@ -187,7 +161,6 @@ async function onSave(): Promise<void> {
   }
   const patch: LocalSettingsPatch = {
     training: { ...form.value.editable.training, env },
-    maintenance: { ...form.value.editable.maintenance },
     ui: { ...form.value.restartRequired.ui },
   };
   try {

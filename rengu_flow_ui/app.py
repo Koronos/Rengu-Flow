@@ -1353,10 +1353,9 @@ def create_app() -> FastAPI:
             result = settings_store.write_settings(patch)
         except settings_store.SettingsError as e:
             raise HTTPException(status_code=422, detail=str(e))
-        # Refresh the cached LocalConfig and re-apply maintenance flags so they take effect
-        # without a server restart (training.* is read fresh per job subprocess already).
+        # Refresh the cached LocalConfig so changes take effect without a server restart
+        # (training.* is read fresh per job subprocess already).
         load_local_config()
-        settings_store.apply_maintenance_env(result)
         return result
 
     @app.get(f"{API_PREFIX}/system/stats")

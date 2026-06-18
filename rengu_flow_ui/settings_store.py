@@ -22,10 +22,9 @@ from rengu_flow.config.local_config import (
 )
 
 # Editable field whitelists, by TOML section. A patch may only set these keys.
+# Maintenance is intentionally not surfaced here — the section is disabled (see
+# rengu_flow_ui.maintenance) and its [maintenance] TOML keys are left untouched.
 _EDITABLE_TRAINING_SCALARS = ("num_gpus", "master_port", "extra_args")
-# allow_pip is intentionally NOT editable from the UI — it grants pip in maintenance,
-# so it is surfaced read-only and only changeable by editing rengu.local.toml directly.
-_EDITABLE_MAINTENANCE = ("enabled",)
 _RESTART_UI = ("public", "token")
 
 
@@ -60,14 +59,10 @@ def read_settings(path: Path | None = None) -> dict[str, Any]:
                 "extra_args": cfg.training.extra_args,
                 "env": dict(cfg.training.env),
             },
-            "maintenance": {
-                "enabled": cfg.maintenance.enabled,
-            },
         },
         "restartRequired": {"ui": {"public": cfg.ui.public, "token": cfg.ui.token}},
         "readOnly": {
             "ui": {"host": cfg.ui.host, "port": cfg.ui.port, "data_dir": cfg.ui.data_dir},
-            "maintenance": {"allow_pip": cfg.maintenance.allow_pip},
             "toolbox": {"enabled": cfg.toolbox.enabled},
         },
     }
@@ -75,7 +70,7 @@ def read_settings(path: Path | None = None) -> dict[str, Any]:
 
 def _validate_patch(patch: dict[str, Any]) -> None:
     """Raise ``SettingsError`` if *patch* contains unknown sections or invalid values."""
-    allowed_sections = {"training", "maintenance", "ui"}
+    allowed_sections = {"training", "ui"}
     unknown = set(patch) - allowed_sections
     if unknown:
         raise SettingsError(f"Unknown settings section(s): {', '.join(sorted(unknown))}")
@@ -99,14 +94,6 @@ def _validate_patch(patch: dict[str, Any]) -> None:
         for k in env:
             if not isinstance(k, str) or not k.strip():
                 raise SettingsError("training.env keys must be non-empty strings")
-
-    maintenance = patch.get("maintenance", {})
-    bad_m = set(maintenance) - set(_EDITABLE_MAINTENANCE)
-    if bad_m:
-        raise SettingsError(f"Non-editable maintenance key(s): {', '.join(sorted(bad_m))}")
-    for k in _EDITABLE_MAINTENANCE:
-        if k in maintenance and not isinstance(maintenance[k], bool):
-            raise SettingsError(f"maintenance.{k} must be a boolean")
 
     ui = patch.get("ui", {})
     bad_u = set(ui) - set(_RESTART_UI)
@@ -143,12 +130,6 @@ def write_settings(patch: dict[str, Any], path: Path | None = None) -> dict[str,
                 env_tbl[k] = str(v)
             t["env"] = env_tbl
 
-    if "maintenance" in patch:
-        m = _table(doc, "maintenance")
-        for key in _EDITABLE_MAINTENANCE:
-            if key in patch["maintenance"]:
-                m[key] = patch["maintenance"][key]
-
     if "ui" in patch:
         u = _table(doc, "ui")
         if "public" in patch["ui"]:
@@ -164,15 +145,3 @@ def write_settings(patch: dict[str, Any], path: Path | None = None) -> dict[str,
     tmp.write_text(tomlkit.dumps(doc), encoding="utf-8")
     os.replace(tmp, p)
     return read_settings(p)
-
-
-def apply_maintenance_env(settings: dict[str, Any]) -> None:
-    """Push maintenance flags from a read_settings() result into os.environ (override).
-
-    ``enabled`` is editable; ``allow_pip`` is read-only (file-only) and lives under
-    ``readOnly`` — both still get pushed so the running server reflects the file.
-    """
-    enabled = settings["editable"]["maintenance"]["enabled"]
-    allow_pip = settings["readOnly"]["maintenance"]["allow_pip"]
-    os.environ["RENGUFLOW_MAINTENANCE"] = "1" if enabled else "0"
-    os.environ["RENGUFLOW_MAINTENANCE_ALLOW_PIP"] = "1" if allow_pip else "0"

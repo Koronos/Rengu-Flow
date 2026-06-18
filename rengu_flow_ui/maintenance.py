@@ -53,8 +53,18 @@ class CommandResult:
     command: list[str]
 
 
+# Maintenance (DB reset, submodule update, pip deps) is intentionally disabled: there are
+# no git submodules, rengu manages dependencies, running pip only adds risk, and the
+# database recreates itself when missing. The section is hidden from the UI and the
+# rengu.local.toml [maintenance] flag is ignored. Set _MAINTENANCE_DISABLED = False to
+# restore the env/TOML-driven behavior.
+_MAINTENANCE_DISABLED = True
+
+
 def maintenance_enabled() -> bool:
-    """True when destructive maintenance API/UI is allowed."""
+    """True when destructive maintenance API/UI is allowed (force-disabled by default)."""
+    if _MAINTENANCE_DISABLED:
+        return False
     for key in ("RENGUFLOW_MAINTENANCE", "RENGAFLOW_MAINTENANCE", "RENGU_FLOW_MAINTENANCE"):
         val = os.environ.get(key, "").strip().lower()
         if val in ("1", "true", "yes", "on"):

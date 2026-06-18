@@ -675,12 +675,10 @@ export interface LocalSettings {
       extra_args: string;
       env: Record<string, string>;
     };
-    maintenance: { enabled: boolean };
   };
   restartRequired: { ui: { public: boolean; token: string | null } };
   readOnly: {
     ui: { host: string; port: number; data_dir: string };
-    maintenance: { allow_pip: boolean };
     toolbox: { enabled: boolean };
   };
 }
@@ -692,7 +690,6 @@ export interface LocalSettingsPatch {
     extra_args: string;
     env: Record<string, string>;
   }>;
-  maintenance?: Partial<{ enabled: boolean }>;
   ui?: Partial<{ public: boolean; token: string | null }>;
 }
 

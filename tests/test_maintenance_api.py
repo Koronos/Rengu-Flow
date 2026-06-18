@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -11,6 +12,9 @@ from rengu_flow_ui import datasets_store, db, library_db
 
 @pytest.fixture
 def maintenance_on(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Maintenance is force-disabled in production; lift the hard flag so the underlying
+    # API can still be exercised here, and set the env the gate reads.
+    monkeypatch.setattr("rengu_flow_ui.maintenance._MAINTENANCE_DISABLED", False)
     monkeypatch.setenv("RENGUFLOW_MAINTENANCE", "1")
 
 

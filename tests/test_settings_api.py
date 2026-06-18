@@ -37,15 +37,12 @@ def test_put_settings_writes_training(ui_client, cfg_file: Path) -> None:
     assert "num_gpus = 2" in cfg_file.read_text(encoding="utf-8")
 
 
-def test_put_settings_maintenance_applies_to_env(
-    ui_client, cfg_file: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.delenv("RENGUFLOW_MAINTENANCE", raising=False)
-    monkeypatch.delenv("RENGUFLOW_MAINTENANCE_ALLOW_PIP", raising=False)
+def test_maintenance_is_force_disabled_and_not_editable(ui_client, cfg_file: Path) -> None:
+    # Maintenance is hidden/disabled: it is no longer an editable settings section, and
+    # the gate stays off regardless of any [maintenance] flag.
     r = ui_client.put("/api/v1/settings", json={"maintenance": {"enabled": True}})
-    assert r.status_code == 200
-    # maintenance now reads as enabled live
-    assert ui_client.get("/api/v1/maintenance/enabled").json()["enabled"] is True
+    assert r.status_code == 422
+    assert ui_client.get("/api/v1/maintenance/enabled").json()["enabled"] is False
 
 
 def test_put_settings_invalid_returns_422(ui_client, cfg_file: Path) -> None:
