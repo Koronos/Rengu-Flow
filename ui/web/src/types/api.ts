@@ -678,7 +678,10 @@ export interface LocalSettings {
     maintenance: { enabled: boolean; allow_pip: boolean };
   };
   restartRequired: { ui: { public: boolean; token: string | null } };
-  readOnly: { ui: { host: string; port: number; data_dir: string } };
+  readOnly: {
+    ui: { host: string; port: number; data_dir: string };
+    toolbox: { enabled: boolean };
+  };
 }
 
 export interface LocalSettingsPatch {

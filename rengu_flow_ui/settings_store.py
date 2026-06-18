@@ -2,7 +2,8 @@
 
 Uses tomlkit so writes preserve the file's comments and formatting. Only the editable and
 restart-required fields are ever written; everything else in the document is left untouched.
-Binding fields (host/port/data_dir) are surfaced read-only — they only take effect at startup.
+Binding fields (host/port/data_dir) and the toolbox execution toggle are surfaced read-only —
+they only take effect at startup.
 """
 
 from __future__ import annotations
@@ -64,7 +65,8 @@ def read_settings(path: Path | None = None) -> dict[str, Any]:
         },
         "restartRequired": {"ui": {"public": cfg.ui.public, "token": cfg.ui.token}},
         "readOnly": {
-            "ui": {"host": cfg.ui.host, "port": cfg.ui.port, "data_dir": cfg.ui.data_dir}
+            "ui": {"host": cfg.ui.host, "port": cfg.ui.port, "data_dir": cfg.ui.data_dir},
+            "toolbox": {"enabled": cfg.toolbox.enabled},
         },
     }
 

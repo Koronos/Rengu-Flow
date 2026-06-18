@@ -73,6 +73,22 @@
       </el-card>
 
       <el-card shadow="never" class="mb-12">
+        <template #header>Toolbox</template>
+        <el-descriptions :column="1" size="small" border>
+          <el-descriptions-item label="enabled (toolbox.enabled)">
+            <el-tag size="small" :type="form.readOnly.toolbox.enabled ? 'success' : 'info'">
+              {{ form.readOnly.toolbox.enabled ? "true — tools can run" : "false — execution disabled" }}
+            </el-tag>
+          </el-descriptions-item>
+        </el-descriptions>
+        <p class="field-hint">
+          Whether custom Toolbox tools can be executed (authoring works regardless). Read-only
+          here — it only takes effect at startup. Edit <code>rengu.local.toml</code>
+          (<code>[toolbox].enabled</code>) and restart to change.
+        </p>
+      </el-card>
+
+      <el-card shadow="never" class="mb-12">
         <template #header>Server</template>
         <el-form label-position="top">
           <el-form-item>

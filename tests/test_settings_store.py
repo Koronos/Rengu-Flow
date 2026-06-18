@@ -50,6 +50,7 @@ def test_read_settings_groups_fields(cfg_file: Path) -> None:
     assert s["restartRequired"]["ui"]["public"] is False
     assert s["restartRequired"]["ui"]["token"] is None
     assert s["readOnly"]["ui"] == {"host": "127.0.0.1", "port": 8765, "data_dir": "data"}
+    assert s["readOnly"]["toolbox"] == {"enabled": False}
 
 
 def test_read_settings_missing_file_uses_defaults(tmp_path: Path) -> None:
