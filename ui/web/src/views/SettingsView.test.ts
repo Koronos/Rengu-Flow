@@ -14,7 +14,10 @@ vi.mock("../api", () => ({
         maintenance: { enabled: false, allow_pip: false },
       },
       restartRequired: { ui: { public: false, token: null } },
-      readOnly: { ui: { host: "127.0.0.1", port: 8765, data_dir: "data" } },
+      readOnly: {
+        ui: { host: "127.0.0.1", port: 8765, data_dir: "data" },
+        toolbox: { enabled: false },
+      },
     }),
     updateSettings: vi.fn().mockResolvedValue({
       path: "/repo/rengu.local.toml",
@@ -24,7 +27,10 @@ vi.mock("../api", () => ({
         maintenance: { enabled: false, allow_pip: false },
       },
       restartRequired: { ui: { public: false, token: null } },
-      readOnly: { ui: { host: "127.0.0.1", port: 8765, data_dir: "data" } },
+      readOnly: {
+        ui: { host: "127.0.0.1", port: 8765, data_dir: "data" },
+        toolbox: { enabled: false },
+      },
     }),
   },
 }));
