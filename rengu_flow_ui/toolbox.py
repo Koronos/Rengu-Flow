@@ -9,10 +9,14 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
+import subprocess
 import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from rengu_flow.config import local_config
 
 from rengu_flow_ui import settings
 
@@ -138,7 +142,7 @@ def list_tools() -> list[dict[str, Any]]:
         if not (d / "tool.json").is_file():
             continue
         data = json.loads((d / "tool.json").read_text(encoding="utf-8"))
-        last = _read_last_run(d.name)
+        last = _read_last_run(data["id"])
         out.append(
             {
                 "id": data["id"],
@@ -174,8 +178,6 @@ def update_tool(tool_id: str, **fields: Any) -> dict[str, Any]:
 
 
 def delete_tool(tool_id: str) -> None:
-    import shutil
-
     d = tool_dir(tool_id)
     if not d.is_dir():
         raise KeyError(tool_id)
@@ -222,11 +224,6 @@ def cast_inputs(inputs_def: list[dict], values: dict[str, Any]) -> dict[str, Any
             kwargs[param] = str(raw)
     return kwargs
 
-
-import shutil
-import subprocess  # noqa: E402  (grouped with run-engine code)
-
-from rengu_flow.config import local_config
 
 # In-process registry of the single active process per tool id.
 _active: dict[str, subprocess.Popen[Any]] = {}
