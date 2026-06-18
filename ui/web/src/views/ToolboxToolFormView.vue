@@ -44,12 +44,10 @@
               define <code>{{ (form.entrypoint || "run").trim() }}(…)</code> — its parameters are the inputs below
             </span>
           </div>
-          <el-input
-            v-model="form.script"
-            type="textarea"
-            :autosize="{ minRows: 12, maxRows: 30 }"
-            class="code-area"
-            placeholder="def run(num1, num2):&#10;    print(num1 + num2)"
+          <CodeEditor
+            :model-value="form.script ?? ''"
+            :placeholder="scriptPlaceholder"
+            @update:model-value="form.script = $event"
           />
         </div>
 
@@ -108,11 +106,13 @@ import { computed, onMounted, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { Delete, Plus } from "@element-plus/icons-vue";
 import { api, type ToolboxInput, type ToolboxToolWrite } from "../api";
+import CodeEditor from "../components/CodeEditor.vue";
 import ToolboxRunPanel from "../components/ToolboxRunPanel.vue";
 
 const route = useRoute();
 const router = useRouter();
 const controls = ["number", "text", "textarea", "switch", "select"] as const;
+const scriptPlaceholder = "def run(num1, num2):\n    print(num1 + num2)";
 
 const isEdit = computed(() => Boolean(route.params.id));
 const savedId = ref<string | null>((route.params.id as string) || null);
@@ -262,16 +262,6 @@ onMounted(async () => {
 }
 .code-block__hint code {
   font-family: var(--rf-font-mono);
-}
-.code-area :deep(textarea) {
-  font-family: var(--rf-font-mono);
-  font-size: 13px;
-  line-height: 1.6;
-  border: none;
-  border-radius: 0;
-  box-shadow: none;
-  tab-size: 4;
-  resize: vertical;
 }
 
 /* Inputs builder */
