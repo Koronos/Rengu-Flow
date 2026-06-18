@@ -10,10 +10,10 @@
   <img alt="PyTorch 2.12 (CUDA 13)" src="https://img.shields.io/badge/PyTorch-2.12%20%C2%B7%20CUDA%2013-ee4c2c.svg?logo=pytorch&logoColor=white">
   <img alt="DeepSpeed 0.19" src="https://img.shields.io/badge/DeepSpeed-0.19-1a73e8.svg">
   <img alt="Packaged with uv" src="https://img.shields.io/badge/packaging-uv-de5fe9.svg">
-  <img alt="Status: preliminary v0.2.x" src="https://img.shields.io/badge/status-preliminary%20v0.2.x-f59e0b.svg">
+  <img alt="Status: preliminary v0.4.x" src="https://img.shields.io/badge/status-preliminary%20v0.4.x-f59e0b.svg">
 </p>
 
-> **Preliminary release (v0.2.x)** — Rengu Flow is under active development. APIs, config keys, CLI commands, and documentation may change in breaking or non-breaking ways between releases. Pin versions and re-read the docs when upgrading.
+> **Preliminary release (v0.4.x)** — Rengu Flow is under active development. APIs, config keys, CLI commands, and documentation may change in breaking or non-breaking ways between releases. Pin versions and re-read the docs when upgrading.
 
 A **TOML-driven training framework** for diffusion models. You describe a run in a config file — model, adapter, optimizer, LR scheduler, dataset, and training options — and Rengu Flow launches it with [DeepSpeed](https://www.deepspeed.ai/). Everything is modular and registry-based: models, adapters, optimizers, and schedulers are selected and configured entirely from TOML, with an optional local web UI on top.
 

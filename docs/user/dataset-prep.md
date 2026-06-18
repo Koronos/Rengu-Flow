@@ -43,11 +43,16 @@ rengu prep tag --config prep.toml --model wd-eva02-large-v3 --overwrite
 Images that already have a tag line are skipped unless `--overwrite`.
 
 Output tags are **ordered by confidence** (most certain first). Confidence controls:
-`general_threshold` / `character_threshold` set a global floor for every selected
-model (higher = fewer but surer tags; per-model `[tag.overrides.<id>]` entries still
-win), `include_character_tags = false` drops character/series name tags entirely
-(taggers are weakest at character names — combine with `prepend_tags` for your own
-trigger), and `include_rating = false` drops the rating tag.
+`general_threshold` / `character_threshold` / `rating_threshold` set a global floor for
+every selected model (higher = fewer but surer tags; per-model `[tag.overrides.<id>]`
+entries still win), `include_character_tags = false` drops character/series name tags
+entirely (taggers are weakest at character names — combine with `prepend_tags` for your
+own trigger), and `include_rating = false` drops the rating tag. The rating resolves by
+argmax and is kept only if it clears `rating_threshold`.
+
+In the web UI each selected model gets its own General / Character / Rating confidence
+inputs, pre-filled with that model's defaults; setting Character or Rating to **0** drops
+that category for that model (it maps to the `include_*` flags above).
 
 ### Captioning — `rengu prep caption`
 
@@ -173,12 +178,14 @@ batch_size = 16
 overwrite = false
 # general_threshold = 0.5        # global confidence floor (omit = model defaults)
 # character_threshold = 0.9
+# rating_threshold = 0.5         # min argmax probability to keep the rating tag
 include_character_tags = true    # false: drop character/series name tags
 include_rating = true            # false: drop the rating tag
 
 [tag.overrides.pixai-v0.9]      # per-model threshold overrides
 general_threshold = 0.35
 character_threshold = 0.80
+rating_threshold = 0.50
 
 [caption]
 model = "joycaption-beta-one"   # or "toriigate-0.5"
