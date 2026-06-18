@@ -91,7 +91,11 @@
 
       <!-- Run: stays beside the code -->
       <aside class="run-col">
-        <ToolboxRunPanel v-if="isEdit && savedId" :key="savedId" :tool-id="savedId" />
+        <ToolboxRunPanel
+          v-if="isEdit && savedId"
+          :key="`${savedId}:${runReloadKey}`"
+          :tool-id="savedId"
+        />
         <div v-else class="run-placeholder">
           <h3>Run</h3>
           <p class="hint">Save the tool to run it. Its inputs and live output appear here.</p>
@@ -104,6 +108,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { ElMessage } from "element-plus";
 import { Delete, Plus } from "@element-plus/icons-vue";
 import { api, type ToolboxInput, type ToolboxToolWrite } from "../api";
 import CodeEditor from "../components/CodeEditor.vue";
@@ -127,6 +132,8 @@ const form = reactive<ToolboxToolWrite>({
 });
 const requirementsText = ref("");
 const optionsText = reactive<Record<number, string>>({});
+// Bumped on every save so the Run panel remounts and reloads the tool's inputs.
+const runReloadKey = ref(0);
 
 function addInput() {
   form.inputs!.push({ param: "", label: "", control: "text", hint: "" } as ToolboxInput);
@@ -157,6 +164,9 @@ async function save() {
     savedId.value = created.id;
     router.replace(`/toolbox/${created.id}/edit`);
   }
+  // Remount the Run panel so its input fields reflect the saved definition.
+  runReloadKey.value += 1;
+  ElMessage.success("Tool saved");
 }
 
 onMounted(async () => {
