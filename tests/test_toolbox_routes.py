@@ -1,5 +1,7 @@
 import pytest
 
+from rengu_flow_ui import toolbox
+
 
 def _create(ui_client, **body):
     body.setdefault("name", "My Tool")
@@ -45,3 +47,35 @@ def test_enabled_endpoint_reflects_toggle(ui_client, monkeypatch):
 
     monkeypatch.setattr(lc, "toolbox_enabled", lambda: True)
     assert ui_client.get("/api/v1/toolbox/enabled").json() == {"enabled": True}
+
+
+def test_traversal_tool_id_is_rejected(ui_client, ui_data_tmp):
+    """C1 regression: tool_id containing '..' must not escape the toolbox dir."""
+    from rengu_flow_ui import settings
+
+    # Create a legitimate tool so the data dir is populated.
+    _create(ui_client, name="Safe Tool")
+
+    # Confirm data dir exists and has content.
+    data_dir = settings.ui_data_dir()
+    assert data_dir.is_dir()
+
+    # Direct unit-level guard: tool_dir("..") must raise KeyError.
+    with pytest.raises(KeyError):
+        toolbox.tool_dir("..")
+
+    # HTTP-level: Starlette's TestClient may normalize %2e%2e before the route
+    # receives it, so the 404 may come from path normalization rather than our
+    # guard — either way the traversal is blocked and the data dir is intact.
+    delete_res = ui_client.delete("/api/v1/toolbox/tools/%2e%2e")
+    assert delete_res.status_code == 404
+
+    get_res = ui_client.get("/api/v1/toolbox/tools/%2e%2e")
+    assert get_res.status_code == 404
+
+    # The data dir must be intact (toolbox dir, staging, logs, jobs.db survive).
+    assert data_dir.is_dir()
+    assert (data_dir / "toolbox").is_dir()
+    assert (data_dir / "staging").is_dir()
+    assert (data_dir / "logs").is_dir()
+    assert (data_dir / "jobs.db").is_file()

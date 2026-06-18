@@ -39,7 +39,11 @@ def slugify(name: str) -> str:
 
 
 def tool_dir(tool_id: str) -> Path:
-    return settings.toolbox_dir() / tool_id
+    base = settings.toolbox_dir().resolve()
+    p = (base / tool_id).resolve()
+    if p == base or base not in p.parents:
+        raise KeyError(tool_id)
+    return p
 
 
 def _tool_json_path(tool_id: str) -> Path:
@@ -303,14 +307,21 @@ def run_status(tool_id: str) -> dict[str, Any]:
     if last is None:
         return {"status": "idle"}
     proc = _active.get(tool_id)
-    if last.get("status") == "running" and proc is not None:
-        code = proc.poll()
-        if code is not None:
-            last["status"] = "done" if code == 0 else "failed"
-            last["exit_code"] = code
+    if last.get("status") == "running":
+        if proc is None:
+            # No live process tracked — orphaned record from a previous server run.
+            last["status"] = "failed"
+            last["exit_code"] = None
             last["finished_at"] = _now_iso()
             _write_last_run(tool_id, last)
-            _active.pop(tool_id, None)
+        else:
+            code = proc.poll()
+            if code is not None:
+                last["status"] = "done" if code == 0 else "failed"
+                last["exit_code"] = code
+                last["finished_at"] = _now_iso()
+                _write_last_run(tool_id, last)
+                _active.pop(tool_id, None)
     return last
 
 
@@ -327,6 +338,11 @@ def cancel_run(tool_id: str) -> None:
     proc = _active.get(tool_id)
     if proc is not None and proc.poll() is None:
         proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
     last = _read_last_run(tool_id)
     if last and last.get("status") == "running":
         last["status"] = "failed"

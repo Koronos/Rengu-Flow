@@ -135,3 +135,48 @@ def test_uv_run_argv_shape(ui_data_tmp):
     argv = toolbox.uv_run_argv("t")
     assert argv[1:4] == ["run", "--no-project", "--isolated"]
     assert argv[-1].endswith("_runner.py")
+
+
+def test_run_status_reconciles_orphaned_running_record(ui_data_tmp):
+    """I2 regression: run_status must not return 'running' when there is no live process."""
+    import json
+    from rengu_flow_ui import toolbox
+
+    toolbox.create_tool(name="Orphan Tool")
+    # Write a last_run.json that claims "running" with no live process.
+    last_run_path = toolbox.tool_dir("orphan-tool") / "last_run.json"
+    last_run_path.write_text(
+        json.dumps(
+            {
+                "status": "running",
+                "started_at": "2024-01-01T00:00:00Z",
+                "finished_at": None,
+                "exit_code": None,
+                "inputs": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    # Ensure _active has no entry for this tool.
+    toolbox._active.pop("orphan-tool", None)
+
+    result = toolbox.run_status("orphan-tool")
+
+    assert result["status"] != "running", (
+        f"run_status returned 'running' for an orphaned record: {result}"
+    )
+    assert result["status"] in ("failed", "done")
+
+
+def test_tool_dir_rejects_traversal(ui_data_tmp):
+    """C1 unit-level: tool_dir must raise KeyError for '..' and path-escape ids."""
+    from rengu_flow_ui import toolbox
+
+    with pytest.raises(KeyError):
+        toolbox.tool_dir("..")
+
+    with pytest.raises(KeyError):
+        toolbox.tool_dir("../other")
+
+    with pytest.raises(KeyError):
+        toolbox.tool_dir("")

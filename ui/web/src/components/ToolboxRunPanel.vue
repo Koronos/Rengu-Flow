@@ -45,6 +45,19 @@ const statusType = computed(() =>
 );
 
 let ws: WebSocket | null = null;
+let pollTimer: ReturnType<typeof setTimeout> | null = null;
+let pollOffset = 0;
+
+function isTerminal(s: string) {
+  return s !== "" && s !== "running" && s !== "idle";
+}
+
+function stopPoll() {
+  if (pollTimer !== null) {
+    clearTimeout(pollTimer);
+    pollTimer = null;
+  }
+}
 
 async function loadSnapshot() {
   const r = await api.toolboxLog(props.toolId, 0);
@@ -52,14 +65,46 @@ async function loadSnapshot() {
   status.value = r.status;
 }
 
+async function pollLog() {
+  try {
+    const r = await api.toolboxLog(props.toolId, pollOffset);
+    if (r.chunk) log.value += r.chunk;
+    pollOffset = r.offset;
+    status.value = r.status;
+    if (isTerminal(r.status)) {
+      stopPoll();
+      return;
+    }
+  } catch {
+    // network hiccup — keep polling
+  }
+  pollTimer = setTimeout(pollLog, 1500);
+}
+
+function startPollFallback(fromOffset: number) {
+  stopPoll();
+  pollOffset = fromOffset;
+  pollTimer = setTimeout(pollLog, 1500);
+}
+
 function openWs() {
   ws?.close();
   ws = new WebSocket(`${wsBaseUrl()}/api/v1/toolbox/tools/${encodeURIComponent(props.toolId)}/log/ws`);
+  let wsOffset = 0;
   ws.onmessage = (ev) => {
-    log.value += ev.data as string;
+    const chunk = ev.data as string;
+    log.value += chunk;
+    wsOffset += new TextEncoder().encode(chunk).length;
   };
-  ws.onclose = async () => {
-    await refreshStatus();
+  ws.onerror = () => {
+    if (status.value === "running") {
+      startPollFallback(wsOffset);
+    }
+  };
+  ws.onclose = () => {
+    if (status.value === "running") {
+      startPollFallback(wsOffset);
+    }
   };
 }
 
@@ -98,5 +143,8 @@ onMounted(async () => {
   }
 });
 
-onUnmounted(() => ws?.close());
+onUnmounted(() => {
+  ws?.close();
+  stopPoll();
+});
 </script>
