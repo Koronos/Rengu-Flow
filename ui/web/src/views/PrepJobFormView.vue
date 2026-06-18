@@ -377,18 +377,36 @@
 
             <el-form-item>
               <template #label>
-                Custom prompt <FieldHelpIcon :field="help('Replaces the whole composed prompt (base + modifiers + character settings) with your own text. Leave blank to use the composition above; the placeholder shows what the model would otherwise receive.')" />
+                Prompt <FieldHelpIcon :field="help('Auto-filled with the composed prompt (base + modifiers + character settings) and kept in sync as you change those options. Edit the text to send your own wording instead; clear it (or Reset) to go back to the composition.')" />
                 <FieldPathTag path="caption.prompt" />
               </template>
+              <div class="prompt-state">
+                <el-tag size="small" :type="promptDirty ? 'warning' : 'info'" effect="plain">
+                  {{ promptDirty ? 'Custom (edited)' : 'Composed (auto)' }}
+                </el-tag>
+                <el-text v-if="!promptDirty && previewNative" size="small" type="info">
+                  editing leaves ToriiGate's native format
+                </el-text>
+                <el-button
+                  v-if="promptDirty"
+                  link
+                  type="primary"
+                  size="small"
+                  @click="resetPromptToComposed"
+                >
+                  Reset to composed
+                </el-button>
+              </div>
               <el-input
-                v-model="captionForm.prompt"
+                :model-value="promptText"
                 type="textarea"
-                :rows="3"
-                :placeholder="previewText || 'model default'"
+                :autosize="{ minRows: 3, maxRows: 24 }"
+                placeholder="Composed from the options above — edit to customize"
                 class="w-full"
+                @update:model-value="onPromptInput"
               />
               <el-text size="small" type="info" class="hint-text">
-                The exact prompt the model receives is shown live in the Summary panel.
+                The exact text the model receives is shown live in the Summary panel.
               </el-text>
             </el-form-item>
 
@@ -751,6 +769,37 @@ watch(
   { deep: true }
 );
 
+// Prompt editing: the textarea mirrors the live composed preview until the user
+// edits it; from then on its text is the custom override (caption.prompt) and the
+// auto-sync stops. Clearing the field (or Reset) returns to the composition.
+const promptText = ref("");
+const promptDirty = ref(false);
+const composedText = ref("");
+
+watch(previewText, (v) => {
+  if (!promptDirty.value) {
+    composedText.value = v;
+    promptText.value = v;
+  }
+});
+
+function onPromptInput(val: string): void {
+  promptText.value = val;
+  if (val.trim()) {
+    promptDirty.value = true;
+    captionForm.prompt = val;
+  } else {
+    promptDirty.value = false;
+    captionForm.prompt = "";
+  }
+}
+
+function resetPromptToComposed(): void {
+  promptDirty.value = false;
+  captionForm.prompt = "";
+  promptText.value = composedText.value;
+}
+
 async function loadModels(): Promise<void> {
   modelsLoading.value = true;
   try {
@@ -1043,5 +1092,11 @@ onMounted(() => {
 .preset-desc {
   margin-top: 4px;
   display: block;
+}
+.prompt-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
 }
 </style>
