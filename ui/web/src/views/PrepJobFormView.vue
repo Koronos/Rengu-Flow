@@ -146,34 +146,26 @@
                   Exclude tags <FieldHelpIcon :field="help('Strips these tags from every image output regardless of model confidence. Use when specific tags keep appearing that are wrong for your dataset style (e.g. realistic on anime images) or would bias training negatively.')" />
                   <FieldPathTag path="tag.exclude_tags" />
                 </template>
-                <el-select
+                <el-input-tag
                   v-model="tagForm.exclude_tags"
-                  multiple
-                  filterable
-                  allow-create
-                  default-first-option
+                  clearable
+                  delimiter=","
                   placeholder="e.g. realistic, 3d"
                   class="w-full"
-                >
-                  <el-option v-for="t in tagForm.exclude_tags" :key="t" :label="t" :value="t" />
-                </el-select>
+                />
               </el-form-item>
               <el-form-item>
                 <template #label>
                   Prepend tags <FieldHelpIcon :field="help('Inserts these tags at the start of every image\'s tag line before the tagger output. Use for your trigger word or any tag the model consistently misses.')" />
                   <FieldPathTag path="tag.prepend_tags" />
                 </template>
-                <el-select
+                <el-input-tag
                   v-model="tagForm.prepend_tags"
-                  multiple
-                  filterable
-                  allow-create
-                  default-first-option
+                  clearable
+                  delimiter=","
                   placeholder="e.g. my_trigger_word"
                   class="w-full"
-                >
-                  <el-option v-for="t in tagForm.prepend_tags" :key="t" :label="t" :value="t" />
-                </el-select>
+                />
               </el-form-item>
             </div>
 
