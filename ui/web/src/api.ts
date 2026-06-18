@@ -666,6 +666,12 @@ export const api = {
   prepJobReport: (id: string) =>
     request<PrepJobReportResult>(`/prep/jobs/${encodeURIComponent(id)}/report`),
 
+  /** Parsed config of a prep job, to seed a new job from it. */
+  prepJobConfig: (id: string) =>
+    request<{ config: Record<string, unknown> }>(
+      `/prep/jobs/${encodeURIComponent(id)}/config`
+    ),
+
   /** List available models for a prep stage. */
   prepModels: (stage: PrepStage) =>
     request<PrepModelsResult>(`/prep/models?stage=${encodeURIComponent(stage)}`),

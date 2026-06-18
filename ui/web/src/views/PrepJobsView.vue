@@ -72,6 +72,13 @@
                 @click.stop="requeueJob(job)"
               >Re-queue</el-button>
             </el-tooltip>
+            <el-tooltip content="Start a new job pre-filled with this job's settings" :show-after="300">
+              <el-button
+                size="small"
+                :icon="CopyDocument"
+                @click.stop="cloneJob(job)"
+              >New from this</el-button>
+            </el-tooltip>
             <el-tooltip content="Create a training dataset from this folder" :show-after="300">
               <el-button
                 size="small"
@@ -156,6 +163,7 @@ import { useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import {
   ChatLineRound,
+  CopyDocument,
   Delete,
   Edit,
   Files,
@@ -380,6 +388,14 @@ async function openDatasetFromJob(job: JobRecord): Promise<void> {
 
 function goNewJob(stage: PrepStage): void {
   router.push({ name: "prep-new", params: { stage } });
+}
+
+function cloneJob(job: JobRecord): void {
+  router.push({
+    name: "prep-new",
+    params: { stage: jobStage(job) },
+    query: { from: String(job.id) },
+  });
 }
 
 onMounted(() => void refresh());

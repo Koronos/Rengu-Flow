@@ -126,6 +126,21 @@ def register_prep_routes(app: FastAPI) -> None:
             return {"report": None}
         return {"report": json.loads(report.read_text(encoding="utf-8"))}
 
+    @app.get(f"{API_PREFIX}/prep/jobs/{{job_id}}/config")
+    def prep_job_config(job_id: str):
+        """Parsed config of a prep job, so the form can seed a new job from it."""
+        import toml
+
+        from rengu_flow_ui import db
+
+        try:
+            job = db.get_job(job_id)
+        except KeyError:
+            raise HTTPException(404, "Job not found")
+        content = job.config_content or ""
+        config = toml.loads(content) if content.strip() else {}
+        return {"config": config}
+
     @app.get(f"{API_PREFIX}/prep/models")
     def prep_models(stage: str = Query(...)):
         from rengu_flow.prep.models import list_models
