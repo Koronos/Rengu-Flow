@@ -1,25 +1,33 @@
 <template>
   <div class="tag-editor">
     <el-card shadow="never" class="tag-editor__open">
+      <template #header>Open a folder</template>
+      <p class="page-hint">
+        Browse tag frequencies, bulk add / remove / rename tags, and quarantine images — changes are
+        staged and reviewed before they touch your caption files.
+      </p>
       <div class="tag-editor__open-row">
-        <PathFieldControl
-          v-model="path"
-          placeholder="/path/to/dataset/images"
-          expect="dir"
-          required
-          class="tag-editor__path"
-          @enter="openSession"
-        />
-        <el-select v-model="format" size="default" class="tag-editor__format">
-          <el-option label="Sidecar files" value="sidecar" />
-          <el-option label="captions.json" value="json" />
-        </el-select>
-        <el-input
-          v-if="format === 'sidecar'"
-          v-model="ext"
-          class="tag-editor__ext"
-          placeholder=".txt"
-        />
+        <div class="tag-editor__field tag-editor__path">
+          <label class="tag-editor__label">Dataset folder</label>
+          <PathFieldControl
+            v-model="path"
+            placeholder="e.g. /path/to/dataset/images"
+            expect="dir"
+            required
+            @enter="openSession"
+          />
+        </div>
+        <div class="tag-editor__field tag-editor__format">
+          <label class="tag-editor__label">Caption format</label>
+          <el-select v-model="format" size="default" class="w-full">
+            <el-option label="Sidecar files" value="sidecar" />
+            <el-option label="captions.json" value="json" />
+          </el-select>
+        </div>
+        <div v-if="format === 'sidecar'" class="tag-editor__field tag-editor__ext">
+          <label class="tag-editor__label">Extension</label>
+          <el-input v-model="ext" class="w-full" placeholder=".txt" />
+        </div>
         <el-button type="primary" :loading="loading" @click="openSession">Open</el-button>
         <el-button :disabled="!path" @click="openBackups">Backups</el-button>
       </div>
@@ -34,7 +42,11 @@
           {{ session.changed_count }} pending change(s)
         </el-tag>
       </div>
-      <el-alert v-if="error" type="error" :title="error" :closable="false" show-icon />
+      <el-alert v-if="error" type="error" :title="error" :closable="false" show-icon class="mt-8" />
+    </el-card>
+
+    <el-card v-if="!session" shadow="never" class="tag-editor__placeholder">
+      <el-empty description="Open a dataset folder above to start editing its tags." :image-size="64" />
     </el-card>
 
     <div v-if="session" class="tag-editor__body">
@@ -456,9 +468,18 @@ async function restoreQuarantine(name: string): Promise<void> {
 }
 .tag-editor__open-row {
   display: flex;
-  gap: 8px;
-  align-items: flex-start;
+  gap: var(--rf-space-xs);
+  align-items: flex-end;
   flex-wrap: wrap;
+}
+.tag-editor__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.tag-editor__label {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
 }
 .tag-editor__path {
   flex: 1;
@@ -469,6 +490,15 @@ async function restoreQuarantine(name: string): Promise<void> {
 }
 .tag-editor__ext {
   width: 90px;
+}
+.tag-editor__placeholder :deep(.el-card__body) {
+  padding: var(--rf-space-md);
+}
+.w-full {
+  width: 100%;
+}
+.mt-8 {
+  margin-top: 8px;
 }
 .tag-editor__session-info {
   margin-top: 8px;
