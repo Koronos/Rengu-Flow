@@ -133,7 +133,8 @@ def test_uv_run_argv_shape(ui_data_tmp):
 
     toolbox.create_tool(name="T")
     argv = toolbox.uv_run_argv("t")
-    assert argv[1:4] == ["run", "--no-project", "--isolated"]
+    assert argv[1:3] == ["run", "--no-project"]
+    assert "--isolated" not in argv
     assert argv[-1].endswith("_runner.py")
 
 

@@ -263,7 +263,10 @@ def uv_run_argv(tool_id: str) -> list[str]:
             "uv is not on PATH. Install uv (https://docs.astral.sh/uv/) to run Toolbox tools."
         )
     runner = tool_dir(tool_id) / "_runner.py"
-    return [uv, "run", "--no-project", "--isolated", str(runner)]
+    # PEP 723 inline-metadata scripts always run in an isolated ephemeral env, so
+    # `--isolated` is a no-op here (uv warns about it); `--no-project` already keeps
+    # rengu's venv out of the way.
+    return [uv, "run", "--no-project", str(runner)]
 
 
 def run_tool(tool_id: str, values: dict[str, Any]) -> dict[str, Any]:
