@@ -7,7 +7,7 @@
 
     <el-alert v-if="formError" type="error" :title="formError" show-icon class="mt-12" />
 
-    <el-card shadow="never" class="mt-12">
+    <el-card shadow="never" class="mt-12 prep-form-card">
       <div class="prep-form-body">
         <!-- Common fields -->
         <el-form label-position="top">
@@ -120,59 +120,61 @@
               Higher = fewer but surer tags. Output tags are ordered by confidence (most certain first).
             </el-text>
 
-            <el-form-item class="mt-8">
-              <template #label>
-                Include character tags <FieldHelpIcon :field="help('Includes character and series name tags in the output. Taggers are weakest here — turn off if they keep mislabeling your characters, and put your own trigger word in Prepend tags instead.')" />
-                <FieldPathTag path="tag.include_character_tags" />
-              </template>
-              <el-switch v-model="tagForm.include_character_tags" />
-              <el-text class="ml-8" size="small">Include character/series name tags</el-text>
-            </el-form-item>
+            <div class="form-row-2 mt-8">
+              <el-form-item>
+                <template #label>
+                  Include character tags <FieldHelpIcon :field="help('Includes character and series name tags in the output. Taggers are weakest here — turn off if they keep mislabeling your characters, and put your own trigger word in Prepend tags instead.')" />
+                  <FieldPathTag path="tag.include_character_tags" />
+                </template>
+                <el-switch v-model="tagForm.include_character_tags" />
+                <el-text class="ml-8" size="small">Include character/series name tags</el-text>
+              </el-form-item>
+              <el-form-item>
+                <template #label>
+                  Include rating tag <FieldHelpIcon :field="help('Adds the model\'s content rating (general / sensitive / questionable / explicit) as a tag. Turn off if you do not want rating tokens in your training captions.')" />
+                  <FieldPathTag path="tag.include_rating" />
+                </template>
+                <el-switch v-model="tagForm.include_rating" />
+                <el-text class="ml-8" size="small">Include rating tag (general/sensitive/questionable/explicit)</el-text>
+              </el-form-item>
+            </div>
 
-            <el-form-item>
-              <template #label>
-                Include rating tag <FieldHelpIcon :field="help('Adds the model\'s content rating (general / sensitive / questionable / explicit) as a tag. Turn off if you do not want rating tokens in your training captions.')" />
-                <FieldPathTag path="tag.include_rating" />
-              </template>
-              <el-switch v-model="tagForm.include_rating" />
-              <el-text class="ml-8" size="small">Include rating tag (general/sensitive/questionable/explicit)</el-text>
-            </el-form-item>
-
-            <el-form-item>
-              <template #label>
-                Exclude tags <FieldHelpIcon :field="help('Strips these tags from every image output regardless of model confidence. Use when specific tags keep appearing that are wrong for your dataset style (e.g. realistic on anime images) or would bias training negatively.')" />
-                <FieldPathTag path="tag.exclude_tags" />
-              </template>
-              <el-select
-                v-model="tagForm.exclude_tags"
-                multiple
-                filterable
-                allow-create
-                default-first-option
-                placeholder="e.g. realistic, 3d"
-                class="w-full"
-              >
-                <el-option v-for="t in tagForm.exclude_tags" :key="t" :label="t" :value="t" />
-              </el-select>
-            </el-form-item>
-
-            <el-form-item>
-              <template #label>
-                Prepend tags <FieldHelpIcon :field="help('Inserts these tags at the start of every image\'s tag line before the tagger output. Use for your trigger word or any tag the model consistently misses.')" />
-                <FieldPathTag path="tag.prepend_tags" />
-              </template>
-              <el-select
-                v-model="tagForm.prepend_tags"
-                multiple
-                filterable
-                allow-create
-                default-first-option
-                placeholder="e.g. my_trigger_word"
-                class="w-full"
-              >
-                <el-option v-for="t in tagForm.prepend_tags" :key="t" :label="t" :value="t" />
-              </el-select>
-            </el-form-item>
+            <div class="form-row-2">
+              <el-form-item>
+                <template #label>
+                  Exclude tags <FieldHelpIcon :field="help('Strips these tags from every image output regardless of model confidence. Use when specific tags keep appearing that are wrong for your dataset style (e.g. realistic on anime images) or would bias training negatively.')" />
+                  <FieldPathTag path="tag.exclude_tags" />
+                </template>
+                <el-select
+                  v-model="tagForm.exclude_tags"
+                  multiple
+                  filterable
+                  allow-create
+                  default-first-option
+                  placeholder="e.g. realistic, 3d"
+                  class="w-full"
+                >
+                  <el-option v-for="t in tagForm.exclude_tags" :key="t" :label="t" :value="t" />
+                </el-select>
+              </el-form-item>
+              <el-form-item>
+                <template #label>
+                  Prepend tags <FieldHelpIcon :field="help('Inserts these tags at the start of every image\'s tag line before the tagger output. Use for your trigger word or any tag the model consistently misses.')" />
+                  <FieldPathTag path="tag.prepend_tags" />
+                </template>
+                <el-select
+                  v-model="tagForm.prepend_tags"
+                  multiple
+                  filterable
+                  allow-create
+                  default-first-option
+                  placeholder="e.g. my_trigger_word"
+                  class="w-full"
+                >
+                  <el-option v-for="t in tagForm.prepend_tags" :key="t" :label="t" :value="t" />
+                </el-select>
+              </el-form-item>
+            </div>
 
             <div class="form-row-2">
               <el-form-item>
@@ -191,22 +193,23 @@
               </el-form-item>
             </div>
 
-            <el-form-item>
-              <template #label>
-                Overwrite <FieldHelpIcon :field="help('Re-tags images that already have a tag line on line 1, replacing it. Turn on when you are changing models or thresholds and want to regenerate tags for the whole folder from scratch.')" />
-                <FieldPathTag path="tag.overwrite" />
-              </template>
-              <el-switch v-model="tagForm.overwrite" />
-              <el-text class="ml-8" size="small">Overwrite existing captions</el-text>
-            </el-form-item>
-
-            <el-form-item>
-              <template #label>
-                Chain a caption job <FieldHelpIcon :field="help('Queues a caption job on the same folder right after this tag job, so tagging then captioning run back-to-back. Leave off and queue the caption job separately when you need custom prompt or model settings.')" />
-              </template>
-              <el-switch v-model="chainCaption" />
-              <el-text class="ml-8" size="small">Also queue a caption job immediately after this tag job</el-text>
-            </el-form-item>
+            <div class="form-row-2">
+              <el-form-item>
+                <template #label>
+                  Overwrite <FieldHelpIcon :field="help('Re-tags images that already have a tag line on line 1, replacing it. Turn on when you are changing models or thresholds and want to regenerate tags for the whole folder from scratch.')" />
+                  <FieldPathTag path="tag.overwrite" />
+                </template>
+                <el-switch v-model="tagForm.overwrite" />
+                <el-text class="ml-8" size="small">Overwrite existing captions</el-text>
+              </el-form-item>
+              <el-form-item>
+                <template #label>
+                  Chain a caption job <FieldHelpIcon :field="help('Queues a caption job on the same folder right after this tag job, so tagging then captioning run back-to-back. Leave off and queue the caption job separately when you need custom prompt or model settings.')" />
+                </template>
+                <el-switch v-model="chainCaption" />
+                <el-text class="ml-8" size="small">Also queue a caption job immediately after this tag job</el-text>
+              </el-form-item>
+            </div>
           </el-form>
         </template>
 
@@ -917,8 +920,15 @@ onMounted(() => {
   font-weight: 600;
   text-transform: capitalize;
 }
+.prep-form-card {
+  max-width: 1160px;
+}
 .prep-form-body {
-  max-width: 640px;
+  max-width: 100%;
+}
+/* Keep numeric inputs compact so they don't stretch across a wide column. */
+.prep-form-body :deep(.el-input-number) {
+  max-width: 280px;
 }
 .section-title {
   margin: 0 0 12px;
