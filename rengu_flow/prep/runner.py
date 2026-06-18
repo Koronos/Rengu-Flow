@@ -65,6 +65,8 @@ def _run_tag(config: PrepConfig, on_progress, should_stop) -> dict:
         global_overrides["general_threshold"] = float(stage.general_threshold)
     if stage.character_threshold:
         global_overrides["character_threshold"] = float(stage.character_threshold)
+    if stage.rating_threshold:
+        global_overrides["rating_threshold"] = float(stage.rating_threshold)
     if not stage.include_character_tags:
         global_overrides["include_character"] = False
     if not stage.include_rating:

@@ -26,17 +26,13 @@
             <span v-else class="prep-summary__muted">none selected</span>
           </dd>
         </div>
-        <div class="prep-summary__row">
-          <dt>Thresholds</dt>
-          <dd>general {{ numOr(tagForm.general_threshold) }} · character {{ numOr(tagForm.character_threshold) }}</dd>
+        <div v-for="mid in tagForm.models" :key="mid" class="prep-summary__row">
+          <dt>{{ mid }}</dt>
+          <dd>{{ thresholdSummary(mid) }}</dd>
         </div>
         <div class="prep-summary__row">
           <dt>Max tags</dt>
           <dd>{{ tagForm.max_tags }}</dd>
-        </div>
-        <div class="prep-summary__row">
-          <dt>Includes</dt>
-          <dd>{{ tagIncludes }}</dd>
         </div>
         <div v-if="tagForm.prepend_tags.length || tagForm.exclude_tags.length" class="prep-summary__row">
           <dt>Tag edits</dt>
@@ -130,10 +126,11 @@ interface TagForm {
   prepend_tags: string[];
   max_tags: number;
   overwrite: boolean;
-  general_threshold: number | null;
-  character_threshold: number | null;
-  include_character_tags: boolean;
-  include_rating: boolean;
+}
+interface ModelThresholds {
+  general: number;
+  character: number;
+  rating: number;
 }
 interface CaptionForm {
   model: string;
@@ -156,6 +153,7 @@ const props = defineProps({
   stage: { type: String as PropType<PrepStage>, required: true },
   form: { type: Object as PropType<CommonForm>, required: true },
   tagForm: { type: Object as PropType<TagForm>, required: true },
+  tagThresholds: { type: Object as PropType<Record<string, ModelThresholds>>, default: () => ({}) },
   captionForm: { type: Object as PropType<CaptionForm>, required: true },
   cleanForm: { type: Object as PropType<CleanForm>, required: true },
   promptOptions: { type: Object as PropType<PrepPromptOptions | null>, default: null },
@@ -176,16 +174,13 @@ const captionFormatLabel = computed(() =>
     : `sidecar (${props.form.caption_ext || ".txt"})`
 );
 
-function numOr(v: number | null): string {
-  return v == null ? "model default" : String(v);
+function thresholdSummary(modelId: string): string {
+  const t = props.tagThresholds[modelId];
+  if (!t) return "—";
+  const c = t.character > 0 ? t.character : "off";
+  const r = t.rating > 0 ? t.rating : "off";
+  return `g ${t.general} · c ${c} · r ${r}`;
 }
-
-const tagIncludes = computed(() => {
-  const parts: string[] = [];
-  if (props.tagForm.include_character_tags) parts.push("character");
-  if (props.tagForm.include_rating) parts.push("rating");
-  return parts.length ? parts.join(", ") : "general tags only";
-});
 
 const vramHint = computed(() => {
   const isTorii = props.captionForm.model === "toriigate-0.5";

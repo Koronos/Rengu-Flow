@@ -30,6 +30,7 @@ class TagStageConfig:
     # defaults); per-model [tag.overrides.<id>] entries still win.
     general_threshold: float | None = None
     character_threshold: float | None = None
+    rating_threshold: float | None = None  # argmax rating tag kept only if it clears this
     include_character_tags: bool = True  # character + series names (taggers' weak spot)
     include_rating: bool = True  # one argmax rating tag (general/sensitive/...)
 

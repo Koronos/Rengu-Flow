@@ -832,10 +832,8 @@ export interface PrepTagConfig {
   max_tags: number;
   batch_size: number;
   overwrite: boolean;
-  general_threshold: number | null;
-  character_threshold: number | null;
-  include_character_tags: boolean;
-  include_rating: boolean;
+  /** Per-model confidence/category overrides, keyed by model id. */
+  overrides?: Record<string, Record<string, number | boolean>>;
 }
 
 export interface PrepJobRequeueBody {
@@ -902,6 +900,7 @@ export interface PrepModelInfo {
   available: boolean;
   general_threshold?: number;
   character_threshold?: number;
+  rating_threshold?: number;
   notes?: string;
 }
 

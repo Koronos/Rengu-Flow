@@ -81,63 +81,59 @@
               </el-select>
             </el-form-item>
 
-            <div class="form-row-2">
-              <el-form-item>
-                <template #label>
-                  General tag confidence <FieldHelpIcon :field="help('Sets the probability floor for all general tags across every selected model (leave blank = model default). Raise it if output is cluttered with low-confidence noise; lower it if rare or subtle tags keep disappearing.')" />
-                  <FieldPathTag path="tag.general_threshold" />
-                </template>
-                <el-input-number
-                  v-model="tagForm.general_threshold"
-                  :min="0"
-                  :max="1"
-                  :step="0.05"
-                  :precision="2"
-                  :value-on-clear="null"
-                  controls-position="right"
-                  placeholder="model default"
-                  class="w-full"
-                />
-              </el-form-item>
-              <el-form-item>
-                <template #label>
-                  Character tag confidence <FieldHelpIcon :field="help('Sets the probability floor for character and series name tags (leave blank = model default). Raise it when the tagger keeps attaching the wrong character name to images.')" />
-                  <FieldPathTag path="tag.character_threshold" />
-                </template>
-                <el-input-number
-                  v-model="tagForm.character_threshold"
-                  :min="0"
-                  :max="1"
-                  :step="0.05"
-                  :precision="2"
-                  :value-on-clear="null"
-                  controls-position="right"
-                  placeholder="model default"
-                  class="w-full"
-                />
-              </el-form-item>
-            </div>
-            <el-text size="small" type="info" class="hint-text">
-              Higher = fewer but surer tags. Output tags are ordered by confidence (most certain first).
+            <!-- Per-model confidence floors: each model keeps its own, seeded from its
+                 defaults. 0 drops Character/Rating for that model; General is always kept. -->
+            <h4 class="section-subtitle">
+              Confidence per model <FieldHelpIcon :field="help('Each selected model has its own confidence floors, pre-filled with that model\'s own defaults. Set Character or Rating to 0 to drop that category for that model; general tags are always kept. Higher = fewer but surer tags.')" />
+            </h4>
+            <el-text v-if="!tagForm.models.length" size="small" type="info" class="hint-text">
+              Select at least one model above to set its confidence.
             </el-text>
-
-            <div class="form-row-2 mt-8">
-              <el-form-item>
-                <template #label>
-                  Include character tags <FieldHelpIcon :field="help('Includes character and series name tags in the output. Taggers are weakest here — turn off if they keep mislabeling your characters, and put your own trigger word in Prepend tags instead.')" />
-                  <FieldPathTag path="tag.include_character_tags" />
-                </template>
-                <el-switch v-model="tagForm.include_character_tags" />
-                <el-text class="ml-8" size="small">Include character/series name tags</el-text>
-              </el-form-item>
-              <el-form-item>
-                <template #label>
-                  Include rating tag <FieldHelpIcon :field="help('Adds the model\'s content rating (general / sensitive / questionable / explicit) as a tag. Turn off if you do not want rating tokens in your training captions.')" />
-                  <FieldPathTag path="tag.include_rating" />
-                </template>
-                <el-switch v-model="tagForm.include_rating" />
-                <el-text class="ml-8" size="small">Include rating tag (general/sensitive/questionable/explicit)</el-text>
-              </el-form-item>
+            <div
+              v-for="mid in tagForm.models"
+              v-else
+              :key="mid"
+              class="model-thresholds"
+            >
+              <span class="model-thresholds__name">{{ mid }}</span>
+              <div class="model-thresholds__fields">
+                <div class="conf-field">
+                  <label class="conf-label">General</label>
+                  <el-input-number
+                    v-model="tagThresholds[mid].general"
+                    :min="0"
+                    :max="1"
+                    :step="0.05"
+                    :precision="2"
+                    controls-position="right"
+                    class="conf-input"
+                  />
+                </div>
+                <div class="conf-field">
+                  <label class="conf-label">Character <span class="conf-off">0 = off</span></label>
+                  <el-input-number
+                    v-model="tagThresholds[mid].character"
+                    :min="0"
+                    :max="1"
+                    :step="0.05"
+                    :precision="2"
+                    controls-position="right"
+                    class="conf-input"
+                  />
+                </div>
+                <div class="conf-field">
+                  <label class="conf-label">Rating <span class="conf-off">0 = off</span></label>
+                  <el-input-number
+                    v-model="tagThresholds[mid].rating"
+                    :min="0"
+                    :max="1"
+                    :step="0.05"
+                    :precision="2"
+                    controls-position="right"
+                    class="conf-input"
+                  />
+                </div>
+              </div>
             </div>
 
             <div class="form-row-2">
@@ -594,6 +590,7 @@
           :stage="stage"
           :form="form"
           :tag-form="tagForm"
+          :tag-thresholds="tagThresholds"
           :caption-form="captionForm"
           :clean-form="cleanForm"
           :prompt-options="promptOptions"
@@ -646,11 +643,34 @@ const tagForm = reactive({
   max_tags: 40,
   batch_size: 8,
   overwrite: false,
-  general_threshold: null as number | null,
-  character_threshold: null as number | null,
-  include_character_tags: true,
-  include_rating: true,
 });
+
+// Per-model confidence floors (general/character/rating), always populated from each
+// model's own defaults. 0 = drop that category for that model (general always kept).
+interface ModelThresholds {
+  general: number;
+  character: number;
+  rating: number;
+}
+const tagThresholds = reactive<Record<string, ModelThresholds>>({});
+
+function modelDefaults(modelId: string): ModelThresholds {
+  const m = tagModels.value.find((x) => x.id === modelId);
+  return {
+    general: m?.general_threshold ?? 0.35,
+    character: m?.character_threshold ?? 0.85,
+    rating: m?.rating_threshold ?? 0.5,
+  };
+}
+
+/** Ensure every selected model has a thresholds row, seeded from its defaults. */
+function syncThresholds(): void {
+  for (const id of tagForm.models) {
+    if (!tagThresholds[id]) tagThresholds[id] = modelDefaults(id);
+  }
+}
+
+watch(() => tagForm.models.slice(), syncThresholds, { deep: true });
 
 // --- caption form ---
 const captionForm = reactive({
@@ -803,6 +823,7 @@ async function loadModels(): Promise<void> {
       if (!tagForm.models.length) {
         tagForm.models = tagModels.value.slice(0, 2).map((m) => m.id);
       }
+      syncThresholds();
     } else if (stage.value === "caption") {
       const res = await api.prepModels("caption");
       captionModels.value = res.models || [];
@@ -833,6 +854,18 @@ function buildConfig() {
   };
 
   if (stage.value === "tag") {
+    // Each model carries its own confidence floors as a per-model override; a 0 floor
+    // for character/rating turns that category off for that model (general is kept).
+    const overrides: Record<string, Record<string, number | boolean>> = {};
+    for (const id of tagForm.models) {
+      const t = tagThresholds[id] ?? modelDefaults(id);
+      const o: Record<string, number | boolean> = { general_threshold: t.general };
+      if (t.character > 0) o.character_threshold = t.character;
+      else o.include_character = false;
+      if (t.rating > 0) o.rating_threshold = t.rating;
+      else o.include_rating = false;
+      overrides[id] = o;
+    }
     return {
       ...base,
       tag: {
@@ -842,10 +875,7 @@ function buildConfig() {
         max_tags: tagForm.max_tags,
         batch_size: tagForm.batch_size,
         overwrite: tagForm.overwrite,
-        general_threshold: tagForm.general_threshold,
-        character_threshold: tagForm.character_threshold,
-        include_character_tags: tagForm.include_character_tags,
-        include_rating: tagForm.include_rating,
+        overrides,
       },
     };
   }
@@ -955,8 +985,69 @@ async function submit(startNow: boolean): Promise<void> {
   }
 }
 
-onMounted(() => {
-  void loadModels();
+/** Copy only the keys the target form already knows; unknown/stale keys are dropped. */
+function copyKnown(target: Record<string, unknown>, src: unknown): void {
+  if (!src || typeof src !== "object") return;
+  const s = src as Record<string, unknown>;
+  for (const key of Object.keys(target)) {
+    if (s[key] !== undefined && s[key] !== null) target[key] = s[key];
+  }
+}
+
+/** Seed the form from an existing job's parsed config (clone "new job from this"). */
+function applyConfig(cfg: Record<string, unknown>): void {
+  if (!cfg || typeof cfg !== "object") return;
+  if (typeof cfg.path === "string") form.path = cfg.path;
+  if (cfg.caption_format === "sidecar" || cfg.caption_format === "json") {
+    form.caption_format = cfg.caption_format;
+  }
+  if (typeof cfg.caption_ext === "string") form.caption_ext = cfg.caption_ext;
+  copyKnown(tagForm as unknown as Record<string, unknown>, cfg.tag);
+  copyKnown(captionForm as unknown as Record<string, unknown>, cfg.caption);
+  copyKnown(cleanForm as unknown as Record<string, unknown>, cfg.clean);
+
+  // Rebuild per-model thresholds from the cloned per-model overrides (inverse of
+  // buildConfig): include_*=false -> 0 (off); otherwise the stored *_threshold.
+  if (stage.value === "tag") {
+    syncThresholds();
+    const tag = cfg.tag as { overrides?: Record<string, Record<string, unknown>> } | undefined;
+    for (const [mid, o] of Object.entries(tag?.overrides ?? {})) {
+      const t = tagThresholds[mid] ?? modelDefaults(mid);
+      if (typeof o.general_threshold === "number") t.general = o.general_threshold;
+      t.character =
+        o.include_character === false
+          ? 0
+          : typeof o.character_threshold === "number"
+            ? o.character_threshold
+            : t.character;
+      t.rating =
+        o.include_rating === false
+          ? 0
+          : typeof o.rating_threshold === "number"
+            ? o.rating_threshold
+            : t.rating;
+      tagThresholds[mid] = t;
+    }
+  }
+
+  // A cloned non-empty caption prompt is a custom override, not the composition.
+  if (stage.value === "caption" && captionForm.prompt.trim()) {
+    promptDirty.value = true;
+    promptText.value = captionForm.prompt;
+  }
+}
+
+onMounted(async () => {
+  await loadModels();
+  const fromId = route.query.from;
+  if (typeof fromId === "string" && fromId) {
+    try {
+      const { config } = await api.prepJobConfig(fromId);
+      applyConfig(config);
+    } catch {
+      // best-effort — fall back to the default form
+    }
+  }
 });
 </script>
 
@@ -1090,5 +1181,49 @@ onMounted(() => {
   align-items: center;
   gap: 8px;
   margin-bottom: 6px;
+}
+.section-subtitle {
+  margin: 0 0 var(--rf-space-xs);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--el-text-color-secondary);
+}
+.model-thresholds {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--rf-space-sm) var(--rf-space-md);
+  padding: var(--rf-space-sm) var(--rf-space-md);
+  margin-bottom: var(--rf-space-xs);
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: var(--el-border-radius-base);
+  background: var(--el-fill-color-blank);
+}
+.model-thresholds__name {
+  font-family: var(--rf-font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  flex: 0 0 auto;
+  min-width: 140px;
+}
+.model-thresholds__fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--rf-space-md);
+}
+.conf-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.conf-label {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+.conf-off {
+  color: var(--el-text-color-placeholder);
+}
+.conf-input {
+  width: 130px;
 }
 </style>
