@@ -16,7 +16,7 @@
       </el-space>
     </div>
 
-    <el-alert v-if="error" type="error" :title="error" show-icon class="mt-12" />
+    <el-alert v-if="error" type="error" :title="error" show-icon class="mb-12" />
 
     <!-- Live panel for running job -->
     <PrepJobLivePanel
@@ -30,7 +30,7 @@
     <el-card shadow="never" class="page-section">
       <template #header>
         <div class="card-header-row">
-          <span>Dataset Studio</span>
+          <span>Jobs</span>
           <el-button size="small" :icon="Refresh" circle :loading="loading" @click="refresh" />
         </div>
       </template>
@@ -483,9 +483,6 @@ useJobsEvents(() => void refresh());
 }
 .mt-8 {
   margin-top: 8px;
-}
-.mt-12 {
-  margin-bottom: 12px;
 }
 .job-log__pre {
   max-height: 320px;
