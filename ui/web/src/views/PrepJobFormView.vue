@@ -20,7 +20,7 @@
               v-model="form.path"
               expect="dir"
               required
-              placeholder="/path/to/dataset"
+              placeholder="e.g. /path/to/dataset"
               input-class="w-full"
             />
           </el-form-item>
@@ -38,13 +38,16 @@
               </el-select>
             </el-form-item>
             <el-form-item v-if="form.caption_format !== 'json'">
-              <template #label>Caption extension <FieldPathTag path="caption_ext" /></template>
+              <template #label>
+                Caption extension <FieldHelpIcon :field="help('Extension of the per-image sidecar files read and written (default .txt). Change it only if your trainer or downstream tooling expects a different one.')" />
+                <FieldPathTag path="caption_ext" />
+              </template>
               <el-input v-model="form.caption_ext" placeholder=".txt" class="w-full" />
             </el-form-item>
           </div>
         </el-form>
 
-        <el-divider />
+        <el-divider class="section-divider" />
 
         <!-- Tag stage -->
         <template v-if="stage === 'tag'">
@@ -118,16 +121,19 @@
             </el-text>
 
             <el-form-item class="mt-8">
-              <template #label><FieldPathTag path="tag.include_character_tags" /></template>
+              <template #label>
+                Include character tags <FieldHelpIcon :field="help('Includes character and series name tags in the output. Taggers are weakest here — turn off if they keep mislabeling your characters, and put your own trigger word in Prepend tags instead.')" />
+                <FieldPathTag path="tag.include_character_tags" />
+              </template>
               <el-switch v-model="tagForm.include_character_tags" />
-              <el-text class="ml-8" size="small">
-                Include character/series name tags
-                <el-text type="info"> — turn off if taggers keep mislabeling your characters, and put your own trigger word in Prepend tags instead</el-text>
-              </el-text>
+              <el-text class="ml-8" size="small">Include character/series name tags</el-text>
             </el-form-item>
 
             <el-form-item>
-              <template #label><FieldPathTag path="tag.include_rating" /></template>
+              <template #label>
+                Include rating tag <FieldHelpIcon :field="help('Adds the model\'s content rating (general / sensitive / questionable / explicit) as a tag. Turn off if you do not want rating tokens in your training captions.')" />
+                <FieldPathTag path="tag.include_rating" />
+              </template>
               <el-switch v-model="tagForm.include_rating" />
               <el-text class="ml-8" size="small">Include rating tag (general/sensitive/questionable/explicit)</el-text>
             </el-form-item>
@@ -170,12 +176,18 @@
 
             <div class="form-row-2">
               <el-form-item>
-                <template #label>Max tags <FieldPathTag path="tag.max_tags" /></template>
-                <el-input-number v-model="tagForm.max_tags" :min="1" :max="500" placeholder="255" controls-position="right" class="w-full" />
+                <template #label>
+                  Max tags <FieldHelpIcon :field="help('Hard cap on tags kept per image, highest-confidence first (default 40). Raise it if useful tags are being dropped; lower it to trim the low-confidence tail.')" />
+                  <FieldPathTag path="tag.max_tags" />
+                </template>
+                <el-input-number v-model="tagForm.max_tags" :min="1" :max="500" placeholder="40" controls-position="right" class="w-full" />
               </el-form-item>
               <el-form-item>
-                <template #label>Batch size <FieldPathTag path="tag.batch_size" /></template>
-                <el-input-number v-model="tagForm.batch_size" :min="1" :max="64" placeholder="16" controls-position="right" class="w-full" />
+                <template #label>
+                  Batch size <FieldHelpIcon :field="help('Images per ONNX forward pass (default 8). Raise it to tag faster on a card with spare VRAM; lower it if the job runs out of memory.')" />
+                  <FieldPathTag path="tag.batch_size" />
+                </template>
+                <el-input-number v-model="tagForm.batch_size" :min="1" :max="64" placeholder="8" controls-position="right" class="w-full" />
               </el-form-item>
             </div>
 
@@ -189,11 +201,11 @@
             </el-form-item>
 
             <el-form-item>
+              <template #label>
+                Chain a caption job <FieldHelpIcon :field="help('Queues a caption job on the same folder right after this tag job, so tagging then captioning run back-to-back. Leave off and queue the caption job separately when you need custom prompt or model settings.')" />
+              </template>
               <el-switch v-model="chainCaption" />
-              <el-text class="ml-8" size="small">
-                Also queue a caption job immediately after this tag job
-                <el-text type="info"> — use when you want tag + caption in one go; queue the caption job separately if you need custom prompt or model settings</el-text>
-              </el-text>
+              <el-text class="ml-8" size="small">Also queue a caption job immediately after this tag job</el-text>
             </el-form-item>
           </el-form>
         </template>
@@ -291,7 +303,7 @@
             <div class="form-row-2">
               <el-form-item>
                 <template #label>
-                  Character trigger name (optional) <FieldHelpIcon :field="help('The model replaces inherent traits (hair, eye color, face) with this name so they collapse into the trigger token at training time. Set it when you want prompting the trigger to reliably reproduce the character\'s fixed appearance without describing those traits explicitly.')" />
+                  Character trigger name <FieldHelpIcon :field="help('The model replaces inherent traits (hair, eye color, face) with this name so they collapse into the trigger token at training time. Set it when you want prompting the trigger to reliably reproduce the character\'s fixed appearance without describing those traits explicitly.')" />
                   <FieldPathTag path="caption.character_name" />
                 </template>
                 <el-input
@@ -324,7 +336,7 @@
               v-if="captionForm.character_name.trim()"
             >
               <template #label>
-                Canonical look (optional — for datasets with character variants) <FieldHelpIcon :field="help('Describe the character\'s baseline appearance (e.g. &quot;aqua twin-tail hair, blue eyes&quot;). Traits that match are absorbed into the trigger; deviations (aged-up versions, alternate hairstyles) are described, keeping them promptable. Use only when your dataset deliberately mixes canon and variant images.')" />
+                Canonical look <FieldHelpIcon :field="help('For datasets with character variants: describe the character\'s baseline appearance (e.g. &quot;aqua twin-tail hair, blue eyes&quot;). Traits that match are absorbed into the trigger; deviations (aged-up versions, alternate hairstyles) are described, keeping them promptable. Use only when your dataset deliberately mixes canon and variant images.')" />
                 <FieldPathTag path="caption.character_canon" />
               </template>
               <el-input
@@ -358,7 +370,10 @@
             </el-form-item>
 
             <el-form-item>
-              <template #label>Custom prompt (overrides the composition) <FieldPathTag path="caption.prompt" /></template>
+              <template #label>
+                Custom prompt <FieldHelpIcon :field="help('Replaces the whole composed prompt (base + modifiers + character settings) with your own text. Leave blank to use the composition above; the placeholder shows what the model would otherwise receive.')" />
+                <FieldPathTag path="caption.prompt" />
+              </template>
               <el-input
                 v-model="captionForm.prompt"
                 type="textarea"
@@ -379,11 +394,17 @@
 
             <div class="form-row-2">
               <el-form-item>
-                <template #label>Batch size <FieldPathTag path="caption.batch_size" /></template>
+                <template #label>
+                  Batch size <FieldHelpIcon :field="help('Images captioned per forward pass (default 4). Raise it to caption faster when VRAM allows; lower it to 1 if the job runs out of memory.')" />
+                  <FieldPathTag path="caption.batch_size" />
+                </template>
                 <el-input-number v-model="captionForm.batch_size" :min="1" :max="16" placeholder="4" controls-position="right" class="w-full" />
               </el-form-item>
               <el-form-item>
-                <template #label>Max new tokens <FieldPathTag path="caption.max_new_tokens" /></template>
+                <template #label>
+                  Max new tokens <FieldHelpIcon :field="help('Upper bound on caption length in tokens (default 512). Raise it if long captions get cut off mid-sentence; lower it to keep captions terse and save time.')" />
+                  <FieldPathTag path="caption.max_new_tokens" />
+                </template>
                 <el-input-number v-model="captionForm.max_new_tokens" :min="32" :max="4096" placeholder="512" controls-position="right" class="w-full" />
               </el-form-item>
             </div>
@@ -446,21 +467,21 @@
             </div>
 
             <el-form-item v-if="captionForm.model === 'toriigate-0.5'">
-              <template #label><FieldPathTag path="caption.exact_generation" /></template>
+              <template #label>
+                Exact generation <FieldHelpIcon :field="help('Generates one image at a time instead of in batches, giving bit-exact results (~2.5x slower). Turn on if batched captions for similar images come out phrased inconsistently.')" />
+                <FieldPathTag path="caption.exact_generation" />
+              </template>
               <el-switch v-model="captionForm.exact_generation" />
-              <el-text class="ml-8" size="small">
-                Exact (unpadded) generation
-                <el-text type="info"> — generates one image at a time instead of in batches, giving bit-exact results (~2.5x slower); turn on if batched captions for similar images are phrased inconsistently</el-text>
-              </el-text>
+              <el-text class="ml-8" size="small">Exact (unpadded) generation</el-text>
             </el-form-item>
 
             <el-form-item>
-              <template #label><FieldPathTag path="caption.use_tags_as_grounding" /></template>
+              <template #label>
+                Use tags as grounding <FieldHelpIcon :field="help('Feeds the line-1 booru tags to ToriiGate as context, improving tag/caption consistency. Turn off only if the tag line is absent or unreliable.')" />
+                <FieldPathTag path="caption.use_tags_as_grounding" />
+              </template>
               <el-switch v-model="captionForm.use_tags_as_grounding" />
-              <el-text class="ml-8" size="small">
-                Use tags as grounding
-                <el-text type="info"> — feeds line-1 booru tags to ToriiGate as context, improving tag/caption consistency; turn off only if the tag line is absent or unreliable</el-text>
-              </el-text>
+              <el-text class="ml-8" size="small">Use tags as grounding</el-text>
             </el-form-item>
 
             <el-form-item>
@@ -539,7 +560,10 @@
             </el-form-item>
 
             <el-form-item>
-              <template #label><FieldPathTag path="clean.copy_undetected" /></template>
+              <template #label>
+                Copy undetected images <FieldHelpIcon :field="help('Also copies images with no watermark detected into the output folder, so it ends up as a complete cleaned dataset. Turn off to write only the images that were actually inpainted.')" />
+                <FieldPathTag path="clean.copy_undetected" />
+              </template>
               <el-switch v-model="cleanForm.copy_undetected" />
               <el-text class="ml-8" size="small">Copy images with no detections to output</el-text>
             </el-form-item>
@@ -570,7 +594,7 @@ import { formatError } from "../lib/formatError";
 import type { PrepModelInfo, PrepPromptOptions, PrepStage } from "../types/api";
 
 function help(text: string) {
-  return { path: "", type: "string", help: text, doc_path: "user/dataset-prep.md" };
+  return { path: "", type: "string", help: text, doc_path: "docs/user/dataset-prep.md" };
 }
 
 const route = useRoute();
@@ -884,7 +908,8 @@ onMounted(() => {
 .page-head {
   display: flex;
   align-items: center;
-  gap: 12px;
+  justify-content: flex-start;
+  gap: var(--rf-space-sm);
   flex-wrap: wrap;
 }
 .prep-form-title {
@@ -900,6 +925,9 @@ onMounted(() => {
   font-size: 14px;
   font-weight: 600;
   color: var(--el-text-color-secondary);
+}
+.section-divider {
+  margin: var(--rf-space-md) 0;
 }
 .form-row-2 {
   display: grid;
