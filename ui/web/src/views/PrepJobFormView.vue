@@ -7,7 +7,8 @@
 
     <el-alert v-if="formError" type="error" :title="formError" show-icon class="mt-12" />
 
-    <el-card shadow="never" class="mt-12 prep-form-card">
+    <div class="prep-form-layout">
+      <el-card shadow="never" class="prep-form-card">
       <div class="prep-form-body">
         <!-- Common fields -->
         <el-form label-position="top">
@@ -230,10 +231,12 @@
                   :value="m.id"
                   class="model-radio"
                 >
-                  <span>{{ m.id }}</span>
-                  <el-tag v-if="m.downloaded" size="small" type="success" effect="plain" class="ml-8">downloaded</el-tag>
-                  <el-tag v-else size="small" type="warning" effect="plain" class="ml-8">will download</el-tag>
-                  <el-text v-if="m.notes" size="small" type="info" class="ml-8" truncated>{{ m.notes }}</el-text>
+                  <span class="model-radio__head">
+                    <span class="model-radio__name">{{ m.id }}</span>
+                    <el-tag v-if="m.downloaded" size="small" type="success" effect="plain">downloaded</el-tag>
+                    <el-tag v-else size="small" type="warning" effect="plain">will download</el-tag>
+                  </span>
+                  <span v-if="m.notes" class="model-radio__notes">{{ m.notes }}</span>
                 </el-radio>
               </el-radio-group>
             </el-form-item>
@@ -384,15 +387,9 @@
                 :placeholder="previewText || 'model default'"
                 class="w-full"
               />
-              <el-collapse class="prompt-preview-collapse mt-8">
-                <el-collapse-item name="preview">
-                  <template #title>
-                    Prompt preview (exactly what the model receives)
-                    <el-tag v-if="previewNative" size="small" type="warning" class="ml-8">native ToriiGate format</el-tag>
-                  </template>
-                  <pre class="prompt-preview-pre">{{ previewText || '(waiting for model selection…)' }}</pre>
-                </el-collapse-item>
-              </el-collapse>
+              <el-text size="small" type="info" class="hint-text">
+                The exact prompt the model receives is shown live in the Summary panel.
+              </el-text>
             </el-form-item>
 
             <div class="form-row-2">
@@ -580,7 +577,21 @@
           <el-button type="primary" :loading="submitting" @click="submit(true)">Start now</el-button>
         </div>
       </div>
-    </el-card>
+      </el-card>
+
+      <aside class="prep-summary">
+        <PrepJobSummaryPanel
+          :stage="stage"
+          :form="form"
+          :tag-form="tagForm"
+          :caption-form="captionForm"
+          :clean-form="cleanForm"
+          :prompt-options="promptOptions"
+          :preview-text="previewText"
+          :preview-native="previewNative"
+        />
+      </aside>
+    </div>
   </div>
 </template>
 
@@ -593,6 +604,7 @@ import { api } from "../api";
 import FieldHelpIcon from "../components/FieldHelpIcon.vue";
 import FieldPathTag from "../components/FieldPathTag.vue";
 import PathFieldControl from "../components/PathFieldControl.vue";
+import PrepJobSummaryPanel from "../components/PrepJobSummaryPanel.vue";
 import { formatError } from "../lib/formatError";
 import type { PrepModelInfo, PrepPromptOptions, PrepStage } from "../types/api";
 
@@ -920,8 +932,24 @@ onMounted(() => {
   font-weight: 600;
   text-transform: capitalize;
 }
-.prep-form-card {
-  max-width: 1160px;
+.prep-form-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: var(--rf-space-md);
+  align-items: start;
+  margin-top: var(--rf-space-sm);
+}
+.prep-summary {
+  position: sticky;
+  top: var(--rf-space-md);
+}
+@media (max-width: 1100px) {
+  .prep-form-layout {
+    grid-template-columns: 1fr;
+  }
+  .prep-summary {
+    position: static;
+  }
 }
 .prep-form-body {
   max-width: 100%;
@@ -957,9 +985,28 @@ onMounted(() => {
 }
 .model-radio {
   height: auto;
-  display: flex;
   width: 100%;
-  align-items: baseline;
+  align-items: flex-start;
+  margin-right: 0;
+}
+.model-radio :deep(.el-radio__label) {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  white-space: normal;
+  line-height: 1.4;
+}
+.model-radio__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.model-radio__name {
+  font-weight: 500;
+}
+.model-radio__notes {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
 }
 .quant-radio-group {
   display: flex;
@@ -996,21 +1043,5 @@ onMounted(() => {
 .preset-desc {
   margin-top: 4px;
   display: block;
-}
-.prompt-preview-collapse {
-  width: 100%;
-}
-.prompt-preview-pre {
-  white-space: pre-wrap;
-  word-break: break-word;
-  font-size: 12px;
-  line-height: 1.5;
-  background: var(--el-fill-color-light);
-  border-radius: 4px;
-  padding: 8px 10px;
-  margin: 0;
-  max-height: 260px;
-  overflow-y: auto;
-  color: var(--el-text-color-secondary);
 }
 </style>
