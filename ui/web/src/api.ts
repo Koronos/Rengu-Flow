@@ -127,6 +127,8 @@ import type {
   PrepModelDownloadResult,
   PrepStage,
   PrepCaptionConfig,
+  LocalSettings,
+  LocalSettingsPatch,
 } from "./types/api";
 import { withDefaultPagination } from "./types/api";
 
@@ -539,6 +541,16 @@ export const api = {
       body: JSON.stringify(body),
     });
   },
+
+  /** Read rengu.local.toml settings (editable + restart-required + read-only groups). */
+  getSettings: () => request<LocalSettings>("/settings"),
+
+  /** Write the editable subset of rengu.local.toml; returns the re-read settings. */
+  updateSettings: (patch: LocalSettingsPatch) =>
+    request<LocalSettings>("/settings", {
+      method: "PUT",
+      body: JSON.stringify(patch),
+    }),
 
   maintenanceEnabled: () => request<MaintenanceEnabledResult>("/maintenance/enabled"),
 

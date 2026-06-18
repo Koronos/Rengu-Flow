@@ -17,6 +17,11 @@ const router = createRouter({
       name: "maintenance",
       component: () => import("./views/MaintenanceView.vue"),
     },
+    {
+      path: "/settings",
+      name: "settings",
+      component: () => import("./views/SettingsView.vue"),
+    },
     { path: "/runs/new", name: "run-new", component: RunFormView },
     { path: "/runs/jobs/:id/edit", name: "run-edit", component: RunFormView },
     { path: "/runs/jobs/:id/continue", name: "run-continue", component: RunFormView },
