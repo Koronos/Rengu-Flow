@@ -62,14 +62,24 @@
           <el-form-item>
             <template #label>Enable maintenance tools <code class="toml-key">maintenance.enabled</code></template>
             <el-switch v-model="form.editable.maintenance.enabled" />
-            <p class="field-hint">Shows the Maintenance page (destructive DB reset, submodule update). Applies immediately.</p>
-          </el-form-item>
-          <el-form-item>
-            <template #label>Allow pip in maintenance <code class="toml-key">maintenance.allow_pip</code></template>
-            <el-switch v-model="form.editable.maintenance.allow_pip" />
-            <p class="field-hint">Lets the deps-install action run pip. Off by default.</p>
+            <p class="field-hint">
+              Shows the Maintenance page (destructive DB reset, submodule update). Applies
+              immediately — no restart needed.
+            </p>
           </el-form-item>
         </el-form>
+        <el-descriptions :column="1" size="small" border class="mt-12">
+          <el-descriptions-item label="allow_pip (maintenance.allow_pip)">
+            <el-tag size="small" :type="form.readOnly.maintenance.allow_pip ? 'warning' : 'info'">
+              {{ form.readOnly.maintenance.allow_pip ? "true — pip allowed" : "false — pip blocked" }}
+            </el-tag>
+          </el-descriptions-item>
+        </el-descriptions>
+        <p class="field-hint">
+          Lets the dependency installer run <code>pip</code>. Read-only here because it grants
+          package installation — set <code>[maintenance].allow_pip</code> in
+          <code>rengu.local.toml</code> directly and restart to change it.
+        </p>
       </el-card>
 
       <el-card shadow="never" class="mb-12">
@@ -201,10 +211,36 @@ defineExpose({ form, onSave });
 .field { margin-bottom: 8px; }
 .field-label { font-weight: 600; display: block; margin-bottom: 2px; }
 .field-name, .toml-key { font-size: 12px; color: var(--el-text-color-secondary); }
-.field-hint { margin: 4px 0 0; font-size: 12px; color: var(--el-text-color-secondary); }
+
+/* Hints always sit on their own line below the control. el-form-item__content is a
+   flex row, so a narrow control (number, switch) would otherwise let the hint sit
+   beside it; make the row wrap and give the hint a full-width basis. */
+.settings-view :deep(.el-form-item__content) {
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+.field-hint {
+  flex: 0 0 100%;
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--el-text-color-secondary);
+}
+.field-hint code {
+  font-family: var(--rf-font-mono);
+}
+
+/* A little more air between fields and around each card. */
+.settings-view :deep(.el-form-item) {
+  margin-bottom: 18px;
+}
+.settings-view :deep(.el-card__body) {
+  padding-top: 14px;
+}
+
 .actions { margin-top: 16px; }
 .ml-6 { margin-left: 6px; }
 .ml-12 { margin-left: 12px; }
 .mt-12 { margin-top: 12px; }
-.mb-12 { margin-bottom: 12px; }
+.mb-12 { margin-bottom: var(--rf-space-md); }
 </style>

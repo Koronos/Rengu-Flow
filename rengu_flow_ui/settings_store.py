@@ -23,7 +23,9 @@ from rengu_flow.config.local_config import (
 
 # Editable field whitelists, by TOML section. A patch may only set these keys.
 _EDITABLE_TRAINING_SCALARS = ("num_gpus", "master_port", "extra_args")
-_EDITABLE_MAINTENANCE = ("enabled", "allow_pip")
+# allow_pip is intentionally NOT editable from the UI — it grants pip in maintenance,
+# so it is surfaced read-only and only changeable by editing rengu.local.toml directly.
+_EDITABLE_MAINTENANCE = ("enabled",)
 _RESTART_UI = ("public", "token")
 
 
@@ -60,12 +62,12 @@ def read_settings(path: Path | None = None) -> dict[str, Any]:
             },
             "maintenance": {
                 "enabled": cfg.maintenance.enabled,
-                "allow_pip": cfg.maintenance.allow_pip,
             },
         },
         "restartRequired": {"ui": {"public": cfg.ui.public, "token": cfg.ui.token}},
         "readOnly": {
             "ui": {"host": cfg.ui.host, "port": cfg.ui.port, "data_dir": cfg.ui.data_dir},
+            "maintenance": {"allow_pip": cfg.maintenance.allow_pip},
             "toolbox": {"enabled": cfg.toolbox.enabled},
         },
     }
@@ -165,7 +167,12 @@ def write_settings(patch: dict[str, Any], path: Path | None = None) -> dict[str,
 
 
 def apply_maintenance_env(settings: dict[str, Any]) -> None:
-    """Push maintenance flags from a read_settings() result into os.environ (override)."""
-    m = settings["editable"]["maintenance"]
-    os.environ["RENGUFLOW_MAINTENANCE"] = "1" if m["enabled"] else "0"
-    os.environ["RENGUFLOW_MAINTENANCE_ALLOW_PIP"] = "1" if m["allow_pip"] else "0"
+    """Push maintenance flags from a read_settings() result into os.environ (override).
+
+    ``enabled`` is editable; ``allow_pip`` is read-only (file-only) and lives under
+    ``readOnly`` — both still get pushed so the running server reflects the file.
+    """
+    enabled = settings["editable"]["maintenance"]["enabled"]
+    allow_pip = settings["readOnly"]["maintenance"]["allow_pip"]
+    os.environ["RENGUFLOW_MAINTENANCE"] = "1" if enabled else "0"
+    os.environ["RENGUFLOW_MAINTENANCE_ALLOW_PIP"] = "1" if allow_pip else "0"

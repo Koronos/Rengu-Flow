@@ -46,10 +46,11 @@ def test_read_settings_groups_fields(cfg_file: Path) -> None:
     assert s["exists"] is True
     assert s["editable"]["training"]["num_gpus"] == 1
     assert s["editable"]["training"]["env"] == {"NCCL_P2P_DISABLE": "1"}
-    assert s["editable"]["maintenance"]["enabled"] is False
+    assert s["editable"]["maintenance"] == {"enabled": False}
     assert s["restartRequired"]["ui"]["public"] is False
     assert s["restartRequired"]["ui"]["token"] is None
     assert s["readOnly"]["ui"] == {"host": "127.0.0.1", "port": 8765, "data_dir": "data"}
+    assert s["readOnly"]["maintenance"] == {"allow_pip": False}
     assert s["readOnly"]["toolbox"] == {"enabled": False}
 
 
@@ -108,9 +109,18 @@ def test_write_creates_file_when_missing(tmp_path: Path) -> None:
 def test_apply_maintenance_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("RENGUFLOW_MAINTENANCE", raising=False)
     monkeypatch.delenv("RENGUFLOW_MAINTENANCE_ALLOW_PIP", raising=False)
-    settings = {"editable": {"maintenance": {"enabled": True, "allow_pip": False}}}
+    settings = {
+        "editable": {"maintenance": {"enabled": True}},
+        "readOnly": {"maintenance": {"allow_pip": False}},
+    }
     settings_store.apply_maintenance_env(settings)
     import os
 
     assert os.environ["RENGUFLOW_MAINTENANCE"] == "1"
     assert os.environ["RENGUFLOW_MAINTENANCE_ALLOW_PIP"] == "0"
+
+
+def test_write_rejects_allow_pip(cfg_file: Path) -> None:
+    # allow_pip is read-only — patching it must be rejected, not silently written.
+    with pytest.raises(SettingsError):
+        settings_store.write_settings({"maintenance": {"allow_pip": True}}, cfg_file)
