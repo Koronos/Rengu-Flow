@@ -86,7 +86,7 @@ def _apply_connection_pragmas(conn: sqlite3.Connection) -> None:
     WAL lets readers (the board's ``list_jobs``/``get_job``, the runs/datasets pages via
     ``library_db``) run concurrently with the frequent small writes ``poll_job`` issues for
     active runs. Under SQLite's default rollback journal a writer blocks all readers and vice
-    versa, which is what made the board "tarda mucho en cargar" exactly while something was
+    versa, which is what made the board take a long time to load exactly while something was
     running. ``busy_timeout`` rides out the brief exclusive lock taken during a WAL checkpoint
     instead of failing with "database is locked"; ``synchronous=NORMAL`` is the WAL-safe
     durability tradeoff for this local single-user tool. WAL itself is persisted in the DB

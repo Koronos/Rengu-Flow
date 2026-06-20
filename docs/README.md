@@ -16,7 +16,6 @@
   - [Web UI](user/web-ui.md) — Optional local UI: `./rengu ui start`, configs, jobs, signals, progress.
   - [Maintenance](user/maintenance.md) — Dev-only UI/CLI: reset library DB, submodules, dependency extras.
 - **[Implementation backlog](BACKLOG.md)** — Deferred / not-yet-implemented work.
-- **[Public release prep](RELEASE_PREP.md)** — Tracked-files audit for the first release.
 - **[Developer guide](developer/)** — For contributors and anyone extending the framework (APIs, adding signals, internals). Inline **`[TODO]`** in specs → [BACKLOG.md](BACKLOG.md).
   - [Documentation conventions](developer/documentation-conventions.md) — User vs developer vs spec docs, optional-parameter tables, feature checklist.
   - [Architecture and design goals](developer/architecture.md) — Registries, execution flow, extensibility principles.

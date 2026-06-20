@@ -43,8 +43,8 @@ or rely purely on "clone an existing run".)
 
 - **ids are always integer autoincrement.** No mixed/slug primary keys — a single id
   scheme is simpler to reason about and is the API reference key. (We explicitly rejected
-  string/slug ids: "un enfoque mixto, si bien es tolerante, complica saber dónde se usa
-  uno u otro".)
+  string/slug ids: a mixed approach, while tolerant, makes it harder to know where one or
+  the other is used.)
 - **Human identification uses names, not ids.** The string-id idea was really about
   *identifying* runs/configs/datasets; that need is met by names:
   - Datasets already store a `name` column (the script-mode dataset TOML carries no name).
