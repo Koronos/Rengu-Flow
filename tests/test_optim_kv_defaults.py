@@ -11,6 +11,29 @@ from rengu_flow_ui.optimizer_form import defaults_for_optimizer_type_change
 from rengu_flow_ui.scheduler_form import defaults_for_scheduler_type_change
 
 
+def test_every_registry_optimizer_has_kv_defaults() -> None:
+    """Each selectable optimizer must prefill non-empty defaults (no silent empty form)."""
+    from rengu_flow.registry.optimizers import (
+        OPTIMIZER_ALIASES,
+        VENDOR_OPTIMIZER_ALIASES,
+        optimizer_registry,
+    )
+
+    registry_names = set(optimizer_registry) | set(OPTIMIZER_ALIASES) | set(VENDOR_OPTIMIZER_ALIASES)
+    missing = {n for n in registry_names if not OPTIMIZER_REGISTRY_KV_DEFAULTS.get(n)}
+    assert not missing, f"optimizers in the registry without KV defaults: {sorted(missing)}"
+
+
+def test_optimizer_kv_defaults_exposed_in_registries() -> None:
+    """The schema must ship the KV defaults so the frontend prefills from the backend."""
+    from rengu_flow_ui.config_schema import get_registries
+
+    reg = get_registries()
+    kv = reg["optimizer_kv_defaults"]
+    assert set(reg["optimizers"]).issubset(set(kv))
+    assert kv["nekaon"]["lr"] == 1e-4  # a kaon optimizer the old FE list missed
+
+
 def test_scheduler_runtime_token_hints_cover_all_tokens() -> None:
     assert set(SCHEDULER_RUNTIME_TOKEN_HINTS) == set(SCHEDULER_RUNTIME_TOKENS)
     assert "min(total_steps" in SCHEDULER_RUNTIME_TOKEN_HINTS["effective_total_steps"]

@@ -73,6 +73,16 @@ export const useConfigEditorStore = defineStore("configEditor", () => {
     () => (schema.value?.registries as { model_capabilities?: ModelCapabilities })?.model_capabilities ?? {}
   );
 
+  const optimizerRegistries = computed(() => {
+    const reg = schema.value?.registries as
+      | { optimizers?: string[]; optimizer_kv_defaults?: Record<string, Record<string, unknown>> }
+      | undefined;
+    return {
+      optimizers: reg?.optimizers ?? [],
+      optimizerKvDefaults: reg?.optimizer_kv_defaults ?? {},
+    };
+  });
+
   const editorRunName = computed(() => {
     const raw = form.value?.run_name;
     return typeof raw === "string" && raw.trim() ? raw.trim() : "";
@@ -177,7 +187,7 @@ export const useConfigEditorStore = defineStore("configEditor", () => {
       next = applyModelCapabilityDefaults(next);
     }
     if (path === "optimizer.type") {
-      next = applyOptimizerTypeChange(next, value);
+      next = applyOptimizerTypeChange(next, value, optimizerRegistries.value);
     }
     if (path === "lr_scheduler") {
       next = applySchedulerTypeChange(next, value);

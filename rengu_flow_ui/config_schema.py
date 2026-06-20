@@ -18,6 +18,7 @@ from rengu_flow_ui.field_visibility import attach_visibility_to_schema
 from rengu_flow_ui.model_form import attach_model_section_visibility
 from rengu_flow_ui.optimizer_form import attach_optimizer_visibility
 from rengu_flow_ui.optim_kv_defaults import (
+    OPTIMIZER_REGISTRY_KV_DEFAULTS,
     SCHEDULER_RUNTIME_TOKENS,
     SUGGESTED_SCHEDULER_FQNS,
 )
@@ -350,6 +351,9 @@ def get_registries() -> dict[str, Any]:
         "preview_entry_fields": get_preview_entry_fields(),
         "optimizers": optimizers,
         "optimizer_labels": optimizer_labels,
+        # Canonical per-type [optimizer] KV defaults so the form prefills from the
+        # registry instead of a hand-maintained frontend copy (which drifts).
+        "optimizer_kv_defaults": {k: dict(v) for k, v in OPTIMIZER_REGISTRY_KV_DEFAULTS.items()},
         "optimizer_allow_custom": True,
         "schedulers": sorted(set(scheduler_registry.keys()) | set(SUGGESTED_SCHEDULER_FQNS)),
         "scheduler_allow_custom": True,

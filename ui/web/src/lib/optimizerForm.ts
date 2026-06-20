@@ -1,52 +1,52 @@
 /**
  * Optimizer form helpers. Keep in sync with rengu_flow_ui/optimizer_form.py.
+ *
+ * The set of built-in optimizers and their KV defaults are NOT hardcoded here:
+ * they come from the backend optimizer registry via `registries.optimizers` and
+ * `registries.optimizer_kv_defaults` (exposed by config_schema.get_registries).
+ * Passing them in keeps custom-type detection and prefill in lock-step with the
+ * registry — a hand-maintained copy silently drifted and dropped defaults for
+ * newer optimizers.
  */
 
 import type { FormValues } from "../types/forms";
-import { optimizerExtraParamsDefaults } from "./optimKvDefaults";
 
 export const SCHEMA_OPTIMIZER_PATHS = new Set(["optimizer.type", "optimizer.extra_params"]);
 
-/** Lowercase registry + alias names (built-in selector values). */
-export const KNOWN_BUILTIN_OPTIMIZER_TYPES = new Set([
-  "adam",
-  "adamw",
-  "sgd",
-  "adamw8bit",
-  "adamw_optimi",
-  "stableadamw",
-  "offload",
-  "genericoptim",
-  "automagic",
-  "adamw8bitkahan",
-  "prodigy",
-  // github.com/Koronos/K-Optimizers (the `kaon` package; installed on demand via the "kaon" profile).
-  "adakaon",
-  "muon",
-  "adamuon",
-  "kprodigy",
-  "autokaon",
-  "lion",
-  "adapnm",
-]);
+/** Registry data the form needs, sourced from the schema's `registries`. */
+export interface OptimizerRegistries {
+  /** Lowercase built-in optimizer values (registry + aliases). */
+  optimizers: string[];
+  /** type -> default [optimizer] KV rows. */
+  optimizerKvDefaults: Record<string, Record<string, unknown>>;
+}
+
+function builtinSet(registries: OptimizerRegistries | null | undefined): Set<string> {
+  return new Set((registries?.optimizers ?? []).map((n) => n.toLowerCase()));
+}
 
 export function normalizeOptimizerType(value: unknown): string {
   if (value === undefined || value === null) return "";
   return String(value).trim();
 }
 
-export function isCustomOptimizerType(value: unknown): boolean {
+export function isCustomOptimizerType(
+  value: unknown,
+  registries: OptimizerRegistries | null | undefined
+): boolean {
   const name = normalizeOptimizerType(value);
   if (!name) return false;
   if (name.includes(".")) return true;
-  return !KNOWN_BUILTIN_OPTIMIZER_TYPES.has(name.toLowerCase());
+  return !builtinSet(registries).has(name.toLowerCase());
 }
 
-export function normalizeBuiltinOptimizerType(value: unknown): unknown {
+export function normalizeBuiltinOptimizerType(
+  value: unknown,
+  registries: OptimizerRegistries | null | undefined
+): unknown {
   if (typeof value !== "string") return value;
   const trimmed = value.trim();
-  const key = trimmed.toLowerCase();
-  if (KNOWN_BUILTIN_OPTIMIZER_TYPES.has(key)) return key;
+  if (builtinSet(registries).has(trimmed.toLowerCase())) return trimmed.toLowerCase();
   return trimmed;
 }
 
@@ -68,20 +68,28 @@ export function pruneOptimizerForm(form: FormValues, optType?: unknown): FormVal
   return next;
 }
 
-export function defaultsForOptimizerTypeChange(optType: unknown): FormValues {
+export function defaultsForOptimizerTypeChange(
+  optType: unknown,
+  registries: OptimizerRegistries | null | undefined
+): FormValues {
   const name = normalizeOptimizerType(optType);
   if (!name) return {};
-  if (isCustomOptimizerType(name)) {
+  if (isCustomOptimizerType(name, registries)) {
     return { "optimizer.extra_params": {} };
   }
-  return { "optimizer.extra_params": optimizerExtraParamsDefaults(name) };
+  const kv = registries?.optimizerKvDefaults?.[name.toLowerCase()] ?? {};
+  return { "optimizer.extra_params": { ...kv } };
 }
 
-export function applyOptimizerTypeChange(form: FormValues, nextType: unknown): FormValues {
-  const normalized = normalizeBuiltinOptimizerType(nextType);
+export function applyOptimizerTypeChange(
+  form: FormValues,
+  nextType: unknown,
+  registries: OptimizerRegistries | null | undefined
+): FormValues {
+  const normalized = normalizeBuiltinOptimizerType(nextType, registries);
   let next: FormValues = { ...form, "optimizer.type": normalized };
   next = pruneOptimizerForm(next, normalized);
-  const defaults = defaultsForOptimizerTypeChange(normalized);
+  const defaults = defaultsForOptimizerTypeChange(normalized, registries);
   if ("optimizer.extra_params" in defaults) {
     next["optimizer.extra_params"] = defaults["optimizer.extra_params"];
   } else {
