@@ -10,6 +10,7 @@ import tomlkit
 
 from rengu_flow.config import set_config_defaults
 from rengu_flow.registry.model_capabilities import normalize_model_type
+from rengu_flow_ui.adapter_form import prune_adapter_form
 from rengu_flow_ui.field_visibility import field_visible, prune_form_for_model
 from rengu_flow_ui.optimizer_form import (
     KNOWN_BUILTIN_OPTIMIZER_TYPES,
@@ -192,7 +193,7 @@ def _homogenize_numeric_arrays(obj: Any) -> Any:
 
 def form_to_config(form: dict[str, Any]) -> dict[str, Any]:
     merged = merge_scheduler_extras(
-        merge_optimizer_extras(prune_scheduler_form(prune_optimizer_form(form)))
+        merge_optimizer_extras(prune_scheduler_form(prune_optimizer_form(prune_adapter_form(form))))
     )
     config = unflatten_form(merged)
     if "dataset" in config:

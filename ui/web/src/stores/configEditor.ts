@@ -10,6 +10,7 @@ import {
 } from "../lib/formUtils";
 import { applyOptimizerTypeChange } from "../lib/optimizerForm";
 import { applySchedulerTypeChange } from "../lib/schedulerForm";
+import { applyAdapterTypeChange } from "../lib/adapterForm";
 import { useTomlFormSync } from "../composables/useTomlFormSync";
 import { createValidationAlertScheduler } from "../composables/useValidationAlertDismiss";
 import type { FormValues, ModelCapabilities } from "../types/forms";
@@ -180,6 +181,9 @@ export const useConfigEditorStore = defineStore("configEditor", () => {
     }
     if (path === "lr_scheduler") {
       next = applySchedulerTypeChange(next, value);
+    }
+    if (path === "adapter.type") {
+      next = applyAdapterTypeChange(next, value, schema.value, modelCapabilities.value);
     }
     setForm(next);
   }
