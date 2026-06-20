@@ -241,7 +241,19 @@ def create_app() -> FastAPI:
         scalar_server.shutdown()
         tensorboard_server.stop_tensorboard()
 
-    app = FastAPI(title="Rengu Flow UI", version=package_version(), lifespan=lifespan)
+    # Serve the OpenAPI/Swagger UI under the API prefix so the bare "/docs" path stays free
+    # for the SPA's own Docs view — otherwise FastAPI's default "/docs" shadows it on a full
+    # page load (direct URL / refresh) and shows Swagger instead of the in-app documentation.
+    # Use "/swagger" (not "/docs") under the prefix: a "{API_PREFIX}/docs" endpoint already
+    # exists (the SPA's doc-content reader) and Swagger would shadow it.
+    app = FastAPI(
+        title="Rengu Flow UI",
+        version=package_version(),
+        lifespan=lifespan,
+        docs_url=f"{API_PREFIX}/swagger",
+        redoc_url=f"{API_PREFIX}/redoc",
+        openapi_url=f"{API_PREFIX}/openapi.json",
+    )
 
     app.add_middleware(
         CORSMiddleware,

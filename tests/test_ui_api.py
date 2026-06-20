@@ -190,6 +190,21 @@ def test_docs_endpoint(ui_client) -> None:
     assert "Web UI" in r.json()["content"]
 
 
+def test_swagger_relocated_off_docs(ui_client) -> None:
+    """Bare /docs is reserved for the SPA's Docs view; Swagger lives under the API prefix and
+    must not shadow the /api/v1/docs doc-content reader."""
+    # /docs must not serve FastAPI's Swagger UI (it belongs to the SPA on a full page load).
+    assert "swagger-ui" not in ui_client.get("/docs").text.lower()
+    # Swagger is reachable under the API prefix at /swagger (not /docs).
+    swagger = ui_client.get("/api/v1/swagger")
+    assert swagger.status_code == 200
+    assert "swagger-ui" in swagger.text.lower()
+    # The doc-content reader at /api/v1/docs is still intact (not shadowed by Swagger).
+    doc = ui_client.get("/api/v1/docs", params={"path": "docs/user/web-ui.md"})
+    assert doc.status_code == 200
+    assert "Web UI" in doc.json()["content"]
+
+
 def test_docs_path_traversal_returns_404(ui_client) -> None:
     r = ui_client.get("/api/v1/docs", params={"path": "docs/../../../etc/passwd"})
     assert r.status_code == 404
