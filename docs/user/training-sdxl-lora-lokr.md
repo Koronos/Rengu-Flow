@@ -76,11 +76,20 @@ Every type accepts `rank` (or its alias `dim`), `dtype`, `dropout`, `rank_dropou
 | `lycoris_locon` | LyCORIS · LoCon | Standard LoRA math through the LyCORIS backend | `use_tucker` (default `false`), `use_scalar` (default `false`), `dora_wd` (default `false`), `wd_on_output` (default `true`) |
 | `lycoris_loha` | LyCORIS · LoHa | Hadamard-product factorization of the weight delta | `use_tucker` (default `false`), `use_scalar` (default `false`), `dora_wd` (default `false`), `wd_on_output` (default `true`) |
 | `lycoris_lokr` | LyCORIS · LoKr | Kronecker-product factorization | `use_tucker`, `use_scalar`, `dora_wd`, `wd_on_output`, `factor` (default `-1`, automatic), `full_matrix` (default `false`), `decompose_both` (default `false`), `unbalanced_factorization` (default `false`) |
-| `lycoris_dora` | LyCORIS · DoRA | LoCon with weight decomposition forced on | `use_tucker` (default `false`), `use_scalar` (default `false`), `wd_on_output` (default `true`). `dora_wd` is always enabled; the field is not exposed. |
 | `lycoris_dylora` | LyCORIS · DyLoRA | Nested-rank training; the saved file can be truncated to any multiple of `block_size` after training | `block_size` (default `4`). `rank` must be divisible by `block_size`. `train_conv` is not supported, and the run needs `activation_checkpointing = false` (the random sub-rank per forward breaks checkpoint recompute). |
 | `lycoris_glora` | LyCORIS · GLoRA | Adds input-side adaptation via `a1`/`a2` + `b1`/`b2` factor pairs | Dropout family only (`dropout`, `rank_dropout`, `module_dropout`) |
 | `lycoris_diag_oft` | LyCORIS · Diag-OFT | Diagonal orthogonal rotation; `rank` sets the block split per layer instead of a low-rank dimension | `constraint` (default `0.0`), `rescaled` (default `false`). The exported `.alpha` stores the `constraint` value, not a rank. |
 | `lycoris_boft` | LyCORIS · BOFT | Butterfly orthogonal rotation | `constraint` (default `0.0`), `rescaled` (default `false`). The exported `.alpha` stores the `constraint` value, not a rank. BOFT needs every adapted layer width to split as (even m ≤ rank) × power-of-two; SDXL widths carry a factor of 5, so `rank = 10` is the smallest that fits — smaller ranks fail at startup with "impossible to decompose". Its staged weight rebuild is also the most VRAM-hungry type: on a 16 GB card add `blocks_to_swap` (e.g. 8) or it OOMs even at 512px. |
+
+### DoRA (weight decomposition)
+
+DoRA is not a separate type — it is the `dora_wd` toggle (default `false`) available on
+`lycoris_locon`, `lycoris_loha`, and `lycoris_lokr`. Turning it on splits each adapted
+weight into a trained per-channel magnitude (exported as `dora_scale`) and the base
+algorithm's delta as direction; it often tracks full finetuning better at low rank, at a
+per-step compute cost. `wd_on_output` (default `true`) picks the magnitude axis (output
+channel vs input column) and only matters when `dora_wd` is on. To train "plain LoRA +
+DoRA", use `lycoris_locon` with `dora_wd = true`.
 
 ### Shared LyCORIS options
 
@@ -90,7 +99,7 @@ All `lycoris_*` types also accept:
   LayerNorm/GroupNorm weights, exported as `w_norm`/`b_norm` keys (ComfyUI loads
   them). Useful when global tone or contrast refuses to shift. SDXL only — the
   Cosmos DiT has no trainable norm weights, and the run fails fast if requested.
-- **`rs_lora`** (default `false`, `lycoris_locon`/`lycoris_dora` only):
+- **`rs_lora`** (default `false`, `lycoris_locon` only):
   rank-stabilized scaling `alpha / sqrt(rank)` instead of `alpha / rank`, keeping
   the update magnitude steady at high ranks (32+). The exported per-module alpha
   becomes `alpha * sqrt(rank)` so any loader reproduces the trained strength.

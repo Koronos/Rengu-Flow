@@ -29,7 +29,6 @@ from rengu_flow.networks.lycoris_meta import (
 # deploys as plain up/down matrices, so its export parses as LoCon by design.
 EXPECTED_MODULE_CLASS = {
     "lycoris_locon": "LoConModule",
-    "lycoris_dora": "LoConModule",
     "lycoris_dylora": "LoConModule",
     "lycoris_loha": "LohaModule",
     "lycoris_lokr": "LokrModule",

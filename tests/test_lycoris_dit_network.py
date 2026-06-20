@@ -42,9 +42,9 @@ class DummyDiT(nn.Module):
         return self.final(x)
 
 
-def _config(adapter_type):
+def _config(adapter_type, **overrides):
     rank = 8 if adapter_type == "lycoris_dylora" else 4
-    cfg = {"type": adapter_type, "rank": rank, "alpha": rank, "dtype": torch.float32}
+    cfg = {"type": adapter_type, "rank": rank, "alpha": rank, "dtype": torch.float32, **overrides}
     apply_lycoris_defaults(cfg)
     return cfg
 
@@ -119,12 +119,14 @@ def test_save_export_check_and_load_round_trip(adapter_type, tmp_path):
 def test_dora_exports_dora_scale_cosmos(tmp_path):
     torch.manual_seed(0)
     model = DummyDiT()
-    lycoris_dit.configure(model, _config("lycoris_dora"))
+    # DoRA is the dora_wd toggle on a base algo (here locon), not a standalone type.
+    cfg = _config("lycoris_locon", dora_wd=True)
+    lycoris_dit.configure(model, cfg)
     _train_one_step(model)
     snapshot = {
         p.original_name: p.detach().clone() for p in model.parameters() if p.requires_grad
     }
-    lycoris_dit.save(tmp_path, snapshot, _config("lycoris_dora"))
+    lycoris_dit.save(tmp_path, snapshot, cfg)
 
     import safetensors.torch
 
@@ -180,8 +182,7 @@ def test_targeting_on_dit():
 def test_rs_lora_on_dit(tmp_path):
     torch.manual_seed(0)
     model = DummyDiT()
-    cfg = _config("lycoris_dora")
-    cfg["rs_lora"] = True
+    cfg = _config("lycoris_locon", dora_wd=True, rs_lora=True)
     lycoris_dit.configure(model, cfg)
     _, lora = next(lycoris_attach.iter_attached_adapters(model))
     assert lora.rs_lora is True
@@ -192,7 +193,7 @@ def test_rs_lora_on_dit(tmp_path):
     }
     lycoris_dit.save(tmp_path, snapshot, cfg)
     failures, _ = check_export(
-        tmp_path / "adapter_model.safetensors", "lycoris_dora", style="cosmos"
+        tmp_path / "adapter_model.safetensors", "lycoris_locon", style="cosmos"
     )
     assert not failures, failures
 
@@ -212,7 +213,7 @@ def test_llm_adapter_blocks_excluded():
     # Graft an llm_adapter holding its own blocks, like the real Cosmos DiT.
     model.llm_adapter = nn.Module()
     model.llm_adapter.blocks = nn.ModuleList([Block(), Block()])
-    lycoris_dit.configure(model, _config("lycoris_dora"))
+    lycoris_dit.configure(model, _config("lycoris_locon"))
     attached = [p for p, _ in lycoris_attach.iter_attached_adapters(model)]
     assert len(attached) == 8  # only the 2 DiT blocks, not the llm_adapter's
     assert not any("llm_adapter" in p for p in attached)

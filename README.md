@@ -43,7 +43,7 @@ A **TOML-driven training framework** for diffusion models. You describe a run in
 | **Stable Diffusion XL** | `sdxl` | LoRA, LoKr, LyCORIS, full finetune | Optional UNet-only via `freeze_text_encoders`. |
 | **Cosmos Predict2 / Anima** | `cosmos_predict2` (alias `anima`) | LoRA, LoKr, LyCORIS, full finetune | DiT + Wan VAE + Qwen3/T5. **Anima** checkpoints are this architecture; `type = "anima"` is accepted as a legacy alias. Needs the `cosmos` extra. |
 
-**Adapter selection.** Set `[adapter] type = "lora"` / `"lokr"` / a `lycoris_*` type; omit `[adapter]` entirely for full-model finetune. The LyCORIS family (requires the `lycoris` extra) covers: `lycoris_locon`, `lycoris_loha`, `lycoris_lokr`, `lycoris_dora`, `lycoris_dylora`, `lycoris_glora`, `lycoris_diag_oft`, `lycoris_boft`. See [SDXL training](docs/user/training-sdxl-lora-lokr.md), [Cosmos Predict2 / Anima](docs/user/training-cosmos-predict2-lora-lokr-finetune.md), and [full-model finetuning](docs/user/full-model-training-sdxl.md).
+**Adapter selection.** Set `[adapter] type = "lora"` / `"lokr"` / a `lycoris_*` type; omit `[adapter]` entirely for full-model finetune. The LyCORIS family (requires the `lycoris` extra) covers: `lycoris_locon`, `lycoris_loha`, `lycoris_lokr`, `lycoris_dylora`, `lycoris_glora`, `lycoris_diag_oft`, `lycoris_boft` (DoRA is the `dora_wd` toggle on locon/loha/lokr, not a separate type). See [SDXL training](docs/user/training-sdxl-lora-lokr.md), [Cosmos Predict2 / Anima](docs/user/training-cosmos-predict2-lora-lokr-finetune.md), and [full-model finetuning](docs/user/full-model-training-sdxl.md).
 
 ## Requirements
 

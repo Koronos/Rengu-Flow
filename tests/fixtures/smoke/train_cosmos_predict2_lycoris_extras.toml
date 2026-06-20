@@ -1,4 +1,4 @@
-# Cosmos Predict2 LyCORIS extras smoke (12 steps): dora + rs_lora + attention-only targets, smoke_cc0 fixture.
+# Cosmos Predict2 LyCORIS extras smoke (12 steps): locon + dora_wd + rs_lora + attention-only targets, smoke_cc0 fixture.
 #   .venv/bin/python -m rengu_flow.config.local_env tests/fixtures/smoke/train_cosmos_predict2_lycoris_extras.toml
 
 dataset = "tests/fixtures/smoke/dataset_cc0.toml"
@@ -20,8 +20,9 @@ dtype = "bfloat16"
 cache_text_embeddings = true
 
 [adapter]
-type = "lycoris_dora"
+type = "lycoris_locon"
 rank = 8
+dora_wd = true
 rs_lora = true
 target_include = ["*self_attn*", "*cross_attn*"]
 

@@ -21,12 +21,13 @@ def _rank(adapter_type):
     return 8 if adapter_type == "lycoris_dylora" else 4
 
 
-def _config(adapter_type):
+def _config(adapter_type, **overrides):
     cfg = {
         "type": adapter_type,
         "rank": _rank(adapter_type),
         "alpha": _rank(adapter_type),
         "dtype": torch.float32,
+        **overrides,
     }
     apply_lycoris_defaults(cfg)
     return cfg
@@ -228,7 +229,8 @@ def test_use_scalar_folds_into_export(tmp_path):
 
 
 def test_dora_exports_dora_scale(tmp_path):
-    cfg = _config("lycoris_dora")
+    # DoRA is the dora_wd toggle on a base algo (here locon), not a standalone type.
+    cfg = _config("lycoris_locon", dora_wd=True)
     unet, te, te2 = _models()
     lycoris_sdxl.configure(unet, te, te2, cfg)
     _train_one_step(unet, te, te2)

@@ -13,8 +13,6 @@ ALGO_MAP = {
     "lycoris_locon": "locon",
     "lycoris_loha": "loha",
     "lycoris_lokr": "lokr",
-    # DoRA = LoCon with weight decomposition; first-class type for discoverability.
-    "lycoris_dora": "locon",
     "lycoris_dylora": "dylora",
     "lycoris_glora": "glora",
     "lycoris_diag_oft": "diag-oft",
@@ -24,9 +22,7 @@ ALGO_MAP = {
 LYCORIS_ADAPTER_TYPES = tuple(ALGO_MAP)
 
 # kwargs forced onto create_lycoris regardless of config (not user-settable).
-FORCED_ALGO_KWARGS = {
-    "lycoris_dora": {"dora_wd": True},
-}
+FORCED_ALGO_KWARGS: dict[str, dict] = {}
 
 # Keys every adapter table may carry regardless of algorithm. ``alpha`` is accepted
 # by validation but rejected by defaults with the alpha=rank message (same rule as
@@ -80,8 +76,6 @@ ALGO_CONFIG_KEYS = {
         "decompose_both",
         "unbalanced_factorization",
     ),
-    # dora_wd is implied by the type itself; offering it would invite dora_wd=false.
-    "lycoris_dora": (*_DROPOUTS, "train_norm", "use_tucker", "use_scalar", "wd_on_output", "rs_lora"),
     "lycoris_dylora": (*_DROPOUTS, "train_norm", "block_size"),
     "lycoris_glora": (*_DROPOUTS, "train_norm"),
     "lycoris_diag_oft": (*_DROPOUTS, "train_norm", "constraint", "rescaled"),
@@ -123,13 +117,6 @@ ALGO_CONFIG_DEFAULTS = {
         "decompose_both": False,
         "unbalanced_factorization": False,
     },
-    "lycoris_dora": {
-        **_SHARED_DEFAULTS,
-        "use_tucker": False,
-        "use_scalar": False,
-        "wd_on_output": True,
-        "rs_lora": False,
-    },
     "lycoris_dylora": {**_SHARED_DEFAULTS, "block_size": 4},
     "lycoris_glora": dict(_SHARED_DEFAULTS),
     "lycoris_diag_oft": {**_SHARED_DEFAULTS, "constraint": 0.0, "rescaled": False},
@@ -145,12 +132,6 @@ WEIGHT_KEY_FAMILIES = {
     "lycoris_locon": {
         "required": ("lora_up.weight", "lora_down.weight", "alpha"),
         "optional": ("lora_mid.weight", "dora_scale"),
-        "either": (),
-        "delta": "lora_up.weight",
-    },
-    "lycoris_dora": {
-        "required": ("lora_up.weight", "lora_down.weight", "alpha", "dora_scale"),
-        "optional": ("lora_mid.weight",),
         "either": (),
         "delta": "lora_up.weight",
     },

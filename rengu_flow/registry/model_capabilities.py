@@ -21,7 +21,6 @@ DEFAULT_ADAPTER_LABELS: dict[str, str] = {
     "lycoris_locon": "Lycoris.LoCon",
     "lycoris_loha": "Lycoris.LoHa",
     "lycoris_lokr": "Lycoris.LoKr",
-    "lycoris_dora": "Lycoris.DoRA",
     "lycoris_dylora": "Lycoris.DyLoRA",
     "lycoris_glora": "Lycoris.GLoRA",
     "lycoris_diag_oft": "Lycoris.DiagOFT",
@@ -33,11 +32,11 @@ DEFAULT_ADAPTER_LABELS: dict[str, str] = {
 _ALL_LYCORIS = frozenset(LYCORIS_ADAPTER_TYPES)
 _LYCORIS_WITH_TRAIN_CONV = _ALL_LYCORIS - frozenset({"lycoris_dylora"})
 _LOCON_LOHA = frozenset({"lycoris_locon", "lycoris_loha"})
-_LOCON_LOHA_DORA_LOKR = frozenset({"lycoris_locon", "lycoris_loha", "lycoris_dora", "lycoris_lokr"})
+_LOCON_LOHA_LOKR = frozenset({"lycoris_locon", "lycoris_loha", "lycoris_lokr"})
 _OFT_FAMILY = frozenset({"lycoris_diag_oft", "lycoris_boft"})
 
 LYCORIS_FIELD_GROUPS: list[tuple[dict[str, Any], frozenset[str]]] = [
-    # Shared by all 8 lycoris kinds
+    # Shared by all 7 lycoris kinds
     ({"path": "adapter.dropout", "label": "Dropout", "type": "number", "default": 0.0}, _ALL_LYCORIS),
     ({"path": "adapter.rank_dropout", "label": "Rank dropout", "type": "number", "default": 0.0}, _ALL_LYCORIS),
     ({"path": "adapter.module_dropout", "label": "Module dropout", "type": "number", "default": 0.0}, _ALL_LYCORIS),
@@ -62,14 +61,14 @@ LYCORIS_FIELD_GROUPS: list[tuple[dict[str, Any], frozenset[str]]] = [
     ),
     # Shared by all except lycoris_dylora
     ({"path": "adapter.train_conv", "label": "Train conv layers", "type": "boolean", "default": False}, _LYCORIS_WITH_TRAIN_CONV),
-    # locon, loha, dora, lokr — tucker/scalar/wd_on_output
-    ({"path": "adapter.use_tucker", "label": "Tucker decomposition", "type": "boolean", "default": False}, _LOCON_LOHA_DORA_LOKR),
-    ({"path": "adapter.use_scalar", "label": "Trained scalar", "type": "boolean", "default": False}, _LOCON_LOHA_DORA_LOKR),
-    ({"path": "adapter.wd_on_output", "label": "DoRA output axis", "type": "boolean", "default": True}, _LOCON_LOHA_DORA_LOKR),
-    # dora_wd: locon, loha, lokr (NOT dora — implied by the type)
-    ({"path": "adapter.dora_wd", "label": "DoRA decomposition", "type": "boolean", "default": False}, _LOCON_LOHA | frozenset({"lycoris_lokr"})),
-    # rs_lora only exists on LoConModule (locon / dora)
-    ({"path": "adapter.rs_lora", "label": "Rank-stabilized scale", "type": "boolean", "default": False}, frozenset({"lycoris_locon", "lycoris_dora"})),
+    # locon, loha, lokr — tucker/scalar/wd_on_output
+    ({"path": "adapter.use_tucker", "label": "Tucker decomposition", "type": "boolean", "default": False}, _LOCON_LOHA_LOKR),
+    ({"path": "adapter.use_scalar", "label": "Trained scalar", "type": "boolean", "default": False}, _LOCON_LOHA_LOKR),
+    ({"path": "adapter.wd_on_output", "label": "DoRA output axis", "type": "boolean", "default": True}, _LOCON_LOHA_LOKR),
+    # DoRA weight decomposition: a toggle on top of locon / loha / lokr.
+    ({"path": "adapter.dora_wd", "label": "DoRA decomposition", "type": "boolean", "default": False}, _LOCON_LOHA_LOKR),
+    # rs_lora only exists on LoConModule (locon).
+    ({"path": "adapter.rs_lora", "label": "Rank-stabilized scale", "type": "boolean", "default": False}, frozenset({"lycoris_locon"})),
     # lokr-only extras
     ({"path": "adapter.factor", "label": "LoKr factor", "type": "integer", "default": -1}, frozenset({"lycoris_lokr"})),
     ({"path": "adapter.full_matrix", "label": "LoKr full_matrix", "type": "boolean", "default": False}, frozenset({"lycoris_lokr"})),

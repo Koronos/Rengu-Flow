@@ -252,14 +252,14 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "detail": (
             "Splits each adapted weight into a trained magnitude (dora_scale) and the algorithm's delta "
             "as direction. Often tracks full finetuning better at low rank, at a per-step compute cost. "
-            "For plain LoRA + DoRA pick the Lycoris.DoRA type instead of toggling this."
+            "Toggle it on locon/loha/lokr to add DoRA to that base."
         ),
         "doc": "docs/user/training-sdxl-lora-lokr.md",
     },
     "adapter.wd_on_output": {
         "summary": "Computes the DoRA magnitude over the output axis (default on).",
         "detail": (
-            "Only matters when DoRA decomposition is active (dora_wd, or the DoRA type). On = one "
+            "Only matters when DoRA decomposition is active (dora_wd). On = one "
             "magnitude per output channel (lycoris default); off = per input column. Leave on unless "
             "reproducing a recipe that used the input axis."
         ),

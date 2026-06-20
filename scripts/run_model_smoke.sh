@@ -25,8 +25,8 @@ ALGO=""
 # Per family: fixture stem, export-check key style, and the algos the _all case loops.
 SDXL_LYCORIS_STEM="train_sdxl_lycoris"
 COSMOS_LYCORIS_STEM="train_cosmos_predict2_lycoris"
-SDXL_LYCORIS_ALGOS="locon loha lokr dora dylora glora diag_oft boft"
-COSMOS_LYCORIS_ALGOS="locon loha lokr dora dylora glora diag_oft boft"
+SDXL_LYCORIS_ALGOS="locon loha lokr dylora glora diag_oft boft"
+COSMOS_LYCORIS_ALGOS="locon loha lokr dylora glora diag_oft boft"
 LYCORIS_STYLE="kohya"
 LYCORIS_STEM="${SDXL_LYCORIS_STEM}"
 LYCORIS_ALGOS="${SDXL_LYCORIS_ALGOS}"
@@ -36,18 +36,18 @@ case "${MODEL}" in
   sdxl_lokr)   CONFIG="${REPO_ROOT}/tests/fixtures/smoke/train_sdxl_lokr.toml" ;;
   cosmos)      CONFIG="${REPO_ROOT}/tests/fixtures/smoke/train_cosmos_predict2.toml" ;;
   cosmos_lokr) CONFIG="${REPO_ROOT}/tests/fixtures/smoke/train_cosmos_predict2_lokr.toml" ;;
-  sdxl_lycoris_locon|sdxl_lycoris_loha|sdxl_lycoris_lokr|sdxl_lycoris_dora|sdxl_lycoris_dylora|sdxl_lycoris_glora|sdxl_lycoris_diag_oft|sdxl_lycoris_boft)
+  sdxl_lycoris_locon|sdxl_lycoris_loha|sdxl_lycoris_lokr|sdxl_lycoris_dylora|sdxl_lycoris_glora|sdxl_lycoris_diag_oft|sdxl_lycoris_boft)
     IS_LYCORIS=1; ALGO="${MODEL#sdxl_lycoris_}"
     CONFIG="${REPO_ROOT}/tests/fixtures/smoke/${SDXL_LYCORIS_STEM}_${ALGO}.toml" ;;
-  cosmos_lycoris_locon|cosmos_lycoris_loha|cosmos_lycoris_lokr|cosmos_lycoris_dora|cosmos_lycoris_dylora|cosmos_lycoris_glora|cosmos_lycoris_diag_oft|cosmos_lycoris_boft)
+  cosmos_lycoris_locon|cosmos_lycoris_loha|cosmos_lycoris_lokr|cosmos_lycoris_dylora|cosmos_lycoris_glora|cosmos_lycoris_diag_oft|cosmos_lycoris_boft)
     IS_LYCORIS=1; ALGO="${MODEL#cosmos_lycoris_}"; LYCORIS_STYLE="cosmos"
     CONFIG="${REPO_ROOT}/tests/fixtures/smoke/${COSMOS_LYCORIS_STEM}_${ALGO}.toml" ;;
-  # extras fixtures: locon/dora plus rs_lora + train_norm (SDXL) + target globs
+  # extras fixtures: locon + dora_wd + rs_lora + train_norm (SDXL) + target globs
   sdxl_lycoris_extras)
     IS_LYCORIS=1; ALGO="locon"
     CONFIG="${REPO_ROOT}/tests/fixtures/smoke/${SDXL_LYCORIS_STEM}_extras.toml" ;;
   cosmos_lycoris_extras)
-    IS_LYCORIS=1; ALGO="dora"; LYCORIS_STYLE="cosmos"
+    IS_LYCORIS=1; ALGO="locon"; LYCORIS_STYLE="cosmos"
     CONFIG="${REPO_ROOT}/tests/fixtures/smoke/${COSMOS_LYCORIS_STEM}_extras.toml" ;;
   sdxl_lycoris_all)
     IS_LYCORIS_ALL=1

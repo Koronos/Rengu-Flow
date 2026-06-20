@@ -1,4 +1,4 @@
-# SDXL LyCORIS extras smoke (12 steps): locon + rs_lora + train_norm + target_exclude with versioned CC0 dataset.
+# SDXL LyCORIS extras smoke (12 steps): locon + dora_wd + rs_lora + train_norm + target_exclude with versioned CC0 dataset.
 # Model path: RENGU_SDXL_CHECKPOINT_PATH in repo-root `.env` (see `.env.example`).
 #   scripts/run_model_smoke.sh sdxl_lycoris_extras
 
@@ -22,6 +22,7 @@ cache_text_embeddings = true
 [adapter]
 type = "lycoris_locon"
 rank = 8
+dora_wd = true
 rs_lora = true
 train_norm = true
 target_exclude = ["*ff*"]

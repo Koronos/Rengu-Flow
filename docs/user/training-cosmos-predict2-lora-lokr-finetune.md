@@ -100,19 +100,20 @@ which is why their fixtures differ from the plain `lokr` one:
 - **DyLoRA** cannot use activation checkpointing (random sub-rank per forward), and
   the DiT's full activations do not fit 16 GB at 512px even with block swap — train
   it at a lower resolution (e.g. 256px) plus `blocks_to_swap`.
-- The plain `lokr`/`lycoris_lokr`/`lycoris_loha`/`lycoris_dora` types keep the same
+- The plain `lokr`/`lycoris_lokr`/`lycoris_loha`/`lycoris_locon` types keep the same
   light footprint as the original LoKr.
 
 ### LyCORIS networks
 
-All eight LyCORIS algorithms are available for the DiT (same library backend as SDXL —
+All seven LyCORIS algorithms are available for the DiT (same library backend as SDXL —
 see the type reference in `training-sdxl-lora-lokr.md` for what each one is):
-`lycoris_locon`, `lycoris_loha`, `lycoris_lokr`, `lycoris_dora`, `lycoris_dylora`,
-`lycoris_glora`, `lycoris_diag_oft`, `lycoris_boft`.
+`lycoris_locon`, `lycoris_loha`, `lycoris_lokr`, `lycoris_dylora`,
+`lycoris_glora`, `lycoris_diag_oft`, `lycoris_boft`. DoRA is the `dora_wd` toggle on
+locon/loha/lokr, not a separate type.
 
 ```toml
 [adapter]
-type = "lycoris_loha"   # any of the eight types above
+type = "lycoris_loha"   # any of the seven types above
 rank = 8
 ```
 
