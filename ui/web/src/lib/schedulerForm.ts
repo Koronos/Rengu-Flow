@@ -1,9 +1,13 @@
 /**
  * LR scheduler form helpers. Keep in sync with rengu_flow_ui/scheduler_form.py.
+ *
+ * Built-in scheduler names and KV defaults are NOT hardcoded here: they come from
+ * the backend via `registries.scheduler_kv_defaults` (built-in names) and
+ * `registries.scheduler_fqn_kv_defaults` (suggested torch FQNs). Passing them in
+ * keeps custom-type detection and prefill in lock-step with the scheduler registry.
  */
 
 import type { FormValues } from "../types/forms";
-import { schedulerKvDefaults } from "./optimKvDefaults";
 
 export const SCHEMA_SCHEDULER_PATHS = new Set([
   "lr_scheduler",
@@ -11,32 +15,51 @@ export const SCHEMA_SCHEDULER_PATHS = new Set([
   "lr_scheduler_args.extra_params",
 ]);
 
-/** Lowercase built-in scheduler registry names. */
-export const KNOWN_BUILTIN_SCHEDULER_TYPES = new Set([
-  "constant",
-  "linear",
-  "cosine",
-  "rex",
-  "none",
-]);
+/** Registry data the form needs, sourced from the schema's `registries`. */
+export interface SchedulerRegistries {
+  /** Lowercase built-in scheduler name -> default [lr_scheduler_args] KV rows. */
+  builtinKvDefaults: Record<string, Record<string, unknown>>;
+  /** Suggested fully-qualified scheduler path -> default KV rows. */
+  fqnKvDefaults: Record<string, Record<string, unknown>>;
+}
+
+function builtinSet(registries: SchedulerRegistries | null | undefined): Set<string> {
+  return new Set(Object.keys(registries?.builtinKvDefaults ?? {}).map((n) => n.toLowerCase()));
+}
+
+function schedulerKvDefaults(
+  name: string,
+  registries: SchedulerRegistries | null | undefined
+): Record<string, unknown> {
+  if (!name) return {};
+  if (name.includes(".")) {
+    return { ...(registries?.fqnKvDefaults?.[name] ?? {}) };
+  }
+  return { ...(registries?.builtinKvDefaults?.[name.toLowerCase()] ?? {}) };
+}
 
 export function normalizeSchedulerType(value: unknown): string {
   if (value === undefined || value === null) return "";
   return String(value).trim();
 }
 
-export function isCustomSchedulerType(value: unknown): boolean {
+export function isCustomSchedulerType(
+  value: unknown,
+  registries: SchedulerRegistries | null | undefined
+): boolean {
   const name = normalizeSchedulerType(value);
   if (!name) return false;
   if (name.includes(".")) return true;
-  return !KNOWN_BUILTIN_SCHEDULER_TYPES.has(name.toLowerCase());
+  return !builtinSet(registries).has(name.toLowerCase());
 }
 
-export function normalizeBuiltinSchedulerType(value: unknown): unknown {
+export function normalizeBuiltinSchedulerType(
+  value: unknown,
+  registries: SchedulerRegistries | null | undefined
+): unknown {
   if (typeof value !== "string") return value;
   const trimmed = value.trim();
-  const key = trimmed.toLowerCase();
-  if (KNOWN_BUILTIN_SCHEDULER_TYPES.has(key)) return key;
+  if (builtinSet(registries).has(trimmed.toLowerCase())) return trimmed.toLowerCase();
   return trimmed;
 }
 
@@ -66,17 +89,24 @@ export function pruneSchedulerForm(form: FormValues, schedType?: unknown): FormV
   return next;
 }
 
-export function defaultsForSchedulerTypeChange(schedType: unknown): FormValues {
+export function defaultsForSchedulerTypeChange(
+  schedType: unknown,
+  registries: SchedulerRegistries | null | undefined
+): FormValues {
   const name = normalizeSchedulerType(schedType);
   if (!name) return {};
-  return { "lr_scheduler_args.extra_params": schedulerKvDefaults(name) };
+  return { "lr_scheduler_args.extra_params": schedulerKvDefaults(name, registries) };
 }
 
-export function applySchedulerTypeChange(form: FormValues, nextType: unknown): FormValues {
-  const normalized = normalizeBuiltinSchedulerType(nextType);
+export function applySchedulerTypeChange(
+  form: FormValues,
+  nextType: unknown,
+  registries: SchedulerRegistries | null | undefined
+): FormValues {
+  const normalized = normalizeBuiltinSchedulerType(nextType, registries);
   let next: FormValues = { ...form, lr_scheduler: normalized };
   next = pruneSchedulerForm(next, normalized);
-  const defaults = defaultsForSchedulerTypeChange(normalized);
+  const defaults = defaultsForSchedulerTypeChange(normalized, registries);
   if ("lr_scheduler_args.extra_params" in defaults) {
     next["lr_scheduler_args.extra_params"] = defaults["lr_scheduler_args.extra_params"];
   } else {

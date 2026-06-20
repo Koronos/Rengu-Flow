@@ -3,13 +3,31 @@ import {
   applySchedulerTypeChange,
   isCustomSchedulerType,
   pruneSchedulerForm,
+  type SchedulerRegistries,
 } from "./schedulerForm";
-import { SCHEDULER_BUILTIN_KV_DEFAULTS } from "./optimKvDefaults";
+
+// Stand-in for the backend `registries` scheduler payload.
+const REG: SchedulerRegistries = {
+  builtinKvDefaults: {
+    none: {},
+    constant: { factor: 1.0 },
+    linear: { start_factor: 1.0, end_factor: 0.0, total_iters: "total_steps" },
+    cosine: { lr_min: 0.0 },
+    rex: { lr_min: 0.0, rex_d: 0.5 },
+  },
+  fqnKvDefaults: {
+    "torch.optim.lr_scheduler.CosineAnnealingLR": {
+      T_max: "effective_total_steps",
+      eta_min: 0.0,
+    },
+  },
+};
 
 describe("schedulerForm", () => {
-  it("detects custom scheduler types", () => {
-    expect(isCustomSchedulerType("cosine")).toBe(false);
-    expect(isCustomSchedulerType("torch.optim.lr_scheduler.CosineAnnealingLR")).toBe(true);
+  it("detects custom scheduler types against the registry", () => {
+    expect(isCustomSchedulerType("cosine", REG)).toBe(false);
+    expect(isCustomSchedulerType("torch.optim.lr_scheduler.CosineAnnealingLR", REG)).toBe(true);
+    expect(isCustomSchedulerType("notareal_sched", REG)).toBe(true);
   });
 
   it("replaces KV when switching builtin types", () => {
@@ -18,10 +36,10 @@ describe("schedulerForm", () => {
       warmup_steps: 100,
       "lr_scheduler_args.extra_params": { lr_min: 0.01 },
     };
-    const next = applySchedulerTypeChange(form, "linear");
+    const next = applySchedulerTypeChange(form, "linear", REG);
     expect(next.lr_scheduler).toBe("linear");
     expect(next.warmup_steps).toBe(100);
-    expect(next["lr_scheduler_args.extra_params"]).toEqual(SCHEDULER_BUILTIN_KV_DEFAULTS.linear);
+    expect(next["lr_scheduler_args.extra_params"]).toEqual(REG.builtinKvDefaults.linear);
   });
 
   it("prunes orphan flat scheduler keys but keeps warmup_steps", () => {
@@ -39,7 +57,8 @@ describe("schedulerForm", () => {
   it("prefills extra_params for suggested FQN schedulers", () => {
     const next = applySchedulerTypeChange(
       { lr_scheduler: "cosine" },
-      "torch.optim.lr_scheduler.CosineAnnealingLR"
+      "torch.optim.lr_scheduler.CosineAnnealingLR",
+      REG
     );
     expect(next["lr_scheduler_args.extra_params"]).toMatchObject({
       T_max: "effective_total_steps",
@@ -48,11 +67,8 @@ describe("schedulerForm", () => {
   });
 
   it("prefills builtin cosine defaults", () => {
-    const next = applySchedulerTypeChange({ lr_scheduler: "constant" }, "cosine");
-    expect(next["lr_scheduler_args.extra_params"]).toMatchObject({
-      lr_min: 0.0,
-    });
-    expect(next["lr_scheduler_args.extra_params"]).not.toHaveProperty("warmup_steps");
+    const next = applySchedulerTypeChange({ lr_scheduler: "constant" }, "cosine", REG);
+    expect(next["lr_scheduler_args.extra_params"]).toMatchObject({ lr_min: 0.0 });
   });
 
   it("none scheduler gets empty KV and drops warmup field", () => {
@@ -62,7 +78,8 @@ describe("schedulerForm", () => {
         warmup_steps: 5,
         "lr_scheduler_args.extra_params": { lr_min: 0.1 },
       },
-      "none"
+      "none",
+      REG
     );
     expect(next["lr_scheduler_args.extra_params"]).toEqual({});
     expect(next.warmup_steps).toBeUndefined();

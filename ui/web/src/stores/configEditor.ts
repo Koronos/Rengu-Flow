@@ -83,6 +83,19 @@ export const useConfigEditorStore = defineStore("configEditor", () => {
     };
   });
 
+  const schedulerRegistries = computed(() => {
+    const reg = schema.value?.registries as
+      | {
+          scheduler_kv_defaults?: Record<string, Record<string, unknown>>;
+          scheduler_fqn_kv_defaults?: Record<string, Record<string, unknown>>;
+        }
+      | undefined;
+    return {
+      builtinKvDefaults: reg?.scheduler_kv_defaults ?? {},
+      fqnKvDefaults: reg?.scheduler_fqn_kv_defaults ?? {},
+    };
+  });
+
   const editorRunName = computed(() => {
     const raw = form.value?.run_name;
     return typeof raw === "string" && raw.trim() ? raw.trim() : "";
@@ -190,7 +203,7 @@ export const useConfigEditorStore = defineStore("configEditor", () => {
       next = applyOptimizerTypeChange(next, value, optimizerRegistries.value);
     }
     if (path === "lr_scheduler") {
-      next = applySchedulerTypeChange(next, value);
+      next = applySchedulerTypeChange(next, value, schedulerRegistries.value);
     }
     if (path === "adapter.type") {
       next = applyAdapterTypeChange(next, value, schema.value, modelCapabilities.value);

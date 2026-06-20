@@ -19,6 +19,8 @@ from rengu_flow_ui.model_form import attach_model_section_visibility
 from rengu_flow_ui.optimizer_form import attach_optimizer_visibility
 from rengu_flow_ui.optim_kv_defaults import (
     OPTIMIZER_REGISTRY_KV_DEFAULTS,
+    SCHEDULER_BUILTIN_KV_DEFAULTS,
+    SCHEDULER_FQN_KV_DEFAULTS,
     SCHEDULER_RUNTIME_TOKENS,
     SUGGESTED_SCHEDULER_FQNS,
 )
@@ -356,6 +358,10 @@ def get_registries() -> dict[str, Any]:
         "optimizer_kv_defaults": {k: dict(v) for k, v in OPTIMIZER_REGISTRY_KV_DEFAULTS.items()},
         "optimizer_allow_custom": True,
         "schedulers": sorted(set(scheduler_registry.keys()) | set(SUGGESTED_SCHEDULER_FQNS)),
+        # Canonical scheduler KV defaults so the form prefills from the backend
+        # instead of a hand-maintained frontend copy (builtin names + suggested FQNs).
+        "scheduler_kv_defaults": {k: dict(v) for k, v in SCHEDULER_BUILTIN_KV_DEFAULTS.items()},
+        "scheduler_fqn_kv_defaults": {k: dict(v) for k, v in SCHEDULER_FQN_KV_DEFAULTS.items()},
         "scheduler_allow_custom": True,
         "dtypes": DTYPE_OPTIONS,
         "activation_checkpointing": ACTIVATION_CHECKPOINTING_OPTIONS,

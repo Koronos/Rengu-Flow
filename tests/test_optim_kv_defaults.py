@@ -34,6 +34,25 @@ def test_optimizer_kv_defaults_exposed_in_registries() -> None:
     assert kv["nekaon"]["lr"] == 1e-4  # a kaon optimizer the old FE list missed
 
 
+def test_every_registry_scheduler_has_kv_defaults() -> None:
+    """Each built-in scheduler must have a KV-defaults entry (``none`` legitimately empty)."""
+    from rengu_flow.optim.resolver import scheduler_registry
+    from rengu_flow_ui.optim_kv_defaults import SCHEDULER_BUILTIN_KV_DEFAULTS
+
+    missing = set(scheduler_registry) - set(SCHEDULER_BUILTIN_KV_DEFAULTS)
+    assert not missing, f"schedulers in the registry without a KV-defaults entry: {sorted(missing)}"
+
+
+def test_scheduler_kv_defaults_exposed_in_registries() -> None:
+    """The schema must ship scheduler KV defaults (builtin + suggested FQNs)."""
+    from rengu_flow_ui.config_schema import get_registries
+
+    reg = get_registries()
+    assert reg["scheduler_kv_defaults"]["cosine"] == {"lr_min": 0.0}
+    fqn = "torch.optim.lr_scheduler.CosineAnnealingLR"
+    assert reg["scheduler_fqn_kv_defaults"][fqn]["T_max"] == "effective_total_steps"
+
+
 def test_scheduler_runtime_token_hints_cover_all_tokens() -> None:
     assert set(SCHEDULER_RUNTIME_TOKEN_HINTS) == set(SCHEDULER_RUNTIME_TOKENS)
     assert "min(total_steps" in SCHEDULER_RUNTIME_TOKEN_HINTS["effective_total_steps"]
