@@ -5,6 +5,7 @@
     :url-list="viewerUrls"
     :initial-index="viewerIndex"
     teleported
+    hide-on-click-modal
     :z-index="viewerZIndex"
     @close="closeDatasetImageViewer"
   />
