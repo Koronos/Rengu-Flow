@@ -5,10 +5,6 @@ from __future__ import annotations
 from importlib import resources
 
 
-def assets_dir() -> str:
-    return str(resources.files("rengu_flow.model.cosmos_predict2").joinpath("assets"))
-
-
 def qwen3_config_dir() -> str:
     return str(resources.files("rengu_flow.model.cosmos_predict2").joinpath("assets", "qwen3_06b"))
 
