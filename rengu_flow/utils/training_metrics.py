@@ -42,9 +42,12 @@ def _resolve_lr(optimizer) -> float | None:
 def _resolve_grad_norm(model_engine, optimizer) -> float | None:
     """Global grad norm, optimizer-agnostic.
 
-    DeepSpeed computes it whenever ``gradient_clipping`` is set (the repo default is 1.0), so it
-    works for any optimizer. Fall back to ``GenericOptim._grad_norm`` for the gradient-release path
-    (clipping 0, no engine norm). Returns None when neither is available / meaningful.
+    Whenever ``gradient_clipping`` is set (repo default 1.0), DeepSpeed computes the norm while
+    clipping; ``install_grad_norm_capture`` keeps it on the engine, so this works for ANY optimizer
+    on that path (AdamW, Prodigy, GenericOptim, custom). The ``optimizer._grad_norm`` fallback only
+    catches an optimizer that sets it directly with clipping off. The gradient-release path has no
+    grad norm: clipping is 0 (no engine norm) and grads are freed per-param before a global pass,
+    so it returns None there. Returns None when nothing is available.
     """
     if model_engine is not None:
         try:
@@ -55,6 +58,39 @@ def _resolve_grad_norm(model_engine, optimizer) -> float | None:
             return float(gn)
     inner = getattr(optimizer, "_grad_norm", None)
     return float(inner) if isinstance(inner, (int, float)) else None
+
+
+def install_grad_norm_capture(model_engine, _clip_fn=None) -> None:
+    """Keep the global grad norm DeepSpeed computes while clipping, so train/grad_norm can log.
+
+    On the bf16/fp32 optimizer path DeepSpeed's ``clip_fp32_gradients()`` clips in place and throws
+    away the norm, leaving ``get_global_grad_norm()`` at None for AdamW/Prodigy — the UI chart stays
+    empty. Re-wrap that clip to store the value it already computes; no extra passes over the grads.
+    No-op when clipping is off (gradient-release path); ``GenericOptim._grad_norm`` covers that.
+
+    ``_clip_fn`` is a test seam: defaults to DeepSpeed's ``clip_grad_norm_``, imported lazily so the
+    ~17s deepspeed import stays out of tests.
+    """
+    if model_engine is None or not hasattr(model_engine, "clip_fp32_gradients"):
+        return
+    if model_engine.gradient_clipping() <= 0:
+        return
+
+    def _clip_and_capture():
+        clip = _clip_fn
+        if clip is None:
+            from deepspeed.runtime.utils import clip_grad_norm_ as clip
+        total_norm = clip(
+            parameters=model_engine.module.parameters(),
+            max_norm=model_engine.gradient_clipping(),
+            mpu=model_engine.mpu,
+        )
+        # Must end up a plain float: _resolve_grad_norm()'s isinstance check drops tensors silently.
+        model_engine._global_grad_norm = (
+            float(total_norm.item()) if torch.is_tensor(total_norm) else float(total_norm)
+        )
+
+    model_engine.clip_fp32_gradients = _clip_and_capture
 
 
 def log_training_step(

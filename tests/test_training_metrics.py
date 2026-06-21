@@ -7,8 +7,42 @@ import torch
 from rengu_flow.utils.training_metrics import (
     get_automagic_lrs,
     get_prodigy_d,
+    install_grad_norm_capture,
     log_training_step,
 )
+
+
+class _FakeEngine:
+    """Minimal stand-in for a DeepSpeed engine on the bf16/fp32 clip path."""
+
+    def __init__(self, clipping=1.0):
+        self._clipping = clipping
+        self.mpu = None
+        self.module = torch.nn.Linear(1, 1)
+        self._global_grad_norm = None
+
+    def gradient_clipping(self):
+        return self._clipping
+
+    def clip_fp32_gradients(self):  # replaced by install_grad_norm_capture
+        pass
+
+
+def test_install_grad_norm_capture_stores_float_from_tensor():
+    # DeepSpeed's clip_grad_norm_ returns a tensor; the capture must store a float, else
+    # _resolve_grad_norm()'s isinstance check drops it silently and the chart stays empty.
+    engine = _FakeEngine()
+    install_grad_norm_capture(engine, _clip_fn=lambda **_: torch.tensor(2.5))
+    engine.clip_fp32_gradients()
+    assert engine._global_grad_norm == 2.5
+    assert isinstance(engine._global_grad_norm, float)
+
+
+def test_install_grad_norm_capture_noop_when_clipping_off():
+    engine = _FakeEngine(clipping=0.0)
+    install_grad_norm_capture(engine, _clip_fn=lambda **_: torch.tensor(9.0))
+    engine.clip_fp32_gradients()
+    assert engine._global_grad_norm is None
 
 
 def test_get_prodigy_d_averages_groups():
