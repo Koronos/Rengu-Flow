@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from rengu_flow.config import local_config
 from rengu_flow_ui import toolbox
+from rengu_flow_ui._http_util import http_errors
 from rengu_flow_ui.settings import ui_token
 
 API_PREFIX = "/api/v1"
@@ -40,16 +41,13 @@ class RunBody(BaseModel):
 @contextmanager
 def _http_errors():
     try:
-        yield
-    except KeyError:
-        raise HTTPException(404, "Tool not found")
+        with http_errors("Tool not found"):
+            yield
     except toolbox.ExecutionDisabledError as e:
         raise HTTPException(409, str(e))
     except toolbox.RunActiveError as e:
         raise HTTPException(409, str(e))
     except FileNotFoundError as e:
-        raise HTTPException(400, str(e))
-    except ValueError as e:
         raise HTTPException(400, str(e))
 
 

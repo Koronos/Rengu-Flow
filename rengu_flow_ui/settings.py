@@ -56,7 +56,7 @@ def ui_port() -> int:
 
 
 def ui_token() -> str | None:
-    return os.environ.get("RENGU_FLOW_UI_TOKEN") or None
+    return os.environ.get("RENGU_FLOW_UI_TOKEN")
 
 
 def queue_poll_interval() -> float:

@@ -231,9 +231,9 @@ def _read_exit_code(job: db.JobRecord) -> int | None:
 
 
 def _now() -> str:
-    from datetime import datetime, timezone
+    from rengu_flow_ui._time import now_utc_iso
 
-    return datetime.now(timezone.utc).isoformat()
+    return now_utc_iso()
 
 
 def refresh_all_jobs() -> None:

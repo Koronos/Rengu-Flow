@@ -344,6 +344,3 @@ def scheduler_kv_defaults(sched_type: str) -> dict[str, Any]:
     return kv
 
 
-def scheduler_extra_params_defaults(sched_type: str) -> dict[str, Any]:
-    """Alias for scheduler_kv_defaults (FQN-focused name kept for callers)."""
-    return scheduler_kv_defaults(sched_type)

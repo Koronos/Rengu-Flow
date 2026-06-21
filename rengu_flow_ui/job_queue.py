@@ -664,6 +664,6 @@ def _normalize_queue_positions() -> None:
 
 
 def _now() -> str:
-    from datetime import datetime, timezone
+    from rengu_flow_ui._time import now_utc_iso
 
-    return datetime.now(timezone.utc).isoformat()
+    return now_utc_iso()

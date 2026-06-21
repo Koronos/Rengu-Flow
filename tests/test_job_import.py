@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from rengu_flow_ui import datasets_store, job_import
+from rengu_flow_ui import datasets_store, job_import, library_db
 from rengu_flow_ui.job_import import JobImportError
 
 
@@ -55,7 +55,7 @@ def test_preview_and_import_run(ui_data_tmp: Path) -> None:
     # The run carries its config inline as a snapshot.
     assert 'type = "sdxl"' in job.config_content
     # The imported dataset is stored and named after the run.
-    ds_names = [d["name"] for d in datasets_store.list_datasets_summary()]
+    ds_names = [d["name"] for d in library_db.list_datasets_summary()]
     assert f"{run.name} dataset" in ds_names
 
     with pytest.raises(JobImportError, match="already"):
@@ -127,7 +127,7 @@ def test_import_resolves_relative_paths_to_absolute(ui_data_tmp: Path) -> None:
     assert cfg["output_dir"] == "output"
 
     # The inserted library dataset has an ABSOLUTE [[directory]].path.
-    summaries = datasets_store.list_datasets_summary()
+    summaries = library_db.list_datasets_summary()
     ds = next(d for d in summaries if d["name"] == f"{run.name} dataset")
     text = datasets_store.read_dataset_text(ds["id"])
     dcfg = _toml.loads(text)

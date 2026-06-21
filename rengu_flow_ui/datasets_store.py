@@ -53,35 +53,6 @@ def parse_dataset_for_ui(content: str) -> dict[str, Any]:
     return {"form": form, "ui_notes": notes}
 
 
-def dataset_exists(dataset_id: str | int) -> bool:
-    return library_db.dataset_exists(dataset_id)
-
-
-def list_datasets_summary(
-    *,
-    sort: str | None = None,
-    order: str | None = None,
-) -> list[dict[str, Any]]:
-    return library_db.list_datasets_summary(sort=sort, order=order)
-
-
-def search_datasets_page(
-    q: str,
-    *,
-    page: int,
-    page_size: int,
-    sort: str | None = None,
-    order: str | None = None,
-) -> dict[str, Any]:
-    return library_db.search_datasets(
-        q, page=page, page_size=page_size, sort=sort, order=order
-    )
-
-
-def parse_dataset_dict(content: str) -> dict[str, Any]:
-    return loads_for_training(content)
-
-
 def prepare_dataset_content_for_storage(content: str, name: str | None) -> str:
     """Normalize TOML on save: strip the display name from the body. The name is stored
     in the ``datasets.name`` column, never embedded in the trainer-facing TOML."""
@@ -107,15 +78,11 @@ def dataset_library_ref(dataset_id: str | int, display_name: str | None = None) 
     return library_db.dataset_library_ref(dataset_id, display_name)
 
 
-def create_dataset(content: str, name: str | None = None) -> int:
-    return insert_dataset(content, name=name)
-
-
 def compose_datasets(source_ids: list[str | int]) -> int:
     """Merge [[directory]] tables from library datasets into one record."""
     if not source_ids:
         raise ValueError("Select at least one source dataset")
-    configs = [parse_dataset_dict(read_dataset_text(sid)) for sid in source_ids]
+    configs = [loads_for_training(read_dataset_text(sid)) for sid in source_ids]
     merged = merge_dataset_configs(configs)
     content = toml.dumps(merged)
     return insert_dataset(content)
@@ -132,7 +99,7 @@ def list_for_training_picker() -> list[dict[str, str]]:
     """
     ensure_data_dirs()
     out: list[dict[str, str]] = []
-    for summary in list_datasets_summary():
+    for summary in library_db.list_datasets_summary():
         did = summary["id"]
         display = summary.get("name") or str(did)
         ref = library_db.dataset_library_ref(did, display)

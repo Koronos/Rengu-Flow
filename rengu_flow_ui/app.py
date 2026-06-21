@@ -7,7 +7,7 @@ import json
 import logging
 import subprocess
 import sys
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -19,7 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from rengu_flow.version import package_version, version_info
-from rengu_flow_ui import datasets_store, db, jobs, live_stream, metrics_tb, run_staging, runs_scanner, signals
+from rengu_flow_ui import datasets_store, db, jobs, library_db, live_stream, metrics_tb, run_staging, runs_scanner, signals
 from rengu_flow_ui.dataset_form import form_to_toml as dataset_form_to_toml
 from rengu_flow_ui.dataset_form import parse_toml_to_form
 from rengu_flow_ui.dataset_image_preview import (
@@ -62,15 +62,11 @@ _IMAGE_MEDIA_TYPES = {
 }
 
 
-@contextmanager
 def _job_http_errors():
     """Translate job-operation errors to HTTP status: missing job -> 404, bad request -> 400."""
-    try:
-        yield
-    except KeyError:
-        raise HTTPException(404, "Job not found")
-    except ValueError as e:
-        raise HTTPException(400, str(e))
+    from rengu_flow_ui._http_util import http_errors
+
+    return http_errors("Job not found")
 
 
 class ConfigExportBody(BaseModel):
@@ -110,17 +106,6 @@ class JobUpdate(BaseModel):
     cache_only: bool | None = None
     trust_cache: bool | None = None
     regenerate_cache: bool | None = None
-
-
-class MaintenanceResetBody(BaseModel):
-    confirmation: str | None = None
-    confirm: bool = False
-
-
-class DepsInstallBody(BaseModel):
-    profile: str
-    execute: bool = False
-    confirm: bool = False
 
 
 class SettingsUpdateBody(BaseModel):
@@ -377,7 +362,7 @@ def create_app() -> FastAPI:
         order: str = Query("desc", description="asc | desc"),
     ) -> dict[str, Any]:
         if page is not None:
-            result = datasets_store.search_datasets_page(
+            result = library_db.search_datasets(
                 q or "", page=page, page_size=page_size, sort=sort, order=order
             )
             for row in result["items"]:
@@ -385,7 +370,7 @@ def create_app() -> FastAPI:
             return result
         items = [
             {**row, "dataset_ref": datasets_store.dataset_library_ref(row["id"])}
-            for row in datasets_store.list_datasets_summary()
+            for row in library_db.list_datasets_summary()
         ]
         return {"datasets": items, "picker": datasets_store.list_for_training_picker()}
 
@@ -447,7 +432,7 @@ def create_app() -> FastAPI:
 
     @app.put(f"{API_PREFIX}/datasets/{{dataset_id}}")
     def put_dataset(dataset_id: str, body: DatasetUpdate) -> dict[str, Any]:
-        if not datasets_store.dataset_exists(dataset_id):
+        if not library_db.dataset_exists(dataset_id):
             raise HTTPException(404, "Dataset not found")
         did = datasets_store.update_dataset_text(
             dataset_id, body.content, name=body.name
@@ -1184,13 +1169,6 @@ def create_app() -> FastAPI:
     def list_fs_runs(output_dir: str = "output") -> dict[str, Any]:
         return {"runs": runs_scanner.scan_output_runs(resolve_repo_path(output_dir))}
 
-    @app.get(f"{API_PREFIX}/runs/discover")
-    def discover_run(output_dir: str = "output") -> dict[str, Any]:
-        runs = runs_scanner.scan_output_runs(resolve_repo_path(output_dir))
-        if not runs:
-            return {"run": None}
-        return {"run": runs[-1]}
-
     # Registered before /runs/{run_name} so the literal path wins over the {run_name} param.
     @app.get(f"{API_PREFIX}/runs/compare")
     def compare_fs_runs(runs: str = "", output_dir: str = "output") -> dict[str, Any]:
@@ -1294,60 +1272,11 @@ def create_app() -> FastAPI:
         """renga version + git commit + branch/beta channel + installed kaon, for the UI."""
         return version_info()
 
-    def _require_maintenance() -> None:
-        from rengu_flow_ui import maintenance
-
-        if not maintenance.maintenance_enabled():
-            raise HTTPException(
-                403,
-                "Maintenance API disabled. Set RENGUFLOW_MAINTENANCE=1 to enable it.",
-            )
-
     @app.get(f"{API_PREFIX}/maintenance/enabled")
     def maintenance_enabled_route() -> dict[str, bool]:
         from rengu_flow_ui import maintenance
 
         return {"enabled": maintenance.maintenance_enabled()}
-
-    @app.get(f"{API_PREFIX}/maintenance/status")
-    def maintenance_status() -> dict[str, Any]:
-        from rengu_flow_ui import maintenance
-
-        _require_maintenance()
-        return maintenance.get_status()
-
-    @app.post(f"{API_PREFIX}/maintenance/database/reset")
-    def maintenance_database_reset(
-        body: MaintenanceResetBody | None = None,
-    ) -> dict[str, Any]:
-        from rengu_flow_ui import maintenance
-
-        _require_maintenance()
-        body = body or MaintenanceResetBody()
-        confirm = body.confirm or body.confirmation == maintenance.DB_RESET_CONFIRM_TOKEN
-        try:
-            return maintenance.reset_database(confirm=confirm)
-        except ValueError as e:
-            raise HTTPException(400, str(e))
-
-    @app.post(f"{API_PREFIX}/maintenance/submodules/update")
-    def maintenance_submodules_update() -> dict[str, Any]:
-        from rengu_flow_ui import maintenance
-
-        _require_maintenance()
-        return maintenance.submodule_update()
-
-    @app.post(f"{API_PREFIX}/maintenance/deps/install")
-    def maintenance_deps_install(body: DepsInstallBody) -> dict[str, Any]:
-        from rengu_flow_ui import maintenance
-
-        _require_maintenance()
-        try:
-            return maintenance.deps_install(
-                body.profile, execute=body.execute, confirm=body.confirm
-            )
-        except ValueError as e:
-            raise HTTPException(400, str(e))
 
     @app.get(f"{API_PREFIX}/settings")
     def get_settings() -> dict[str, Any]:
@@ -1540,7 +1469,7 @@ def _compare_config_row(run_dir) -> dict[str, Any] | None:
 
 def _created_dataset_response(content: str, name: str | None) -> dict[str, Any]:
     """Create a dataset from TOML and return the UI's create/import response shape."""
-    cid = datasets_store.create_dataset(content, name=name)
+    cid = library_db.insert_dataset(content, name=name)
     row = datasets_store.read_dataset_for_ui(cid)
     return {
         "id": cid,

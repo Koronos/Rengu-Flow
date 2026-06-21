@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from rengu_flow.optim.resolver import scheduler_registry
+from rengu_flow_ui._optim_util import extras_dict_from_form as _extras_dict_from_form
+from rengu_flow_ui._optim_util import is_custom_param_type as _is_custom_param_type
+from rengu_flow_ui._optim_util import normalize_param_type as _normalize_param_type
 from rengu_flow_ui.optim_kv_defaults import scheduler_kv_defaults
 
 # Flat form keys owned by the config schema (not merged from lr_scheduler_args.extra_params).
@@ -21,29 +23,18 @@ KNOWN_BUILTIN_SCHEDULER_TYPES: frozenset[str] = frozenset(k.lower() for k in sch
 
 
 def normalize_scheduler_type(value: Any) -> str:
-    if value is None:
-        return ""
-    return str(value).strip()
+    return _normalize_param_type(value)
 
 
 def is_custom_scheduler_type(value: Any) -> bool:
     """True for FQN paths and other non-registry scheduler names."""
-    name = normalize_scheduler_type(value)
-    if not name:
-        return False
-    if "." in name:
-        return True
-    return name.lower() not in KNOWN_BUILTIN_SCHEDULER_TYPES
-
-
-def when_scheduler_selected() -> dict[str, Any]:
-    return {"form_nonempty": "lr_scheduler"}
+    return _is_custom_param_type(value, known_builtins=KNOWN_BUILTIN_SCHEDULER_TYPES)
 
 
 def visibility_for_scheduler_path(path: str) -> dict[str, Any] | None:
     """Return a visibility clause for a schema field path, or None for always visible."""
     if path in ("lr_scheduler_args.extra_params", "warmup_steps"):
-        return when_scheduler_selected()
+        return {"form_nonempty": "lr_scheduler"}
     return None
 
 
@@ -76,21 +67,6 @@ def defaults_for_scheduler_type_change(sched_type: Any) -> dict[str, Any]:
         return {}
     kv = scheduler_kv_defaults(name)
     return {"lr_scheduler_args.extra_params": kv}
-
-
-def _extras_dict_from_form(raw: Any) -> dict[str, Any]:
-    if isinstance(raw, dict):
-        return dict(raw)
-    if isinstance(raw, str):
-        s = raw.strip()
-        if not s:
-            return {}
-        try:
-            parsed = json.loads(s)
-        except json.JSONDecodeError:
-            return {}
-        return dict(parsed) if isinstance(parsed, dict) else {}
-    return {}
 
 
 def collect_scheduler_extra_params(form: dict[str, Any]) -> dict[str, Any]:

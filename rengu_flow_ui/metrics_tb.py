@@ -10,10 +10,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from rengu_track.reader import invalidate_scalars_cache
 from rengu_track.reader import scalars_for_run as _scalars_for_run
 
-__all__ = ["read_scalars", "invalidate_scalars_cache"]
+__all__ = ["read_scalars"]
 
 
 def read_scalars(

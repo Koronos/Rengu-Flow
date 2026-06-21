@@ -89,12 +89,6 @@ def resolve_job_run_dir(job: db.JobRecord) -> Path | None:
     return None
 
 
-def _run_folder_name(run_dir: Path | None) -> str | None:
-    if run_dir is None:
-        return None
-    return run_dir.name
-
-
 def _read_run_limits(run_dir: Path | None) -> dict[str, Any]:
     if run_dir is None or not run_dir.is_dir():
         return {}
@@ -289,7 +283,7 @@ def _enrich_training_run(stub: dict[str, Any]) -> dict[str, Any]:
     run_dir = resolve_job_run_dir(job)
     progress = compute_run_progress(run_dir)
     _backfill_manifest_from_progress(job, run_dir, progress)
-    run_name = (_run_folder_name(run_dir) or stub["run_name"])
+    run_name = (run_dir.name if run_dir else None) or stub["run_name"]
     label = (progress or {}).get("run_name_label") or run_name
     stub["run_dir"] = str(run_dir) if run_dir else job.run_dir
     stub["run_name"] = run_name

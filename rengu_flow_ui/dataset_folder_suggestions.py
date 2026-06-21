@@ -48,7 +48,7 @@ def collect_folder_suggestions(
         except FileNotFoundError:
             exclude_id = None
 
-    for row in datasets_store.list_datasets_summary():
+    for row in library_db.list_datasets_summary():
         did = row["id"]
         if exclude_id is not None and did == exclude_id:
             continue

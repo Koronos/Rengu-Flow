@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from rengu_flow.registry.optimizers import (
@@ -10,6 +9,9 @@ from rengu_flow.registry.optimizers import (
     VENDOR_OPTIMIZER_ALIASES,
     optimizer_registry,
 )
+from rengu_flow_ui._optim_util import extras_dict_from_form as _extras_dict_from_form
+from rengu_flow_ui._optim_util import is_custom_param_type as _is_custom_param_type
+from rengu_flow_ui._optim_util import normalize_param_type as _normalize_param_type
 from rengu_flow_ui.optim_kv_defaults import optimizer_extra_params_defaults
 
 # Flat form keys owned by the config schema (not merged from optimizer.extra_params).
@@ -43,29 +45,18 @@ ADAM_LIKE_OPTIMIZER_TYPES: frozenset[str] = frozenset(
 
 
 def normalize_optimizer_type(value: Any) -> str:
-    if value is None:
-        return ""
-    return str(value).strip()
+    return _normalize_param_type(value)
 
 
 def is_custom_optimizer_type(value: Any) -> bool:
     """True for FQN paths, pytorch_optimizer class names, and other non-registry types."""
-    name = normalize_optimizer_type(value)
-    if not name:
-        return False
-    if "." in name:
-        return True
-    return name.lower() not in KNOWN_BUILTIN_OPTIMIZER_TYPES
-
-
-def when_optimizer_selected() -> dict[str, Any]:
-    return {"form_nonempty": "optimizer.type"}
+    return _is_custom_param_type(value, known_builtins=KNOWN_BUILTIN_OPTIMIZER_TYPES)
 
 
 def visibility_for_optimizer_path(path: str) -> dict[str, Any] | None:
     """Return a visibility clause for a schema field path, or None for always visible."""
     if path == "optimizer.extra_params":
-        return when_optimizer_selected()
+        return {"form_nonempty": "optimizer.type"}
     return None
 
 
@@ -98,21 +89,6 @@ def defaults_for_optimizer_type_change(opt_type: Any) -> dict[str, Any]:
         return {"optimizer.extra_params": {}}
     kv = optimizer_extra_params_defaults(name)
     return {"optimizer.extra_params": kv}
-
-
-def _extras_dict_from_form(raw: Any) -> dict[str, Any]:
-    if isinstance(raw, dict):
-        return dict(raw)
-    if isinstance(raw, str):
-        s = raw.strip()
-        if not s:
-            return {}
-        try:
-            parsed = json.loads(s)
-        except json.JSONDecodeError:
-            return {}
-        return dict(parsed) if isinstance(parsed, dict) else {}
-    return {}
 
 
 def collect_optimizer_extra_params(form: dict[str, Any]) -> dict[str, Any]:
@@ -166,15 +142,6 @@ def merge_optimizer_extras(form: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def _betas_list_from_optimizer(optimizer: dict[str, Any]) -> list[Any] | None:
-    betas = optimizer.get("betas")
-    if betas is None:
-        return None
-    if isinstance(betas, (list, tuple)):
-        return list(betas)
-    return None
-
-
 def collect_optimizer_betas_validation_errors(config: dict[str, Any]) -> list[str]:
     """Adam-style optimizers require exactly two betas when the key is set."""
     optimizer = config.get("optimizer")
@@ -183,7 +150,8 @@ def collect_optimizer_betas_validation_errors(config: dict[str, Any]) -> list[st
     opt_type = normalize_optimizer_type(optimizer.get("type"))
     if not opt_type or opt_type.lower() not in ADAM_LIKE_OPTIMIZER_TYPES:
         return []
-    betas = _betas_list_from_optimizer(optimizer)
+    _raw_betas = optimizer.get("betas")
+    betas = list(_raw_betas) if isinstance(_raw_betas, (list, tuple)) else None
     if betas is None:
         return []
     if len(betas) != 2:
