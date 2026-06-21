@@ -56,7 +56,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import PreviewImage from "./PreviewImage.vue";
-import { useDatasetImageViewer } from "../composables/useDatasetImageViewer";
+import { useDatasetImageViewerStore } from "../stores/datasetImageViewer";
 import { api } from "../api";
 import { formatError } from "../lib/formatError";
 import { formatMediaCount } from "../lib/formatMediaCount";
@@ -99,7 +99,7 @@ const previewList = computed(() =>
   images.value.map((img) => imageUrl(img.token))
 );
 
-const { openDatasetImageViewer, closeDatasetImageViewer } = useDatasetImageViewer();
+const { openDatasetImageViewer, closeDatasetImageViewer } = useDatasetImageViewerStore();
 
 function openViewer(index: number) {
   openDatasetImageViewer(previewList.value, index);

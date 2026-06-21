@@ -81,8 +81,8 @@ import DatasetPreviewCollection from "./DatasetPreviewCollection.vue";
 import DatasetViewModeToggle from "./DatasetViewModeToggle.vue";
 import ImportTomlOverlay from "./ImportTomlOverlay.vue";
 import { formatError } from "../lib/formatError";
-import { useDatasetFormModal } from "../composables/useDatasetFormModal";
-import { useDatasetGallery } from "../composables/useDatasetGallery";
+import { useDatasetFormModalStore } from "../stores/datasetFormModal";
+import { useDatasetGalleryStore } from "../stores/datasetGallery";
 import { useDatasetViewMode } from "../composables/useDatasetViewMode";
 import { canonicalDatasetRef, formatDatasetLibraryRef } from "../lib/datasetLibraryRef";
 import { cacheDatasetDisplayLabel } from "../lib/resolveDatasetLabels";
@@ -113,7 +113,7 @@ const emit = defineEmits<{
   (e: "select-multiple", value: string[]): void;
 }>();
 const vLoading = ElLoadingDirective;
-const datasetModal = useDatasetFormModal();
+const datasetModal = useDatasetFormModalStore();
 
 const loading = ref(false);
 const filterText = ref("");
@@ -121,7 +121,7 @@ const items = ref<DatasetPickerItem[]>([]);
 const selectedPaths = ref<string[]>([]);
 const importOverlay = ref<InstanceType<typeof ImportTomlOverlay> | null>(null);
 const { viewMode } = useDatasetViewMode("rengu-flow-dataset-picker-view", "table");
-const { showFromLibrary } = useDatasetGallery();
+const { showFromLibrary } = useDatasetGalleryStore();
 
 const filteredItems = computed(() => {
   const q = filterText.value.trim().toLowerCase();

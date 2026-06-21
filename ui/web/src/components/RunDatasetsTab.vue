@@ -68,8 +68,8 @@ import DatasetPreviewActions from "./DatasetPreviewActions.vue";
 import DatasetPreviewCollection from "./DatasetPreviewCollection.vue";
 import PathFieldControl from "./PathFieldControl.vue";
 import { useConfigEditorStore } from "../stores/configEditor";
-import { useDatasetFormModal } from "../composables/useDatasetFormModal";
-import { useDatasetGallery } from "../composables/useDatasetGallery";
+import { useDatasetFormModalStore } from "../stores/datasetFormModal";
+import { useDatasetGalleryStore } from "../stores/datasetGallery";
 import {
   useSelectedDatasetPreviews,
   type SelectedDatasetPreviewItem,
@@ -83,8 +83,8 @@ import {
 
 const editor = useConfigEditorStore();
 const { form } = storeToRefs(editor);
-const { showFromLibrary } = useDatasetGallery();
-const datasetModal = useDatasetFormModal();
+const { showFromLibrary } = useDatasetGalleryStore();
+const datasetModal = useDatasetFormModalStore();
 
 const pickerOpen = ref(false);
 const pathDraft = ref("");

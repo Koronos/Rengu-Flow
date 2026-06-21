@@ -1,16 +1,17 @@
 import { ref } from "vue";
+import { defineStore } from "pinia";
 import { api } from "../api";
 import { formatError } from "../lib/formatError";
 
 /** Shared state for the app-wide DatasetGalleryHost (list / picker / editor). */
-const galleryOpen = ref(false);
-const galleryTitle = ref("Image gallery");
-const galleryContent = ref("");
-const galleryDirectoryIndex = ref<number | undefined>(undefined);
-const galleryLoading = ref(false);
-const galleryError = ref("");
+export const useDatasetGalleryStore = defineStore("datasetGallery", () => {
+  const galleryOpen = ref(false);
+  const galleryTitle = ref("Image gallery");
+  const galleryContent = ref("");
+  const galleryDirectoryIndex = ref<number | undefined>(undefined);
+  const galleryLoading = ref(false);
+  const galleryError = ref("");
 
-export function useDatasetGallery() {
   function showFromContent({
     title,
     content,
@@ -68,4 +69,4 @@ export function useDatasetGallery() {
     showFromLibrary,
     closeGallery,
   };
-}
+});

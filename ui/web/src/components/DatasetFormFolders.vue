@@ -121,7 +121,7 @@ import DatasetFolderDetailsButton from "./DatasetFolderDetailsButton.vue";
 import DatasetPreviewActions from "./DatasetPreviewActions.vue";
 import DatasetPreviewCollection from "./DatasetPreviewCollection.vue";
 import DatasetViewModeToggle from "./DatasetViewModeToggle.vue";
-import { useDatasetGallery } from "../composables/useDatasetGallery";
+import { useDatasetGalleryStore } from "../stores/datasetGallery";
 import {
   DATASET_DIRECTORY_VIEW_KEY,
   useDatasetViewMode,
@@ -146,7 +146,7 @@ type FolderPreviewItem = DatasetPreviewItem & {
 const editor = useDatasetEditorStore();
 const { form, schema, uiNotes, content } = storeToRefs(editor);
 const { viewMode } = useDatasetViewMode(DATASET_DIRECTORY_VIEW_KEY);
-const { showFromContent } = useDatasetGallery();
+const { showFromContent } = useDatasetGalleryStore();
 
 const query = ref("");
 const dialogOpen = ref(false);

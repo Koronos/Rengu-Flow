@@ -113,13 +113,13 @@ import DatasetFormGlobal from "./DatasetFormGlobal.vue";
 import DatasetFormFolders from "./DatasetFormFolders.vue";
 import DatasetAugmentationPanel from "./DatasetAugmentationPanel.vue";
 import { useDatasetEditorStore } from "../stores/datasetEditor";
-import { useDatasetFormModal } from "../composables/useDatasetFormModal";
+import { useDatasetFormModalStore } from "../stores/datasetFormModal";
 import { formatDatasetLibraryRef } from "../lib/datasetLibraryRef";
 
 const vLoading = ElLoadingDirective;
 const editor = useDatasetEditorStore();
-const modal = useDatasetFormModal();
-const { visible, mode, editId, initialToml } = modal;
+const modal = useDatasetFormModalStore();
+const { visible, mode, editId, initialToml } = storeToRefs(modal);
 const { datasetId, isNew, content, name, form, formVersion, loading, saving, syncing, error, message, parseError } =
   storeToRefs(editor);
 

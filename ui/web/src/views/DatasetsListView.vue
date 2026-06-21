@@ -87,8 +87,8 @@ import LibraryListPage from "../components/LibraryListPage.vue";
 import LibraryRowCrudButtons from "../components/LibraryRowCrudButtons.vue";
 import LibrarySortControls from "../components/LibrarySortControls.vue";
 import LibraryViewModeToggle from "../components/LibraryViewModeToggle.vue";
-import { useDatasetFormModal } from "../composables/useDatasetFormModal";
-import { useDatasetGallery } from "../composables/useDatasetGallery";
+import { useDatasetFormModalStore } from "../stores/datasetFormModal";
+import { useDatasetGalleryStore } from "../stores/datasetGallery";
 import { useDebouncedLibrarySearch } from "../composables/useDebouncedLibrarySearch";
 import { useLibraryCrudActions } from "../composables/useLibraryCrudActions";
 import {
@@ -100,7 +100,7 @@ import { libraryThumbSource } from "../lib/previewThumbs";
 import type { DatasetSearchItem } from "../types/api";
 import type { DatasetPreviewItem } from "../components/DatasetPreviewCollection.vue";
 
-const datasetModal = useDatasetFormModal();
+const datasetModal = useDatasetFormModalStore();
 const { viewMode } = useDatasetViewMode(DATASET_LIBRARY_VIEW_KEY);
 const {
   sortField,
@@ -121,7 +121,7 @@ function onToggleSortOrder() {
 }
 
 watch([sortField, sortOrder], () => load());
-const { showFromLibrary } = useDatasetGallery();
+const { showFromLibrary } = useDatasetGalleryStore();
 
 const basePreviewItems = computed((): DatasetPreviewItem[] =>
   rawItems.value.map((row) => ({
