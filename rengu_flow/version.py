@@ -16,6 +16,10 @@ from shutil import which
 
 DIST_NAME = "rengu-flow"
 
+# The beta channel is a git branch, not a version string: being on this branch is what marks a
+# checkout as beta, so merging develop -> main flips the channel without editing [project].version.
+BETA_BRANCH = "develop"
+
 
 @lru_cache(maxsize=1)
 def package_version() -> str:
@@ -82,17 +86,56 @@ def git_revision(root: Path | None = None) -> str | None:
         return None
 
 
+def git_branch(root: Path | None = None) -> str | None:
+    """Current git branch of the renga checkout, or None when unavailable/detached.
+
+    Never raises: anything unexpected (no git, no ``.git``, detached HEAD, permission error)
+    yields None so version/channel reporting degrades gracefully instead of breaking.
+    """
+    try:
+        from rengu_flow.config.local_config import repo_root
+
+        base = Path(root) if root is not None else repo_root()
+        if not which("git") or not (base / ".git").exists():
+            return None
+        proc = subprocess.run(
+            ["git", "-C", str(base), "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True,
+            text=True,
+        )
+        branch = proc.stdout.strip()
+        if proc.returncode != 0 or not branch or branch == "HEAD":
+            return None
+        return branch
+    except Exception:
+        return None
+
+
+def is_beta(root: Path | None = None) -> bool:
+    """True when the checkout is on the beta channel — the ``develop`` branch.
+
+    Derived from the branch, not ``[project].version``, so the channel flips on merge to ``main``
+    without a version edit.
+    """
+    return git_branch(root) == BETA_BRANCH
+
+
 def version_string(root: Path | None = None) -> str:
-    """One-liner, e.g. ``0.1.0 (a1b2c3d)`` — or just ``0.1.0`` outside a git checkout."""
+    """One-liner, e.g. ``0.1.0 (a1b2c3d)`` — ``-beta`` suffix on the develop channel."""
     base = package_version()
+    if is_beta(root):
+        base = f"{base}-beta"
     sha = git_revision(root)
     return f"{base} ({sha})" if sha else base
 
 
-def version_info(root: Path | None = None) -> dict[str, str | None]:
-    """Structured payload for the API/UI: renga version + git commit + installed kaon."""
+def version_info(root: Path | None = None) -> dict[str, str | bool | None]:
+    """Structured payload for the API/UI: version + commit + branch/beta channel + kaon."""
+    branch = git_branch(root)
     return {
         "version": package_version(),
         "commit": git_revision(root),
+        "branch": branch,
+        "beta": branch == BETA_BRANCH,
         "kaon": installed_version("kaon"),
     }

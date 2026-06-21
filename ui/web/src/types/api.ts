@@ -6,6 +6,8 @@ import type { FormValues } from "./forms";
 export interface VersionInfo {
   version: string;
   commit: string | null;
+  branch: string | null;
+  beta: boolean;
   kaon: string | null;
 }
 

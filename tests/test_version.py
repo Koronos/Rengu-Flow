@@ -46,13 +46,50 @@ def test_version_string_includes_commit_when_in_checkout():
 
 def test_version_info_shape():
     info = version_mod.version_info()
-    assert set(info) == {"version", "commit", "kaon"}
+    assert set(info) == {"version", "commit", "branch", "beta", "kaon"}
     assert info["version"] == version_mod.package_version()
 
 
 def test_git_revision_none_outside_checkout(tmp_path):
     # A directory with no .git -> None (graceful, never raises).
     assert version_mod.git_revision(tmp_path) is None
+
+
+def _init_repo_on_branch(path, branch):
+    import subprocess
+
+    def g(*args):
+        subprocess.run(["git", "-C", str(path), *args], check=True, capture_output=True, text=True)
+
+    g("init", "-b", branch)
+    g("config", "user.email", "t@t")
+    g("config", "user.name", "t")
+    (path / "f.txt").write_text("x", encoding="utf-8")
+    g("add", "-A")
+    g("commit", "-m", "c")
+
+
+def test_git_branch_and_is_beta_on_develop(tmp_path):
+    _init_repo_on_branch(tmp_path, version_mod.BETA_BRANCH)  # "develop"
+    assert version_mod.git_branch(tmp_path) == version_mod.BETA_BRANCH
+    assert version_mod.is_beta(tmp_path) is True
+    info = version_mod.version_info(tmp_path)
+    assert info["branch"] == version_mod.BETA_BRANCH
+    assert info["beta"] is True
+    assert version_mod.version_string(tmp_path).startswith(f"{version_mod.package_version()}-beta")
+
+
+def test_is_beta_false_on_main(tmp_path):
+    _init_repo_on_branch(tmp_path, "main")
+    assert version_mod.git_branch(tmp_path) == "main"
+    assert version_mod.is_beta(tmp_path) is False
+    assert version_mod.version_info(tmp_path)["beta"] is False
+    assert "-beta" not in version_mod.version_string(tmp_path)
+
+
+def test_git_branch_none_outside_checkout(tmp_path):
+    assert version_mod.git_branch(tmp_path) is None
+    assert version_mod.is_beta(tmp_path) is False
 
 
 def test_cli_version_flag_prints_and_exits(capsys):
@@ -77,5 +114,5 @@ def test_api_version_endpoint(ui_client):
     r = ui_client.get("/api/v1/version")
     assert r.status_code == 200
     body = r.json()
-    assert set(body) == {"version", "commit", "kaon"}
+    assert set(body) == {"version", "commit", "branch", "beta", "kaon"}
     assert body["version"] == version_mod.package_version()

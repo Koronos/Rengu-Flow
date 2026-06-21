@@ -95,10 +95,13 @@ The `./rengu` wrapper runs `uv sync` on first use, so the venv is built automati
 ## Updating
 
 ```bash
-./rengu update          # fast-forward pull, re-sync from uv.lock, rebuild UI if present
+./rengu update          # stable channel: fast-forward main, re-sync, rebuild UI if present
+./rengu update --beta   # beta channel: switch to the develop branch and update it
 ```
 
-`rengu update` pulls the latest project code, re-syncs dependencies from the lockfile, and recompiles the web UI if it was built locally. It also refreshes the optional profiles you already installed (so git-pinned extras like `kaon` move to their new commit pin); profiles you never installed are left alone. Useful flags: `--all-extras` (every documented extra), `--no-pull` (skip the git pull), and `--force` (discard local *tracked* code changes and hard-reset when a fast-forward is blocked — never touches untracked/ignored files, so your UI data dir and `jobs.db` are safe). Check your version with `./rengu version`.
+`rengu update` pulls the latest project code, re-syncs dependencies from the lockfile, and recompiles the web UI if it was built locally. It also refreshes the optional profiles you already installed (so git-pinned extras like `kaon` move to their new commit pin); profiles you never installed are left alone.
+
+**Release channels.** `rengu update` tracks `main` (stable); `rengu update --beta` switches the checkout to the `develop` branch (beta) and updates it. Switching back is just `rengu update`. While on the beta channel, `rengu version` and the web UI show a **beta** marker — the channel is derived from the git branch, not the version number. Useful flags: `--all-extras` (every documented extra), `--no-pull` (skip the git pull), and `--force` (discard local *tracked* code changes and hard-reset when a fast-forward is blocked — never touches untracked/ignored files, so your UI data dir and `jobs.db` are safe). Check your version with `./rengu version`.
 
 ## Quick start
 

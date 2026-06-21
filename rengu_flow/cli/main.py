@@ -78,9 +78,12 @@ def _print_version() -> None:
     from rengu_flow.version import version_info
 
     info = version_info()
-    print(f"rengu-flow {info['version']}")
+    suffix = "-beta" if info["beta"] else ""
+    print(f"rengu-flow {info['version']}{suffix}")
     if info["commit"]:
         print(f"commit:    {info['commit']}")
+    if info["beta"]:
+        print("channel:   beta (develop)")
     print(f"kaon:      {info['kaon'] or 'not installed'}")
 
 

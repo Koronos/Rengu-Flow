@@ -1290,8 +1290,8 @@ def create_app() -> FastAPI:
         return {"status": "ok"}
 
     @app.get(f"{API_PREFIX}/version")
-    def version() -> dict[str, str | None]:
-        """renga version + git commit + installed kaon, for display in the UI."""
+    def version() -> dict[str, str | bool | None]:
+        """renga version + git commit + branch/beta channel + installed kaon, for the UI."""
         return version_info()
 
     def _require_maintenance() -> None:

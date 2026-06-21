@@ -129,6 +129,61 @@ def test_force_flag_parses():
     assert _build_parser().parse_args(["update"]).force is False
 
 
+def test_beta_flag_parses():
+    assert _build_parser().parse_args(["update", "--beta"]).beta is True
+    assert _build_parser().parse_args(["update"]).beta is False
+
+
+def _branch_of(root):
+    return subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "--abbrev-ref", "HEAD"],
+        capture_output=True, text=True,
+    ).stdout.strip()
+
+
+def test_beta_switches_channel_between_develop_and_main(tmp_path, monkeypatch):
+    # Upstream has main (code=v1) and develop (code=beta). --beta must switch the clone to
+    # develop; a plain update must switch it back to main.
+    upstream = tmp_path / "upstream"
+    _make_upstream(upstream)  # on main, code.py == "v1\n"
+    _git(upstream, "checkout", "-b", "develop")
+    (upstream / "code.py").write_text("beta\n", encoding="utf-8")
+    _git(upstream, "add", "-A")
+    _git(upstream, "commit", "-m", "beta")
+    _git(upstream, "checkout", "main")
+
+    clone = tmp_path / "clone"
+    _git(tmp_path, "clone", str(upstream), str(clone))
+    _git(clone, "config", "user.email", "t@t")
+    _git(clone, "config", "user.name", "t")
+    assert _branch_of(clone) == "main"
+
+    monkeypatch.setattr(update_cmd, "REPO_URL", str(upstream))
+
+    # rengu update --beta -> on develop with beta content
+    assert update_cmd.git_pull(clone, beta=True) is True
+    assert _branch_of(clone) == "develop"
+    assert (clone / "code.py").read_text(encoding="utf-8") == "beta\n"
+
+    # rengu update (no --beta) -> back on main
+    assert update_cmd.git_pull(clone, beta=False) is True
+    assert _branch_of(clone) == "main"
+    assert (clone / "code.py").read_text(encoding="utf-8") == "v1\n"
+
+
+def test_beta_missing_upstream_branch_is_graceful(tmp_path, monkeypatch, capsys):
+    # develop doesn't exist upstream yet: switch fails cleanly (no crash), stays on main.
+    upstream = tmp_path / "upstream"
+    _make_upstream(upstream)  # only main
+    clone = tmp_path / "clone"
+    _git(tmp_path, "clone", str(upstream), str(clone))
+    monkeypatch.setattr(update_cmd, "REPO_URL", str(upstream))
+
+    assert update_cmd.git_pull(clone, beta=True) is False
+    assert _branch_of(clone) == "main"
+    assert "Could not fetch 'develop'" in capsys.readouterr().out
+
+
 def test_force_pull_resets_to_upstream_keeping_untracked_db(tmp_path, monkeypatch):
     # A clone with local tracked "noise" + an untracked jobs.db. --force must update the code
     # and preserve the untracked DB (never `git clean`).

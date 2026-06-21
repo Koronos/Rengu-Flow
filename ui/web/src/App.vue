@@ -34,6 +34,7 @@
           </el-menu-item>
         </el-menu>
         <div v-if="versionLabel" class="app-brand-version">
+          <span v-if="isBeta" class="app-brand-version__beta" title="Beta channel (develop branch)">beta</span>
           <span class="app-brand-version__label" :title="versionTitle">{{ versionLabel }}</span>
           <a
             class="app-brand-version__gh"
@@ -162,6 +163,7 @@ const drawerOpen = ref(false);
 const maintenanceNav = ref(false);
 const versionLabel = ref("");
 const versionTitle = ref("");
+const isBeta = ref(false);
 const REPO_URL = "https://github.com/Koronos/Rengu-Flow";
 
 onMounted(async () => {
@@ -173,12 +175,16 @@ onMounted(async () => {
   }
   try {
     const v = await api.version();
-    versionLabel.value = v.commit ? `v${v.version} · ${v.commit}` : `v${v.version}`;
+    isBeta.value = v.beta;
+    const ver = v.beta ? `${v.version}-beta` : v.version;
+    versionLabel.value = v.commit ? `v${ver} · ${v.commit}` : `v${ver}`;
+    const channel = v.beta ? " · beta (develop)" : "";
     versionTitle.value = v.kaon
-      ? `rengu-flow ${v.version}${v.commit ? ` (${v.commit})` : ""} · kaon ${v.kaon}`
-      : `rengu-flow ${v.version}${v.commit ? ` (${v.commit})` : ""}`;
+      ? `rengu-flow ${ver}${v.commit ? ` (${v.commit})` : ""}${channel} · kaon ${v.kaon}`
+      : `rengu-flow ${ver}${v.commit ? ` (${v.commit})` : ""}${channel}`;
   } catch {
     versionLabel.value = "";
+    isBeta.value = false;
   }
 });
 
@@ -233,6 +239,18 @@ const pageTitle = computed(() => {
   font-size: 11px;
   line-height: 1.4;
   color: var(--el-text-color-secondary);
+}
+.app-brand-version__beta {
+  flex-shrink: 0;
+  text-transform: uppercase;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: var(--el-color-warning);
+  background: color-mix(in srgb, var(--el-color-warning) 18%, transparent);
+  border: 1px solid color-mix(in srgb, var(--el-color-warning) 45%, transparent);
 }
 .app-brand-version__label {
   min-width: 0;

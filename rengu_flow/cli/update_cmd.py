@@ -11,9 +11,14 @@ from rengu_flow.config.local_config import repo_root
 from rengu_flow.cli.project_venv import reexec_cli, sync_dependencies
 from rengu_flow.install.profiles import PROFILE_EXTRAS, normalize_profiles
 from rengu_flow.install.state import read_installed_profiles, record_installed_profiles
+from rengu_flow.version import BETA_BRANCH
 
 # Canonical upstream the CLI updates from (fast-forward only — never rewrites local history).
 REPO_URL = "https://github.com/Koronos/Rengu-Flow"
+
+# Release channels are git branches: `main` (stable) and `develop` (beta). `rengu update` tracks
+# main; `rengu update --beta` switches to and tracks develop.
+STABLE_BRANCH = "main"
 
 
 def add_parser(sub: argparse._SubParsersAction) -> None:
@@ -38,6 +43,14 @@ def add_parser(sub: argparse._SubParsersAction) -> None:
         help=f"Skip the git fast-forward pull from {REPO_URL}; only re-sync dependencies",
     )
     p.add_argument(
+        "--beta",
+        action="store_true",
+        help=(
+            f"Switch to the '{BETA_BRANCH}' (beta) channel and update it; without --beta, switch "
+            f"to '{STABLE_BRANCH}' (stable). The UI/CLI then show a beta marker while on develop."
+        ),
+    )
+    p.add_argument(
         "--force",
         action="store_true",
         help=(
@@ -60,8 +73,13 @@ def _current_branch(root: Path) -> str | None:
     return branch
 
 
-def git_pull(root: Path | None = None, *, force: bool = False) -> bool:
-    """Update the current branch from ``REPO_URL``.
+def git_pull(root: Path | None = None, *, force: bool = False, beta: bool = False) -> bool:
+    """Switch to the requested release channel and update it from ``REPO_URL``.
+
+    The channel is a branch: ``main`` (stable) by default, ``develop`` (beta) with ``beta=True``.
+    When the checkout is not already on the target branch it is checked out first (created from
+    upstream if it does not exist locally), so ``rengu update`` / ``rengu update --beta`` move the
+    user between channels.
 
     Returns True when the working tree is up to date afterwards, False when the update was
     skipped or could not complete.
@@ -81,25 +99,72 @@ def git_pull(root: Path | None = None, *, force: bool = False) -> bool:
     if not (root / ".git").exists():
         print(f"==> {root} is not a git checkout; skipping code update (dependencies only).")
         return False
-    branch = _current_branch(root)
-    if branch is None:
-        print("==> Detached HEAD or unknown branch; skipping code update (dependencies only).")
-        return False
+
+    target = BETA_BRANCH if beta else STABLE_BRANCH
+    if _current_branch(root) != target:
+        if not _switch_branch(root, target, force=force):
+            return False
 
     if force:
-        return _git_force_pull(root, branch)
+        return _git_force_pull(root, target)
 
-    cmd = ["git", "-C", str(root), "pull", "--ff-only", REPO_URL, branch]
+    cmd = ["git", "-C", str(root), "pull", "--ff-only", REPO_URL, target]
     print(f"==> {' '.join(cmd)}")
     proc = subprocess.run(cmd)
     if proc.returncode != 0:
         print(
             "==> Could not fast-forward "
-            f"'{branch}' from {REPO_URL}. Your branch has local commits or uncommitted "
+            f"'{target}' from {REPO_URL}. Your branch has local commits or uncommitted "
             "changes that would be overwritten. If you did not edit the code yourself (this is "
             "usually line-ending noise), re-run `rengu update --force` to discard the local "
             "tracked changes and reset to upstream. --force never touches untracked or ignored "
             "files, so your data dir and jobs.db are safe. Continuing with dependency sync."
+        )
+        return False
+    return True
+
+
+def _switch_branch(root: Path, target: str, *, force: bool) -> bool:
+    """Check out the channel branch ``target``, creating it from upstream if it is absent locally.
+
+    Fetches ``target`` from ``REPO_URL`` first so a missing local branch can be created at the
+    upstream tip. With ``force`` it stashes local *tracked* changes so a dirty tree does not block
+    the switch; ``git clean`` is never run, so untracked files (data/, jobs.db) are never touched.
+    """
+    fetch = ["git", "-C", str(root), "fetch", REPO_URL, target]
+    print(f"==> {' '.join(fetch)}")
+    if subprocess.run(fetch).returncode != 0:
+        print(
+            f"==> Could not fetch '{target}' from {REPO_URL} (does the branch exist upstream "
+            "yet?). Continuing with dependency sync."
+        )
+        return False
+
+    if force and _has_tracked_changes(root):
+        stash = [
+            "git", "-C", str(root), "stash", "push",
+            "--message", f"rengu update --force (auto-stash before switch to {target})",
+        ]
+        print(f"==> {' '.join(stash)}")
+        if subprocess.run(stash).returncode != 0:
+            print("==> Could not stash local changes; aborting channel switch to avoid data loss.")
+            return False
+
+    local_exists = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "--verify", "--quiet", f"refs/heads/{target}"],
+        capture_output=True,
+        text=True,
+    ).returncode == 0
+    checkout = (
+        ["git", "-C", str(root), "checkout", target]
+        if local_exists
+        else ["git", "-C", str(root), "checkout", "-b", target, "FETCH_HEAD"]
+    )
+    print(f"==> {' '.join(checkout)}")
+    if subprocess.run(checkout).returncode != 0:
+        print(
+            f"==> Could not switch to '{target}'. You likely have uncommitted changes — commit or "
+            "stash them, or re-run with --force. Continuing with dependency sync."
         )
         return False
     return True
@@ -180,7 +245,11 @@ def rebuild_web(profiles: list[str], *, root: Path | None = None) -> None:
 def run(args: argparse.Namespace) -> None:
     root = repo_root()
     if not getattr(args, "no_pull", False):
-        git_pull(root, force=getattr(args, "force", False))
+        git_pull(
+            root,
+            force=getattr(args, "force", False),
+            beta=getattr(args, "beta", False),
+        )
 
     if args.all_extras:
         requested = normalize_profiles(["all"])
