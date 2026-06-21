@@ -34,6 +34,10 @@ const props = defineProps<{
   metric: string;
   runs: RunRef[];
   outputDir: string;
+  /** When provided, render these series (keyed by run id) directly and skip the runSeries fetch.
+   *  Lets a single-run caller (e.g. the run-detail loss panels) reuse this chart with already-loaded
+   *  data instead of maintaining a separate chart component. */
+  series?: Record<string, ScalarMetricPoint[]>;
   smoothing: number;
   logScale: boolean;
   syncKey: string;
@@ -411,6 +415,17 @@ function render() {
   plot = new uPlot(makeOpts(chartEl.value.clientWidth || 600), data, chartEl.value);
 }
 
+// Parent-supplied data path takes precedence over fetching, so the same chart serves both compare
+// (self-fetch by run id) and run-detail (pre-loaded single-run series).
+function refreshSeries() {
+  if (props.series) {
+    seriesByRun = props.series;
+    render();
+  } else {
+    void loadSeries();
+  }
+}
+
 async function loadSeries() {
   controller?.abort();
   const ids = props.runs.map((r) => r.id);
@@ -439,7 +454,7 @@ onMounted(() => {
   const begin = () => {
     if (started) return;
     started = true;
-    loadSeries();
+    refreshSeries();
   };
   if (typeof IntersectionObserver === "undefined") {
     begin();
@@ -468,7 +483,7 @@ onMounted(() => {
 watch(
   () => props.runs.map((r) => r.id).join(","),
   () => {
-    if (started) loadSeries();
+    if (started) refreshSeries();
   }
 );
 // Smoothing / log-scale change → re-render from cached series (no fetch).
@@ -482,7 +497,14 @@ watch(
 watch(
   () => props.refreshToken,
   () => {
-    if (started) loadSeries();
+    if (started) refreshSeries();
+  }
+);
+// Parent pushed new pre-loaded series (series-prop mode) → re-render with it.
+watch(
+  () => props.series,
+  () => {
+    if (started) refreshSeries();
   }
 );
 // Parent's global "Reset zoom" → restore the full range on this board too.

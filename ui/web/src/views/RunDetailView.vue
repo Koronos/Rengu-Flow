@@ -127,6 +127,7 @@
         :scalars="metrics"
         :preview-images="previewImages"
         :loading="metricsLoading"
+        :run-name="title"
         @refresh="fetchMetrics"
       />
     </el-card>
