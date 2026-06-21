@@ -10,26 +10,13 @@ from pathlib import Path
 from shutil import which
 
 from rengu_flow.config.local_config import TrainingConfig, ensure_local_config_loaded
+from rengu_flow.platform_compat import find_free_port
 
 
 def _pick_master_port(requested: int) -> int:
     if requested > 0:
         return requested
-    try:
-        result = subprocess.run(
-            ["ss", "-tln"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=False,
-        )
-        bound = result.stdout
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return 29500
-    for port in range(29500, 29601):
-        if f":{port} " not in bound:
-            return port
-    return 29500
+    return find_free_port(start=29500, count=101)
 
 
 def merge_training_env(

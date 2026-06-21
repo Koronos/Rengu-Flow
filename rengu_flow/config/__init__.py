@@ -21,5 +21,4 @@ __all__ = [
     "apply_local_config_to_environ",
     "load_repo_dotenv",
     "apply_model_paths_from_env",
-    "model_path_errors",
 ]

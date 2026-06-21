@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -89,23 +88,3 @@ def model_path_errors(config: dict[str, Any]) -> list[str]:
     return errors
 
 
-def check_config_model_paths(config_path: str | Path) -> None:
-    """Load config and exit non-zero if model paths are missing (for smoke scripts)."""
-    from rengu_flow.config.loader import load_config
-
-    load_local_config()
-    load_repo_dotenv()
-    config = load_config(config_path)
-    apply_model_paths_from_env(config)
-    errors = model_path_errors(config)
-    if errors:
-        for msg in errors:
-            print(msg, file=sys.stderr)
-        raise SystemExit(1)
-
-
-if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print("Usage: python -m rengu_flow.config.local_env CONFIG.toml", file=sys.stderr)
-        raise SystemExit(2)
-    check_config_model_paths(sys.argv[1])

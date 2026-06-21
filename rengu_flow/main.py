@@ -111,7 +111,7 @@ def _build_optimizer(
     import torch
     import deepspeed
 
-    from rengu_flow.optim import resolve_optimizer_class
+    from rengu_flow.registry.optimizers import get_optimizer_class
     from rengu_flow.utils import is_main_process
     from rengu_flow.optim.param_groups import (
         adjust_beta2_half_life,
@@ -144,7 +144,7 @@ def _build_optimizer(
 
     opt_args: list = []
     kwargs = dict(optim_config)
-    klass = resolve_optimizer_class(optim_type)
+    klass = get_optimizer_class(optim_type)
 
     if optim_type_lower == "offload":
         opt_args.append(torch.optim.AdamW)

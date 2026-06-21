@@ -9,23 +9,22 @@ import toml
 from rengu_flow.config.dataset_merge import merge_dataset_configs
 
 
-def load_config(path: str | Path, make_pickleable: bool = True) -> dict[str, Any]:
+def load_config(path: str | Path) -> dict[str, Any]:
     """Load main TOML config from file.
+
+    Converts via json.loads(json.dumps(...)) so the result is pickleable
+    (plain dicts/lists) for multiprocessing in later phases.
 
     Args:
         path: Path to the main TOML configuration file.
-        make_pickleable: If True, convert config via json.loads(json.dumps(...))
-            so it is pickleable (for multiprocessing in later phases).
 
     Returns:
-        Config dict. If make_pickleable, nested structures are plain dicts/lists.
+        Config dict with nested structures as plain dicts/lists.
     """
     path = Path(path)
     with open(path, encoding="utf-8") as f:
         config = toml.load(f)
-    if make_pickleable:
-        config = json.loads(json.dumps(config))
-    return config
+    return json.loads(json.dumps(config))
 
 
 def normalize_dataset_paths(value: Any) -> list[str]:

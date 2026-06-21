@@ -72,11 +72,6 @@ def build_scheduler_runtime_values(
     return values
 
 
-def resolve_optimizer_class(optim_type: str) -> type[torch.optim.Optimizer]:
-    """Resolve optimizer class from string via registry or fully-qualified path."""
-    return get_optimizer_class(optim_type)
-
-
 class RexLR(torch.optim.lr_scheduler.LRScheduler):
     """REX schedule (Chen et al. 2021, *Revisiting Budgeted Training with an Improved Schedule*).
 

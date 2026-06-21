@@ -138,10 +138,8 @@ class ModelCapability:
     model_fields: list[dict[str, Any]] = field(default_factory=list)
     # Feature flags drive cross-section visibility (block_swap, preview, …) via field_visibility.
     features: dict[str, bool] = field(default_factory=dict)
-    # Optional validation overrides — see model_config_rules.py (one_of, by_raw_type, …).
+    # Optional validation overrides — see model_config_rules.py (one_of, …).
     model_validation: dict[str, Any] = field(default_factory=dict)
-    # Per-kind display labels; falls back to DEFAULT_ADAPTER_LABELS then the raw kind string.
-    adapter_labels: dict[str, str] = field(default_factory=dict)
 
     def training_modes(self) -> list[str]:
         modes: list[str] = []
@@ -152,7 +150,7 @@ class ModelCapability:
 
     def to_dict(self) -> dict[str, Any]:
         resolved_labels: dict[str, str] = {
-            kind: self.adapter_labels.get(kind, DEFAULT_ADAPTER_LABELS.get(kind, kind))
+            kind: DEFAULT_ADAPTER_LABELS.get(kind, kind)
             for kind in self.adapters
         }
         return {
@@ -207,14 +205,6 @@ def ensure_default_capability(type_id: str) -> None:
 
 def get_canonical_model_types() -> list[str]:
     return sorted(model_capability_registry.keys())
-
-
-def get_alias_map() -> dict[str, str]:
-    out: dict[str, str] = {}
-    for cap in model_capability_registry.values():
-        for alias in cap.aliases:
-            out[alias.lower()] = cap.type_id
-    return out
 
 
 def get_capability(model_type: str | None) -> ModelCapability | None:

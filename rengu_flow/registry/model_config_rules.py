@@ -74,11 +74,6 @@ def one_of_groups(cap: ModelCapability) -> list[list[str]]:
     return [list(g) for g in (cap.model_validation or {}).get("one_of") or []]
 
 
-def raw_type_rules(cap: ModelCapability, raw_type: str) -> dict[str, Any]:
-    by_raw = (cap.model_validation or {}).get("by_raw_type") or {}
-    return dict(by_raw.get(raw_type.lower()) or {})
-
-
 def validate_model_section(model: dict[str, Any], *, raw_type: str) -> None:
     """Validate ``config['model']`` for a registered pipeline type.
 
@@ -107,13 +102,6 @@ def validate_model_section(model: dict[str, Any], *, raw_type: str) -> None:
             keys = "', '".join(group)
             raise ConfigValidationError(
                 f"config['model'] must contain at least one of: '{keys}' (for {canonical})."
-            )
-
-    alias_rules = raw_type_rules(cap, raw_type)
-    for key in alias_rules.get("required") or []:
-        if key not in model:
-            raise ConfigValidationError(
-                f"config['model'] must contain '{key}' when type is '{raw_type}'."
             )
 
 

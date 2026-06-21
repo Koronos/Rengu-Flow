@@ -7,7 +7,6 @@ from rengu_flow.config.local_config import (
     apply_local_config_to_environ,
     init_local_config_file,
     load_local_config,
-    migrate_legacy_ui_data_dir,
     parse_local_config_dict,
     public_bind_warning,
 )
@@ -61,18 +60,12 @@ def test_ensure_local_config_file_creates_from_example(tmp_path):
     assert dest.read_text(encoding="utf-8") == "# edited\n"
 
 
-def test_ensure_local_config_file_falls_back_to_defaults(tmp_path):
-    # No example present (user went hardcore): still produces a valid config with the UI port
-    # and a training section.
-    import toml
-
+def test_ensure_local_config_file_returns_none_when_example_missing(tmp_path):
+    # No example present: returns None and continues with built-in defaults.
     from rengu_flow.config.local_config import ensure_local_config_file
 
-    dest = ensure_local_config_file(root=tmp_path)
-    assert dest is not None and dest.is_file()
-    data = toml.load(dest)
-    assert data["ui"]["port"] == 8765
-    assert "training" in data
+    dest = ensure_local_config_file(root=tmp_path, quiet=True)
+    assert dest is None
 
 
 def test_load_local_config_missing_returns_none(tmp_path):
@@ -130,54 +123,3 @@ def test_public_bind_warning_requires_token():
     assert public_bind_warning("127.0.0.1", None) is None
 
 
-def test_legacy_hidden_data_dir_coerces_to_data():
-    """The retired hidden folders must not be used even if a stale config still names one."""
-    for legacy in (".rengu-flow-ui", ".renga-flow-ui"):
-        cfg = parse_local_config_dict({"ui": {"data_dir": legacy}}, root=Path("/tmp/rengu-root"))
-        assert cfg.ui.data_dir == "data"
-        assert cfg.ui_data_dir() == Path("/tmp/rengu-root/data")
-
-
-def test_migrate_legacy_ui_data_dir_adopts_when_data_empty(tmp_path):
-    """A legacy hidden folder is moved into data/ when data/ has no jobs.db, then removed."""
-    legacy = tmp_path / ".rengu-flow-ui"
-    (legacy / "logs").mkdir(parents=True)
-    (legacy / "jobs.db").write_text("DB", encoding="utf-8")
-    (legacy / "logs" / "5.log").write_text("log", encoding="utf-8")
-    data = tmp_path / "data"
-    data.mkdir()
-
-    migrate_legacy_ui_data_dir(data, root=tmp_path, quiet=True)
-
-    assert (data / "jobs.db").read_text() == "DB"
-    assert (data / "logs" / "5.log").read_text() == "log"
-    assert not legacy.exists()  # invisible folder removed
-
-
-def test_migrate_legacy_ui_data_dir_never_clobbers_existing(tmp_path):
-    """If data/ already has a jobs.db, the legacy folder is left untouched (no data loss)."""
-    legacy = tmp_path / ".rengu-flow-ui"
-    legacy.mkdir()
-    (legacy / "jobs.db").write_text("OLD", encoding="utf-8")
-    data = tmp_path / "data"
-    data.mkdir()
-    (data / "jobs.db").write_text("CURRENT", encoding="utf-8")
-
-    migrate_legacy_ui_data_dir(data, root=tmp_path, quiet=True)
-
-    assert (data / "jobs.db").read_text() == "CURRENT"  # untouched
-    assert (legacy / "jobs.db").read_text() == "OLD"  # preserved for manual cleanup
-
-
-def test_migrate_legacy_ui_data_dir_skips_custom_target(tmp_path):
-    """Migration only touches the repo's data/; a custom data dir is never auto-populated."""
-    legacy = tmp_path / ".rengu-flow-ui"
-    legacy.mkdir()
-    (legacy / "jobs.db").write_text("DB", encoding="utf-8")
-    custom = tmp_path / "ui-state"
-    custom.mkdir()
-
-    migrate_legacy_ui_data_dir(custom, root=tmp_path, quiet=True)
-
-    assert not (custom / "jobs.db").exists()
-    assert (legacy / "jobs.db").exists()

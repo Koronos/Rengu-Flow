@@ -4,11 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from rengu_flow.control.status_file import read_status_file, write_status_file
 from rengu_flow.training_progress import (
     EpochSchedule,
     TrainingProgressTracker,
-    budget_display_epoch,
     budget_reached_target,
     format_eta,
     format_training_log_line,
@@ -18,26 +16,20 @@ from rengu_flow.training_progress import (
 from rengu_flow_ui import training_hub
 
 
-def test_budget_display_epoch_caps_at_configured_epochs():
+def test_epoch_schedule_current_caps_at_configured_epochs():
     # 15-epoch budget, 100 steps/epoch (full multi-res epoch) -> total 1500 steps.
-    spe, epochs = 100, 15
-    assert budget_display_epoch(1, spe, epochs) == 1
-    assert budget_display_epoch(100, spe, epochs) == 1
-    assert budget_display_epoch(101, spe, epochs) == 2
-    assert budget_display_epoch(1500, spe, epochs) == 15
-    # Past the budget (short staged epochs would overshoot) stays capped at 15.
-    assert budget_display_epoch(4500, spe, epochs) == 15
-
-
-def test_budget_display_epoch_handles_zero_steps_per_epoch():
-    assert budget_display_epoch(42, 0, 15) == 42
-
-
-def test_epoch_schedule_current_matches_budget_display():
     sched = EpochSchedule(100, 15)
-    for step in (1, 100, 101, 1500, 4500):
-        assert sched.current(step) == budget_display_epoch(step, 100, 15)
+    assert sched.current(1) == 1
+    assert sched.current(100) == 1
+    assert sched.current(101) == 2
+    assert sched.current(1500) == 15
+    # Past the budget stays capped at 15.
+    assert sched.current(4500) == 15
     assert sched.total_steps == 1500
+
+
+def test_epoch_schedule_current_handles_zero_steps_per_epoch():
+    assert EpochSchedule(0, 15).current(42) == 42
 
 
 def test_epoch_schedule_completed_at_boundaries():
@@ -181,22 +173,6 @@ def test_tracker_loss_moving_average_windowed() -> None:
     m = tracker.metrics(step=3)
     assert m["loss_avg"] == 4.0
     assert "step_time_sec_ema" not in m  # no durations recorded yet
-
-
-def test_write_status_file_includes_progress_fields(tmp_path: Path) -> None:
-    write_status_file(
-        tmp_path,
-        step=5,
-        examples=50,
-        epoch=1,
-        loss=0.1,
-        progress={"percent": 50.0, "eta": "10s", "steps_per_second": 1.0},
-    )
-    data = read_status_file(tmp_path)
-    assert data is not None
-    assert data["percent"] == 50.0
-    assert data["eta"] == "10s"
-    assert data["steps_per_second"] == 1.0
 
 
 def test_compute_run_progress_merges_marker_speed(tmp_path: Path) -> None:

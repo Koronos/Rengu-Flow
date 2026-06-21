@@ -19,10 +19,10 @@ def test_load_config_valid_toml(tmp_path, valid_toml_content):
     assert config["optimizer"]["type"] == "adamw"
 
 
-def test_load_config_make_pickleable(tmp_path, valid_toml_content):
+def test_load_config_is_pickleable(tmp_path, valid_toml_content):
     path = tmp_path / "config.toml"
     path.write_text(valid_toml_content)
-    config = load_config(path, make_pickleable=True)
+    config = load_config(path)
     assert isinstance(config["model"]["dtype"], str)
     assert config["model"]["dtype"] == "bfloat16"
 
