@@ -101,11 +101,6 @@ class CaptionSet:
         lines[index] = text
         self.set_lines(key, lines)
 
-    def append_line(self, key: str, text: str) -> None:
-        lines = self.get_lines(key)
-        lines.append(text)
-        self.set_lines(key, lines)
-
     def get_tags(self, key: str, line_index: int = 0) -> list[str]:
         lines = self.captions.get(key, [])
         if line_index >= len(lines):

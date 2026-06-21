@@ -116,11 +116,3 @@ def load_prep_config(path: str | Path) -> PrepConfig:
 
     with open(path, encoding="utf-8") as f:
         return parse_prep_config(toml.load(f))
-
-
-def render_prep_config(config: PrepConfig) -> str:
-    """Serialize a PrepConfig back to TOML (used by the UI when staging a job)."""
-    import toml
-    from dataclasses import asdict
-
-    return toml.dumps(asdict(config))

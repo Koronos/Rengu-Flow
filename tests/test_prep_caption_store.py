@@ -51,7 +51,7 @@ def test_sidecar_custom_extension(img_dir):
     (img_dir / "a.caption").write_text("solo\n")
     cs = CaptionStore.open(img_dir, ext=".caption")
     assert cs.get_lines("a.jpg") == ["solo"]
-    cs.append_line("a.jpg", "second line")
+    cs.set_lines("a.jpg", ["solo", "second line"])
     cs.save()
     assert (img_dir / "a.caption").read_text() == "solo\nsecond line\n"
     # ext without leading dot also accepted

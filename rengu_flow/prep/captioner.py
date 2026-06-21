@@ -32,7 +32,6 @@ logger = get_logger(__name__)
 
 _BACKENDS: dict[str, dict] = {
     "joycaption-beta-one": {
-        "cls": "JoyCaptionBackend",
         "repo_id": "fancyfeast/llama-joycaption-beta-one-hf-llava",
         "default_prompt": "Write a long descriptive caption for this image in a formal tone.",
         # Model-card recommended sampling.
@@ -40,7 +39,6 @@ _BACKENDS: dict[str, dict] = {
         "default_top_p": 0.9,
     },
     "toriigate-0.5": {
-        "cls": "ToriiGateBackend",
         "repo_id": "Minthy/ToriiGate-0.5",
         "default_prompt": "Give a long and detailed description of the picture.",
         # Official batch script: temperature 0.5, top_p left at 1.0.

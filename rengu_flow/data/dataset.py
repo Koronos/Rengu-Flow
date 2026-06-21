@@ -106,8 +106,6 @@ def _cache_text_embeddings(
     cache_format: str = "v2",
 ):
     """Flatten captions to one row per (image, caption), then map_and_cache."""
-    from rengu_flow.data.cache_utils import _map_and_cache, content_fingerprint
-
     def flatten_captions(example):
         result = {key: [] for key in example}
         for idx, captions in enumerate(example["caption"]):
@@ -153,17 +151,6 @@ def directory_subsample_ratio(directory_config: dict) -> float:
     """Fraction of a directory's images to use per epoch (diffusion-pipe ``subsample_ratio``)."""
     return float(directory_config.get("subsample_ratio", 1.0))
 
-
-def trim_iteration_order_by_subsample_ratio(order, subsample_ratio: float):
-    """Keep the first ``len * subsample_ratio`` rows of an iteration order (no-op when >= 1.0).
-
-    The metadata is shuffled per bucket before the order is built, so this yields a stable
-    pseudo-random subset.
-    """
-    if subsample_ratio >= 1.0:
-        return order
-    keep = int(len(order) * subsample_ratio)
-    return order.select(range(keep))
 
 
 def directory_max_images(directory_config: dict) -> int | None:
@@ -577,9 +564,6 @@ class SizeBucketDataset:
         )
         self.text_embedding_datasets.append(te_dataset)
 
-    def add_text_embedding_dataset(self, te_dataset) -> None:
-        self.text_embedding_datasets.append(te_dataset)
-
     def _sample_from_entry(self, entry, latent_dict: dict | None = None) -> dict:
         ret = dict(latent_dict if latent_dict is not None else self.latent_dataset[entry["latents_idx"]])
         use_uncond = (
@@ -884,7 +868,7 @@ class ARBucketDataset:
             cache_format=cache_format,
         )
         for sb in self.size_buckets:
-            sb.add_text_embedding_dataset(te_dataset)
+            sb.text_embedding_datasets.append(te_dataset)
 
 
 class DirectoryDataset:

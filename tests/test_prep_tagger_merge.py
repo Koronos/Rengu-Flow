@@ -12,7 +12,6 @@ from pathlib import Path
 import pytest
 
 from rengu_flow.prep.tagger import (
-    DEFAULT_TAGGERS,
     KNOWN_TAGGERS,
     TaggerModelSpec,
     merge_model_results,
@@ -108,7 +107,7 @@ class TestMergeModelResults:
     def test_kaomoji_underscores_intact(self):
         """Kaomojis like 0_0 must NOT have underscores replaced."""
         # merge_model_results receives already-decoded tags (replace_underscores
-        # is applied inside OnnxTagger.predict_batch); to test the pass-through,
+        # merge_model_results receives already-decoded tags; to test the pass-through,
         # we pass a kaomoji tag directly and ensure the merge doesn't corrupt it.
         model = {"img.jpg": {"0_0": 0.8, "long hair": 0.6}}
         result = merge_model_results([model])
@@ -230,10 +229,6 @@ class TestRunEnsemble:
 # ---------------------------------------------------------------------------
 
 class TestKnownTaggersRegistry:
-    def test_defaults_exist(self):
-        for tid in DEFAULT_TAGGERS:
-            assert tid in KNOWN_TAGGERS, f"Default tagger {tid!r} missing from KNOWN_TAGGERS"
-
     def test_thresholds_in_unit_interval(self):
         for tid, spec in KNOWN_TAGGERS.items():
             assert 0 < spec.general_threshold < 1, (

@@ -13,7 +13,6 @@ from typing import Callable
 import torch
 
 _ASYNC_EXPORT_TIMEOUT_SEC = 600
-_DEFAULT_RAM_MARGIN = 0.25
 
 
 def _tensor_element_size(dtype: torch.dtype) -> int:
@@ -32,32 +31,21 @@ def estimate_state_dict_bytes(
     return total
 
 
-def _available_ram_bytes(*, margin_frac: float, min_free_bytes: int) -> int | None:
+def _available_ram_bytes() -> int | None:
     try:
         import psutil
     except ImportError:
         return None
-    available = psutil.virtual_memory().available
-    usable = int(available * (1.0 - margin_frac)) - min_free_bytes
-    return max(0, usable)
+    return psutil.virtual_memory().available
 
 
 def async_snapshot_fits_in_ram(
     state_dict: dict[str, torch.Tensor],
     save_dtype: torch.dtype | None,
-    *,
-    margin_frac: float = _DEFAULT_RAM_MARGIN,
-    min_free_ram_bytes: int = 0,
-    max_snapshot_bytes: int | None = None,
 ) -> tuple[bool, int, int | None]:
-    """Return (fits, needed_bytes, usable_ram_bytes_or_none_if_unknown)."""
+    """Return (fits, needed_bytes, available_ram_bytes_or_none_if_unknown)."""
     needed = estimate_state_dict_bytes(state_dict, save_dtype)
-    available = _available_ram_bytes(
-        margin_frac=margin_frac,
-        min_free_bytes=min_free_ram_bytes,
-    )
-    if max_snapshot_bytes is not None and needed > max_snapshot_bytes:
-        return False, needed, available
+    available = _available_ram_bytes()
     if available is None:
         return True, needed, None
     return needed <= available, needed, available
@@ -68,18 +56,7 @@ def async_snapshot_fits_from_config(
     save_dtype: torch.dtype | None,
     config: dict,
 ) -> tuple[bool, int, int | None]:
-    margin = float(config.get("async_model_export_ram_margin", _DEFAULT_RAM_MARGIN))
-    min_free_gb = config.get("async_model_export_min_free_ram_gb")
-    max_snap_gb = config.get("async_model_export_max_snapshot_gb")
-    min_free_bytes = int(float(min_free_gb) * (1024**3)) if min_free_gb is not None else 0
-    max_snap_bytes = int(float(max_snap_gb) * (1024**3)) if max_snap_gb is not None else None
-    return async_snapshot_fits_in_ram(
-        state_dict,
-        save_dtype,
-        margin_frac=margin,
-        min_free_ram_bytes=min_free_bytes,
-        max_snapshot_bytes=max_snap_bytes,
-    )
+    return async_snapshot_fits_in_ram(state_dict, save_dtype)
 
 
 def format_byte_size(num_bytes: int) -> str:

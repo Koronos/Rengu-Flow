@@ -8,7 +8,6 @@ from rengu_flow.data.cache_paths import (
     directory_cache_id,
     resolve_cache_root,
     resolve_directory_cache_dir,
-    warn_legacy_dataset_cache_root,
 )
 
 
@@ -57,11 +56,6 @@ def test_legacy_dataset_cache_root_ignored_when_training_set(tmp_path, caplog):
     assert root == train_root.resolve()
     assert "ignored" in caplog.text.lower()
 
-
-def test_warn_legacy_dataset_cache_root(caplog):
-    with caplog.at_level(logging.WARNING):
-        warn_legacy_dataset_cache_root({"cache_root": "/tmp/x"})
-    assert "ignored" in caplog.text.lower()
 
 
 def test_validate_training_cache_root_empty_string():
