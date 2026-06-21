@@ -483,15 +483,19 @@ function onChartDataState(payload: { metric: string; hasData: boolean }) {
   else next.add(payload.metric);
   emptyMetrics.value = next;
 }
-// "Empty" is per-selection state: a metric with no data for these runs may have data for the next.
-// Reset on selection change so a metric marked empty by one run isn't left hidden for a later run
-// that DOES have it — a hidden (display:none) chart can't re-trigger its loader to clear the flag.
-watch(
-  () => selectedIds.value.join(","),
-  () => {
-    emptyMetrics.value = new Set();
-  }
-);
+// A metric can LEAVE chartMetrics (a selected run doesn't list it) and later RE-ENTER for a run that
+// does — its chart then remounts fresh. A stale "empty" flag from a previous selection would keep
+// the remounted chart hidden (display:none), and a hidden chart can't lazy-load to clear its own
+// flag, so it stays hidden forever. Drop the flag for any metric that enters or leaves chartMetrics
+// so the fresh chart starts visible and reports its real data-state; metrics that simply stay shown
+// keep their flag (no full reset, so no flicker on every selection change).
+watch(chartMetrics, (next, prev) => {
+  if (!emptyMetrics.value.size) return;
+  const prevSet = new Set(prev);
+  const nextSet = new Set(next);
+  const cleaned = new Set([...emptyMetrics.value].filter((m) => nextSet.has(m) && prevSet.has(m)));
+  if (cleaned.size !== emptyMetrics.value.size) emptyMetrics.value = cleaned;
+});
 
 // Global board controls. Zoom + cursor are synced across boards (uPlot sync), so zoom-reset and the
 // pinned point are shared state rather than per-chart.
