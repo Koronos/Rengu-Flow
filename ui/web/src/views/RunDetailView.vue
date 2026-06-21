@@ -106,7 +106,11 @@
 
     <el-card v-if="runIsActive && progress" shadow="never" class="mt-12">
       <template #header>Progress</template>
-      <RunProgress :progress="progress" />
+      <RunProgress
+        :progress="progress"
+        :preview-steps="previewSteps"
+        :checkpoint-steps="checkpointSteps"
+      />
     </el-card>
 
     <el-card v-if="mode === 'job' && job?.id && signalsAvailable" shadow="never" class="mt-12">
@@ -186,6 +190,10 @@ const fsRun = ref<FsRunRecord | null>(null);
 const jobArtifacts = ref<Record<string, unknown>[]>([]);
 const metrics = ref<Record<string, ScalarPoint[]>>({});
 const previewImages = ref<RunPreviewImageRef[]>([]);
+const checkpointSteps = ref<number[]>([]);
+const previewSteps = computed(() =>
+  previewImages.value.map((p) => p.step).filter((s): s is number => s != null)
+);
 const metricsLoading = ref(false);
 const progress = ref<RunProgressData | null>(null);
 const error = ref("");
@@ -408,6 +416,15 @@ async function fetchMetrics(): Promise<void> {
   } finally {
     metricsLoading.value = false;
   }
+  // Checkpoint ticks for the progress bar; decorative, so keep its failure off the metrics error banner.
+  if (props.mode === "job") {
+    try {
+      const cp = await api.jobCheckpoints(String(name));
+      checkpointSteps.value = cp.checkpoints.map((c) => c.step).filter((s) => s != null);
+    } catch (e) {
+      console.warn("checkpoint ticks unavailable:", e);
+    }
+  }
 }
 
 // The poll keeps the run record fresh; progress arrives by push (live stream) with this as the
@@ -451,6 +468,7 @@ watch(key, () => {
   job.value = null;
   fsRun.value = null;
   previewImages.value = [];
+  checkpointSteps.value = [];
   metrics.value = {};
   void refreshMetricsNow();
   void fetchMetrics();

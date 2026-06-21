@@ -14,16 +14,34 @@
     </template>
 
     <template v-else>
-      <el-progress
-        v-if="progress.percent != null"
-        :percentage="pct"
-        :stroke-width="14"
-        :show-text="true"
-        class="run-progress__bar"
-      />
+      <div v-if="progress.percent != null" class="run-progress__track">
+        <el-progress
+          :percentage="pct"
+          :stroke-width="14"
+          :show-text="false"
+          class="run-progress__bar"
+        />
+        <div class="run-progress__marks">
+          <span
+            v-for="m in epochMarks"
+            :key="'e' + m.left"
+            class="run-progress__epoch"
+            :style="{ left: m.left }"
+            :title="m.title"
+          />
+          <span
+            v-for="m in eventMarks"
+            :key="'v' + m.left + m.cls"
+            class="run-progress__event"
+            :class="m.cls"
+            :style="{ left: m.left }"
+            :title="m.title"
+          />
+        </div>
+      </div>
       <div class="run-progress__readout">
         <span v-if="progress.step != null" class="run-progress__step">
-          step {{ progress.step }}<template v-if="progress.max_steps"> / {{ progress.max_steps }}</template>
+          step {{ progress.step }}<template v-if="progress.max_steps"> / {{ progress.max_steps }}</template><span v-if="progress.percent != null" class="run-progress__pct"> ({{ pct }}%)</span>
         </span>
         <span v-else class="run-progress__step">Waiting for first step…</span>
         <template v-if="epochInfo">
@@ -63,9 +81,46 @@ import type { RunProgress } from "../types/api";
 
 const props = defineProps({
   progress: { type: Object as PropType<RunProgress | null>, default: null },
+  // Steps at which previews were generated / checkpoints were saved; rendered as ticks on the bar.
+  previewSteps: { type: Array as PropType<number[]>, default: () => [] },
+  checkpointSteps: { type: Array as PropType<number[]>, default: () => [] },
 });
 
 const caching = computed(() => props.progress?.phase === "caching");
+
+// Epoch boundaries are evenly spaced in steps, so position i is just i/epochs (no max_steps needed).
+const epochMarks = computed(() => {
+  const n = props.progress?.epochs ?? 0;
+  if (!n || n < 2) return [];
+  return Array.from({ length: n - 1 }, (_, i) => ({
+    left: `${((i + 1) / n) * 100}%`,
+    title: `epoch ${i + 1}`,
+  }));
+});
+
+// Preview + checkpoint ticks, merged when they land on the same step ("done together").
+const eventMarks = computed(() => {
+  const max = props.progress?.max_steps ?? 0;
+  if (!max) return [];
+  const byStep = new Map<number, { preview: boolean; checkpoint: boolean }>();
+  const add = (s: number, k: "preview" | "checkpoint") => {
+    if (s == null || s < 0) return;
+    const e = byStep.get(s) ?? { preview: false, checkpoint: false };
+    e[k] = true;
+    byStep.set(s, e);
+  };
+  for (const s of props.previewSteps) add(s, "preview");
+  for (const s of props.checkpointSteps) add(s, "checkpoint");
+  return [...byStep.entries()].map(([step, e]) => {
+    const both = e.preview && e.checkpoint;
+    const kind = both ? "checkpoint + preview" : e.checkpoint ? "checkpoint" : "preview";
+    return {
+      left: `${Math.min(100, (step / max) * 100)}%`,
+      cls: both ? "is-both" : e.checkpoint ? "is-checkpoint" : "is-preview",
+      title: `${kind} · step ${step}`,
+    };
+  });
+});
 
 const pct = computed(() => {
   const p = props.progress;
@@ -108,8 +163,47 @@ function formatLoss(v: number | null | undefined): string | number | null | unde
 .run-progress {
   width: 100%;
 }
-.run-progress__bar {
+.run-progress__track {
+  position: relative;
   margin-bottom: 6px;
+}
+.run-progress__bar {
+  margin-bottom: 0;
+}
+.run-progress__marks {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.run-progress__epoch,
+.run-progress__event {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  transform: translateX(-50%);
+}
+.run-progress__epoch {
+  width: 1px;
+  background: var(--el-text-color-secondary);
+  opacity: 0.35;
+}
+.run-progress__event {
+  width: 3px;
+  border-radius: 2px;
+  pointer-events: auto;
+}
+.run-progress__event.is-preview {
+  background: var(--el-color-primary);
+}
+.run-progress__event.is-checkpoint {
+  background: var(--el-color-success);
+}
+.run-progress__event.is-both {
+  background: linear-gradient(90deg, var(--el-color-success) 50%, var(--el-color-primary) 50%);
+}
+.run-progress__pct {
+  color: var(--el-text-color-secondary);
+  font-weight: 400;
 }
 .run-progress__readout {
   display: flex;
