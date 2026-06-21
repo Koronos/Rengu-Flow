@@ -1,6 +1,5 @@
 /** Normalize dataset editor form before API render/parse (plain JSON-safe objects). */
 
-import { clonePlain } from "./clonePlain";
 import type { FormValues } from "../types/forms";
 
 const INTEGER_LIST_KEYS = new Set(["resolutions", "frame_buckets"]);
@@ -51,7 +50,7 @@ export function sanitizeDatasetForm(raw: unknown): FormValues | null {
   }
   let form: DatasetFormValues;
   try {
-    form = clonePlain(raw) as DatasetFormValues;
+    form = structuredClone(raw) as DatasetFormValues;
   } catch {
     return null;
   }

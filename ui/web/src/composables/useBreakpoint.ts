@@ -17,7 +17,6 @@ export function useBreakpoint() {
   });
 
   const isMobile = computed(() => width.value < 768);
-  const isTablet = computed(() => width.value >= 768 && width.value < 1024);
 
-  return { width, isMobile, isTablet };
+  return { isMobile };
 }

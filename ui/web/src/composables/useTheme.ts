@@ -19,7 +19,7 @@ function readStored(): RenguTheme {
   return DEFAULT_THEME;
 }
 
-const theme = ref<RenguTheme>(readStored());
+export const theme = ref<RenguTheme>(readStored());
 
 function applyTheme(t: RenguTheme): void {
   document.documentElement.dataset.theme = t;
@@ -38,7 +38,3 @@ export function setTheme(t: RenguTheme): void {
 // Keep the live DOM in sync with the stored value on first import (an inline script in
 // index.html applies it pre-paint to avoid a flash; this re-applies for SPA reactivity).
 applyTheme(theme.value);
-
-export function useTheme() {
-  return { theme, themes: THEMES, setTheme };
-}

@@ -36,10 +36,6 @@ export function withDefaultPagination(
 
 // --- Shared ---
 
-export interface ApiOk {
-  ok?: boolean;
-}
-
 export interface ValidateResult {
   ok: boolean;
   error?: string;
@@ -699,59 +695,6 @@ export interface LocalSettingsPatch {
 
 export interface MaintenanceEnabledResult {
   enabled: boolean;
-}
-
-export interface MaintenanceDbInfo {
-  path: string;
-  exists: boolean;
-  size_bytes: number;
-  modified_at: number | null;
-  tables: string[];
-  expected_tables: string[];
-}
-
-export interface MaintenanceDepProfile {
-  id: string;
-  label: string;
-  description: string;
-  command: string;
-  pip_allowed: boolean;
-}
-
-export interface MaintenanceStatus {
-  enabled: boolean;
-  schema_version: number;
-  database: MaintenanceDbInfo;
-  ui_data_dir: string;
-  repo_root: string;
-  python_executable: string;
-  git: {
-    available: boolean;
-    gitmodules_exists: boolean;
-    submodules_configured: { path?: string; url?: string }[];
-    submodule_status: { path: string; status: string; commit: string; line: string }[];
-  };
-  requirements_files: { path: string; exists: boolean; resolved: string | null }[];
-  pyproject_exists: boolean;
-  dependency_profiles: MaintenanceDepProfile[];
-  pip_install_from_server: boolean;
-}
-
-export interface MaintenanceCommandOutput {
-  ok: boolean;
-  message?: string;
-  stdout?: string;
-  stderr?: string;
-  returncode?: number;
-  command?: string | string[];
-  executed?: boolean;
-  profile?: string;
-}
-
-export interface MaintenanceDbResetResult extends MaintenanceCommandOutput {
-  path: string;
-  tables_before: string[];
-  tables_after: string[];
 }
 
 // --- Dataset prep: tag editor -------------------------------------------------

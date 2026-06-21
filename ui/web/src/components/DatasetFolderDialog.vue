@@ -122,7 +122,6 @@ import {
   primaryDirectoryFields,
   setOverrideEnabled,
 } from "../lib/datasetDirectoryForm";
-import { clonePlain } from "../lib/clonePlain";
 import { useDatasetEditorStore } from "../stores/datasetEditor";
 import type { FormValues, SchemaField } from "../types/forms";
 import type { DirectoryFormRow } from "../lib/datasetDirectoryForm";
@@ -180,7 +179,7 @@ watch(
   () => [props.modelValue, props.entry],
   () => {
     if (!props.modelValue) return;
-    draft.value = props.entry ? clonePlain(props.entry) : emptyDirectoryRow();
+    draft.value = props.entry ? structuredClone(props.entry) : emptyDirectoryRow();
   },
   { immediate: true }
 );
