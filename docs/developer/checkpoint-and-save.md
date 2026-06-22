@@ -15,6 +15,30 @@ User-facing option tables: `docs/user/checkpoint-and-save.md`.
 
 **Helpers**: `rengu_flow.utils.save_io` — `is_disk_full_error`, `atomic_save_safetensors`, `rollback_failed_checkpoint`, `cleanup_export_dir`, export retention parsing.
 
+## Saving at the optimizer's true iterate (lookahead optimizers)
+
+**Any path that persists live weights must read them with the optimizer in eval mode.**
+`save_checkpoint` and `_run_pipeline_export` both wrap their reads in
+`Saver._persist_at_true_iterate()` (calls `model_engine.optimizer.eval()` before, `.train()`
+after; no-op for optimizers without those methods).
+
+Why: lookahead-style optimizers from K-Optimizers (**Nekaon, MSAM, ScheduleFree, Lookahead**)
+deliberately keep the *between-step* live weights displaced from the iterate they converge to —
+Nekaon is `MSAM(rho=−k)`, so the live weights sit at `w + k·m` (a k-step momentum lookahead).
+Only `optimizer.eval()` restores the true `w`; `train()` re-applies the displacement. A save
+taken in train mode therefore stores `w + k·m`:
+
+- **Checkpoint**: on resume `MSAM.load_state_dict` resets its "displacement present" flag, so the
+  optimizer never removes that offset — training continues from the wrong point and the model
+  degrades (it "forgets" what it learned). Sharpest on near-identity adapters (**BOFT**:
+  `oft_blocks` start at the identity rotation, so the learned signal is small next to `k·m`).
+- **Export**: the displacement is baked straight into the exported adapter.
+
+The previews/eval paths (`utils/preview.py`, `utils/eval.py`) already bracket their reads this
+way, which is why a run can *preview* fine yet *resume* broken. The adapter tensors themselves
+round-trip correctly through DeepSpeed `exclude_frozen_parameters` — the bug was the weight
+*values*, not the keys. New save paths added to the `Saver` must reuse `_persist_at_true_iterate()`.
+
 ## Export retention (`_prune_old_exports`)
 
 1. Eligible dirs: `step*`, `epoch*` only (`signal_step*` exempt).
@@ -60,4 +84,5 @@ GPU smoke: `./scripts/smoke_async_export_poc.sh` — single train run (cache inl
 
 - `tests/test_async_model_export.py` — CPU snapshot helper
 - `tests/test_save_io.py`, `tests/test_export_retention.py`, `tests/test_checkpoint_rollback.py`, `tests/test_saver_export_wait.py`
+- `tests/test_saver_optimizer_eval.py` — checkpoint/export read in `optimizer.eval()` mode (lookahead optimizers)
 - `tests/test_signal_files.py`, `tests/test_checkpoint_prune.py`, `tests/test_saver_signals.py`
