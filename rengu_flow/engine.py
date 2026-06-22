@@ -118,7 +118,8 @@ class SequentialPipe(torch.nn.Module):
 class TorchEngine:
     """Minimal single-GPU training engine matching the DeepSpeed surface the loop uses."""
 
-    def __init__(self, module: SequentialPipe, get_optimizer, parameters_to_train, ds_config: dict):
+    def __init__(self, module: SequentialPipe, get_optimizer, parameters_to_train, ds_config: dict,
+                 *, block_swap: bool = False):
         self.module = module
         self.grid = _SingleGpuGrid()
         self.is_pipe_parallel = False
@@ -129,7 +130,12 @@ class TorchEngine:
         self.lr_scheduler = None
         self.communication_data_type = None
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.module.to(self.device)
+        # With block swap the model is deliberately kept mostly on CPU; placement is owned by
+        # model.prepare_block_swap_training() (called right after build_engine) and the offloader's
+        # hooks stream blocks on demand. Moving the whole module to the GPU here would defeat the swap
+        # (a transient full-model spike → OOM on exactly the cards block swap exists for).
+        if not block_swap:
+            self.module.to(self.device)
         self._trainable = [p for p in self.module.parameters() if p.requires_grad]
         self._last_grad_norm: float | None = None
 
@@ -158,9 +164,11 @@ class TorchEngine:
         features, label = micro_batch
         x = self._to_device(features)
         label = self._to_device(label)
-        for layer in self.module.layers:
-            x = layer(x)
-        return self.module.loss_fn(x, label)
+        # Route through SequentialPipe.forward (NOT a manual layer loop) so activation checkpointing
+        # actually runs: without it the full-model autograd graph pins every base weight for the
+        # backward, which defeats block swap (evicted weights can't be freed). Then apply loss_fn.
+        output = self.module(x)
+        return self.module.loss_fn(output, label)
 
     def train_batch(self, iterator) -> torch.Tensor:
         """Run ``micro_batches`` forward/backward, then one optimizer step. Returns mean loss."""
@@ -289,7 +297,7 @@ def build_pipe(backend: str, *, layers, num_stages, partition_method, manual_par
 
 
 def build_engine(backend: str, *, pipeline_model, ds_config, args, get_optimizer,
-                 parameters_to_train):
+                 parameters_to_train, block_swap: bool = False):
     """Construct the engine for *backend* and return it ready to train."""
     if backend == "deepspeed":
         import deepspeed
@@ -299,7 +307,8 @@ def build_engine(backend: str, *, pipeline_model, ds_config, args, get_optimizer
         engine._configure_optimizer(get_optimizer, parameters_to_train)
         return engine
     if backend == "accelerate":
-        return TorchEngine(pipeline_model, get_optimizer, parameters_to_train, ds_config)
+        return TorchEngine(pipeline_model, get_optimizer, parameters_to_train, ds_config,
+                           block_swap=block_swap)
     if backend == "accelerate_deepspeed":
         raise NotImplementedError(
             "engine='accelerate_deepspeed' is not implemented yet; use 'deepspeed' or 'accelerate'."

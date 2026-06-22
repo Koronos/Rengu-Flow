@@ -465,24 +465,36 @@ def _run_training(args, config):
     # normally; prepare_block_swap_training() (after initialize) pushes swappable blocks to CPU,
     # and the offloader pulls them back on demand.
     if config.get("blocks_to_swap", 0):
-        if backend != "deepspeed":
+        if backend not in ("deepspeed", "accelerate"):
             raise ValueError(
-                f"blocks_to_swap requires engine='deepspeed' (it patches the DeepSpeed engine); "
-                f"engine={backend!r} cannot block-swap. Drop blocks_to_swap or use engine='deepspeed'."
+                f"blocks_to_swap needs engine='deepspeed' or 'accelerate'; engine={backend!r} "
+                f"cannot block-swap. Drop blocks_to_swap or switch engine."
             )
         if config.get("pipeline_stages", 1) != 1:
             raise ValueError("Block swapping requires pipeline_stages = 1.")
-        if not config.get("adapter") and not config["optimizer"].get("gradient_release"):
+        is_adapter = bool(config.get("adapter"))
+        if backend == "accelerate" and not is_adapter:
+            # The hook offloader is engine-agnostic, but full-model swap needs gradient_release (per-
+            # parameter step inside the backward), which only the DeepSpeed pipeline engine has. The
+            # accelerate (single-GPU torch) engine does a monolithic optimizer.step(), so it can only
+            # swap the frozen base weights while keeping the small trainable adapters resident.
+            raise ValueError(
+                "engine='accelerate' block swap supports adapter (LoRA/LoKr) training only; "
+                "full-model swap needs gradient_release — use engine='deepspeed' for that."
+            )
+        if backend == "deepspeed" and not is_adapter and not config["optimizer"].get("gradient_release"):
             raise ValueError(
                 "Block swapping for full-model training requires optimizer.gradient_release = true "
                 "(the per-parameter optimizer step must run during the backward pass while each "
                 "block is on the GPU)."
             )
-        # Keep DeepSpeed from hauling the whole model onto the GPU at init / broadcasting CPU blocks;
-        # the offloader + prepare_block_swap_training own placement (see block_swap docstring).
-        from rengu_flow.training.block_swap import patch_deepspeed_for_block_swap
+        if backend == "deepspeed":
+            # Keep DeepSpeed from hauling the whole model onto the GPU at init / broadcasting CPU
+            # blocks; the offloader + prepare_block_swap_training own placement. The accelerate engine
+            # has no such init move to neutralize (TorchEngine skips its .to(device) when swapping).
+            from rengu_flow.training.block_swap import patch_deepspeed_for_block_swap
 
-        patch_deepspeed_for_block_swap()
+            patch_deepspeed_for_block_swap()
         model.enable_block_swap(config["blocks_to_swap"])
 
     layers = model.to_layers()
@@ -625,6 +637,7 @@ def _run_training(args, config):
         args=args,
         get_optimizer=get_optimizer,
         parameters_to_train=parameters_to_train,
+        block_swap=bool(config.get("blocks_to_swap", 0)),
     )
     optimizer = model_engine.optimizer
 
