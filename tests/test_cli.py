@@ -98,7 +98,26 @@ def test_sync_dependencies_calls_uv_sync(tmp_path, monkeypatch):
     assert synced == [["ui"]]
 
 
-def test_train_launcher_builds_deepspeed_cmd(tmp_path, monkeypatch):
+@pytest.fixture
+def deepspeed_engine(monkeypatch):
+    """Force the deepspeed engine: base_train_command only uses the DeepSpeed launcher there.
+    On a non-deepspeed host (e.g. native Windows default 'accelerate') it runs the module
+    directly, which is what test_base_train_command_accelerate_bypasses_launcher checks."""
+    monkeypatch.setenv("RENGU_ENGINE", "deepspeed")
+
+
+def test_base_train_command_accelerate_bypasses_launcher(tmp_path, monkeypatch):
+    from rengu_flow.cli import train_launcher
+
+    monkeypatch.setenv("RENGU_ENGINE", "accelerate")
+    monkeypatch.setattr(train_launcher, "which", lambda _: "/usr/bin/deepspeed")
+    cmd = train_launcher.base_train_command(tmp_path / "t.toml", num_gpus=1)
+    # accelerate is single-GPU: run the module directly, never the DeepSpeed launcher.
+    assert cmd[1] == "-m" and cmd[2] == "rengu_flow.main"
+    assert not cmd[0].endswith("deepspeed")
+
+
+def test_train_launcher_builds_deepspeed_cmd(tmp_path, monkeypatch, deepspeed_engine):
     from rengu_flow.cli.train_launcher import build_train_command
     from rengu_flow.config.local_config import LocalConfig, TrainingConfig
 
@@ -121,7 +140,7 @@ def test_train_launcher_builds_deepspeed_cmd(tmp_path, monkeypatch):
     assert any(a.startswith("--master_port=") for a in cmd)
 
 
-def test_base_train_command_uses_module(tmp_path, monkeypatch):
+def test_base_train_command_uses_module(tmp_path, monkeypatch, deepspeed_engine):
     from rengu_flow.cli import train_launcher
 
     monkeypatch.setattr(train_launcher, "which", lambda _: "/usr/bin/deepspeed")
@@ -143,7 +162,7 @@ def test_base_train_command_python_fallback(tmp_path, monkeypatch):
     assert cmd[2] == "rengu_flow.main"
 
 
-def test_ui_job_command_uses_module(tmp_path, monkeypatch):
+def test_ui_job_command_uses_module(tmp_path, monkeypatch, deepspeed_engine):
     """The web UI launcher must share the same --module contract as the CLI (RF-01/RF-02)."""
     from rengu_flow.cli import train_launcher
     from rengu_flow_ui import jobs as ui_jobs

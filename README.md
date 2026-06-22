@@ -49,10 +49,11 @@ A **TOML-driven training framework** for diffusion models. You describe a run in
 
 **You install these (system level):**
 
-- **OS** — Linux, or Windows via **WSL2**. Native Windows is not supported for training; see the [WSL workflow](docs/developer/wsl-windows-workflow.md).
-- **NVIDIA GPU + driver** — a CUDA-capable GPU with a driver recent enough for **CUDA 13.x** (check the "CUDA Version" reported by `nvidia-smi`).
-- **CUDA Toolkit 13.x** — provides **`nvcc`**, which DeepSpeed uses to JIT-compile its C++/CUDA ops. Its major version must match the PyTorch build (CUDA 13); without it, DeepSpeed's compiled ops fail to build. Point `CUDA_HOME` at the toolkit if it is not auto-detected.
-- **uv** — required on `PATH` for `./rengu` and `./start-ui.sh`. uv creates `.venv` and installs a compatible **Python (3.10–3.13)** automatically; no separate system `python3` needed.
+- **OS** — **Linux/WSL2** (multi-GPU, the `deepspeed` engine) **or native Windows** (single-GPU, the `accelerate` engine — no DeepSpeed required). See the [native Windows install guide](docs/user/windows-install.md) and the [WSL workflow](docs/developer/wsl-windows-workflow.md).
+- **NVIDIA GPU + driver** — a CUDA-capable GPU with a driver recent enough for **CUDA 13.x** (check the "CUDA Version" reported by `nvidia-smi`). Download: **[NVIDIA drivers](https://www.nvidia.com/Download/index.aspx)**.
+- **CUDA Toolkit 13.x** — provides **`nvcc`**, which **DeepSpeed** uses to JIT-compile its C++/CUDA ops on the `deepspeed` engine (Linux/WSL). Its major version must match the PyTorch build (CUDA 13). The native-Windows `accelerate` engine does **not** use DeepSpeed, so `nvcc` is optional there (only `torch.compile` benefits from a toolchain). Point `CUDA_HOME` at the toolkit if it is not auto-detected. Download: **[CUDA Toolkit 13.x](https://developer.nvidia.com/cuda-downloads)**.
+- **uv** — required on `PATH` for `./rengu` (and `rengu.cmd` on Windows). uv creates `.venv` and installs a compatible **Python (3.10–3.13)** automatically; no separate system `python3` needed. Install: **[uv](https://docs.astral.sh/uv/getting-started/installation/)**.
+- **(native Windows, optional) Visual Studio Build Tools** — only needed if you use `torch.compile`. Download: **[VS Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)** (select "Desktop development with C++").
 
 **Installed automatically (by `rengu init` / `uv sync`):**
 
@@ -181,7 +182,7 @@ Details and the full list: [signal files](docs/user/signal-files.md).
 
 Rengu Flow is a **preliminary release** under active development; treat config keys and CLI flags as subject to change between versions. A few specific notes:
 
-- **Linux / WSL2 only.** Native Windows is not supported. On WSL2, do not set `PYTORCH_CUDA_ALLOC_CONF = "expandable_segments:True"` — Rengu Flow detects WSL and applies safe defaults automatically (see the [CLI guide](docs/user/cli.md#training-environment-trainingenv)).
+- **Native Windows is single-GPU only.** It runs on the `accelerate` engine (plain PyTorch, no DeepSpeed). **Multi-GPU**, **`optimizer.gradient_release`**, **`blocks_to_swap`**, and **`pipeline_stages > 1`** require the `deepspeed` engine and are **Linux/WSL2 only** (they patch DeepSpeed's pipeline engine; Windows has no NCCL). Everything else — caching, gradient accumulation, per-resolution micro-batches, resolution schedules, `activation_offload`, `activation_checkpointing`, `torch.compile`, EMA, eval/previews — works on both. See the [native Windows install guide](docs/user/windows-install.md). On WSL2, do not set `PYTORCH_CUDA_ALLOC_CONF = "expandable_segments:True"` — Rengu Flow detects WSL and applies safe defaults automatically (see the [CLI guide](docs/user/cli.md#training-environment-trainingenv)).
 - **Built-in models** are SDXL and Cosmos Predict2 / Anima. Other architectures (e.g. Flux) are not yet registered — see [backlog](docs/BACKLOG.md).
 - **Cosmos `load_and_fuse_adapter` is intentionally unsupported**; load adapter weights instead.
 

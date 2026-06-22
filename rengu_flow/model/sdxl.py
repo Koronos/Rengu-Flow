@@ -283,6 +283,13 @@ class SDXLPipeline(BasePipeline):
         return self._pipeline
 
     def __getattr__(self, name):
+        # `_pipeline` and dunder probes must NOT trigger the lazy pipeline load, or a half-built
+        # instance recurses forever (diffusers_pipeline -> load_diffusion_model -> `self._pipeline`
+        # -> __getattr__). This happens when the model is unpickled in a Windows multiprocess
+        # 'spawn' worker (where __init__ never ran, so `_pipeline` is absent). Real diffusers
+        # private attrs (e.g. `_execution_device`) still delegate.
+        if name == "_pipeline" or (name.startswith("__") and name.endswith("__")):
+            raise AttributeError(name)
         return getattr(self.diffusers_pipeline, name)
 
     def _set_param_original_name(self):

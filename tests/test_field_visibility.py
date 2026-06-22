@@ -2,9 +2,19 @@
 
 from __future__ import annotations
 
+import pytest
+
 from rengu_flow_ui.config_schema import get_schema
 from rengu_flow_ui.field_visibility import field_visible, prune_form_for_model
 from rengu_flow_ui.config_form import parse_toml, form_to_toml
+
+
+@pytest.fixture(autouse=True)
+def _deepspeed_schema(monkeypatch):
+    """Build the full schema regardless of host OS. The DeepSpeed-only fields (blocks_to_swap,
+    pipeline_stages, …) are dropped from the schema on non-deepspeed hosts (e.g. native Windows),
+    but these tests assert their visibility logic, so pin the engine to the full superset."""
+    monkeypatch.setenv("RENGU_ENGINE", "deepspeed")
 
 
 def _paths(schema) -> set[str]:
@@ -22,6 +32,18 @@ def test_cosmos_schema_excludes_t5_and_includes_llm() -> None:
     # from the web form, like sdxl's model.guidance below.
     assert "model.diffusion_model_dtype" not in paths
     assert "model.guidance" not in paths
+
+
+def test_deepspeed_only_fields_dropped_on_accelerate(monkeypatch) -> None:
+    """Native-Windows / accelerate hosts must not surface multi-GPU / pipeline-only knobs."""
+    ds_only = {"pipeline_stages", "partition_method", "partition_split", "blocks_to_swap", "block_swap_prefetch"}
+
+    monkeypatch.setenv("RENGU_ENGINE", "deepspeed")
+    assert ds_only <= {f["path"] for s in get_schema()["sections"] for f in s["fields"]}
+
+    monkeypatch.setenv("RENGU_ENGINE", "accelerate")
+    accel_paths = {f["path"] for s in get_schema()["sections"] for f in s["fields"]}
+    assert not (ds_only & accel_paths), f"DeepSpeed-only fields leaked on accelerate: {ds_only & accel_paths}"
 
 
 def test_blocks_to_swap_visible_when_model_supports_block_swap() -> None:

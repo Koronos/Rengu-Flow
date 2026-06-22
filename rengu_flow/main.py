@@ -109,7 +109,6 @@ def _build_optimizer(
     import inspect
 
     import torch
-    import deepspeed
 
     from rengu_flow.optim import resolve_optimizer_class
     from rengu_flow.utils import is_main_process
@@ -151,6 +150,8 @@ def _build_optimizer(
         kwargs["fused"] = True
 
     if gradient_release:
+        import deepspeed  # gradient_release patches the DeepSpeed engine (deepspeed backend only)
+
         def _report_progress(self, step):
             lr = self.get_lr()
             mom = self.get_mom()
@@ -338,12 +339,18 @@ def _setup_compile_disk_cache(config, is_main):
 
 
 def _run_training(args, config):
+    import sys
     import torch
-    import deepspeed
 
     from rengu_flow import distributed as dist
+    from rengu_flow.engine import build_engine, build_pipe, resolve_backend
     from rengu_flow.utils.common import empty_cuda_cache
     import time
+
+    # Engine backend: 'deepspeed' (pipeline, multi-GPU, default Linux) or 'accelerate'
+    # (single-GPU plain torch, default Windows — no DeepSpeed import at all). DeepSpeed is
+    # imported only inside the deepspeed branches below so native Windows needs no DeepSpeed.
+    backend = resolve_backend(config)
 
     from rengu_flow.utils.bench import bench_enabled, bench_init, bench_record, bench_summarize
     from rengu_flow.utils.training_metrics import log_training_step
@@ -369,7 +376,7 @@ def _run_training(args, config):
 
     from rengu_flow.registry import get_model
     from rengu_flow.optim import apply_warmup, resolve_scheduler
-    from rengu_flow.utils import ManualPipelineModule, get_data_iterator_for_step, is_main_process
+    from rengu_flow.utils import get_data_iterator_for_step, is_main_process
     from rengu_flow.utils.saver import Saver
     from rengu_flow.utils.eval import evaluate
     from rengu_flow.utils.gen_probe import generalization_probe
@@ -381,9 +388,14 @@ def _run_training(args, config):
         validate_dataset_config_for_real_data,
     )
 
-    torch.multiprocessing.set_sharing_strategy("file_system")
+    if sys.platform != "win32":
+        # file_system sharing strategy is POSIX-only (shared-memory files); raises on Windows.
+        torch.multiprocessing.set_sharing_strategy("file_system")
     world_size, rank, local_rank = _distributed_init(args)
-    deepspeed.init_distributed()
+    if backend == "deepspeed":
+        import deepspeed
+
+        deepspeed.init_distributed()
     if torch.cuda.is_available():
         device_rank = local_rank if local_rank >= 0 else (dist.get_rank() if dist is not None else 0)
         torch.cuda.set_device(device_rank)
@@ -451,6 +463,11 @@ def _run_training(args, config):
     # normally; prepare_block_swap_training() (after initialize) pushes swappable blocks to CPU,
     # and the offloader pulls them back on demand.
     if config.get("blocks_to_swap", 0):
+        if backend != "deepspeed":
+            raise ValueError(
+                f"blocks_to_swap requires engine='deepspeed' (it patches the DeepSpeed engine); "
+                f"engine={backend!r} cannot block-swap. Drop blocks_to_swap or use engine='deepspeed'."
+            )
         if config.get("pipeline_stages", 1) != 1:
             raise ValueError("Block swapping requires pipeline_stages = 1.")
         if not config.get("adapter") and not config["optimizer"].get("gradient_release"):
@@ -509,13 +526,14 @@ def _run_training(args, config):
             use_reentrant=config.get("reentrant_activation_checkpointing", False),
         )
 
-    pipeline_model = ManualPipelineModule(
+    pipeline_model = build_pipe(
+        backend,
         layers=layers,
         num_stages=num_stages,
         partition_method=partition_method,
         manual_partition_split=partition_split if partition_method == "manual" else None,
         loss_fn=model.get_loss_fn(),
-        **extra_kw,
+        extra_kw=extra_kw,
     )
     if config.get("compile"):
         from rengu_flow.training.compile_plan import apply_dynamo_limits, plan_compile
@@ -576,6 +594,11 @@ def _run_training(args, config):
     global_batch_size_for_opt = micro_batch * gradient_accumulation_steps * world_size_for_opt
 
     gradient_release = config["optimizer"].get("gradient_release", False)
+    if gradient_release and backend != "deepspeed":
+        raise ValueError(
+            f"optimizer.gradient_release requires engine='deepspeed' (it patches the DeepSpeed "
+            f"pipeline engine); engine={backend!r} does not support it yet."
+        )
     ds_config = {
         "train_micro_batch_size_per_gpu": micro_batch,
         "gradient_accumulation_steps": gradient_accumulation_steps,
@@ -593,13 +616,14 @@ def _run_training(args, config):
         gradient_release=gradient_release,
     )
 
-    model_engine, optimizer, _, _ = deepspeed.initialize(
+    model_engine = build_engine(
+        backend,
+        pipeline_model=pipeline_model,
+        ds_config=ds_config,
         args=args,
-        model=pipeline_model,
-        config=ds_config,
+        get_optimizer=get_optimizer,
+        parameters_to_train=parameters_to_train,
     )
-    model_engine._support_torch_style_backward = True
-    model_engine._configure_optimizer(get_optimizer, parameters_to_train)
     optimizer = model_engine.optimizer
 
     # DeepSpeed has now placed the model on the GPU; push swappable blocks back to CPU so steady
@@ -802,7 +826,7 @@ def _run_training(args, config):
 
             folder_name = build_run_folder_name(config.get("run_name"))
             run_dir_container[0] = os.path.join(output_dir, folder_name)
-    if dist is not None and hasattr(torch.distributed, "broadcast_object_list"):
+    if dist.is_initialized():
         torch.distributed.broadcast_object_list(
             run_dir_container, src=0, group=dist.get_world_group()
         )

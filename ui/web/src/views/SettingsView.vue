@@ -28,11 +28,24 @@
         <template #header>Training</template>
         <el-form label-position="top">
           <el-form-item>
+            <template #label>Engine <code class="toml-key">training.engine</code></template>
+            <el-select v-model="form.editable.training.engine" style="width: 320px">
+              <el-option label="auto (per OS)" value="" />
+              <el-option label="deepspeed — multi-GPU (Linux/WSL)" value="deepspeed" />
+              <el-option label="accelerate — single-GPU (Windows, no DeepSpeed)" value="accelerate" />
+            </el-select>
+            <p class="field-hint">
+              Training backend. <code>auto</code> picks <code>accelerate</code> on Windows,
+              <code>deepspeed</code> elsewhere. Effective:
+              <code>{{ effectiveEngine }}</code>.
+            </p>
+          </el-form-item>
+          <el-form-item v-if="showMultiGpu">
             <template #label>GPUs <code class="toml-key">training.num_gpus</code></template>
             <el-input-number v-model="form.editable.training.num_gpus" :min="1" />
             <p class="field-hint">DeepSpeed <code>--num_gpus</code> for <code>rengu train</code>. CLI flags override this.</p>
           </el-form-item>
-          <el-form-item>
+          <el-form-item v-if="showMultiGpu">
             <template #label>Master port <code class="toml-key">training.master_port</code></template>
             <el-input-number v-model="form.editable.training.master_port" :min="1" :max="65535" />
             <p class="field-hint">Rendezvous port for the local DeepSpeed launcher. Default 29500.</p>
@@ -133,6 +146,15 @@ const tokenField = computed<string>({
     if (form.value) form.value.restartRequired.ui.token = v ? v : null;
   },
 });
+
+// Effective backend: the chosen engine, or the host default ('accelerate' on Windows). Multi-GPU
+// settings (num_gpus, master_port) only apply to the DeepSpeed engine, so hide them otherwise.
+const effectiveEngine = computed<string>(() => {
+  const chosen = (form.value?.editable.training.engine ?? "").trim().toLowerCase();
+  if (chosen) return chosen;
+  return form.value?.host?.is_windows ? "accelerate" : "deepspeed";
+});
+const showMultiGpu = computed<boolean>(() => effectiveEngine.value === "deepspeed");
 
 async function load(): Promise<void> {
   loading.value = true;

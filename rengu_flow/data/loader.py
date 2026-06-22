@@ -282,8 +282,8 @@ class PipelineDataLoader:
         return target
 
     def sync_epoch(self):
-        if dist is None:
-            return
+        if not dist.is_initialized():
+            return  # single-process (engine='accelerate' / no backend): nothing to gather
         try:
             world_size = dist.get_world_size()
         except Exception:

@@ -9,9 +9,10 @@ const SAMPLE = {
   path: "/repo/rengu.local.toml",
   exists: true,
   editable: {
-    training: { num_gpus: 1, master_port: 29500, extra_args: "", env: {} },
+    training: { num_gpus: 1, master_port: 29500, extra_args: "", engine: "", env: {} },
     maintenance: { enabled: false, allow_pip: false },
   },
+  host: { is_windows: false, effective_engine: "deepspeed", deepspeed: true },
   restartRequired: { ui: { public: false, token: null } },
   readOnly: { ui: { host: "127.0.0.1", port: 8765, data_dir: "data" } },
 };

@@ -13,6 +13,7 @@
   - [Training previews](user/previews.md) — Sample images during training, TensorBoard IMAGES tab, schedules and `preview_now` signal.
   - [Signal files](user/signal-files.md) — Control runs with `save`, `save_quit`, `export_model`, `export_model_quit`, and `preview_now`.
   - [CLI (`rengu`)](user/cli.md) — Setup, training launcher, UI, `rengu.local.toml`.
+  - [Native Windows install](user/windows-install.md) — Single-GPU on the `accelerate` engine (no DeepSpeed/WSL); engine selection and the Windows feature matrix.
   - [Web UI](user/web-ui.md) — Optional local UI: `./rengu ui start`, configs, jobs, signals, progress.
   - [Maintenance](user/maintenance.md) — Dev-only UI/CLI: reset library DB, submodules, dependency extras.
 - **[Implementation backlog](BACKLOG.md)** — Deferred / not-yet-implemented work.

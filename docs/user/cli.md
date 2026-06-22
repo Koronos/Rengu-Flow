@@ -95,6 +95,7 @@ Same as `train` but the launcher appends `--cache_only`. Extra args after `--` a
 | `num_gpus` | Default for `rengu train` | `1` |
 | `master_port` | DeepSpeed master port | `29500` |
 | `extra_args` | Default trainer argv list | `[]` |
+| `engine` | Training backend: `deepspeed` (multi-GPU) or `accelerate` (single-GPU, no DeepSpeed). Empty = auto by OS (`accelerate` on Windows, `deepspeed` elsewhere). See [native Windows install](windows-install.md). | `""` (auto) |
 
 ### Trainer flags (`rengu_flow.main`)
 

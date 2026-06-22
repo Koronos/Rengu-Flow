@@ -63,7 +63,8 @@ def _need_to_checkpoint(config, epoch=None):
             result = [False]
     else:
         result = [False]
-    torch.distributed.broadcast_object_list(result, src=0)
+    if dist.is_initialized():
+        torch.distributed.broadcast_object_list(result, src=0)
     return result[0]
 
 

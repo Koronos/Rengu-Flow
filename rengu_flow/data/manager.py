@@ -165,6 +165,22 @@ def _cache_fn(
     queue.put(None)
 
 
+def _run_cache_worker(args, queue) -> None:
+    """Run ``_cache_fn`` and, on any failure, signal the consumer instead of hanging it.
+
+    ``_cache_fn`` enqueues ``None`` on success to end the consumer's drain loop. If it raises
+    before that (e.g. an OSError while writing the Arrow cache on Windows), the consumer's
+    blocking ``queue.get()`` would wait forever — a failure that looks identical to a hang.
+    Surface it as an error sentinel so the main process raises with the real traceback.
+    """
+    try:
+        _cache_fn(*args)
+    except BaseException as exc:  # noqa: BLE001 - cross-thread/process error hand-off
+        import traceback as _tb
+
+        queue.put(("__cache_worker_error__", repr(exc), _tb.format_exc()))
+
+
 class DatasetManager:
     """Registers train/eval datasets and runs latent + text embedding cache (VAE + TE on GPU)."""
 
@@ -208,15 +224,24 @@ class DatasetManager:
             raise RuntimeError(
                 "DatasetManager.cache() requires distributed (e.g. deepspeed)."
             )
-        if is_main_process():
-            manager = mp.Manager()
-            queue = [manager.Queue()]
+        distributed = dist.is_initialized()
+        if distributed:
+            if is_main_process():
+                manager = mp.Manager()
+                queue = [manager.Queue()]
+            else:
+                queue = [None]
+            torch.distributed.broadcast_object_list(
+                queue, src=0, group=dist.get_world_group()
+            )
+            queue = queue[0]
         else:
-            queue = [None]
-        torch.distributed.broadcast_object_list(
-            queue, src=0, group=dist.get_world_group()
-        )
-        queue = queue[0]
+            # Single process (engine='accelerate' / Windows, no fork): use a thread worker +
+            # thread queue below. The model and pipes are shared by reference — nothing is
+            # pickled, so the lazily-loaded model isn't re-created in a 'spawn' worker.
+            import queue as _queue
+
+            queue = _queue.Queue()
 
         resolvers = [
             ds.get_augmentation_resolver()
@@ -237,32 +262,42 @@ class DatasetManager:
                         return out
                 return None
 
+        worker = None
         if is_main_process():
-            proc = mp.Process(
-                target=_cache_fn,
-                args=(
-                    self.datasets,
-                    queue,
-                    self.model.get_preprocess_media_file_fn(
-                        augmentation_resolver=augmentation_resolver
-                    ),
-                    len(self.text_encoders),
-                    self.regenerate_cache,
-                    self.trust_cache,
-                    self.caching_batch_size,
-                    self.cache_num_proc,
-                    self.cache_keep_in_memory,
-                    self.cache_format,
-                    self.cache_dedup_text_embeddings,
+            cache_args = (
+                self.datasets,
+                queue,
+                self.model.get_preprocess_media_file_fn(
+                    augmentation_resolver=augmentation_resolver
                 ),
+                len(self.text_encoders),
+                self.regenerate_cache,
+                self.trust_cache,
+                self.caching_batch_size,
+                self.cache_num_proc,
+                self.cache_keep_in_memory,
+                self.cache_format,
+                self.cache_dedup_text_embeddings,
             )
-            proc.start()
+            if distributed:
+                worker = mp.Process(target=_run_cache_worker, args=(cache_args, queue))
+            else:
+                import threading
+
+                worker = threading.Thread(
+                    target=_run_cache_worker, args=(cache_args, queue), daemon=True
+                )
+            worker.start()
 
         while True:
             task = queue.get()
             if task is None:
                 queue.put(None)
                 break
+            if isinstance(task, tuple) and task and task[0] == "__cache_worker_error__":
+                raise RuntimeError(
+                    f"Dataset caching worker failed: {task[1]}\n{task[2]}"
+                )
             self._handle_task(task)
 
         if unload_models:
@@ -276,8 +311,8 @@ class DatasetManager:
                 submodel.to("cpu" if self.model.keep_submodel_on_cpu_after_cache(submodel) else "meta")
 
         dist.barrier()
-        if is_main_process():
-            proc.join()
+        if worker is not None:
+            worker.join()
 
         for ds in self.datasets:
             ds.cache_metadata(trust_cache=True)

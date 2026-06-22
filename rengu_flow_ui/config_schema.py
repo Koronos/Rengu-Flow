@@ -68,6 +68,7 @@ def _field(
     visibility: dict[str, Any] | None = None,
     max_length: int | None = None,
     runtime_tokens: list[str] | None = None,
+    deepspeed_only: bool = False,
 ) -> dict[str, Any]:
     if required:
         imp = "required"
@@ -112,6 +113,10 @@ def _field(
         out["max_length"] = max_length
     if runtime_tokens:
         out["runtime_tokens"] = runtime_tokens
+    if deepspeed_only:
+        # Multi-GPU / DeepSpeed-pipeline-only knob. Dropped from the schema on hosts whose engine
+        # is not 'deepspeed' (e.g. native Windows 'accelerate'); see get_schema().
+        out["deepspeed_only"] = True
     return out
 
 
@@ -613,9 +618,13 @@ def get_sections() -> list[dict[str, Any]]:
                     "integer",
                     default=1,
                     min_value=1,
+                    deepspeed_only=True,
                 ),
-                _field("partition_method", "Partition method", "select", options=PARTITION_METHODS),
-                _field("partition_split", "Partition split (manual)", "json"),
+                _field(
+                    "partition_method", "Partition method", "select",
+                    options=PARTITION_METHODS, deepspeed_only=True,
+                ),
+                _field("partition_split", "Partition split (manual)", "json", deepspeed_only=True),
                 _field(
                     "activation_checkpointing",
                     "Activation checkpointing",
@@ -663,6 +672,7 @@ def get_sections() -> list[dict[str, Any]]:
                     default=0,
                     min_value=0,
                     when_capability="block_swap",
+                    deepspeed_only=True,
                 ),
                 _field(
                     "block_swap_prefetch",
@@ -671,6 +681,7 @@ def get_sections() -> list[dict[str, Any]]:
                     default=False,
                     importance="advanced",
                     when_capability="block_swap",
+                    deepspeed_only=True,
                     # Only meaningful when blocks are actually being swapped AND the optimizer steps
                     # per-parameter in the backward (gradient_release). Without gradient_release the
                     # offloader keeps trainable params resident and forces prefetch off (see
@@ -841,10 +852,21 @@ def get_sections() -> list[dict[str, Any]]:
 
 
 def get_schema() -> dict[str, Any]:
+    import sys as _sys
+
     from rengu_flow_ui.config_field_help import enrich_schema
+    from rengu_flow.engine import resolve_backend
+
+    engine = resolve_backend()
+    deepspeed_engine = engine == "deepspeed"
 
     registries = get_registries()
     sections = get_sections()
+    if not deepspeed_engine:
+        # Non-DeepSpeed host (e.g. native Windows 'accelerate'): drop the multi-GPU /
+        # pipeline-only knobs. They raise at train time there and do nothing single-GPU.
+        for section in sections:
+            section["fields"] = [f for f in section["fields"] if not f.get("deepspeed_only")]
     for section in sections:
         if section["id"] == "model":
             attach_model_section_visibility(section["fields"])
@@ -875,6 +897,12 @@ def get_schema() -> dict[str, Any]:
             "registries": registries,
             "sections": sections,
             "default_new_config_toml": default_new_config_toml(),
+            # Host training capabilities — lets the UI explain why some fields are absent.
+            "host": {
+                "engine": engine,
+                "is_windows": _sys.platform == "win32",
+                "multi_gpu": deepspeed_engine,
+            },
         }
     )
     return attach_visibility_to_schema(schema)
