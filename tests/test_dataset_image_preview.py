@@ -19,7 +19,7 @@ def test_list_preview_images(tmp_path: Path) -> None:
     d.mkdir()
     (d / "a.jpg").write_bytes(b"\xff\xd8\xff")
     (d / "b.png").write_bytes(b"\x89PNG")
-    content = f'resolutions = [512]\n\n[[directory]]\npath = "{d}"\nnum_repeats = 1\n'
+    content = f'resolutions = [512]\n\n[[directory]]\npath = "{d.as_posix()}"\nnum_repeats = 1\n'
     r = list_dataset_preview_images(content, limit=10)
     assert r["ok"] is True
     assert r["total"] == 2
@@ -50,7 +50,7 @@ def test_preview_image_api(ui_client: TestClient, tmp_path: Path) -> None:
     d = tmp_path / "gallery"
     d.mkdir()
     (d / "one.jpg").write_bytes(b"\xff\xd8\xff")
-    content = f'[[directory]]\npath = "{d}"\n'
+    content = f'[[directory]]\npath = "{d.as_posix()}"\n'
     r = ui_client.post(
         "/api/v1/datasets/preview-images",
         json={"content": content, "limit": 5},

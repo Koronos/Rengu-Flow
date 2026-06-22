@@ -6,8 +6,13 @@ from pathlib import Path
 
 import pytest
 
+from rengu_flow.platform_compat import PLATFORM
 from rengu_flow_ui.fs_stat import resolve_validated_path, stat_path
 from rengu_flow_ui.settings import repo_root
+
+requires_symlinks = pytest.mark.skipif(
+    not PLATFORM.supports_symlinks, reason="creating symlinks needs privilege on Windows (Developer Mode)"
+)
 
 
 def test_stat_path_existing_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -72,6 +77,7 @@ def test_stat_path_directory_with_spaces(tmp_path: Path, monkeypatch: pytest.Mon
     assert "error" not in result
 
 
+@requires_symlinks
 def test_stat_path_symlink_to_directory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("rengu_flow_ui.fs_stat.repo_root", lambda: tmp_path)
     target = tmp_path / "real"

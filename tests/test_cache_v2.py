@@ -104,6 +104,7 @@ def test_cache_v2_fingerprint_mismatch_clears(tmp_path):
     c1.add(_latents_item())
     c1.finalize_current_shard()
     assert (cache_dir / MANIFEST_NAME).is_file()
+    c1.close()  # release mmap/db handles so the stale-fingerprint clear can unlink on Windows
 
     c2 = CacheV2(cache_dir, "fp-b")
     assert len(c2) == 0

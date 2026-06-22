@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from rengu_flow.platform_compat import PLATFORM
 from rengu_flow_ui.docs_reader import DocNotFoundError, DocPathError, list_docs_index, read_doc, resolve_doc_path
 
 
@@ -53,6 +54,10 @@ def test_missing_doc() -> None:
         read_doc("docs/user/does-not-exist-xyz.md")
 
 
+@pytest.mark.skipif(
+    not PLATFORM.supports_symlinks,
+    reason="creating symlinks needs privilege on Windows (Developer Mode)",
+)
 def test_symlink_escape_outside_docs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     docs_user = tmp_path / "docs" / "user"
     docs_user.mkdir(parents=True)

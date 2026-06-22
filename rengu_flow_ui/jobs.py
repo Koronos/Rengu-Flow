@@ -171,6 +171,12 @@ def poll_job(job_id: str) -> db.JobRecord:
 _PARSE_TAIL_BYTES = 262_144
 
 
+def _decode_log(data: bytes) -> str:
+    """Decode log bytes as UTF-8 and normalize CRLF -> LF: on Windows the training subprocess
+    writes ``\\r\\n`` line endings, but progress-marker parsing and the UI expect ``\\n``."""
+    return data.decode("utf-8", errors="replace").replace("\r\n", "\n")
+
+
 def _read_log_text(job: db.JobRecord, *, tail_bytes: int | None = None) -> str:
     path = Path(job.log_path)
     if not path.is_file():
@@ -179,8 +185,8 @@ def _read_log_text(job: db.JobRecord, *, tail_bytes: int | None = None) -> str:
         with path.open("rb") as f:
             f.seek(-tail_bytes, 2)
             data = f.read()
-        return data.decode("utf-8", errors="replace")
-    return path.read_bytes().decode("utf-8", errors="replace")
+        return _decode_log(data)
+    return _decode_log(path.read_bytes())
 
 
 def _current_run_log(job: db.JobRecord, *, tail_bytes: int | None = None) -> str:
@@ -251,7 +257,7 @@ def read_raw_log(job_id: str) -> str:
     path = Path(job.log_path)
     if not path.is_file():
         return ""
-    return path.read_bytes().decode("utf-8", errors="replace")
+    return _decode_log(path.read_bytes())
 
 
 def read_raw_log_tail(job_id: str, tail_bytes: int = 65536) -> str:
@@ -267,11 +273,11 @@ def read_raw_log_tail(job_id: str, tail_bytes: int = 65536) -> str:
         return ""
     size = path.stat().st_size
     if size <= tail_bytes:
-        return path.read_bytes().decode("utf-8", errors="replace")
+        return _decode_log(path.read_bytes())
     with path.open("rb") as f:
         f.seek(-tail_bytes, 2)
         data = f.read()
-    return data.decode("utf-8", errors="replace")
+    return _decode_log(data)
 
 
 def tail_log(job_id: str, offset: int = 0) -> tuple[str, int]:
@@ -289,7 +295,7 @@ def tail_log(job_id: str, offset: int = 0) -> tuple[str, int]:
         f.seek(offset)
         data = f.read()
         new_offset = f.tell()
-    text = data.decode("utf-8", errors="replace")
+    text = _decode_log(data)
     # Filter throttled progress markers out of the displayed log; the UI parses them
     # separately for its live bar (see live_stream / progress_stream).
     return strip_progress_markers(text), new_offset
