@@ -1,5 +1,6 @@
 """Checkpoint and adapter save logic. Aligned with diffusion-pipe utils/saver."""
 
+import contextlib
 import shutil
 import sys
 import time
@@ -404,37 +405,62 @@ class Saver:
             self._finalize_successful_export()
             return True
 
+    @contextlib.contextmanager
+    def _persist_at_true_iterate(self):
+        """Hold the live weights at the optimizer's TRUE iterate while persisting them.
+
+        Lookahead-style optimizers (MSAM/Nekaon, ScheduleFree, Lookahead) deliberately
+        keep the between-step weights displaced from the iterate they converge to; only
+        ``optimizer.eval()`` restores the real weights (``train()`` re-applies the
+        displacement). A resume checkpoint written in train mode therefore stores the
+        *displaced* weights, and the optimizer cannot undo that on load — its
+        "displacement present" flag resets — so the run resumes off-point and degrades
+        (the symptom is sharpest on near-identity adapters like BOFT). The preview/eval
+        paths already bracket their reads this way; the checkpoint save must too. No-op
+        for plain optimizers without eval/train.
+        """
+        opt = getattr(self.model_engine, "optimizer", None)
+        toggle = callable(getattr(opt, "eval", None)) and callable(getattr(opt, "train", None))
+        if toggle:
+            opt.eval()
+        try:
+            yield
+        finally:
+            if toggle:
+                opt.train()
+
     def save_checkpoint(self, step, examples) -> bool:
         """Write DeepSpeed resume checkpoint; return False if disk full (training continues)."""
         self._wait_async_export()
-        before = snapshot_global_step_dirs(self.save_root) if is_main_process() else set()
-        dist.barrier()
-        try:
-            self.model_engine.save_checkpoint(
-                str(self.save_root),
-                client_state={
-                    "step": step,
-                    "examples": examples,
-                    "custom_loader": self.train_dataloader.state_dict(),
-                },
-                save_latest=True,
-                exclude_frozen_parameters=True,
-            )
-        except OSError as exc:
+        with self._persist_at_true_iterate():
+            before = snapshot_global_step_dirs(self.save_root) if is_main_process() else set()
             dist.barrier()
-            if not is_disk_full_error(exc):
-                raise
+            try:
+                self.model_engine.save_checkpoint(
+                    str(self.save_root),
+                    client_state={
+                        "step": step,
+                        "examples": examples,
+                        "custom_loader": self.train_dataloader.state_dict(),
+                    },
+                    save_latest=True,
+                    exclude_frozen_parameters=True,
+                )
+            except OSError as exc:
+                dist.barrier()
+                if not is_disk_full_error(exc):
+                    raise
+                if is_main_process():
+                    print(f"Disk full while writing checkpoint: {exc}")
+                    after = snapshot_global_step_dirs(self.save_root)
+                    rollback_failed_checkpoint(self.save_root, before, after)
+                dist.barrier()
+                return False
+            dist.barrier()
             if is_main_process():
-                print(f"Disk full while writing checkpoint: {exc}")
-                after = snapshot_global_step_dirs(self.save_root)
-                rollback_failed_checkpoint(self.save_root, before, after)
+                _prune_old_checkpoints(self.save_root, self.config.get("max_checkpoints_to_keep"))
             dist.barrier()
-            return False
-        dist.barrier()
-        if is_main_process():
-            _prune_old_checkpoints(self.save_root, self.config.get("max_checkpoints_to_keep"))
-        dist.barrier()
-        return True
+            return True
 
     def process_epoch_boundary(self, completed_epoch: int, step: int, examples: int):
         """Per-epoch checkpoint/export for the epoch that just **completed** at ``step``.
