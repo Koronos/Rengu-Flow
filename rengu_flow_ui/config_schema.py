@@ -666,6 +666,19 @@ def get_sections() -> list[dict[str, Any]]:
                     importance="advanced",
                 ),
                 _field(
+                    "activation_offload",
+                    "Activation offload",
+                    "boolean",
+                    default=False,
+                    importance="advanced",
+                    description=(
+                        "Stream saved activations to pinned CPU RAM (overlapped on side streams) "
+                        "instead of recomputing them — trades activation VRAM for PCIe bandwidth, not "
+                        "recompute FLOPs. Pairs with a raised activation_memory_budget. Costs host RAM; "
+                        "incompatible with compile_mode='reduce-overhead' (CUDA graphs)."
+                    ),
+                ),
+                _field(
                     "blocks_to_swap",
                     "Blocks to swap",
                     "integer",

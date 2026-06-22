@@ -846,6 +846,23 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         ),
         "doc": "docs/developer/vram-optimization.md",
     },
+    "activation_offload": {
+        "summary": "Stash saved activations in pinned CPU RAM instead of recomputing them (trades VRAM for PCIe, not FLOPs).",
+        "detail": (
+            "Activation checkpointing frees activation VRAM by DROPPING activations and RECOMPUTING "
+            "them in the backward (costs extra forward FLOPs). Activation offload instead keeps the "
+            "saved activations but moves them off the GPU: each large contiguous saved tensor is "
+            "copied to a pinned CPU buffer on a side stream during the forward and streamed back, "
+            "prefetched in reverse, during the backward — both directions overlap compute, so the "
+            "cost is PCIe bandwidth, not recompute. Composes with activation_memory_budget (it is the "
+            "reason you can RAISE the budget: the budget picks save-vs-recompute, the offloader decides "
+            "where the saved ones live). Costs host RAM (the pinned buffers, can't page out). Payoff "
+            "scales with activation size — high resolution / large batch / full fine-tune — and is "
+            "negligible for small activations (low-res LoRA). NOT compatible with "
+            "compile_mode='reduce-overhead' (CUDA-graph capture cannot record the side-stream copies)."
+        ),
+        "doc": "docs/developer/vram-optimization.md",
+    },
     "block_swap_prefetch": {
         "summary": "Speed up block-swap transfers: pinned-DMA copies always, plus compute overlap when VRAM allows.",
         "detail": (
