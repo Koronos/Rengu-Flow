@@ -49,11 +49,13 @@ def test_materialize_staging_absolute_dataset_unchanged(ui_data_tmp: Path) -> No
     abs_ds.write_text(DATASET_TOML, encoding="utf-8")
     content = MINIMAL_TOML.replace(
         'dataset = "rengu-flow-dataset:my_dataset"',
-        f'dataset = "{abs_ds}"',
+        f'dataset = "{abs_ds.as_posix()}"',
     )
     out = run_staging.materialize_staging(content, "job-abs")
     cfg = toml.loads(out.read_text(encoding="utf-8"))
-    assert cfg["dataset"] == str(abs_ds.resolve())
+    # Resolved paths are stored as forward-slash (PLATFORM.config_path) so the staged config is
+    # valid TOML and portable on Windows; as_posix() == str() on POSIX.
+    assert cfg["dataset"] == abs_ds.resolve().as_posix()
 
 
 def test_materialize_staging_does_not_persist_defaults(ui_data_tmp: Path) -> None:
@@ -67,7 +69,7 @@ def test_materialize_staging_does_not_persist_defaults(ui_data_tmp: Path) -> Non
     content = (
         MINIMAL_TOML.replace(
             'dataset = "rengu-flow-dataset:my_dataset"',
-            f'dataset = "{abs_ds}"',
+            f'dataset = "{abs_ds.as_posix()}"',
         )
         + '\n[adapter]\ntype = "lora"\nrank = 8\n'
     )

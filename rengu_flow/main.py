@@ -388,7 +388,9 @@ def _run_training(args, config):
         validate_dataset_config_for_real_data,
     )
 
-    if sys.platform != "win32":
+    from rengu_flow.platform_compat import PLATFORM
+
+    if PLATFORM.torch_file_system_sharing:
         # file_system sharing strategy is POSIX-only (shared-memory files); raises on Windows.
         torch.multiprocessing.set_sharing_strategy("file_system")
     world_size, rank, local_rank = _distributed_init(args)

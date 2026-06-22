@@ -50,9 +50,8 @@ def read_settings(path: Path | None = None) -> dict[str, Any]:
         cfg = parse_local_config_dict(tomlkit.parse(p.read_text(encoding="utf-8")), root=repo_root())
     else:
         cfg = default_local_config()
-    import sys
-
     from rengu_flow.engine import resolve_backend
+    from rengu_flow.platform_compat import PLATFORM
 
     effective_engine = resolve_backend({"engine": cfg.training.engine})
     return {
@@ -70,7 +69,7 @@ def read_settings(path: Path | None = None) -> dict[str, Any]:
         # Host training capabilities — the UI hides multi-GPU / DeepSpeed-only settings
         # (num_gpus, master_port) when the effective engine isn't 'deepspeed'.
         "host": {
-            "is_windows": sys.platform == "win32",
+            "is_windows": PLATFORM.is_windows,
             "effective_engine": effective_engine,
             "deepspeed": effective_engine == "deepspeed",
         },

@@ -26,7 +26,6 @@ aren't needed for the main Windows workload. Add the torch ports when a model ne
 from __future__ import annotations
 
 import os
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -35,12 +34,12 @@ import torch
 
 def resolve_backend(config: dict | None = None) -> str:
     """Pick the training backend. ``RENGU_ENGINE`` env wins, then ``config['engine']``,
-    else per-OS default (``accelerate`` on Windows, ``deepspeed`` elsewhere)."""
+    else the platform default (``accelerate`` on Windows, ``deepspeed`` elsewhere)."""
+    from rengu_flow.platform_compat import PLATFORM
+
     eng = os.environ.get("RENGU_ENGINE") or (config or {}).get("engine") or ""
     eng = eng.strip().lower()
-    if eng:
-        return eng
-    return "accelerate" if sys.platform == "win32" else "deepspeed"
+    return eng or PLATFORM.default_engine
 
 
 # ------------------------------------------------------------------ single-GPU torch backend

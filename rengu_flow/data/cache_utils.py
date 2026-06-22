@@ -24,18 +24,15 @@ ROUND_DECIMAL_DIGITS = 3
 
 
 def resolve_cache_num_proc(value: int | None) -> int:
-    """Return a positive worker count for cache map/pool (default capped at 8).
+    """Return a positive worker count for the cache map/pool (default capped at 8).
 
-    On Windows this is always 1 (in-process). Windows has no fork, so a worker pool spawns
-    child processes that (a) re-import torch/CUDA (slow) and (b) cannot share the in-process
-    queue/pipe the latent/text GPU-encode handoff relies on — a spawned pool there deadlocks.
-    So Windows caching runs in-process regardless of the requested ``cache_num_proc``.
+    Delegated to the platform strategy: Windows forces in-process (1) because a spawned worker
+    pool there cannot share the in-process queue/pipe the GPU-encode handoff relies on (deadlock)
+    and re-imports torch/CUDA per worker. Elsewhere: ``NUM_PROC`` when unset, else the request.
     """
-    if sys.platform == "win32":
-        return 1
-    if value is None:
-        return NUM_PROC
-    return max(1, int(value))
+    from rengu_flow.platform_compat import PLATFORM
+
+    return PLATFORM.cache_worker_count(value, default=NUM_PROC)
 
 
 def content_fingerprint(dataset, columns: list[str]) -> str:

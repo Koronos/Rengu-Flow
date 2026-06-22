@@ -852,10 +852,9 @@ def get_sections() -> list[dict[str, Any]]:
 
 
 def get_schema() -> dict[str, Any]:
-    import sys as _sys
-
     from rengu_flow_ui.config_field_help import enrich_schema
     from rengu_flow.engine import resolve_backend
+    from rengu_flow.platform_compat import PLATFORM
 
     engine = resolve_backend()
     deepspeed_engine = engine == "deepspeed"
@@ -900,7 +899,7 @@ def get_schema() -> dict[str, Any]:
             # Host training capabilities — lets the UI explain why some fields are absent.
             "host": {
                 "engine": engine,
-                "is_windows": _sys.platform == "win32",
+                "is_windows": PLATFORM.is_windows,
                 "multi_gpu": deepspeed_engine,
             },
         }
