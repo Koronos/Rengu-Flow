@@ -331,10 +331,16 @@ class Saver:
                 _prune_old_exports(self.save_root, self.config, self.steps_per_epoch)
 
     def _run_pipeline_export(self, name: str, *, adapter_only: bool) -> None:
-        if self._async_writer is not None:
-            self._run_pipeline_export_async(name, adapter_only=adapter_only)
-            return
-        self._run_pipeline_export_sync(name, adapter_only=adapter_only)
+        # Export reads the live weights (sync, or the synchronous CPU snapshot the async
+        # path takes before its background write), so it must read the optimizer's TRUE
+        # iterate — same reason save_checkpoint does. Otherwise a lookahead optimizer's
+        # between-step displacement is baked into the exported adapter (see
+        # _persist_at_true_iterate).
+        with self._persist_at_true_iterate():
+            if self._async_writer is not None:
+                self._run_pipeline_export_async(name, adapter_only=adapter_only)
+                return
+            self._run_pipeline_export_sync(name, adapter_only=adapter_only)
 
     def _save_model_once(self, name: str) -> None:
         self._run_pipeline_export(name, adapter_only=self.is_adapter)

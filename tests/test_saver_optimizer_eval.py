@@ -101,3 +101,25 @@ def test_checkpoint_save_without_eval_capable_optimizer(tmp_path: Path):
             ok = saver.save_checkpoint(5, 50)
 
     assert ok is True
+
+
+def test_export_runs_in_optimizer_eval_mode(tmp_path: Path):
+    """The adapter export reads the live weights too, so it must read the true iterate —
+    else a lookahead optimizer's displacement is baked into the exported adapter."""
+    spy = _SpyOptimizer()
+    model_engine = MagicMock()
+    model_engine.optimizer = spy
+    saver = _make_saver(tmp_path, model_engine)
+    saver._async_writer = None  # force the synchronous export path
+
+    mode_at_export: list[str] = []
+    saver._run_pipeline_export_sync = (  # type: ignore[method-assign]
+        lambda name, *, adapter_only: mode_at_export.append(spy.mode)
+    )
+
+    saver._run_pipeline_export("step5", adapter_only=True)
+
+    assert mode_at_export == ["eval"], "export read live weights while the optimizer was perturbed"
+    assert spy.events and spy.events[0] == "eval"
+    assert spy.events[-1] == "train"
+    assert spy.mode == "train"
