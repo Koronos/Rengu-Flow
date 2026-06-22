@@ -6,6 +6,9 @@ import pytest
 import torch
 
 pytest.importorskip("transformers")
+# GenericOptim (the vendored diffusion-pipe optimizer) imports deepspeed.comm / deepspeed.accelerator,
+# so it is DeepSpeed-coupled (Linux/WSL only) — skip where DeepSpeed is absent (e.g. native Windows).
+pytest.importorskip("deepspeed")
 
 from rengu_flow.registry.optimizers import get_optimizer_class
 

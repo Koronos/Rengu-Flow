@@ -174,7 +174,9 @@ def test_load_rejects_foreign_keys(tmp_path):
     import safetensors.torch
 
     file = tmp_path / "adapter_model.safetensors"
-    state = safetensors.torch.load_file(file)
+    # Load from bytes (not load_file, which mmaps): Windows cannot overwrite an mmap'd file, and
+    # we save_file back to the same path below.
+    state = safetensors.torch.load(file.read_bytes())
     state["lora_unet_not_a_module.lora_up.weight"] = torch.zeros(1)
     safetensors.torch.save_file(state, file)
 

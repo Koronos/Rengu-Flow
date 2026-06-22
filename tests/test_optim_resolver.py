@@ -41,6 +41,9 @@ def test_get_optimizer_class_unknown_raises():
 ], ids=["genericoptim", "automagic", "case_insensitive"])
 def test_get_vendor_optimizer_class(name, expected_name):
     pytest.importorskip("optimum")
+    if expected_name == "GenericOptim":
+        # GenericOptim imports deepspeed.comm/accelerator — DeepSpeed-coupled (Linux/WSL only).
+        pytest.importorskip("deepspeed")
     klass = get_optimizer_class(name)
     assert klass.__name__ == expected_name
 
