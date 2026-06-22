@@ -847,16 +847,22 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "doc": "docs/developer/vram-optimization.md",
     },
     "block_swap_prefetch": {
-        "summary": "Overlap block transfers on a side CUDA stream (situational; off by default).",
+        "summary": "Speed up block-swap transfers: pinned-DMA copies always, plus compute overlap when VRAM allows.",
         "detail": (
-            "Pins the swapped blocks' CPU memory and prefetches the next block while the current "
-            "one computes, to hide CPU↔GPU transfer latency. Works for both adapter (LoRA/LoKr — "
-            "streams only the frozen base weights, keeps the trainable adapters resident) and "
-            "full-model (gradient_release) runs. Needs blocks_to_swap to leave ≥2 blocks resident "
-            "(the running block plus the one pulled ahead), so it helps where there is a little VRAM "
-            "headroom — use a less aggressive blocks_to_swap to buy the overlap. On a tight 8 GB box "
-            "the extra resident block can push past the sysmem-paging threshold and slow steps down, "
-            "so measure before leaving it on there."
+            "One switch, two effects (the offloader applies whichever fits — you don't tune them "
+            "separately):\n"
+            "• Pinning (always, on CUDA): page-locks the swapped weights' CPU memory so each H2D "
+            "copy runs as a full-bandwidth DMA instead of a ~half-speed pageable copy. This costs "
+            "host RAM (the locked weights, a few GB), NOT VRAM, so it helps at ANY blocks_to_swap — "
+            "including maximal swap, where it roughly halves step time on its own.\n"
+            "• Overlap (only when blocks_to_swap leaves ≥2 blocks resident): also prefetches the next "
+            "block on a side stream while the current one computes. This keeps a second block resident, "
+            "so it costs +1 block of VRAM and engages only when there is headroom for it.\n"
+            "Works for both adapter (LoRA/LoKr — streams only the frozen base weights, keeps the "
+            "trainable adapters resident) and full-model (gradient_release) runs; loss is identical. "
+            "Recommended ON whenever you block-swap and have spare host RAM. Turn it OFF if host RAM "
+            "is tight (pinning can't page out), and note that on a nearly-full GPU the overlap's extra "
+            "resident block can tip you into sysmem paging — measure the per-step cuda_peak_gb."
         ),
         "doc": "docs/developer/vram-optimization.md",
     },
