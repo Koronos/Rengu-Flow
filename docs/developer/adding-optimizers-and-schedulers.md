@@ -103,6 +103,16 @@ Copied from [diffusion-pipe](https://github.com/tdrussell/diffusion-pipe) under 
 
 Do not import that package at module load for all optimizers — `get_optimizer_class` lazy-imports vendor modules so tests and minimal installs avoid `bitsandbytes` / `optimum.quanto` until needed.
 
+## Eval/train state (lookahead optimizers)
+
+Optimizers that expose `eval()`/`train()` (kaon **Nekaon, MSAM, ScheduleFree, Lookahead**) keep the
+between-step live weights displaced from the true iterate; only `eval()` restores the weights you
+want to read. Every path that **reads weights for measurement or persistence** must bracket the read
+with `optimizer.eval()` / `optimizer.train()`: previews (`utils/preview.py`), eval
+(`utils/eval.py`), and both save paths (`Saver._persist_at_true_iterate`, see
+`checkpoint-and-save.md`). A new optimizer with this property works automatically; a new
+weight-reading code path must add the bracket or it will read/persist displaced weights.
+
 ## Training helpers
 
 - **`rengu_flow/optim/param_groups.py`**: `adjust_beta2_half_life`, `split_weight_decay_param_groups`, `split_genericoptim_param_groups`.
