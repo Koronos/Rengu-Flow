@@ -678,6 +678,49 @@ def get_sections() -> list[dict[str, Any]]:
                         "incompatible with compile_mode='reduce-overhead' (CUDA graphs)."
                     ),
                 ),
+                # activation_offload tuning — revealed only when activation_offload is on.
+                _field(
+                    "activation_offload_min_tensor_mb",
+                    "Offload min tensor size (MB)",
+                    "number",
+                    default=4.0,
+                    min_value=0.0,
+                    importance="advanced",
+                    when={"field": "activation_offload", "equals": True},
+                    description=(
+                        "Only saved activations at least this large are offloaded; smaller tensors stay "
+                        "in VRAM (the per-tensor copy overhead isn't worth it). Lower it to offload more "
+                        "(useful when many medium activations add up); raise it to offload only the big ones."
+                    ),
+                ),
+                _field(
+                    "activation_offload_max_ram_gb",
+                    "Offload max host RAM (GB)",
+                    "number",
+                    min_value=0.0,
+                    importance="advanced",
+                    placeholder="none (no cap)",
+                    when={"field": "activation_offload", "equals": True},
+                    description=(
+                        "Cap on pinned host RAM used for offloaded activations. Empty = no cap. Once the "
+                        "cap is hit, further activations stay in VRAM (so VRAM savings taper instead of "
+                        "exhausting host RAM)."
+                    ),
+                ),
+                _field(
+                    "activation_offload_prefetch_mb",
+                    "Offload backward prefetch (MB)",
+                    "number",
+                    default=512.0,
+                    min_value=0.0,
+                    importance="advanced",
+                    when={"field": "activation_offload", "equals": True},
+                    description=(
+                        "How many MB of offloaded activations to stream back to the GPU ahead of where "
+                        "the backward is running, to hide the H2D latency. Larger = more overlap but more "
+                        "transient VRAM for the in-flight tensors."
+                    ),
+                ),
                 _field(
                     "blocks_to_swap",
                     "Blocks to swap",

@@ -863,6 +863,37 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         ),
         "doc": "docs/developer/vram-optimization.md",
     },
+    "activation_offload_min_tensor_mb": {
+        "summary": "Smallest saved activation that gets offloaded; smaller ones stay in VRAM (default 4 MB).",
+        "detail": (
+            "Offloading a tensor costs a fixed D2H/H2D round trip, so tiny activations aren't worth "
+            "moving — only saved activations at least this large go to pinned CPU. Lower it to offload "
+            "more (when many medium-sized activations add up to real VRAM, e.g. higher resolution); "
+            "raise it to move only the largest tensors and keep the rest resident. At low resolution "
+            "most activations fall under the default, which is why offload barely engages there."
+        ),
+        "doc": "docs/developer/vram-optimization.md",
+    },
+    "activation_offload_max_ram_gb": {
+        "summary": "Cap on pinned host RAM for offloaded activations (default: no cap).",
+        "detail": (
+            "Pinned (page-locked) host RAM can't be paged out, so offloading a lot of activations can "
+            "pressure system memory. This caps how much pinned RAM the offloader will use; once hit, "
+            "further activations stay in VRAM (VRAM savings taper instead of exhausting host RAM). "
+            "Leave empty for no cap when you have RAM to spare."
+        ),
+        "doc": "docs/developer/vram-optimization.md",
+    },
+    "activation_offload_prefetch_mb": {
+        "summary": "How much offloaded activation to stream back ahead of the backward (default 512 MB).",
+        "detail": (
+            "During the backward the offloaded activations are copied back from CPU in reverse order, "
+            "prefetched ahead of where the backward is running so the H2D latency hides behind compute. "
+            "This sets how far ahead (in MB) to prefetch. Larger = more overlap but more transient VRAM "
+            "for the in-flight tensors; smaller = less VRAM but the backward may stall waiting on copies."
+        ),
+        "doc": "docs/developer/vram-optimization.md",
+    },
     "block_swap_prefetch": {
         "summary": "Speed up block-swap transfers: pinned-DMA copies always, plus compute overlap when VRAM allows.",
         "detail": (
