@@ -44,7 +44,6 @@ CLEANUP_ORIGINALS_DIR = "cleanup_originals"
 class CleanupConfig:
     """Configuration for the watermark cleanup pipeline."""
 
-    detector_model: str = "yolo11-watermark"
     confidence: float = 0.35
     mask_dilation_px: int = 8
     in_place: bool = False

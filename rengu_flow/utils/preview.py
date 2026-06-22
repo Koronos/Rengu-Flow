@@ -154,7 +154,6 @@ def _pil_to_chw_float(image) -> torch.Tensor:
 def _log_preview_image(
     *,
     name: str,
-    prompt: str,
     image: Any,
     sink: Any,
     preview_cfg: dict[str, Any],
@@ -278,7 +277,6 @@ def _run_sdxl_previews(
             image = result.images[0]
             _log_preview_image(
                 name=name,
-                prompt=prompt,
                 image=image,
                 sink=sink,
                 preview_cfg=preview_cfg,
@@ -309,7 +307,6 @@ def _run_cosmos_previews(
         image = model.generate_preview_image(preview_cfg, prompt, step, seed)
         _log_preview_image(
             name=name,
-            prompt=prompt,
             image=image,
             sink=sink,
             preview_cfg=preview_cfg,

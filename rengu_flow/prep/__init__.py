@@ -32,7 +32,6 @@ __getattr__, __dir__, __all__ = lazy.attach(
         "tagger": [
             "TaggerModelSpec",
             "KNOWN_TAGGERS",
-            "DEFAULT_TAGGERS",
             "OnnxTagger",
             "merge_model_results",
             "run_ensemble",

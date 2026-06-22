@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import glob
-import os
 from pathlib import Path
 from typing import Any
 
@@ -54,13 +52,9 @@ def _list_artifacts(run_dir: Path) -> list[dict[str, str]]:
     out = []
     patterns = ("global_step*", "epoch*", "step*", "signal_step*")
     for pat in patterns:
-        for p in sorted(glob.glob(str(run_dir / pat))):
-            if os.path.isdir(p):
-                out.append({"type": pat.rstrip("*"), "path": p})
+        for p in sorted(run_dir.glob(pat)):
+            if p.is_dir():
+                out.append({"type": pat.rstrip("*"), "path": str(p)})
     return out
 
 
-def find_config_in_run(run_dir: str | Path) -> str | None:
-    p = Path(run_dir)
-    main = pick_main_config_path(p)
-    return str(main) if main else None

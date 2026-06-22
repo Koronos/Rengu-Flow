@@ -255,7 +255,7 @@ import { ElMessage } from "element-plus";
 import { ArrowLeft } from "@element-plus/icons-vue";
 import { api } from "../api";
 import { useTagSession } from "../composables/useTagSession";
-import { useDatasetImageViewer } from "../composables/useDatasetImageViewer";
+import { useDatasetImageViewerStore } from "../stores/datasetImageViewer";
 import PathFieldControl from "../components/PathFieldControl.vue";
 import PreviewImage from "../components/PreviewImage.vue";
 import TagFilterBuilder from "../components/TagFilterBuilder.vue";
@@ -300,7 +300,7 @@ const backupsOpen = ref(false);
 const backups = ref<TagBackupInfo[]>([]);
 const quarantine = ref<QuarantineBatchInfo[]>([]);
 
-const { openDatasetImageViewer } = useDatasetImageViewer();
+const { openDatasetImageViewer } = useDatasetImageViewerStore();
 
 const tagOptions = computed(() => (stats.value?.tags ?? []).map((t) => t.tag));
 const filterEmpty = computed(

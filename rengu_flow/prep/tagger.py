@@ -134,9 +134,6 @@ KNOWN_TAGGERS: dict[str, TaggerModelSpec] = {
     ),
 }
 
-DEFAULT_TAGGERS: list[str] = ["pixai-v0.9", "cl-tagger-1.02"]
-
-
 # ---------------------------------------------------------------------------
 # Tag list loading
 # ---------------------------------------------------------------------------
@@ -426,17 +423,6 @@ class OnnxTagger:
                     tag_probs[names[best]] = float(probs[best])
             results.append(tag_probs)
         return results
-
-    def predict_batch(self, images: list[Image.Image]) -> list[dict[str, float]]:
-        """Convenience wrapper: preprocess PIL images, then ``predict_arrays``."""
-        batch = np.concatenate(
-            [
-                _preprocess_image(img, self.spec.input_size, self.spec.preprocess)
-                for img in images
-            ],
-            axis=0,
-        )
-        return self.predict_arrays(batch)
 
 
 # ---------------------------------------------------------------------------

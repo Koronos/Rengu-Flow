@@ -4,7 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from rengu_flow_ui import datasets_store
+from rengu_flow_ui import datasets_store, library_db
+from rengu_flow_ui.dataset_form import loads_for_training
 
 
 MINIMAL = """resolutions = [1024]
@@ -27,7 +28,7 @@ num_repeats = 2
 def test_dataset_crud(ui_data_tmp: Path) -> None:
     ds_a = datasets_store.insert_dataset(MINIMAL)
     assert ds_a in datasets_store.list_dataset_ids()
-    assert datasets_store.dataset_exists(ds_a)
+    assert library_db.dataset_exists(ds_a)
     assert "sdxl" not in datasets_store.read_dataset_text(ds_a)
     dup = datasets_store.duplicate_dataset(ds_a)
     assert dup != ds_a
@@ -40,7 +41,7 @@ def test_compose_merges_directories(ui_data_tmp: Path) -> None:
     one = datasets_store.insert_dataset(MINIMAL)
     two = datasets_store.insert_dataset(SECOND)
     merged = datasets_store.compose_datasets([one, two])
-    cfg = datasets_store.parse_dataset_dict(datasets_store.read_dataset_text(merged))
+    cfg = loads_for_training(datasets_store.read_dataset_text(merged))
     assert len(cfg["directory"]) == 2
     paths = {d["path"] for d in cfg["directory"]}
     assert paths == {"/tmp/images", "/tmp/other"}
@@ -56,17 +57,17 @@ def test_validate_includes_preview(ui_data_tmp: Path) -> None:
 
 
 def test_create_dataset_allocates_id(ui_data_tmp: Path) -> None:
-    cid = datasets_store.create_dataset(MINIMAL)
+    cid = library_db.insert_dataset(MINIMAL)
     assert isinstance(cid, int)
     assert cid > 0
-    assert datasets_store.dataset_exists(cid)
+    assert library_db.dataset_exists(cid)
 
 
 def test_compose_allocates_id(ui_data_tmp: Path) -> None:
     one = datasets_store.insert_dataset(MINIMAL)
     tid = datasets_store.compose_datasets([one])
     assert isinstance(tid, int)
-    assert datasets_store.dataset_exists(tid)
+    assert library_db.dataset_exists(tid)
 
 
 def test_training_picker_uses_library_ref(ui_data_tmp: Path) -> None:

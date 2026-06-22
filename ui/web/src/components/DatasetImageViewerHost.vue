@@ -5,6 +5,7 @@
     :url-list="viewerUrls"
     :initial-index="viewerIndex"
     teleported
+    hide-on-click-modal
     :z-index="viewerZIndex"
     @close="closeDatasetImageViewer"
   />
@@ -12,11 +13,13 @@
 
 <script setup lang="ts">
 import { ref, watch } from "vue";
+import { storeToRefs } from "pinia";
 import { ElImageViewer, useZIndex } from "element-plus";
-import { useDatasetImageViewer } from "../composables/useDatasetImageViewer";
+import { useDatasetImageViewerStore } from "../stores/datasetImageViewer";
 
-const { viewerOpen, viewerUrls, viewerIndex, closeDatasetImageViewer } =
-  useDatasetImageViewer();
+const viewer = useDatasetImageViewerStore();
+const { viewerOpen, viewerUrls, viewerIndex } = storeToRefs(viewer);
+const { closeDatasetImageViewer } = viewer;
 const { nextZIndex } = useZIndex();
 const viewerZIndex = ref(3001);
 

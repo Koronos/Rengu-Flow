@@ -9,6 +9,7 @@ from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from rengu_flow.prep.caption_store import CaptionStore
+from rengu_flow_ui._http_util import http_errors
 from rengu_flow_ui.dataset_image_preview import issue_image_token
 from rengu_flow_ui.tag_sessions import TagSessionStore
 
@@ -20,13 +21,10 @@ tag_sessions = TagSessionStore()
 @contextmanager
 def _prep_http_errors():
     try:
-        yield
-    except KeyError:
-        raise HTTPException(404, "Session not found")
+        with http_errors("Session not found"):
+            yield
     except FileNotFoundError as e:
         raise HTTPException(404, str(e))
-    except ValueError as e:
-        raise HTTPException(400, str(e))
 
 
 class OpenSessionBody(BaseModel):

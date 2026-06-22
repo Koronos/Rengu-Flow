@@ -175,7 +175,7 @@ import {
 import { api } from "../api";
 import PrepJobLivePanel from "../components/PrepJobLivePanel.vue";
 import { useBreakpoint } from "../composables/useBreakpoint";
-import { useDatasetFormModal } from "../composables/useDatasetFormModal";
+import { useDatasetFormModalStore } from "../stores/datasetFormModal";
 import { useJobsEvents } from "../composables/useJobsEvents";
 import { formatError } from "../lib/formatError";
 import { runStateTag as stateTag } from "../lib/runState";
@@ -184,7 +184,7 @@ import type { JobRecord, PrepStage } from "../types/api";
 
 const router = useRouter();
 const { isMobile } = useBreakpoint();
-const modal = useDatasetFormModal();
+const modal = useDatasetFormModalStore();
 
 const jobs = ref<JobRecord[]>([]);
 const stats = ref({ running: 0, pending: 0 });

@@ -7,12 +7,12 @@ import torch
 
 pytest.importorskip("transformers")
 
-from rengu_flow.optim.resolver import resolve_optimizer_class
+from rengu_flow.registry.optimizers import get_optimizer_class
 
 
 @pytest.fixture
 def generic_optim_cls():
-    return resolve_optimizer_class("genericoptim")
+    return get_optimizer_class("genericoptim")
 
 
 def test_kahan_buffer_offload_state_on_cpu_after_step(generic_optim_cls):

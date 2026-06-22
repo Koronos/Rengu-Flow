@@ -12,6 +12,7 @@ from typing import Any
 import toml
 
 from rengu_flow_ui.dataset_scan import (
+    IMAGE_EXTENSIONS as _IMAGE_SUFFIXES,
     UI_LIST_COUNT_CAP,
     list_image_files_page,
 )
@@ -19,18 +20,6 @@ from rengu_flow_ui.settings import ui_data_dir, ui_token
 
 DEFAULT_LIST_LIMIT = 24
 MAX_LIST_LIMIT = 48
-
-_IMAGE_SUFFIXES = {
-    ".jpg",
-    ".jpeg",
-    ".jpe",
-    ".png",
-    ".webp",
-    ".bmp",
-    ".gif",
-    ".tif",
-    ".tiff",
-}
 
 
 def _signing_key() -> bytes:

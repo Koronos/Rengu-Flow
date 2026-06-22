@@ -68,22 +68,20 @@ PROFILE_GIT_REQUIREMENTS: dict[str, list[str]] = {}
 
 def normalize_profiles(names: list[str]) -> list[str]:
     """Expand ``all``, dedupe, preserve order."""
-    out: list[str] = []
+    expanded: list[str] = []
     for name in names:
         key = name.strip().lower()
         if not key:
             continue
         if key == "all":
-            for p in ALL_PROFILE_NAMES:
-                if p not in out:
-                    out.append(p)
+            expanded.extend(ALL_PROFILE_NAMES)
             continue
         if key not in PROFILE_EXTRAS:
             raise ValueError(
                 f"Unknown profile {name!r}; choose from: {', '.join(sorted(PROFILE_EXTRAS))}, all"
             )
-        if key not in out:
-            out.append(key)
+        expanded.append(key)
+    out = list(dict.fromkeys(expanded))
     return out or ["base"]
 
 

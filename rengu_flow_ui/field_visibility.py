@@ -215,17 +215,3 @@ def prune_form_for_model(form: dict[str, Any], capabilities: dict[str, Any] | No
     return prune_toml_only_model_keys(out, model_type)
 
 
-def models_with_feature(feature: str) -> list[str]:
-    return sorted(
-        cap.type_id
-        for cap in model_capability_registry.values()
-        if (cap.features or {}).get(feature)
-    )
-
-
-def when_models_with_feature(feature: str) -> dict[str, Any]:
-    """Visibility clause: selected model.type supports ``feature``."""
-    types = models_with_feature(feature)
-    if not types:
-        return {"field": "model.type", "in": []}
-    return {"field": "model.type", "in": types}

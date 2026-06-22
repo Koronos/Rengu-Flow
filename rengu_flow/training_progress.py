@@ -56,12 +56,6 @@ def format_eta(seconds: float | int | None) -> str | None:
     return " ".join(parts) if parts else "<1s"
 
 
-def format_steps_per_second(rate: float | None, *, digits: int = 2) -> str | None:
-    if rate is None or rate <= 0 or not math.isfinite(rate):
-        return None
-    return f"{rate:.{digits}f}"
-
-
 class TrainingProgressTracker:
     """Track per-step duration, EMA step time, speed, smoothed loss, and ETA.
 
@@ -206,15 +200,6 @@ class EpochSchedule:
             return None
         done = step // self.steps_per_epoch
         return done if done <= self.epochs else None
-
-
-def budget_display_epoch(step: int, steps_per_epoch: int, epochs: int) -> int:
-    """Budget-relative epoch (1..epochs) for the progress display.
-
-    Thin wrapper over :class:`EpochSchedule` (the single epoch authority) kept for the
-    progress/UI call sites and tests.
-    """
-    return EpochSchedule(steps_per_epoch, epochs).current(step)
 
 
 def budget_reached_target(max_steps: int | None, epochs: int, step: int) -> tuple[str, str]:

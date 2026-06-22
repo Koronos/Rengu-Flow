@@ -220,7 +220,6 @@ import StringListField from "./StringListField.vue";
 import KeyValueListField from "./KeyValueListField.vue";
 import type { SizeBucket } from "../lib/sizeBuckets";
 import { normalizeResolutions } from "../lib/resolutionSchedule";
-import { listToFormValue } from "../lib/listToFormValue";
 import { formatDefaultValue } from "../lib/defaultFormat";
 import { stringListNeedsJsonEditor } from "../lib/stringList";
 import type { PropType } from "vue";
@@ -463,7 +462,7 @@ function onBooleanInput(val: boolean): void {
 function onListInput(val: unknown[]): void {
   emit("update:path", {
     path: props.field.path,
-    value: listToFormValue(val),
+    value: val.length ? val : "",
   });
 }
 

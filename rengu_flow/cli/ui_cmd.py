@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import re
 import subprocess
 import sys
 import threading
@@ -15,6 +14,7 @@ from shutil import which
 from rengu_flow.config.local_config import ensure_local_config_loaded, repo_root
 from rengu_flow.cli.project_venv import reexec_cli
 from rengu_flow.install import ensure_ui_dependencies, self_heal
+from rengu_flow.platform_compat import free_port_owned_by
 
 
 def add_parser(sub: argparse._SubParsersAction) -> None:
@@ -88,31 +88,6 @@ def _build_web(root: Path, *, force: bool = False) -> None:
     subprocess.run(["npm", "run", "build"], cwd=str(web), check=True)
     if not dist.is_file():
         raise SystemExit(f"rengu: build finished but {dist} is missing")
-
-
-def _free_port(port: int, *, patterns: tuple[str, ...]) -> None:
-    if not which("ss"):
-        return
-    result = subprocess.run(["ss", "-tlnp"], capture_output=True, text=True, check=False)
-    for line in result.stdout.splitlines():
-        if f":{port} " not in line:
-            continue
-        m = re.search(r"pid=(\d+)", line)
-        if not m:
-            continue
-        pid = int(m.group(1))
-        cmdline_path = Path(f"/proc/{pid}/cmdline")
-        if not cmdline_path.is_file():
-            continue
-        cmd = cmdline_path.read_bytes().replace(b"\0", b" ").decode(errors="replace")
-        if any(p in cmd for p in patterns):
-            print(f"==> Stopping process on port {port} (PID {pid})...")
-            subprocess.run(["kill", str(pid)], check=False)
-            time.sleep(1)
-            subprocess.run(["kill", "-9", str(pid)], check=False)
-        else:
-            raise SystemExit(f"rengu: port {port} in use by PID {pid}: {cmd.strip()}")
-        break
 
 
 def _browser_open(url: str) -> None:
@@ -240,7 +215,7 @@ def run(args: argparse.Namespace) -> None:
         _build_web(root, force=rebuild_web)
         host = cfg.ui_bind_host()
         port = cfg.ui.port
-        _free_port(port, patterns=("rengu", "uvicorn", "rengu-flow-ui"))
+        free_port_owned_by(port, patterns=("rengu", "uvicorn", "rengu-flow-ui"))
         _warn_public(host, cfg.ui.token)
         browser_host = "127.0.0.1" if host in ("0.0.0.0", "::", "*") else host
         url = f"http://{browser_host}:{port}/"
@@ -271,11 +246,11 @@ def run(args: argparse.Namespace) -> None:
             subprocess.run(install_cmd, cwd=str(web), check=True)
         api_port = cfg.ui.port
         dev_port = args.dev_port
-        _free_port(
+        free_port_owned_by(
             api_port,
             patterns=("rengu", "uvicorn", "rengu-flow-ui", "rengu_flow_ui", "multiprocessing"),
         )
-        _free_port(dev_port, patterns=("vite", "node"))
+        free_port_owned_by(dev_port, patterns=("vite", "node"))
         health = f"http://127.0.0.1:{api_port}/api/v1/health"
         api_cmd = [
             sys.executable,

@@ -11,9 +11,10 @@
 
 <script setup lang="ts">
 import { watch } from "vue";
+import { storeToRefs } from "pinia";
 import DatasetGalleryDialog from "./DatasetGalleryDialog.vue";
-import { useDatasetGallery } from "../composables/useDatasetGallery";
-import { useDatasetImageViewer } from "../composables/useDatasetImageViewer";
+import { useDatasetGalleryStore } from "../stores/datasetGallery";
+import { useDatasetImageViewerStore } from "../stores/datasetImageViewer";
 
 const {
   galleryOpen,
@@ -22,8 +23,8 @@ const {
   galleryDirectoryIndex,
   galleryLoading,
   galleryError,
-} = useDatasetGallery();
-const { closeDatasetImageViewer } = useDatasetImageViewer();
+} = storeToRefs(useDatasetGalleryStore());
+const { closeDatasetImageViewer } = useDatasetImageViewerStore();
 
 watch(galleryOpen, (open) => {
   if (!open) closeDatasetImageViewer();

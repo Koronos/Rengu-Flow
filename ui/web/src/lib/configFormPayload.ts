@@ -1,6 +1,5 @@
 /** Normalize training config form before API render/parse. */
 
-import { clonePlain } from "./clonePlain";
 import { pruneFormForModel } from "./formUtils";
 import { pruneOptimizerForm } from "./optimizerForm";
 import { pruneSchedulerForm } from "./schedulerForm";
@@ -15,7 +14,7 @@ export function sanitizeConfigForm(
   }
   let form: FormValues;
   try {
-    form = clonePlain(raw) as FormValues;
+    form = structuredClone(raw) as FormValues;
   } catch {
     return null;
   }

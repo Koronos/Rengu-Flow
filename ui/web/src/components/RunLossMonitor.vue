@@ -1,11 +1,5 @@
 <template>
-  <div
-    class="run-loss-monitor"
-    :class="{
-      'run-loss-monitor--loading': loading,
-      'run-loss-monitor--loading-subtle': loading && !loadingStrong,
-    }"
-  >
+  <div class="run-loss-monitor">
     <!-- TensorBoard-style refresh: manual reload + opt-in auto-update at a chosen cadence. Off by
          default so the charts stay put unless you ask for live updates. -->
     <div class="loss-monitor__toolbar">
@@ -37,11 +31,14 @@
               Loss per epoch
             </el-text>
           </el-tooltip>
-          <ScalarLineChart
-            :scalars="scalars"
-            tag="train/epoch_loss"
-            x-axis-label="epoch"
-            value-label="loss"
+          <MetricOverlayChart
+            metric="train/epoch_loss"
+            :runs="runRef"
+            :series="epochLossSeries"
+            output-dir=""
+            :smoothing="0"
+            :log-scale="false"
+            sync-key="detail-epoch-loss"
           />
         </div>
       </el-col>
@@ -52,11 +49,14 @@
               Loss per step
             </el-text>
           </el-tooltip>
-          <ScalarLineChart
-            :scalars="scalars"
-            tag="train/loss"
-            x-axis-label="step"
-            value-label="loss"
+          <MetricOverlayChart
+            metric="train/loss"
+            :runs="runRef"
+            :series="stepLossSeries"
+            output-dir=""
+            :smoothing="0"
+            :log-scale="false"
+            sync-key="detail-step-loss"
           />
         </div>
       </el-col>
@@ -67,11 +67,14 @@
               {{ stepJumpTitle }}
             </el-text>
           </el-tooltip>
-          <ScalarLineChart
-            :scalars="scalars"
-            :tag="stepJumpTag"
-            x-axis-label="step"
-            :value-label="stepJumpValueLabel"
+          <MetricOverlayChart
+            :metric="stepJumpTag"
+            :runs="runRef"
+            :series="stepJumpSeries"
+            output-dir=""
+            :smoothing="0"
+            :log-scale="false"
+            sync-key="detail-step-jump"
           />
         </div>
       </el-col>
@@ -87,7 +90,8 @@ import { computed, onUnmounted, ref, watch } from "vue";
 import type { PropType } from "vue";
 import { Refresh } from "@element-plus/icons-vue";
 import PreviewStepBrowser from "./PreviewStepBrowser.vue";
-import ScalarLineChart from "./ScalarLineChart.vue";
+import MetricOverlayChart from "./MetricOverlayChart.vue";
+import { colorForRun } from "../lib/runColors";
 import {
   LOSS_PANEL_HINTS,
   resolveStepJumpTag,
@@ -106,8 +110,8 @@ const props = defineProps({
   scalars: { type: Object as PropType<Record<string, ScalarPoint[]>>, default: () => ({}) },
   previewImages: { type: Array as PropType<RunPreviewImage[]>, default: () => [] },
   loading: { type: Boolean, default: false },
-  /** When false, use a lighter dim (auto-refresh) instead of a full overlay. */
-  loadingStrong: { type: Boolean, default: true },
+  /** Display name + legend label for this run's single series in the charts. */
+  runName: { type: String, default: "run" },
 });
 
 const emit = defineEmits<{ refresh: [] }>();
@@ -141,11 +145,13 @@ onUnmounted(clearTimer);
 
 const stepJumpTag = computed(() => resolveStepJumpTag(props.scalars));
 const stepJumpTitle = computed(() => stepJumpPanelTitle(stepJumpTag.value));
-const stepJumpValueLabel = computed(() => {
-  if (stepJumpTag.value === "train/automagic_avg_lr") return "lr";
-  if (stepJumpTag.value === "train/prodigy_d") return "D";
-  return "grad norm";
-});
+
+// Single-run adapters so the curated panels reuse the compare chart (MetricOverlayChart): one run
+// ref + the pre-loaded series for each panel's tag, keyed by that run id.
+const runRef = computed(() => [{ id: "run", name: props.runName, color: colorForRun(0) }]);
+const epochLossSeries = computed(() => ({ run: props.scalars["train/epoch_loss"] || [] }));
+const stepLossSeries = computed(() => ({ run: props.scalars["train/loss"] || [] }));
+const stepJumpSeries = computed(() => ({ run: props.scalars[stepJumpTag.value] || [] }));
 </script>
 
 <style scoped>
@@ -172,20 +178,6 @@ const stepJumpValueLabel = computed(() => {
 }
 .loss-monitor__cadence-input {
   width: 64px;
-}
-.run-loss-monitor--loading::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 2;
-  border-radius: 6px;
-  pointer-events: none;
-  background: var(--el-bg-color);
-  opacity: 0.55;
-  transition: opacity 0.2s ease;
-}
-.run-loss-monitor--loading-subtle::after {
-  opacity: 0.28;
 }
 .monitor-col {
   margin-bottom: 16px;

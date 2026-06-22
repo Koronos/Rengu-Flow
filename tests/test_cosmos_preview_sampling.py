@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import torch
 
-from rengu_flow.model.cosmos_predict2.block_offload import CosmosBlockOffloader
+from rengu_flow.training.block_swap import BlockSwapOffloader as CosmosBlockOffloader
 from rengu_flow.model.cosmos_predict2.preview_sampling import (
     PreviewPromptData,
     apply_timestep_shift,

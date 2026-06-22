@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -24,13 +23,6 @@ def local_config_path(root: Path | None = None) -> Path:
 
 def local_config_example_path(root: Path | None = None) -> Path:
     return (root or repo_root()) / LOCAL_CONFIG_EXAMPLE
-
-
-# Hidden UI-state folders used by older versions. Retired in favour of the visible `data/` dir
-# (a dotfolder generated saves the user couldn't see or delete). `.renga-flow-ui` is a historical
-# typo variant. parse_local_config_dict() drops these as a configured value and
-# migrate_legacy_ui_data_dir() moves their contents into `data/`.
-LEGACY_UI_DATA_DIRNAMES = (".rengu-flow-ui", ".renga-flow-ui")
 
 
 @dataclass
@@ -129,11 +121,6 @@ def parse_local_config_dict(data: dict[str, Any], *, root: Path) -> LocalConfig:
     env_raw = train_raw.get("env") if isinstance(train_raw.get("env"), dict) else {}
 
     raw_data_dir = str(ui_raw.get("data_dir", "data")).strip() or "data"
-    # The old hidden UI-state folders are retired: an invisible dotfolder generated saves the
-    # user couldn't find or delete. Drop those legacy values gracefully and fall back to the
-    # visible `data/` default; migrate_legacy_ui_data_dir() moves any existing content there.
-    if raw_data_dir in LEGACY_UI_DATA_DIRNAMES:
-        raw_data_dir = UiConfig.data_dir
     ui = UiConfig(
         host=str(ui_raw.get("host", "127.0.0.1")),
         port=int(ui_raw.get("port", 8765)),
@@ -227,40 +214,8 @@ def init_local_config_file(*, root: Path | None = None, force: bool = False) -> 
     return dest
 
 
-def render_default_local_config() -> str:
-    """TOML text built from the dataclass defaults — fallback when the example is missing."""
-    ui = UiConfig()
-    maint = MaintenanceConfig()
-    tr = TrainingConfig()
-    return (
-        "# rengu.local.toml — auto-generated defaults. Edit to customize; "
-        "see docs/user/cli.md\n\n"
-        "[ui]\n"
-        f'host = "{ui.host}"\n'
-        f"port = {ui.port}\n"
-        "# public = true binds the UI to your local network (0.0.0.0); set token when you do.\n"
-        f"public = {str(ui.public).lower()}\n"
-        f'data_dir = "{ui.data_dir}"\n'
-        "# Token required on every API request. STRONGLY recommended when public = true —\n"
-        "# without it anyone on your network can drive training.\n"
-        '# token = "change-me"\n\n'
-        "[maintenance]\n"
-        f"enabled = {str(maint.enabled).lower()}\n"
-        f"allow_pip = {str(maint.allow_pip).lower()}\n\n"
-        "# Defaults for `rengu train` (CLI flags override these).\n"
-        "[training]\n"
-        f"num_gpus = {tr.num_gpus}\n"
-        f"master_port = {tr.master_port}\n"
-        f'extra_args = "{tr.extra_args}"\n'
-        '# engine = "" (auto: deepspeed on Linux, accelerate on Windows) | deepspeed | accelerate\n'
-        f'engine = "{tr.engine}"\n\n'
-        "# Training subprocess environment (literal os.environ keys; values are strings).\n"
-        "[training.env]\n"
-    )
-
-
 def ensure_local_config_file(*, root: Path | None = None, quiet: bool = False) -> Path | None:
-    """Create ``rengu.local.toml`` from the example (or built-in defaults) when it is missing.
+    """Create ``rengu.local.toml`` from the example when it is missing.
 
     For users who skipped ``rengu init``: the UI/CLI calls this on startup so the config that
     holds the UI port and training defaults always exists. Idempotent — an existing file is left
@@ -272,9 +227,12 @@ def ensure_local_config_file(*, root: Path | None = None, quiet: bool = False) -
     if dest.is_file():
         return dest
     example = local_config_example_path(r)
+    if not example.is_file():
+        if not quiet:
+            print(f"==> {LOCAL_CONFIG_EXAMPLE} not found; continuing with built-in defaults.")
+        return None
     try:
-        text = example.read_text(encoding="utf-8") if example.is_file() else render_default_local_config()
-        dest.write_text(text, encoding="utf-8")
+        dest.write_text(example.read_text(encoding="utf-8"), encoding="utf-8")
     except OSError as e:
         if not quiet:
             print(f"==> Could not write {dest.name} ({e}); continuing with built-in defaults.")
@@ -284,49 +242,8 @@ def ensure_local_config_file(*, root: Path | None = None, quiet: bool = False) -
     return dest
 
 
-def migrate_legacy_ui_data_dir(target: Path, *, root: Path | None = None, quiet: bool = False) -> None:
-    """Move any legacy hidden UI-state folder (``.rengu-flow-ui`` / ``.renga-flow-ui``) into ``target``.
-
-    One-time, best-effort: lets users who had the old invisible data dir keep their ``jobs.db``,
-    logs, and staging once it becomes the visible ``data/``. Only runs when ``target`` is the repo's
-    ``data/`` (never a custom ``RENGU_FLOW_UI_DATA``), and only adopts a legacy folder when ``target``
-    has no ``jobs.db`` yet — so it never clobbers existing data. When both already hold a ``jobs.db``
-    it leaves the legacy folder and prints a notice; the user can then delete it by hand. Never
-    raises: a migration problem must not block startup.
-    """
-    r = root or repo_root()
-    if target.resolve() != (r / "data").resolve():
-        return
-    for name in LEGACY_UI_DATA_DIRNAMES:
-        legacy = r / name
-        if not legacy.is_dir():
-            continue
-        try:
-            if (target / "jobs.db").exists():
-                if not quiet and (legacy / "jobs.db").exists():
-                    print(
-                        f"==> Legacy UI folder {name}/ still present alongside data/; keeping data/. "
-                        f"Delete {name}/ when you've confirmed data/ has what you need."
-                    )
-                continue
-            target.mkdir(parents=True, exist_ok=True)
-            for item in sorted(legacy.iterdir()):
-                dest = target / item.name
-                if not dest.exists():
-                    shutil.move(str(item), str(dest))
-            # Remove the legacy folder if it is now empty (anything left was a conflict we kept).
-            if not any(legacy.iterdir()):
-                legacy.rmdir()
-                if not quiet:
-                    print(f"==> Migrated legacy UI data {name}/ -> data/ (invisible folder removed).")
-        except OSError as e:
-            if not quiet:
-                print(f"==> Could not migrate {name}/ ({e}); leaving it in place.")
-
-
 def ensure_ui_data_dir(cfg: LocalConfig | None = None) -> Path:
     c = cfg if cfg is not None else ensure_local_config_loaded()
     d = c.ui_data_dir()
     d.mkdir(parents=True, exist_ok=True)
-    migrate_legacy_ui_data_dir(d, root=c.root)
     return d

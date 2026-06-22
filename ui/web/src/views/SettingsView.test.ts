@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createApp, nextTick } from "vue";
+import { createPinia } from "pinia";
 import ElementPlus from "element-plus";
 
 // vi.mock is hoisted — no top-level variables from this module can be
@@ -43,6 +44,7 @@ async function mountSettingsView() {
   const el = document.createElement("div");
   document.body.appendChild(el);
   const app = createApp(SettingsView);
+  app.use(createPinia());
   app.use(ElementPlus);
   const instance = app.mount(el) as unknown as Record<string, unknown>;
   // Wait for the async getSettings call to resolve

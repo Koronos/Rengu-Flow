@@ -250,22 +250,22 @@ import { Refresh } from "@element-plus/icons-vue";
 import { api } from "../api";
 import MetricOverlayChart from "../components/MetricOverlayChart.vue";
 import RunComparePreviews from "../components/RunComparePreviews.vue";
+import { storeToRefs } from "pinia";
 import { buildRunColorMap } from "../lib/runColors";
-import type { CompareRunRow, CompareRunsResult, TimelineEvent } from "../types/api";
+import { useCompareStore } from "../stores/compare";
+import type { CompareRunRow, CompareRunsResult } from "../types/api";
 
 const route = useRoute();
 const router = useRouter();
 
-const loading = ref(true);
-const error = ref("");
-const allRuns = ref<CompareRunRow[]>([]);
-const metrics = ref<string[]>([]);
-const timelines = ref<Record<string, TimelineEvent[]>>({});
-const colorMap = ref<Record<string, string>>({});
+// Cached run data + persisted view settings live in a store so navigating away and back to
+// /compare restores the list/selection instantly (and a background refetch keeps it fresh),
+// instead of flashing an empty "Loading runs…" state.
+const cmp = useCompareStore();
+const { allRuns, metrics, timelines, colorMap, selectedIds, loadedDir, smoothing, logScale, autoUpdate, cadenceSec } =
+  storeToRefs(cmp);
 
-const selectedIds = ref<string[]>([]);
-const smoothing = ref(0);
-const logScale = ref(false);
+const error = ref("");
 const onlyDiffs = ref(true);
 const search = ref("");
 const folderInput = ref("output");
@@ -275,10 +275,6 @@ type SortKey = "name" | "updated" | "created" | "loss" | "status";
 const sortKey = ref<SortKey>("created");
 const sortDir = ref<"asc" | "desc">("desc");
 
-// TensorBoard-style refresh, mirroring RunDetailView's loss monitor: manual Reload + opt-in
-// auto-update at a chosen cadence, off by default so the overlay stays put unless asked.
-const autoUpdate = ref(false);
-const cadenceSec = ref(10);
 // Bumped on each reload so the overlay charts re-fetch their series (their selection didn't change).
 const refreshToken = ref(0);
 // True only during a soft (Reload / auto-update) refetch, so we dim subtly instead of swapping in
@@ -316,6 +312,13 @@ function parseRunsQuery(): string[] {
   return typeof q === "string" ? q.split(",").map((s) => s.trim()).filter(Boolean) : [];
 }
 
+// Cache hit = the store already holds runs for THIS folder, so we can render them at once and
+// refetch in the background instead of showing the blocking "Loading runs…" placeholder.
+function hasCacheFor(dir: string): boolean {
+  return loadedDir.value === dir && allRuns.value.length > 0;
+}
+const loading = ref(!hasCacheFor(outputDir.value));
+
 async function loadAll(soft = false) {
   controller?.abort();
   controller = new AbortController();
@@ -330,8 +333,13 @@ async function loadAll(soft = false) {
     metrics.value = res.metrics || [];
     timelines.value = res.timelines || {};
     colorMap.value = buildRunColorMap(allRuns.value.map((r) => r.run_id));
+    loadedDir.value = outputDir.value;
     const available = new Set(allRuns.value.map((r) => r.run_id));
-    selectedIds.value = parseRunsQuery().filter((id) => available.has(id));
+    // Full load (folder change / first visit) seeds the selection from the URL; a soft refetch keeps
+    // the cached selection so returning to /compare doesn't blank the charts, only drops vanished runs.
+    selectedIds.value = soft
+      ? selectedIds.value.filter((id) => available.has(id))
+      : parseRunsQuery().filter((id) => available.has(id));
   } catch (e) {
     if (e instanceof DOMException && e.name === "AbortError") return;
     error.value = e instanceof Error ? e.message : String(e);
@@ -398,7 +406,11 @@ function compareRunsBy(a: CompareRunRow, b: CompareRunRow, key: SortKey): number
 onMounted(() => {
   folderInput.value = outputDir.value;
   persistFolder(outputDir.value);
-  loadAll();
+  // Cached folder → show it immediately and refetch softly; otherwise do the blocking first load.
+  if (hasCacheFor(outputDir.value)) reload();
+  else loadAll();
+  // auto-update is persisted: resume the timer if it was left on (the watch only fires on change).
+  restartAutoTimer();
 });
 
 // Reload only when the FOLDER changes (selection lives in the URL too but must not refetch).
@@ -483,6 +495,19 @@ function onChartDataState(payload: { metric: string; hasData: boolean }) {
   else next.add(payload.metric);
   emptyMetrics.value = next;
 }
+// A metric can LEAVE chartMetrics (a selected run doesn't list it) and later RE-ENTER for a run that
+// does — its chart then remounts fresh. A stale "empty" flag from a previous selection would keep
+// the remounted chart hidden (display:none), and a hidden chart can't lazy-load to clear its own
+// flag, so it stays hidden forever. Drop the flag for any metric that enters or leaves chartMetrics
+// so the fresh chart starts visible and reports its real data-state; metrics that simply stay shown
+// keep their flag (no full reset, so no flicker on every selection change).
+watch(chartMetrics, (next, prev) => {
+  if (!emptyMetrics.value.size) return;
+  const prevSet = new Set(prev);
+  const nextSet = new Set(next);
+  const cleaned = new Set([...emptyMetrics.value].filter((m) => nextSet.has(m) && prevSet.has(m)));
+  if (cleaned.size !== emptyMetrics.value.size) emptyMetrics.value = cleaned;
+});
 
 // Global board controls. Zoom + cursor are synced across boards (uPlot sync), so zoom-reset and the
 // pinned point are shared state rather than per-chart.

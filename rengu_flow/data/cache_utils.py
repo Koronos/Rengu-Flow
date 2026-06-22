@@ -71,10 +71,7 @@ def bucket_suffix(key: tuple) -> str:
 
 def dedup_and_sort(values: list[float]) -> np.ndarray:
     """Deduplicate and sort values; round to ROUND_DECIMAL_DIGITS."""
-    values = set(round(x, ROUND_DECIMAL_DIGITS) for x in values)
-    values = list(values)
-    values.sort()
-    return np.array(values)
+    return np.unique(np.round(values, ROUND_DECIMAL_DIGITS))
 
 
 def seed_from_hash(item) -> int:
@@ -112,7 +109,7 @@ def _map_and_cache(
     if cache_file_prefix:
         cache_dir = cache_dir / cache_file_prefix.strip("_")
 
-    cache = open_disk_cache(cache_dir, new_fingerprint, cache_format=cache_format)
+    cache = open_disk_cache(cache_dir, new_fingerprint)
 
     if map_fn is None:
         assert new_fingerprint == cache.fingerprint

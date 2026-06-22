@@ -25,6 +25,8 @@ num_gpus = 1
 master_port = 29500
 # Space-separated args passed to rengu_flow.main after --config
 extra_args = ""
+# Training engine: "" = auto (accelerate on Windows, deepspeed on Linux/WSL) | deepspeed | accelerate
+engine = ""
 
 # Training subprocess environment (literal os.environ keys; all values are strings).
 # Default: empty — opt in per machine/GPU. See docs/user/cli.md

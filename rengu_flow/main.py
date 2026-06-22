@@ -110,7 +110,7 @@ def _build_optimizer(
 
     import torch
 
-    from rengu_flow.optim import resolve_optimizer_class
+    from rengu_flow.registry.optimizers import get_optimizer_class
     from rengu_flow.utils import is_main_process
     from rengu_flow.optim.param_groups import (
         adjust_beta2_half_life,
@@ -143,7 +143,7 @@ def _build_optimizer(
 
     opt_args: list = []
     kwargs = dict(optim_config)
-    klass = resolve_optimizer_class(optim_type)
+    klass = get_optimizer_class(optim_type)
 
     if optim_type_lower == "offload":
         opt_args.append(torch.optim.AdamW)
@@ -353,7 +353,7 @@ def _run_training(args, config):
     backend = resolve_backend(config)
 
     from rengu_flow.utils.bench import bench_enabled, bench_init, bench_record, bench_summarize
-    from rengu_flow.utils.training_metrics import log_training_step
+    from rengu_flow.utils.training_metrics import install_grad_norm_capture, log_training_step
     import rengu_flow.utils.common as common_module
 
     # Startup banner: rengu-flow version + the dep versions that actually move per-step speed and
@@ -625,6 +625,10 @@ def _run_training(args, config):
         parameters_to_train=parameters_to_train,
     )
     optimizer = model_engine.optimizer
+
+    # DeepSpeed discards the grad norm it computes while clipping the bf16/fp32 optimizer path, so
+    # train/grad_norm never logs for AdamW/Prodigy. Re-wrap the clip to keep that value.
+    install_grad_norm_capture(model_engine)
 
     # DeepSpeed has now placed the model on the GPU; push swappable blocks back to CPU so steady
     # state stays under the VRAM ceiling. The offloader's hooks pull each block on demand.

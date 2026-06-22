@@ -13,7 +13,6 @@ and returns the local path.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Union
 
 from rengu_flow.prep.tagger import KNOWN_TAGGERS, TaggerModelSpec
 from rengu_flow.utils.logging import get_logger
@@ -154,30 +153,10 @@ def list_models(stage: str) -> list[dict]:
             )
         return results
 
-    if stage == "caption":
+    registry = {"caption": CAPTION_MODELS, "clean": CLEANUP_MODELS}.get(stage)
+    if registry is not None:
         results = []
-        for mid, entry in CAPTION_MODELS.items():
-            downloaded = _is_downloaded(
-                entry["repo_id"],
-                entry.get("filename"),
-                repo_type=entry.get("repo_type", "model"),
-            )
-            results.append(
-                {
-                    "id": mid,
-                    "repo_id": entry["repo_id"],
-                    "repo_type": entry.get("repo_type", "model"),
-                    "filename": entry.get("filename"),
-                    "notes": entry.get("notes", ""),
-                    "downloaded": downloaded,
-                    "available": True,
-                }
-            )
-        return results
-
-    if stage == "clean":
-        results = []
-        for mid, entry in CLEANUP_MODELS.items():
+        for mid, entry in registry.items():
             downloaded = _is_downloaded(
                 entry["repo_id"],
                 entry.get("filename"),
@@ -202,7 +181,7 @@ def list_models(stage: str) -> list[dict]:
 
 
 def ensure_model(
-    spec_or_id: Union[TaggerModelSpec, str],
+    spec_or_id: str | TaggerModelSpec,
     stage: str,
 ) -> Path:
     """Download a model if not cached and return its local path.
@@ -212,7 +191,7 @@ def ensure_model(
     directory.
 
     Args:
-        spec_or_id: A ``TaggerModelSpec`` or a model id string.
+        spec_or_id: A model id string.
         stage: One of ``"tag"``, ``"caption"``, ``"clean"``.
 
     Returns:
@@ -224,40 +203,15 @@ def ensure_model(
     """
     import huggingface_hub as hfh  # lazy — must be available here
 
-    spec: TaggerModelSpec | dict | None = None
+    model_id = str(spec_or_id) if not isinstance(spec_or_id, str) else spec_or_id
 
-    if isinstance(spec_or_id, TaggerModelSpec):
-        spec = spec_or_id
-    elif stage == "tag":
-        spec = KNOWN_TAGGERS.get(spec_or_id)
+    if stage == "tag":
+        spec = KNOWN_TAGGERS.get(model_id)
         if spec is None:
             raise ValueError(
-                f"Unknown tagger id {spec_or_id!r}. "
+                f"Unknown tagger id {model_id!r}. "
                 f"Known ids: {list(KNOWN_TAGGERS)}"
             )
-    elif stage == "caption":
-        spec = CAPTION_MODELS.get(spec_or_id)
-        if spec is None:
-            raise ValueError(
-                f"Unknown caption model id {spec_or_id!r}. "
-                f"Known ids: {list(CAPTION_MODELS)}"
-            )
-        spec = dict(spec, id=spec_or_id)
-    elif stage == "clean":
-        spec = CLEANUP_MODELS.get(spec_or_id)
-        if spec is None:
-            raise ValueError(
-                f"Unknown cleanup model id {spec_or_id!r}. "
-                f"Known ids: {list(CLEANUP_MODELS)}"
-            )
-        spec = dict(spec, id=spec_or_id)
-    else:
-        raise ValueError(
-            f"Unknown stage {stage!r}. Expected one of 'tag', 'caption', 'clean'."
-        )
-
-    # TaggerModelSpec path
-    if isinstance(spec, TaggerModelSpec):
         kwargs: dict = dict(repo_id=spec.repo_id, filename=spec.filename)
         if spec.subdir:
             kwargs["subfolder"] = spec.subdir
@@ -265,10 +219,20 @@ def ensure_model(
         logger.info("Tagger model ready: %s -> %s", spec.id, local)
         return Path(local)
 
-    # Dict-based entry (caption / cleanup)
-    repo_id = spec["repo_id"]
-    repo_type = spec.get("repo_type", "model")
-    filename = spec.get("filename")
+    registry = {"caption": CAPTION_MODELS, "clean": CLEANUP_MODELS}.get(stage)
+    if registry is None:
+        raise ValueError(
+            f"Unknown stage {stage!r}. Expected one of 'tag', 'caption', 'clean'."
+        )
+    entry = registry.get(model_id)
+    if entry is None:
+        raise ValueError(
+            f"Unknown {stage} model id {model_id!r}. "
+            f"Known ids: {list(registry)}"
+        )
+    repo_id = entry["repo_id"]
+    repo_type = entry.get("repo_type", "model")
+    filename = entry.get("filename")
 
     if filename is not None:
         local = hfh.hf_hub_download(
@@ -276,9 +240,9 @@ def ensure_model(
             filename=filename,
             repo_type=repo_type,
         )
-        logger.info("Model file ready: %s -> %s", spec.get("id", repo_id), local)
+        logger.info("Model file ready: %s -> %s", model_id, local)
         return Path(local)
     else:
         snapshot = hfh.snapshot_download(repo_id=repo_id, repo_type=repo_type)
-        logger.info("Model snapshot ready: %s -> %s", spec.get("id", repo_id), snapshot)
+        logger.info("Model snapshot ready: %s -> %s", model_id, snapshot)
         return Path(snapshot)

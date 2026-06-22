@@ -1,7 +1,5 @@
 /** Fixed [width, height, frames] training buckets (dataset TOML `size_buckets`). */
 
-import { listToFormValue } from "./listToFormValue";
-
 export type SizeBucket = [number, number, number];
 
 export const SIZE_BUCKET_PRESETS: SizeBucket[] = [
@@ -42,7 +40,7 @@ export function parseSizeBuckets(raw: unknown): SizeBucket[] {
 }
 
 export function sizeBucketsFormValue(buckets: SizeBucket[]): SizeBucket[] | "" {
-  return listToFormValue(buckets);
+  return buckets.length ? buckets : "";
 }
 
 export function formatSizeBucketLabel(bucket: SizeBucket): string {

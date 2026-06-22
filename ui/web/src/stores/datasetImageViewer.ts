@@ -1,11 +1,12 @@
 import { ref } from "vue";
+import { defineStore } from "pinia";
 
 /** App-wide single lightbox for dataset gallery thumbs (avoids stacked el-image-viewers). */
-const viewerOpen = ref(false);
-const viewerUrls = ref<string[]>([]);
-const viewerIndex = ref(0);
+export const useDatasetImageViewerStore = defineStore("datasetImageViewer", () => {
+  const viewerOpen = ref(false);
+  const viewerUrls = ref<string[]>([]);
+  const viewerIndex = ref(0);
 
-export function useDatasetImageViewer() {
   function openDatasetImageViewer(urls: string[], index: number) {
     if (!urls.length || index < 0 || index >= urls.length) return;
     viewerUrls.value = urls;
@@ -24,4 +25,4 @@ export function useDatasetImageViewer() {
     openDatasetImageViewer,
     closeDatasetImageViewer,
   };
-}
+});

@@ -78,7 +78,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { Picture, Plus, Search } from "@element-plus/icons-vue";
 import { api } from "../api";
 import DatasetPreviewActions from "../components/DatasetPreviewActions.vue";
@@ -87,22 +87,20 @@ import LibraryListPage from "../components/LibraryListPage.vue";
 import LibraryRowCrudButtons from "../components/LibraryRowCrudButtons.vue";
 import LibrarySortControls from "../components/LibrarySortControls.vue";
 import LibraryViewModeToggle from "../components/LibraryViewModeToggle.vue";
-import { useDatasetFormModal } from "../composables/useDatasetFormModal";
-import { useDatasetGallery } from "../composables/useDatasetGallery";
+import { useDatasetFormModalStore } from "../stores/datasetFormModal";
+import { useDatasetGalleryStore } from "../stores/datasetGallery";
 import { useDebouncedLibrarySearch } from "../composables/useDebouncedLibrarySearch";
 import { useLibraryCrudActions } from "../composables/useLibraryCrudActions";
-import { useLibraryListSelection } from "../composables/useLibraryListSelection";
 import {
   DATASET_LIBRARY_VIEW_KEY,
   useDatasetViewMode,
 } from "../composables/useDatasetViewMode";
 import { useLibraryListSort } from "../composables/useLibraryListSort";
-import { formatLibraryTimestamp } from "../lib/formatLibraryTime";
 import { libraryThumbSource } from "../lib/previewThumbs";
 import type { DatasetSearchItem } from "../types/api";
 import type { DatasetPreviewItem } from "../components/DatasetPreviewCollection.vue";
 
-const datasetModal = useDatasetFormModal();
+const datasetModal = useDatasetFormModalStore();
 const { viewMode } = useDatasetViewMode(DATASET_LIBRARY_VIEW_KEY);
 const {
   sortField,
@@ -123,7 +121,7 @@ function onToggleSortOrder() {
 }
 
 watch([sortField, sortOrder], () => load());
-const { showFromLibrary } = useDatasetGallery();
+const { showFromLibrary } = useDatasetGalleryStore();
 
 const basePreviewItems = computed((): DatasetPreviewItem[] =>
   rawItems.value.map((row) => ({
@@ -136,8 +134,20 @@ const basePreviewItems = computed((): DatasetPreviewItem[] =>
   }))
 );
 
-const { selectedId, previewItems, selectItem, clearSelection } =
-  useLibraryListSelection(basePreviewItems);
+const selectedId = ref<string | number | null>(null);
+const previewItems = computed((): DatasetPreviewItem[] =>
+  basePreviewItems.value.map((item) => ({
+    ...item,
+    active: item.id != null && String(item.id) === String(selectedId.value),
+  }))
+);
+function selectItem(item: DatasetPreviewItem): void {
+  if (item?.id == null) return;
+  selectedId.value = item.id;
+}
+function clearSelection(): void {
+  selectedId.value = null;
+}
 
 const {
   busy: crudBusy,
@@ -160,7 +170,7 @@ function formatSubtitle(row: DatasetSearchItem): string {
   if (row.directory_count != null) {
     parts.push(`${row.directory_count} ${row.directory_count === 1 ? "folder" : "folders"}`);
   }
-  if (row.updated_at) parts.push(formatLibraryTimestamp(row.updated_at));
+  if (row.updated_at) parts.push(row.updated_at.slice(0, 16).replace("T", " "));
   return parts.join(" · ");
 }
 

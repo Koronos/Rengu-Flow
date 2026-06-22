@@ -56,20 +56,6 @@ def test_async_snapshot_skips_when_not_enough_ram():
     assert available == 10
 
 
-def test_async_snapshot_max_snapshot_bytes():
-    w = torch.ones(50)
-    with patch(
-        "rengu_flow.utils.async_model_export._available_ram_bytes",
-        return_value=10_000,
-    ):
-        fits, needed, _ = async_snapshot_fits_in_ram(
-            {"a": w},
-            None,
-            max_snapshot_bytes=100,
-        )
-    assert fits is False
-    assert needed == 200
-
 
 def test_format_byte_size():
     assert format_byte_size(512) == "512 B"

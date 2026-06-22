@@ -7,19 +7,19 @@ import re
 import sqlite3
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from typing import Any, Iterator
 
 import toml
 
-from rengu_flow_ui.settings import db_path, ensure_data_dirs
-
-from rengu_flow_ui.dataset_library_ref import (
+from rengu_flow.config.dataset_library_ref import (
     DATASET_REF_PREFIX,
     dataset_library_ref,
     is_library_dataset_ref,
     library_dataset_id_from_ref,
 )
+
+from rengu_flow_ui._time import now_utc_iso as _now
+from rengu_flow_ui.settings import db_path, ensure_data_dirs
 
 __all__ = [
     "DATASET_REF_PREFIX",
@@ -40,9 +40,6 @@ class LibraryRecord:
     directory_count: int | None = None
     meta_json: str = "{}"
 
-
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 def _safe_id(name: str) -> str:
@@ -87,8 +84,6 @@ DEFAULT_LIBRARY_ORDER = "desc"
 def normalize_library_sort(
     sort: str | None = None,
     order: str | None = None,
-    *,
-    table: str = "datasets",
 ) -> tuple[str, str]:
     """Return validated ``(sort_key, asc|desc)`` for dataset library list queries."""
     key = (sort or DEFAULT_LIBRARY_SORT).strip().lower()
@@ -103,10 +98,8 @@ def normalize_library_sort(
 def _library_order_clause(
     sort: str | None = None,
     order: str | None = None,
-    *,
-    table: str = "datasets",
 ) -> str:
-    key, direction = normalize_library_sort(sort, order, table=table)
+    key, direction = normalize_library_sort(sort, order)
     dir_sql = direction.upper()
     id_tie = f", id {dir_sql}"
     if key == "name":
@@ -225,7 +218,7 @@ def list_dataset_ids() -> list[int]:
     with _connect() as conn:
         init_library_tables(conn)
         rows = conn.execute(
-            f"SELECT id FROM datasets {_library_order_clause(table='datasets')}"
+            f"SELECT id FROM datasets {_library_order_clause()}"
         ).fetchall()
     return [int(r["id"]) for r in rows]
 
@@ -248,7 +241,7 @@ def list_datasets_summary(
     sort: str | None = None,
     order: str | None = None,
 ) -> list[dict[str, Any]]:
-    clause = _library_order_clause(sort, order, table="datasets")
+    clause = _library_order_clause(sort, order)
     with _connect() as conn:
         init_library_tables(conn)
         rows = conn.execute(
@@ -288,7 +281,7 @@ def search_datasets(
             params,
         ).fetchone()
         total = int(total_row["n"]) if total_row else 0
-        clause = _library_order_clause(sort, order, table="datasets")
+        clause = _library_order_clause(sort, order)
         rows = conn.execute(
             f"""
             SELECT id, name, directory_count, created_at, updated_at, meta_json

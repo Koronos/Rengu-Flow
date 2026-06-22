@@ -2,7 +2,7 @@
 
 import pytest
 
-from rengu_flow_ui.dataset_library_ref import (
+from rengu_flow.config.dataset_library_ref import (
     canonical_dataset_ref,
     dataset_library_ref,
     is_library_dataset_ref,

@@ -10,12 +10,11 @@ from rengu_flow.optim.resolver import (
     apply_warmup,
     build_scheduler_runtime_values,
     register_scheduler,
-    resolve_optimizer_class,
     resolve_scheduler,
     scheduler_registry,
     substitute_runtime_tokens,
 )
-from rengu_flow.registry.optimizers import optimizer_registry, register_optimizer
+from rengu_flow.registry.optimizers import get_optimizer_class, optimizer_registry, register_optimizer
 
 
 @pytest.mark.parametrize("name, expected_cls", [
@@ -25,13 +24,13 @@ from rengu_flow.registry.optimizers import optimizer_registry, register_optimize
     ("AdamW", torch.optim.AdamW),
     ("torch.optim.AdamW", torch.optim.AdamW),
 ], ids=["adamw", "sgd", "adam", "case_insensitive", "fully_qualified"])
-def test_resolve_optimizer_class(name, expected_cls):
-    assert resolve_optimizer_class(name) is expected_cls
+def test_get_optimizer_class(name, expected_cls):
+    assert get_optimizer_class(name) is expected_cls
 
 
-def test_resolve_optimizer_class_unknown_raises():
+def test_get_optimizer_class_unknown_raises():
     with pytest.raises(ValueError) as exc_info:
-        resolve_optimizer_class("adamw_8bit")
+        get_optimizer_class("adamw_8bit")
     assert "Unknown" in str(exc_info.value) or "adamw" in str(exc_info.value).lower()
 
 
@@ -40,25 +39,25 @@ def test_resolve_optimizer_class_unknown_raises():
     ("automagic", "Automagic"),
     ("GenericOptim", "GenericOptim"),
 ], ids=["genericoptim", "automagic", "case_insensitive"])
-def test_resolve_vendor_optimizers(name, expected_name):
+def test_get_vendor_optimizer_class(name, expected_name):
     pytest.importorskip("optimum")
-    klass = resolve_optimizer_class(name)
+    klass = get_optimizer_class(name)
     assert klass.__name__ == expected_name
 
 
-def test_resolve_pytorch_optimizer_prodigy_if_installed():
+def test_get_pytorch_optimizer_prodigy_if_installed():
     pytest.importorskip("pytorch_optimizer")
-    klass = resolve_optimizer_class("Prodigy")
+    klass = get_optimizer_class("Prodigy")
     import pytorch_optimizer
 
     assert klass is pytorch_optimizer.Prodigy
 
 
-def test_resolve_prodigy_alias():
+def test_get_prodigy_alias():
     pytest.importorskip("pytorch_optimizer")
     import pytorch_optimizer
 
-    klass = resolve_optimizer_class("prodigy")
+    klass = get_optimizer_class("prodigy")
     assert klass is pytorch_optimizer.Prodigy
 
 
@@ -220,13 +219,13 @@ def test_apply_warmup_returns_sequential():
     assert isinstance(result, torch.optim.lr_scheduler.SequentialLR)
 
 
-def test_register_optimizer_custom_resolved_by_resolve_optimizer_class():
-    """Custom optimizer registered via register_optimizer is resolved by resolve_optimizer_class."""
+def test_register_optimizer_custom_resolved_by_get_optimizer_class():
+    """Custom optimizer registered via register_optimizer is resolved by get_optimizer_class."""
     register_optimizer("custom_test_adam")(torch.optim.Adam)
     try:
-        klass = resolve_optimizer_class("custom_test_adam")
+        klass = get_optimizer_class("custom_test_adam")
         assert klass is torch.optim.Adam
-        klass = resolve_optimizer_class("Custom_Test_Adam")
+        klass = get_optimizer_class("Custom_Test_Adam")
         assert klass is torch.optim.Adam
     finally:
         del optimizer_registry["custom_test_adam"]

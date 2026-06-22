@@ -21,9 +21,6 @@ ALGO_MAP = {
 
 LYCORIS_ADAPTER_TYPES = tuple(ALGO_MAP)
 
-# kwargs forced onto create_lycoris regardless of config (not user-settable).
-FORCED_ALGO_KWARGS: dict[str, dict] = {}
-
 # Keys every adapter table may carry regardless of algorithm. ``alpha`` is accepted
 # by validation but rejected by defaults with the alpha=rank message (same rule as
 # lora/lokr); ``dim`` is the Kohya-style alias normalized to ``rank``.
@@ -266,5 +263,4 @@ def create_lycoris_kwargs(adapter_config: dict) -> tuple[str, dict]:
         for key in ALGO_CONFIG_KEYS[adapter_type]
         if key in adapter_config and key not in ATTACH_ONLY_KEYS
     }
-    kwargs.update(FORCED_ALGO_KWARGS.get(adapter_type, {}))
     return ALGO_MAP[adapter_type], kwargs

@@ -16,9 +16,12 @@
 </template>
 
 <script setup lang="ts">
-import { useTheme, type RenguTheme } from "../composables/useTheme";
+import { storeToRefs } from "pinia";
+import { useThemeStore, type RenguTheme } from "../stores/theme";
 
-const { theme, setTheme } = useTheme();
+const themeStore = useThemeStore();
+const { theme } = storeToRefs(themeStore);
+const { setTheme } = themeStore;
 
 // Each swatch previews its theme's surface + accent, so no text label is needed.
 const options: { value: RenguTheme; label: string }[] = [

@@ -7,7 +7,7 @@ import pytest
 import importlib
 
 cli_main_mod = importlib.import_module("rengu_flow.cli.main")
-from rengu_flow.install_profiles import normalize_profiles, uv_sync_argv
+from rengu_flow.install.profiles import normalize_profiles, uv_sync_argv
 
 
 def test_normalize_profiles_all():

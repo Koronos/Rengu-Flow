@@ -249,18 +249,7 @@ class DatasetManager:
             if hasattr(ds, "get_augmentation_resolver")
         ]
         resolvers = [r for r in resolvers if r is not None]
-        if not resolvers:
-            augmentation_resolver = None
-        elif len(resolvers) == 1:
-            augmentation_resolver = resolvers[0]
-        else:
-
-            def augmentation_resolver(spec):
-                for resolver in resolvers:
-                    out = resolver(spec)
-                    if out:
-                        return out
-                return None
+        augmentation_resolver = resolvers[0] if resolvers else None
 
         worker = None
         if is_main_process():

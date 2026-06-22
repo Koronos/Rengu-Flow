@@ -1,4 +1,5 @@
 import { ref } from "vue";
+import { defineStore } from "pinia";
 
 // Color themes, keyed by the `data-theme` attribute on <html> (see styles/app.css).
 //   midnight — cyan accent on deep navy (default)
@@ -19,26 +20,26 @@ function readStored(): RenguTheme {
   return DEFAULT_THEME;
 }
 
-const theme = ref<RenguTheme>(readStored());
-
 function applyTheme(t: RenguTheme): void {
   document.documentElement.dataset.theme = t;
 }
 
-export function setTheme(t: RenguTheme): void {
-  theme.value = t;
-  try {
-    localStorage.setItem(STORAGE_KEY, t);
-  } catch {
-    /* ignore persistence failures */
+export const useThemeStore = defineStore("theme", () => {
+  const theme = ref<RenguTheme>(readStored());
+
+  function setTheme(t: RenguTheme): void {
+    theme.value = t;
+    try {
+      localStorage.setItem(STORAGE_KEY, t);
+    } catch {
+      /* ignore persistence failures */
+    }
+    applyTheme(t);
   }
-  applyTheme(t);
-}
 
-// Keep the live DOM in sync with the stored value on first import (an inline script in
-// index.html applies it pre-paint to avoid a flash; this re-applies for SPA reactivity).
-applyTheme(theme.value);
+  // Keep the live DOM in sync with the stored value when the store first initializes (an inline
+  // script in index.html applies it pre-paint to avoid a flash; this re-applies for SPA reactivity).
+  applyTheme(theme.value);
 
-export function useTheme() {
-  return { theme, themes: THEMES, setTheme };
-}
+  return { theme, setTheme };
+});

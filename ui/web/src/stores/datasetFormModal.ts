@@ -1,4 +1,5 @@
 import { ref, shallowRef } from "vue";
+import { defineStore } from "pinia";
 
 export interface DatasetSavedPayload {
   id: string;
@@ -9,13 +10,13 @@ export interface DatasetSavedPayload {
 type OnSaved = (payload: DatasetSavedPayload) => void;
 
 /** Shared state for the app-wide DatasetFormModalHost (list / picker / run form). */
-const visible = ref(false);
-const mode = ref<"create" | "edit">("create");
-const editId = ref<string | null>(null);
-const onSavedCb = shallowRef<OnSaved | null>(null);
-const initialToml = ref<string | null>(null);
+export const useDatasetFormModalStore = defineStore("datasetFormModal", () => {
+  const visible = ref(false);
+  const mode = ref<"create" | "edit">("create");
+  const editId = ref<string | null>(null);
+  const onSavedCb = shallowRef<OnSaved | null>(null);
+  const initialToml = ref<string | null>(null);
 
-export function useDatasetFormModal() {
   function openCreate(opts: { onSaved?: OnSaved; initialToml?: string } = {}) {
     mode.value = "create";
     editId.value = null;
@@ -41,4 +42,4 @@ export function useDatasetFormModal() {
   }
 
   return { visible, mode, editId, initialToml, openCreate, openEdit, close, notifySaved };
-}
+});

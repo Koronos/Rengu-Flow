@@ -104,10 +104,7 @@ import type {
   ValidateOnlyResult,
   ValidateResult,
   AugmentationCatalogResponse,
-  MaintenanceCommandOutput,
-  MaintenanceDbResetResult,
   MaintenanceEnabledResult,
-  MaintenanceStatus,
   QuarantineBatchInfo,
   TagBackupInfo,
   TagCommitResult,
@@ -553,26 +550,6 @@ export const api = {
     }),
 
   maintenanceEnabled: () => request<MaintenanceEnabledResult>("/maintenance/enabled"),
-
-  maintenanceStatus: () => request<MaintenanceStatus>("/maintenance/status"),
-
-  maintenanceDatabaseReset: () =>
-    request<MaintenanceDbResetResult>("/maintenance/database/reset", {
-      method: "POST",
-      body: JSON.stringify({ confirmation: "RESET" }),
-    }),
-
-  maintenanceSubmodulesUpdate: () =>
-    request<MaintenanceCommandOutput>("/maintenance/submodules/update", {
-      method: "POST",
-      body: JSON.stringify({}),
-    }),
-
-  maintenanceDepsInstall: (profile: string, execute: boolean) =>
-    request<MaintenanceCommandOutput>("/maintenance/deps/install", {
-      method: "POST",
-      body: JSON.stringify({ profile, execute, confirm: execute }),
-    }),
 
   // --- Dataset prep: tag editor ---
 

@@ -10,15 +10,13 @@ from pathlib import Path
 from shutil import which
 
 from rengu_flow.config.local_config import TrainingConfig, ensure_local_config_loaded
+from rengu_flow.platform_compat import find_free_port
 
 
 def _pick_master_port(requested: int) -> int:
     if requested > 0:
         return requested
-    # Cross-platform free-port probe (replaces Linux-only `ss` parsing).
-    from rengu_flow.platform_compat import find_free_port
-
-    return find_free_port(29500, 101)
+    return find_free_port(start=29500, count=101)
 
 
 def merge_training_env(

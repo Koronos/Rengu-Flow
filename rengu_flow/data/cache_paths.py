@@ -31,16 +31,6 @@ def default_cache_root() -> Path:
     return Path(__file__).resolve().parents[2] / "cache"
 
 
-def warn_legacy_dataset_cache_root(dataset_config: dict) -> None:
-    """Warn when dataset TOML still sets cache_root (training config owns this key)."""
-    if dataset_config.get("cache_root") is None:
-        return
-    logger.warning(
-        "cache_root in dataset TOML is ignored; set cache_root in the training config "
-        "(Training loop section)."
-    )
-
-
 def resolve_cache_root(
     training_config: dict,
     *,
@@ -56,7 +46,10 @@ def resolve_cache_root(
         )
         raw = legacy
     elif legacy is not None and raw is not None:
-        warn_legacy_dataset_cache_root(dataset_config)
+        logger.warning(
+            "cache_root in dataset TOML is ignored; set cache_root in the training config "
+            "(Training loop section)."
+        )
     if raw is None or (isinstance(raw, str) and not str(raw).strip()):
         root = default_cache_root()
     else:
