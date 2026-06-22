@@ -672,7 +672,9 @@ def get_sections() -> list[dict[str, Any]]:
                     default=0,
                     min_value=0,
                     when_capability="block_swap",
-                    deepspeed_only=True,
+                    # NOT deepspeed_only: the hook offloader is engine-agnostic, so adapter (LoRA/LoKr)
+                    # block swap works on the single-GPU 'accelerate' engine (native Windows) too.
+                    # Full-model swap still needs gradient_release (DeepSpeed) — enforced at train time.
                 ),
                 _field(
                     "block_swap_prefetch",
@@ -681,22 +683,11 @@ def get_sections() -> list[dict[str, Any]]:
                     default=False,
                     importance="advanced",
                     when_capability="block_swap",
-                    deepspeed_only=True,
-                    # Only meaningful when blocks are actually being swapped AND the optimizer steps
-                    # per-parameter in the backward (gradient_release). Without gradient_release the
-                    # offloader keeps trainable params resident and forces prefetch off (see
-                    # HookBlockSwapOffloader), so the toggle would be a no-op — hide it there.
-                    when={
-                        "all": [
-                            {"form_nonempty": "blocks_to_swap", "exclude_zero": True},
-                            {
-                                "form_map_truthy": {
-                                    "path": "optimizer.extra_params",
-                                    "key": "gradient_release",
-                                }
-                            },
-                        ]
-                    },
+                    # Meaningful whenever blocks are actually being swapped — overlaps the next block's
+                    # H2D copy with compute via a side stream + pinned buffers. Works for both adapter
+                    # (streams frozen weights, adapters stay resident) and full-model (gradient_release)
+                    # runs, so it is NOT deepspeed-only. Needs >=2 blocks resident (handled at runtime).
+                    when={"form_nonempty": "blocks_to_swap", "exclude_zero": True},
                 ),
                 _field("compile", "torch.compile", "boolean", default=False, importance="advanced"),
                 _field(

@@ -850,12 +850,13 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "summary": "Overlap block transfers on a side CUDA stream (situational; off by default).",
         "detail": (
             "Pins the swapped blocks' CPU memory and prefetches the next block while the current "
-            "one computes, to hide CPU↔GPU transfer latency. Only takes effect with "
-            "optimizer.gradient_release (full-model training — adapter runs keep trainable params "
-            "resident and force prefetch off) and when blocks_to_swap leaves ≥2 blocks resident, so "
-            "it only helps where there is VRAM headroom (bigger GPUs / native Linux). On an 8 GB "
-            "WSL2 box it is counterproductive — the extra resident block pushes past the "
-            "sysmem-paging threshold and steps get slower — so leave it off there."
+            "one computes, to hide CPU↔GPU transfer latency. Works for both adapter (LoRA/LoKr — "
+            "streams only the frozen base weights, keeps the trainable adapters resident) and "
+            "full-model (gradient_release) runs. Needs blocks_to_swap to leave ≥2 blocks resident "
+            "(the running block plus the one pulled ahead), so it helps where there is a little VRAM "
+            "headroom — use a less aggressive blocks_to_swap to buy the overlap. On a tight 8 GB box "
+            "the extra resident block can push past the sysmem-paging threshold and slow steps down, "
+            "so measure before leaving it on there."
         ),
         "doc": "docs/developer/vram-optimization.md",
     },

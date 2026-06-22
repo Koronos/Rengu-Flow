@@ -143,17 +143,16 @@ class HookBlockSwapOffloader:
         # tensors. So with swap_trainable=False we keep requires_grad params GPU-resident and swap
         # only the frozen base weights (this is what makes block swap safe for LoRA/LoKr).
         self._swap_trainable = bool(swap_trainable)
-        # Prefetch needs room to hold the running block plus the one being pulled ahead, a CUDA
-        # device for the side stream, and (for now) full-block swapping. It overlaps the next block's
-        # H2D copy with the current block's compute; correctness never depends on it (ensure_resident
-        # always falls back to a blocking pull), so a mis-speculated prefetch under activation-
-        # checkpointing recompute only costs a little speed, never correctness.
-        self._prefetch = (
-            bool(prefetch)
-            and self._swap_trainable
-            and self.resident_cap >= 2
-            and self.device.type == "cuda"
-        )
+        # block_swap_prefetch bundles two independent speedups; decouple them:
+        #  * _pin  — pin the swapped weights' CPU storage so H2D copies run as full-bandwidth DMA
+        #    (pageable copies stage through a hidden pinned buffer at ~half the bandwidth). Costs host
+        #    RAM (page-locked), NOT VRAM, so it applies at ANY cap — even cap=1 / maximal swap.
+        #  * _prefetch — additionally overlap the next block's H2D with the current block's compute on
+        #    a side stream. Double-buffering means the running block AND the pulled-ahead block are
+        #    co-resident, so it costs +1 resident block of VRAM and needs resident_cap >= 2.
+        # Correctness never depends on either (ensure_resident always falls back to a blocking pull).
+        self._pin = bool(prefetch) and self.device.type == "cuda"
+        self._prefetch = self._pin and self.resident_cap >= 2
         self._resident: "OrderedDict[int, None]" = OrderedDict()
         self._block_of_module: dict[int, int] = {}
         self._handles: list = []
@@ -183,10 +182,15 @@ class HookBlockSwapOffloader:
                 self._handles.append(module.register_forward_pre_hook(self._forward_pre_hook))
                 self._handles.append(module.register_full_backward_pre_hook(self._backward_pre_hook))
 
-    def _block_params(self, idx: int) -> list:
+    def _swap_params(self, idx: int) -> list:
+        """Params that physically move CPU<->GPU for this block. Full-model mode swaps everything;
+        adapter mode swaps only the frozen base weights (trainable adapters stay GPU-resident)."""
         cached = self._params.get(idx)
         if cached is None:
-            cached = list(self.blocks[idx].parameters())
+            params = list(self.blocks[idx].parameters())
+            if not self._swap_trainable:
+                params = [p for p in params if not p.requires_grad]
+            cached = params
             self._params[idx] = cached
         return cached
 
@@ -207,10 +211,29 @@ class HookBlockSwapOffloader:
         if block_idx in self._resident:
             self._resident.move_to_end(block_idx)
             return
-        self.blocks[block_idx].to(self.device)
+        if self._pin:
+            # DMA pull from the pinned CPU master on the default stream: faster H2D than a pageable
+            # copy, but single-buffered (no compute overlap), so it fits at cap=1 / minimal VRAM.
+            # Same-stream ordering guarantees the copy lands before the consuming kernel runs.
+            for p in self._swap_params(block_idx):
+                gpu = torch.empty_like(self._cpu[id(p)], device=self.device)
+                gpu.copy_(self._cpu[id(p)], non_blocking=True)
+                self._gpu[id(p)] = gpu
+                p.data = gpu
+        else:
+            self.blocks[block_idx].to(self.device)
         self._resident[block_idx] = None
         while len(self._resident) > self.resident_cap:
             evict_idx, _ = self._resident.popitem(last=False)
+            if self._pin:
+                for p in self._swap_params(evict_idx):
+                    gpu = self._gpu.pop(id(p), None)
+                    if gpu is None:
+                        continue
+                    if self._swap_trainable:  # weights updated on GPU -> copy back; frozen are immutable
+                        self._cpu[id(p)].copy_(gpu, non_blocking=True)
+                    p.data = self._cpu[id(p)]
+                continue
             self._offload_block_to_cpu(self.blocks[evict_idx])
 
     # --------------------------------------------------------------- overlapped (prefetch) path
@@ -220,7 +243,7 @@ class HookBlockSwapOffloader:
             return
         event = torch.cuda.Event()
         with torch.cuda.stream(self._stream):
-            for p in self._block_params(idx):
+            for p in self._swap_params(idx):
                 gpu = torch.empty_like(self._cpu[id(p)], device=self.device)
                 gpu.copy_(self._cpu[id(p)], non_blocking=True)
                 self._gpu[id(p)] = gpu
@@ -230,18 +253,29 @@ class HookBlockSwapOffloader:
         self._resident[idx] = None
 
     def _evict_async(self, idx: int) -> None:
-        """Copy block ``idx`` back to its pinned CPU buffer on the side stream and free the GPU
-        tensors safely (``record_stream`` defers reuse until the copy finishes)."""
-        self._stream.wait_stream(torch.cuda.current_stream())  # block's compute must finish first
-        with torch.cuda.stream(self._stream):
-            for p in self._block_params(idx):
-                gpu = self._gpu.get(id(p))
+        """Release block ``idx`` from the GPU. In full-model mode the weights may have been updated
+        on the GPU (gradient_release), so copy them back to the pinned CPU buffer on the side stream.
+        In adapter mode the swapped weights are frozen (immutable), so skip the copy-back entirely —
+        just drop the GPU tensor and point ``p.data`` back to the pinned CPU master. ``record_stream``
+        defers the allocator's reuse of the freed GPU memory until in-flight compute finishes."""
+        if self._swap_trainable:
+            self._stream.wait_stream(torch.cuda.current_stream())  # block's compute must finish first
+            with torch.cuda.stream(self._stream):
+                for p in self._swap_params(idx):
+                    gpu = self._gpu.get(id(p))
+                    if gpu is None:
+                        continue
+                    self._cpu[id(p)].copy_(gpu, non_blocking=True)
+                    p.data = self._cpu[id(p)]
+                    gpu.record_stream(self._stream)
+                    self._gpu.pop(id(p), None)
+        else:
+            for p in self._swap_params(idx):
+                gpu = self._gpu.pop(id(p), None)
                 if gpu is None:
                     continue
-                self._cpu[id(p)].copy_(gpu, non_blocking=True)
-                p.data = self._cpu[id(p)]
-                gpu.record_stream(self._stream)
-                self._gpu.pop(id(p), None)
+                p.data = self._cpu[id(p)]  # immutable frozen master — no D2H copy needed
+                gpu.record_stream(torch.cuda.current_stream())
         self._resident.pop(idx, None)
         self._pull_event.pop(idx, None)
 
@@ -281,18 +315,20 @@ class HookBlockSwapOffloader:
             self._ensure_resident_sync(idx)
 
     def apply_training_layout(self) -> None:
-        """Push every swappable block to CPU; blocks are pulled back on demand by the hooks. In
-        prefetch mode the CPU storage is pinned so the on-demand H2D copies can overlap compute."""
+        """Push every swappable block to CPU; blocks are pulled back on demand by the hooks. When
+        pinning is on (block_swap_prefetch) the swapped weights' CPU storage is page-locked so the
+        on-demand H2D copies run as DMA — and, at cap>=2, can also overlap compute (prefetch)."""
         if not self._enabled:
             return
         for block in self.blocks:
             self._offload_block_to_cpu(block)
-        if self._prefetch:
-            # prefetch implies swap_trainable, so all params are eligible to pin and stream.
+        if self._pin:
+            # Pin only the params that actually swap (frozen base weights in adapter mode); the
+            # trainable adapters stay GPU-resident and are never streamed, so they aren't pinned.
             self._cpu.clear()
             self._gpu.clear()
-            for block in self.blocks:
-                for p in block.parameters():
+            for idx in range(self.num_blocks):
+                for p in self._swap_params(idx):
                     p.data = p.data.pin_memory()
                     self._cpu[id(p)] = p.data
         self._resident.clear()

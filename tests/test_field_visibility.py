@@ -35,8 +35,13 @@ def test_cosmos_schema_excludes_t5_and_includes_llm() -> None:
 
 
 def test_deepspeed_only_fields_dropped_on_accelerate(monkeypatch) -> None:
-    """Native-Windows / accelerate hosts must not surface multi-GPU / pipeline-only knobs."""
-    ds_only = {"pipeline_stages", "partition_method", "partition_split", "blocks_to_swap", "block_swap_prefetch"}
+    """Native-Windows / accelerate hosts must not surface multi-GPU / pipeline-only knobs.
+
+    blocks_to_swap / block_swap_prefetch are NOT in this set: adapter (LoRA) block swap — including
+    the pinned-buffer prefetch overlap — is engine-agnostic and works on the single-GPU 'accelerate'
+    engine, so those fields stay available there (full-model swap still needs gradient_release, which
+    IS dropped)."""
+    ds_only = {"pipeline_stages", "partition_method", "partition_split"}
 
     monkeypatch.setenv("RENGU_ENGINE", "deepspeed")
     assert ds_only <= {f["path"] for s in get_schema()["sections"] for f in s["fields"]}
@@ -44,6 +49,7 @@ def test_deepspeed_only_fields_dropped_on_accelerate(monkeypatch) -> None:
     monkeypatch.setenv("RENGU_ENGINE", "accelerate")
     accel_paths = {f["path"] for s in get_schema()["sections"] for f in s["fields"]}
     assert not (ds_only & accel_paths), f"DeepSpeed-only fields leaked on accelerate: {ds_only & accel_paths}"
+    assert "blocks_to_swap" in accel_paths, "adapter block swap must stay available on accelerate"
 
 
 def test_blocks_to_swap_visible_when_model_supports_block_swap() -> None:
@@ -58,7 +64,7 @@ def test_blocks_to_swap_visible_when_model_supports_block_swap() -> None:
     assert field_visible(field, sdxl_form, caps) is True
 
 
-def test_block_swap_prefetch_gated_by_capability_blocks_and_gradient_release() -> None:
+def test_block_swap_prefetch_shown_whenever_blocks_are_swapped() -> None:
     schema = get_schema()
     field = next(
         f for s in schema["sections"] for f in s["fields"] if f["path"] == "block_swap_prefetch"
@@ -66,30 +72,17 @@ def test_block_swap_prefetch_gated_by_capability_blocks_and_gradient_release() -
     assert field.get("when_capability") == "block_swap"
     caps = schema["registries"]["model_capabilities"]
 
-    gr = {"optimizer.extra_params": {"gradient_release": True}}
-
-    # No blocks being swapped → hidden even with gradient_release.
-    assert field_visible(field, {"model.type": "sdxl", "blocks_to_swap": 0, **gr}, caps) is False
-    # Swapping blocks but no gradient_release (e.g. adapter run) → backend ignores prefetch → hidden.
-    assert field_visible(field, {"model.type": "sdxl", "blocks_to_swap": 6}, caps) is False
+    # No blocks being swapped → hidden.
+    assert field_visible(field, {"model.type": "sdxl", "blocks_to_swap": 0}, caps) is False
+    # Blocks swapped → shown, regardless of gradient_release: prefetch now overlaps the frozen-weight
+    # H2D copy for adapter runs too (not just full-model / gradient_release).
+    assert field_visible(field, {"model.type": "sdxl", "blocks_to_swap": 6}, caps) is True
+    assert field_visible(field, {"model.type": "cosmos_predict2", "blocks_to_swap": 20}, caps) is True
     assert (
         field_visible(
             field,
             {"model.type": "sdxl", "blocks_to_swap": 6,
-             "optimizer.extra_params": {"gradient_release": False}},
-            caps,
-        )
-        is False
-    )
-    # Blocks swapped + gradient_release truthy → shown (SDXL and Cosmos).
-    assert field_visible(field, {"model.type": "sdxl", "blocks_to_swap": 6, **gr}, caps) is True
-    assert field_visible(field, {"model.type": "cosmos_predict2", "blocks_to_swap": 20, **gr}, caps) is True
-    # String "true" from the KV widget is treated as truthy.
-    assert (
-        field_visible(
-            field,
-            {"model.type": "sdxl", "blocks_to_swap": 6,
-             "optimizer.extra_params": {"gradient_release": "true"}},
+             "optimizer.extra_params": {"gradient_release": True}},
             caps,
         )
         is True
