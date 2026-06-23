@@ -217,6 +217,16 @@ def run_previews(
     start = time.time()
     try:
         preview_runner(model, preview_cfg, prompts, sink, step)
+    except Exception as e:  # noqa: BLE001 — a preview failure must NEVER abort the training run
+        import traceback
+
+        if is_main_process():
+            print(
+                f"rengu_flow: preview at step {step} failed — skipping it, training continues. "
+                f"{type(e).__name__}: {e}",
+                flush=True,
+            )
+            traceback.print_exc()
     finally:
         if use_block_swap_hooks:
             empty_cuda_cache()
