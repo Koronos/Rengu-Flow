@@ -433,6 +433,7 @@ def _run_training(args, config):
             cache_keep_in_memory=config.get("cache_keep_in_memory", False),
             cache_format=config.get("cache_format", "v2"),
             cache_dedup_text_embeddings=config.get("cache_dedup_text_embeddings", False),
+            backend=backend_obj,
         )
         dataset_manager.register(train_data)
         for i, eval_entry in enumerate(config.get("eval_datasets", [])):

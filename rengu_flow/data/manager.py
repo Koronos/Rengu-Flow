@@ -194,6 +194,7 @@ class DatasetManager:
         cache_keep_in_memory: bool = False,
         cache_format: str = "v2",
         cache_dedup_text_embeddings: bool = False,
+        backend=None,
     ) -> None:
         self.model = model
         self.vae = model.get_vae()
@@ -214,6 +215,7 @@ class DatasetManager:
         self.cache_num_proc = cache_num_proc
         self.cache_keep_in_memory = cache_keep_in_memory
         self.cache_dedup_text_embeddings = cache_dedup_text_embeddings
+        self.backend = backend
         self.datasets = []
 
     def register(self, dataset) -> None:
@@ -224,24 +226,6 @@ class DatasetManager:
             raise RuntimeError(
                 "DatasetManager.cache() requires distributed (e.g. deepspeed)."
             )
-        distributed = dist.is_initialized()
-        if distributed:
-            if is_main_process():
-                manager = mp.Manager()
-                queue = [manager.Queue()]
-            else:
-                queue = [None]
-            torch.distributed.broadcast_object_list(
-                queue, src=0, group=dist.get_world_group()
-            )
-            queue = queue[0]
-        else:
-            # Single process (engine='accelerate' / Windows, no fork): use a thread worker +
-            # thread queue below. The model and pipes are shared by reference — nothing is
-            # pickled, so the lazily-loaded model isn't re-created in a 'spawn' worker.
-            import queue as _queue
-
-            queue = _queue.Queue()
 
         resolvers = [
             ds.get_augmentation_resolver()
@@ -252,10 +236,13 @@ class DatasetManager:
         augmentation_resolver = resolvers[0] if resolvers else None
 
         worker = None
+        queue = None
         if is_main_process():
-            cache_args = (
+            # Build cache_args with a queue placeholder at index 1 (the slot _cache_fn expects).
+            # make_cache_worker creates the real queue; we patch it in before starting the worker.
+            cache_args = [
                 self.datasets,
-                queue,
+                None,  # replaced with the real queue below
                 self.model.get_preprocess_media_file_fn(
                     augmentation_resolver=augmentation_resolver
                 ),
@@ -267,15 +254,14 @@ class DatasetManager:
                 self.cache_keep_in_memory,
                 self.cache_format,
                 self.cache_dedup_text_embeddings,
-            )
-            if distributed:
-                worker = mp.Process(target=_run_cache_worker, args=(cache_args, queue))
-            else:
-                import threading
-
-                worker = threading.Thread(
-                    target=_run_cache_worker, args=(cache_args, queue), daemon=True
-                )
+            ]
+            worker, queue = self.backend.make_cache_worker(_run_cache_worker, cache_args)
+            cache_args[1] = queue  # inject the real queue so _cache_fn can enqueue GPU tasks
+        if self.backend.is_distributed:
+            qbox = [queue if is_main_process() else None]
+            torch.distributed.broadcast_object_list(qbox, src=0, group=dist.get_world_group())
+            queue = qbox[0]
+        if worker is not None:
             worker.start()
 
         while True:
