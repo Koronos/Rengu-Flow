@@ -9,9 +9,9 @@ Where the training loop lives, how **evaluation** is invoked, where metrics are 
 ## Execution flow
 
 1. **Config load** — Main TOML and dataset TOML(s); defaults and validation.
-2. **Distributed init** — `_distributed_init(args)`, `deepspeed.init_distributed()`.
+2. **Backend init** — `select_backend(config)` resolves the engine; `"deepspeed"` calls `deepspeed.init_distributed()`, `"accelerate"` sets up plain torch single-GPU context.
 3. **Model and data** — Model from registry; train (and optional eval) datasets; cache if real data.
-4. **Pipeline** — `model.to_layers()` → `ManualPipelineModule`; activation checkpointing (PyTorch checkpoint or compile-budget "auto"); `deepspeed.initialize`; `_configure_optimizer`.
+4. **Pipeline** — `model.to_layers()` → `backend.build_pipe(...)` (`ManualPipelineModule` for deepspeed, `SequentialPipe` for accelerate); activation checkpointing (PyTorch checkpoint or compile-budget "auto"); `backend.build_engine(...)` (wraps `deepspeed.initialize` or constructs `TorchEngine`); `_configure_optimizer`.
 5. **Dataloaders** — `PipelineDataLoader` for train and for each eval dataset (`eval_data_map`).
 6. **Resume** — If `resume_from_checkpoint`, `model_engine.load_checkpoint(run_dir, ...)`; restore `step`, `examples`, `train_dataloader.state_dict()` (or epoch only if `--reset_dataloader`).
 7. **Loop** — Per step: `get_data_iterator_for_step` → `model_engine.train_batch(iterator)` → `train_dataloader.sync_epoch()`; then, on an epoch boundary from the single `EpochSchedule` authority, `saver.process_epoch_boundary(completed_epoch, …)`, plus `saver.process_step`; optional `evaluate()` and `run_previews()`; TensorBoard/WandB logging. Epoch numbers (naming, save/eval cadence, progress, termination) all come from `EpochSchedule` (step-based budget), not the dataloader's own counter.
@@ -66,7 +66,7 @@ User-facing option tables: **`docs/user/training-loop-and-eval.md`** (Evaluation
 | `synthetic_num_batches` set | Skip real data path; use **`SyntheticSDXLDataset`** (`rengu_flow/data/synthetic.py`) with `num_batches` from config (default `50` in code if key present without value handling — see `main.py`). Dataset TOML still copied into run dir but not used for training iterators. |
 | No `dataset` | Depends on validation; typical examples always set `dataset`. |
 
-**`caching_batch_size`:** Passed to `DatasetManager(..., caching_batch_size=...)` and into worker `_cache_fn` / `_map_and_cache` (`rengu_flow/data/cache_utils.py`: `pool.imap(..., batch_size=caching_batch_size)`). Default `1` in `set_config_defaults`.
+**`caching_batch_size`:** Passed to `DatasetManager(..., caching_batch_size=...)` and into worker `_cache_fn` / `_map_and_cache` (`rengu_flow/data/cache_utils.py`: `dataset.iter(batch_size=caching_batch_size)`). Default `1` in `set_config_defaults`.
 
 **`image_micro_batch_size_per_gpu`:** After DeepSpeed init, `train_data.post_init(..., per_device_batch_size_image=...)` receives either the top-level int or a dict keyed by modality (`main.py` normalizes non-dict to `{None: value}`). Used when mixing image and video buckets.
 

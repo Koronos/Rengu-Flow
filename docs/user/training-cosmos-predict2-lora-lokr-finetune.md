@@ -170,10 +170,10 @@ if you intentionally want to train it.
 Point `dataset` at a TOML with `frame_buckets = [1]` for images (see `examples/minimal_cosmos_predict2_dataset.toml`). Run cache before training:
 
 ```bash
-deepspeed --num_gpus=1 --module rengu_flow.main --config my.toml --cache_only
+rengu train --config my.toml --cache_only
 ```
 
-With `cache_text_embeddings = true` (default), text embeddings are cached once; VAE latents are cached per resolution bucket. Disk cache uses **`cache_format = "v2"`** by default (see [Training loop](training-loop-and-eval.md#deepspeed-pipeline-and-debug-options)).
+With `cache_text_embeddings = true` (default), text embeddings are cached once; VAE latents are cached per resolution bucket. Disk cache uses **`cache_format = "v2"`** by default (see [Training loop](training-loop-and-eval.md#pipeline-cache-and-debug-options)).
 
 ## Performance and VRAM (Anima / Cosmos)
 

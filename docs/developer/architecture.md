@@ -25,18 +25,18 @@ Execution is launched from a main TOML (and optional dataset TOML), similar to d
 1. **Configuration as contract** — TOML (+ CLI) is the source of truth for which components run.
 2. **Explicit registration** — Components are registered by **string name** (decorators / registries). No filesystem auto-discovery.
 3. **Single resolution path** — For each component type: read `type` from config → registry lookup → construct with that section’s kwargs.
-4. **Predictable order** — Fixed phases: config load → distributed init → resolve components → pre-train (cache, load weights) → build DeepSpeed pipeline → train loop → post-train (planned) → shutdown.
-5. **DeepSpeed** — Current distribution backend; no alternate backend abstraction yet.
+4. **Predictable order** — Fixed phases: config load → backend init → resolve components → pre-train (cache, load weights) → build engine pipeline → train loop → post-train (planned) → shutdown.
+5. **TrainingBackend strategy** — `rengu_flow.engine` exposes a `TrainingBackend` ABC with two implementations: `SingleDeviceBackend` (name `"accelerate"`, single-GPU plain-torch) and `DeepSpeedPipeBackend` (name `"deepspeed"`, multi-GPU pipeline). `select_backend(config)` resolves from `RENGU_ENGINE` env → `engine` config key → OS default. Each backend owns its four concerns behind one interface — `launch_argv`, `validate`, capability properties (`is_distributed`, `supports_block_swap`, `supports_gradient_release`), `build_pipe`/`build_engine`, and `make_cache_worker` — so consumers call `select_backend(config).<method>` instead of branching on `if engine == "..."`. `engine/base.py` and the CLI launch path are deepspeed/torch-FREE on import (deepspeed's ~17 s import lives only inside `DeepSpeedPipeBackend` build methods).
 
 ---
 
 ## Target execution flow
 
 1. Load main TOML and dataset TOML; apply defaults; validate.
-2. Initialize distributed / DeepSpeed.
+2. Select backend via `select_backend(config)` and initialize (DeepSpeed distributed init for `"deepspeed"`, plain torch setup for `"accelerate"`).
 3. Resolve model, optimizer, scheduler, adapter (if any) from registries.
 4. **Pre-training:** `DatasetManager.cache()` when using real data; load diffusion weights; configure adapter.
-5. Build pipeline from `model.to_layers()`; create optimizer, scheduler, `PipelineDataLoader`.
+5. Build pipeline from `model.to_layers()` via the selected backend (`backend.build_pipe` / `backend.build_engine`); create optimizer, scheduler, `PipelineDataLoader`.
 6. Resume checkpoint if requested.
 7. **Training loop:** batch → `train_batch` → logging, eval, `Saver`, signal files, previews per config.
 8. **Post-training** (planned): optional hooks after the loop.
@@ -48,6 +48,7 @@ Execution is launched from a main TOML (and optional dataset TOML), similar to d
 
 | Component | Registry / mechanism | Status |
 |-----------|----------------------|--------|
+| Engine backend | `rengu_flow.engine` / `select_backend` | `"accelerate"` (single-GPU, `SingleDeviceBackend`) and `"deepspeed"` (multi-GPU, `DeepSpeedPipeBackend`); resolved from `RENGU_ENGINE` env → `engine` config key → OS default |
 | Model | `rengu_flow.registry.models` | `sdxl`, `cosmos_predict2` (+ alias `anima`) |
 | Optimizer | `rengu_flow.registry.optimizers` + `optim/resolver.py` | Aliases + qualified paths + vendor optimizers |
 | Scheduler | `scheduler_registry` / `register_scheduler` in `optim/resolver.py` | constant, linear, cosine, rex, paths |

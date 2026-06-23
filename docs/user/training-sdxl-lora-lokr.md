@@ -187,8 +187,8 @@ For a folder of images (not synthetic data):
 3. Run cache only, then training:
 
 ```bash
-deepspeed --num_gpus=1 --module rengu_flow.main --config my.toml --cache_only
-deepspeed --num_gpus=1 --module rengu_flow.main --config my.toml
+rengu train --config my.toml --cache_only
+rengu train --config my.toml
 ```
 
 Cache is stored under each directory’s `cache/sdxl/`. Use `--regenerate_cache` after changing images or captions; `--trust_cache` when nothing changed.
@@ -198,8 +198,8 @@ Cache is stored under each directory’s `cache/sdxl/`. Use `--regenerate_cache`
 ## How to run training
 
 1. Install: `pip install -e .` (or `pip install rengu-flow[lycoris]` for optional LyCORIS backend).
-2. Run with DeepSpeed, e.g.:  
-   `deepspeed --num_gpus=1 --module rengu_flow.main --config examples/minimal_config_lora_sdxl.toml`  
+2. Run training:  
+   `rengu train --config examples/minimal_config_lora_sdxl.toml`  
    For real data, use a config with `dataset = "..."` and no `synthetic_num_batches`.
 3. Check the log for `Run dir: ...` to see where checkpoints and adapters are saved.
 

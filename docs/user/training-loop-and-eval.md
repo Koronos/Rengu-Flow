@@ -123,13 +123,13 @@ run_name = "sdxl-lora-v1"
 To continue training from the latest run under `output_dir`:
 
 ```bash
-deepspeed ... --resume_from_checkpoint
+rengu train --config my.toml --resume-from-checkpoint
 ```
 
 To resume from a specific run folder:
 
 ```bash
-deepspeed ... --resume_from_checkpoint 20250218_12-00-00_myrun
+rengu train --config my.toml --resume-from-checkpoint 20250218_12-00-00_myrun
 ```
 
 Checkpoint restores model, optimizer, LR scheduler, and dataloader state (epoch and position). Optional flags:
@@ -138,18 +138,18 @@ Checkpoint restores model, optimizer, LR scheduler, and dataloader state (epoch 
 - **`--reset_optimizer`** — Do not restore optimizer state (e.g. to change optimizer).
 - **`--reset_optimizer_params`** — Restore optimizer state but reset param groups (e.g. learning rate) from config.
 
-## DeepSpeed pipeline and debug options
+## Pipeline, cache, and debug options
 
 | Key | Description | Values | Default |
 |-----|-------------|--------|---------|
-| **`pipeline_stages`** | Number of pipeline-parallel stages (usually matches GPU count). | Positive integer. | `1` |
+| **`pipeline_stages`** | Number of pipeline-parallel stages (usually matches GPU count). `"deepspeed"` engine only. | Positive integer. | `1` |
 | **`partition_method`** | How transformer layers are assigned to stages. | `parameters` (balance by param count), `uniform`, or `manual`. | `parameters` |
 | **`partition_split`** | Layer indices for manual partitioning. | JSON list of integers. | Omitted (required when `partition_method = manual`). |
 | **`steps_per_print`** | How often DeepSpeed prints step timing to the console. | Positive integer. | `1` |
 | **`synthetic_num_batches`** | Train on in-memory fake SDXL batches (no real dataset). | Positive integer or omit. | Omitted (use real data). |
 | **`caching_batch_size`** | Batch size during the dataset cache phase (latents + text embeddings). | Positive integer. | `1` |
 | **`cache_root`** | Root folder for all v2 dataset caches (metadata, latents, text embeddings). | Path string. | `cache/` under the install directory (gitignored). |
-| **`cache_num_proc`** | CPU worker processes for metadata map and latent/embedding cache (`pool.imap`). | Positive integer. | `min(8, CPU count)` |
+| **`cache_num_proc`** | Parallel CPU preprocessing threads for metadata map and latent/embedding cache (image load/decode/resize runs on these threads; GPU encode stays on the main process). | Positive integer. | `min(8, CPU count)` |
 | **`cache_keep_in_memory`** | Keep the HuggingFace dataset slice in RAM while resuming cache. | `true` / `false`. | `false` (lower RAM; OS page cache still helps train reads) |
 | **`cache_format`** | On-disk layout for latent and text-embedding cache. | `v2` (mmap bf16 tensor stacks + SQLite metadata) or `v1` (legacy pickle shards). | `v2` |
 | **`cache_dedup_text_embeddings`** | During `--cache_only`, reuse text-encoder outputs when captions are identical (hash dedup). | `true` or `false`. | `false` |
