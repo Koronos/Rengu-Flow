@@ -3,12 +3,12 @@
     <p class="tab-intro">
       Image diversity settings apply before VAE encode. Enable augmentation once for the dataset;
       customize individual <code>[[directory]]</code> rows with strategy overrides when needed.
-      See
-      <router-link :to="{ path: '/docs', query: { doc: 'docs/user/dataset-augmentation.md' } }">
-        dataset augmentation
-      </router-link>
-      in Docs.
+      See the
+      <el-button type="primary" link class="doc-inline-link" @click="docDrawerOpen = true">
+        dataset augmentation guide</el-button>.
     </p>
+
+    <DocMarkdownDrawer v-model="docDrawerOpen" :doc-path="AUG_DOC_PATH" />
 
     <el-alert v-if="catalogError" type="warning" :title="catalogError" show-icon class="mb-12" />
 
@@ -119,10 +119,14 @@ import { useDatasetEditorStore } from "../stores/datasetEditor";
 import type { DirectoryFormRow } from "../lib/datasetDirectoryForm";
 import type { SchemaField } from "../types/forms";
 import AugmentationConfigEditor from "./AugmentationConfigEditor.vue";
+import DocMarkdownDrawer from "./DocMarkdownDrawer.vue";
 
 const emit = defineEmits<{
   "go-directories": [];
 }>();
+
+const AUG_DOC_PATH = "docs/user/dataset-augmentation.md";
+const docDrawerOpen = ref(false);
 
 const editor = useDatasetEditorStore();
 const { form, schema } = storeToRefs(editor);
@@ -258,6 +262,12 @@ function onFolderUpdate(index: number, config: AugmentationConfig) {
 .tab-intro code {
   font-family: ui-monospace, Menlo, Monaco, Consolas, monospace;
   font-size: 12px;
+}
+.doc-inline-link.el-button {
+  padding: 0;
+  height: auto;
+  vertical-align: baseline;
+  font-size: inherit;
 }
 .per-folder-hint {
   display: block;
