@@ -24,10 +24,15 @@ ROUND_DECIMAL_DIGITS = 3
 
 
 def resolve_cache_num_proc(value: int | None) -> int:
-    """Return a positive worker count for cache map/pool (default capped at 8)."""
-    if value is None:
-        return NUM_PROC
-    return max(1, int(value))
+    """Return a positive worker count for the cache map/pool (default capped at 8).
+
+    Delegated to the platform strategy: Windows forces in-process (1) because a spawned worker
+    pool there cannot share the in-process queue/pipe the GPU-encode handoff relies on (deadlock)
+    and re-imports torch/CUDA per worker. Elsewhere: ``NUM_PROC`` when unset, else the request.
+    """
+    from rengu_flow.platform_compat import PLATFORM
+
+    return PLATFORM.cache_worker_count(value, default=NUM_PROC)
 
 
 def content_fingerprint(dataset, columns: list[str]) -> str:
@@ -120,17 +125,26 @@ def _map_and_cache(
     )
 
     pool_workers = resolve_cache_num_proc(num_proc)
-    manager = mp.Manager()
-    id_queue = manager.Queue()
+    # With a single worker (Windows default, or num_proc<=1) run the map IN-PROCESS. An mp.Pool
+    # always spawns a child process even for one worker, and on Windows (spawn, no fork) that child
+    # cannot share the in-process queue/pipe that the GPU-encode handoff uses — it deadlocks.
+    use_pool = pool_workers > 1
+    pool = None
+    if use_pool:
+        manager = mp.Manager()
+        id_queue = manager.Queue()
 
-    def init(queue):
+        def init(queue):
+            global rank
+            rank = queue.get()
+
+        for i in range(pool_workers):
+            id_queue.put(i)
+
+        pool = mp.Pool(pool_workers, init, (id_queue,))
+    else:
         global rank
-        rank = queue.get()
-
-    for i in range(pool_workers):
-        id_queue.put(i)
-
-    pool = mp.Pool(pool_workers, init, (id_queue,))
+        rank = 0
 
     def wrapper(example):
         global rank
@@ -161,7 +175,8 @@ def _map_and_cache(
 
     cache_emitter = ProgressEmitter() if is_main_process() else None
 
-    map_iter = pool.imap(wrapper, dataset.iter(batch_size=caching_batch_size))
+    batch_iter = dataset.iter(batch_size=caching_batch_size)
+    map_iter = pool.imap(wrapper, batch_iter) if use_pool else map(wrapper, batch_iter)
     pbar = tqdm(
         map_iter,
         initial=completed_batches,
@@ -190,6 +205,7 @@ def _map_and_cache(
                 force=bool(is_last),
             )
 
-    pool.close()
+    if pool is not None:
+        pool.close()
     cache.finalize_current_shard()
     return cache

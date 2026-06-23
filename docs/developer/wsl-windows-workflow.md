@@ -1,8 +1,13 @@
 # Working on Rengu-Flow from WSL (and Windows)
 
-This repo runs on **WSL2 + NVIDIA** — training needs CUDA inside WSL, and the code lives on the
-WSL ext4 filesystem. These conventions avoid the WSL/Windows pitfalls that repeatedly bite agents
-and contributors.
+> **Native Windows is also supported** for **single-GPU** training (the `accelerate` engine, no
+> DeepSpeed) — see [docs/user/windows-install.md](../user/windows-install.md). This page covers the
+> **WSL2** path, which is required for **multi-GPU** and the DeepSpeed-only features
+> (`gradient_release`, `blocks_to_swap`, `pipeline_stages > 1`).
+
+This page's WSL workflow runs on **WSL2 + NVIDIA** — training needs CUDA inside WSL, and the code
+lives on the WSL ext4 filesystem. These conventions avoid the WSL/Windows pitfalls that repeatedly
+bite agents and contributors.
 
 ## TL;DR
 - Do **all** work inside WSL (shell, git, `uv`, training, UI). Don't drive training/scripts from

@@ -132,7 +132,21 @@ class CacheV2:
                 np_dtype = np.dtype(str(dtype).removeprefix("torch."))
                 self._mmaps[key] = np.memmap(path, dtype=np_dtype, mode="r", shape=shape)
 
-    def clear(self) -> None:
+    def _close_mmaps(self) -> None:
+        # np.memmap holds the file open until its underlying mmap is closed; dropping the dict
+        # reference alone leaves the handle until GC. Windows cannot unlink an open mmap'd file.
+        for m in self._mmaps.values():
+            mm = getattr(m, "_mmap", None)
+            if mm is not None:
+                mm.close()
+        self._mmaps.clear()
+
+    def close(self) -> None:
+        """Release all file handles (mmaps + SQLite + tensor files) without deleting the cache.
+
+        Call this when done with a cache before another run may clear it: on Windows the clear
+        ``unlink`` fails (WinError 32) while this instance still has the tensor files mmap'd.
+        """
         if self._meta_con is not None:
             if not self._meta_read_only:
                 self._meta_con.commit()
@@ -143,7 +157,10 @@ class CacheV2:
             if hasattr(f, "close"):
                 f.close()
         self._tensor_files.clear()
-        self._mmaps.clear()
+        self._close_mmaps()
+
+    def clear(self) -> None:
+        self.close()
         for child in self.path.iterdir():
             if child.is_file():
                 child.unlink()

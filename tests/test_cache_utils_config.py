@@ -12,7 +12,14 @@ def test_resolve_cache_num_proc_default_capped():
 
 
 def test_resolve_cache_num_proc_explicit():
-    assert resolve_cache_num_proc(4) == 4
+    import sys
+
+    if sys.platform == "win32":
+        # Windows has no fork: a worker pool would spawn processes that can't share the in-process
+        # GPU-encode queue handoff (deadlock), so caching is forced in-process (1) regardless.
+        assert resolve_cache_num_proc(4) == 1
+    else:
+        assert resolve_cache_num_proc(4) == 4
     assert resolve_cache_num_proc(0) == 1
 
 

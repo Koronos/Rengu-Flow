@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rengu-flow"
-version = "0.4.4"
+version = "1.0.0"
 description = "TOML-driven diffusion training: DeepSpeed, LoRA/LoKr/full finetune (SDXL, Cosmos Predict2), optional web UI."
 readme = "README.md"
 license = "GPL-3.0-or-later"
@@ -20,7 +20,10 @@ dependencies = [
     "torch==2.12.0",
     # Base dep: data/preprocess_media.py uses torchvision.transforms for all models (not just Cosmos).
     "torchvision==0.27.0",
-    "deepspeed==0.19.0",
+    # Linux/WSL only: the `deepspeed` engine (multi-GPU pipeline). Native Windows uses the
+    # `accelerate` engine and never imports DeepSpeed, so it is excluded there — DeepSpeed has no
+    # Windows wheels and `uv sync` would otherwise try (and fail) to build it.
+    "deepspeed==0.19.0 ; sys_platform != 'win32'",
     "diffusers>=0.25.0",
     "peft>=0.10.0",
     "safetensors>=0.4.0",
@@ -38,6 +41,10 @@ dependencies = [
     # backend writes event files, and the system-metrics sampler reads CPU/RAM via psutil.
     "tensorboard>=2.14.0",
     "psutil>=5.9.0",
+    # torch.compile / activation_checkpointing='auto' need Triton. On Linux torch pulls it in;
+    # on native Windows torch does not, so add the community Windows build. Its major.minor must
+    # match the Triton that this torch expects: torch 2.12 -> Triton 3.7.x. Bump alongside torch.
+    "triton-windows>=3.7,<3.8 ; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]
@@ -115,7 +122,8 @@ markers = [
 # raises "CUDA driver error: device not ready" under WSL2/WDDM (cuDNN conv workspace). rengu_flow
 # neutralizes it automatically on WSL (see rengu_flow.platform_compat.configure_cuda_allocator).
 # torch/torchvision come from the PyTorch CUDA 13.0 index; CUDA Toolkit 13.x must be installed
-# (provides nvcc for DeepSpeed JIT ops). See docs for native-Windows install (prebuilt wheel).
+# (provides nvcc for DeepSpeed JIT ops on the deepspeed engine). Native Windows uses the
+# accelerate engine (no DeepSpeed); see docs/user/windows-install.md.
 # Not `explicit`: the cu130 index must also serve torch's transitive nvidia-*-cu13 runtime
 # libs (e.g. nvidia-nvshmem-cu13 / libnvshmem_host.so.3), which are not on PyPI.
 [[tool.uv.index]]

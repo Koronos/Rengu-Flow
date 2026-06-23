@@ -82,7 +82,7 @@ lr = 1.0e-4
 
 def test_build_zip_with_file_path_dataset(examples_dir: Path) -> None:
     ds_path = examples_dir / "minimal_dataset.toml"
-    train = f'dataset = "{ds_path}"\n[model]\ntype = "sdxl"\ndtype = "bfloat16"\ncheckpoint_path = "x"\n[optimizer]\ntype = "adamw"\nlr = 1e-4\n'
+    train = f'dataset = "{ds_path.as_posix()}"\n[model]\ntype = "sdxl"\ndtype = "bfloat16"\ncheckpoint_path = "x"\n[optimizer]\ntype = "adamw"\nlr = 1e-4\n'
     zip_bytes, _ = build_training_export_zip(train, bundle_stem="file_ref")
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
         main = toml.loads(zf.read("file_ref.toml").decode())

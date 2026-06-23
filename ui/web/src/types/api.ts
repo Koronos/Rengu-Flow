@@ -671,9 +671,11 @@ export interface LocalSettings {
       num_gpus: number;
       master_port: number;
       extra_args: string;
+      engine: string;
       env: Record<string, string>;
     };
   };
+  host?: { is_windows: boolean; effective_engine: string; deepspeed: boolean };
   restartRequired: { ui: { public: boolean; token: string | null } };
   readOnly: {
     ui: { host: string; port: number; data_dir: string };
@@ -686,6 +688,7 @@ export interface LocalSettingsPatch {
     num_gpus: number;
     master_port: number;
     extra_args: string;
+    engine: string;
     env: Record<string, string>;
   }>;
   ui?: Partial<{ public: boolean; token: string | null }>;

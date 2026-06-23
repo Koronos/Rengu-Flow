@@ -122,7 +122,8 @@ def test_import_resolves_relative_paths_to_absolute(ui_data_tmp: Path) -> None:
     cfg = _toml.loads(job.config_content)
     ds_val = cfg["dataset"]
     assert Path(ds_val).is_absolute(), ds_val
-    assert ds_val == str(resolve_repo_path("rel_dataset.toml"))
+    # Forward-slash (PLATFORM.config_path) so the config is valid TOML on Windows; == str() on POSIX.
+    assert ds_val == resolve_repo_path("rel_dataset.toml").as_posix()
     # output_dir is left untouched.
     assert cfg["output_dir"] == "output"
 
@@ -133,12 +134,12 @@ def test_import_resolves_relative_paths_to_absolute(ui_data_tmp: Path) -> None:
     dcfg = _toml.loads(text)
     dir_path = dcfg["directory"][0]["path"]
     assert Path(dir_path).is_absolute(), dir_path
-    assert dir_path == str(resolve_repo_path("tests/fixtures/smoke_cc0/images"))
+    assert dir_path == resolve_repo_path("tests/fixtures/smoke_cc0/images").as_posix()
 
 
 def test_resolve_config_dataset_paths_idempotent_and_refs() -> None:
     """List shape preserved, library refs and absolute paths untouched."""
-    abs_ds = str(job_import.resolve_repo_path("a.toml"))
+    abs_ds = job_import.resolve_repo_path("a.toml").as_posix()
     text = (
         f'dataset = ["rel.toml", "{abs_ds}", "rengu-flow-dataset:3"]\n'
         'output_dir = "output"\n'
@@ -149,7 +150,8 @@ def test_resolve_config_dataset_paths_idempotent_and_refs() -> None:
     cfg = _toml.loads(out)
     vals = cfg["dataset"]
     assert isinstance(vals, list)
-    assert vals[0] == str(job_import.resolve_repo_path("rel.toml"))
+    # Resolved paths come back forward-slash (PLATFORM.config_path); as_posix() == str() on POSIX.
+    assert vals[0] == job_import.resolve_repo_path("rel.toml").as_posix()
     assert vals[1] == abs_ds  # already absolute, unchanged
     assert vals[2] == "rengu-flow-dataset:3"  # library ref untouched
     # Idempotent.

@@ -14,6 +14,7 @@ from typing import Any
 
 import toml
 
+from rengu_flow.platform_compat import PLATFORM
 from rengu_flow.config import set_config_defaults
 from rengu_flow.config.dataset_merge import merge_dataset_configs
 from rengu_flow.config.validation import (
@@ -113,7 +114,13 @@ def _materialize_dataset_for_job(config: dict[str, Any], job_staging: Path) -> N
 
 
 def _resolve_dataset_value(value: str, job_staging: Path) -> str:
-    """Turn library dataset refs and relative paths into absolute TOML paths for training."""
+    """Turn library dataset refs and relative paths into absolute TOML paths for training.
+
+    Returns a ``PLATFORM.config_path`` (forward-slash on Windows): the resolved path is written
+    back into the config and re-parsed as TOML, and a raw Windows ``C:\\…`` path is invalid TOML
+    (``toml`` does not escape backslashes on dump). Forward slashes are valid TOML and work on
+    Windows, so the staged config round-trips and stays cross-platform portable.
+    """
     if library_db.is_library_dataset_ref(value):
         did = library_db.library_dataset_id_from_ref(value)
         from rengu_flow_ui.dataset_form import strip_display_name_from_toml
@@ -121,11 +128,11 @@ def _resolve_dataset_value(value: str, job_staging: Path) -> str:
         content = strip_display_name_from_toml(library_db.read_dataset_text(did))
         out = job_staging / f"{did}.dataset.toml"
         out.write_text(content, encoding="utf-8")
-        return str(out.resolve())
+        return PLATFORM.config_path(out.resolve())
     p = Path(value)
     if p.is_absolute():
-        return str(p.resolve())
-    return str((job_staging / p).resolve())
+        return PLATFORM.config_path(p.resolve())
+    return PLATFORM.config_path((job_staging / p).resolve())
 
 
 def materialize_staging(

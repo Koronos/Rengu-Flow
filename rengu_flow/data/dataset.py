@@ -28,6 +28,7 @@ from rengu_flow.data.augmentation import (
     with_variant_key,
 )
 from rengu_flow.data.augmentation.names import AUG_MVP_VERSION
+from rengu_flow.platform_compat import PLATFORM
 from rengu_flow.data.cache_utils import (
     _map_and_cache,
     bucket_suffix,
@@ -437,7 +438,7 @@ class SizeBucketDataset:
                 cache_format=cache_format,
             )
             self.iteration_order = datasets.load_from_disk(
-                str(iteration_order_cache_dir)
+                str(iteration_order_cache_dir), keep_in_memory=PLATFORM.metadata_keep_in_memory
             )
             return
 
@@ -537,7 +538,7 @@ class SizeBucketDataset:
             caption_fp_file.write_text(caption_fp)
 
         self.iteration_order = datasets.load_from_disk(
-            str(iteration_order_cache_dir)
+            str(iteration_order_cache_dir), keep_in_memory=PLATFORM.metadata_keep_in_memory
         )
 
     def cache_text_embeddings(
@@ -1144,7 +1145,9 @@ class DirectoryDataset:
                 / f"metadata/grouped_metadata_{bucket_suffix(key)}"
             )
             print(f"Loading grouped metadata with grouping key {key}")
-            metadata = datasets.load_from_disk(str(grouped_dir))
+            # keep_in_memory on Windows: avoid mmap so a sibling dataset / later run can overwrite
+            # this grouped-metadata cache (Windows can't save_to_disk over an mmap'd Arrow file).
+            metadata = datasets.load_from_disk(str(grouped_dir), keep_in_memory=PLATFORM.metadata_keep_in_memory)
             if self.use_size_buckets:
                 assert len(key) == 3
                 self.size_bucket_datasets.append(
@@ -1335,7 +1338,9 @@ class DirectoryDataset:
             del metadata_dataset
 
         print("Loading intermediate metadata dataset.")
-        metadata_dataset = datasets.load_from_disk(str(metadata_cache_1))
+        metadata_dataset = datasets.load_from_disk(
+            str(metadata_cache_1), keep_in_memory=PLATFORM.metadata_keep_in_memory
+        )
         metadata_map_fn, tarfile_map = self._metadata_map_fn()
         print("Caching ungrouped metadata.")
         try:

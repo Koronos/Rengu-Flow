@@ -68,6 +68,7 @@ def _field(
     visibility: dict[str, Any] | None = None,
     max_length: int | None = None,
     runtime_tokens: list[str] | None = None,
+    deepspeed_only: bool = False,
 ) -> dict[str, Any]:
     if required:
         imp = "required"
@@ -112,6 +113,10 @@ def _field(
         out["max_length"] = max_length
     if runtime_tokens:
         out["runtime_tokens"] = runtime_tokens
+    if deepspeed_only:
+        # Multi-GPU / DeepSpeed-pipeline-only knob. Dropped from the schema on hosts whose engine
+        # is not 'deepspeed' (e.g. native Windows 'accelerate'); see get_schema().
+        out["deepspeed_only"] = True
     return out
 
 
@@ -613,9 +618,13 @@ def get_sections() -> list[dict[str, Any]]:
                     "integer",
                     default=1,
                     min_value=1,
+                    deepspeed_only=True,
                 ),
-                _field("partition_method", "Partition method", "select", options=PARTITION_METHODS),
-                _field("partition_split", "Partition split (manual)", "json"),
+                _field(
+                    "partition_method", "Partition method", "select",
+                    options=PARTITION_METHODS, deepspeed_only=True,
+                ),
+                _field("partition_split", "Partition split (manual)", "json", deepspeed_only=True),
                 _field(
                     "activation_checkpointing",
                     "Activation checkpointing",
@@ -657,12 +666,71 @@ def get_sections() -> list[dict[str, Any]]:
                     importance="advanced",
                 ),
                 _field(
+                    "activation_offload",
+                    "Activation offload",
+                    "boolean",
+                    default=False,
+                    importance="advanced",
+                    description=(
+                        "Stream saved activations to pinned CPU RAM (overlapped on side streams) "
+                        "instead of recomputing them — trades activation VRAM for PCIe bandwidth, not "
+                        "recompute FLOPs. Pairs with a raised activation_memory_budget. Costs host RAM; "
+                        "incompatible with compile_mode='reduce-overhead' (CUDA graphs)."
+                    ),
+                ),
+                # activation_offload tuning — revealed only when activation_offload is on.
+                _field(
+                    "activation_offload_min_tensor_mb",
+                    "Offload min tensor size (MB)",
+                    "number",
+                    default=4.0,
+                    min_value=0.0,
+                    importance="advanced",
+                    when={"field": "activation_offload", "equals": True},
+                    description=(
+                        "Only saved activations at least this large are offloaded; smaller tensors stay "
+                        "in VRAM (the per-tensor copy overhead isn't worth it). Lower it to offload more "
+                        "(useful when many medium activations add up); raise it to offload only the big ones."
+                    ),
+                ),
+                _field(
+                    "activation_offload_max_ram_gb",
+                    "Offload max host RAM (GB)",
+                    "number",
+                    min_value=0.0,
+                    importance="advanced",
+                    placeholder="none (no cap)",
+                    when={"field": "activation_offload", "equals": True},
+                    description=(
+                        "Cap on pinned host RAM used for offloaded activations. Empty = no cap. Once the "
+                        "cap is hit, further activations stay in VRAM (so VRAM savings taper instead of "
+                        "exhausting host RAM)."
+                    ),
+                ),
+                _field(
+                    "activation_offload_prefetch_mb",
+                    "Offload backward prefetch (MB)",
+                    "number",
+                    default=512.0,
+                    min_value=0.0,
+                    importance="advanced",
+                    when={"field": "activation_offload", "equals": True},
+                    description=(
+                        "How many MB of offloaded activations to stream back to the GPU ahead of where "
+                        "the backward is running, to hide the H2D latency. Larger = more overlap but more "
+                        "transient VRAM for the in-flight tensors."
+                    ),
+                ),
+                _field(
                     "blocks_to_swap",
                     "Blocks to swap",
                     "integer",
                     default=0,
                     min_value=0,
                     when_capability="block_swap",
+                    # NOT deepspeed_only: the hook offloader is engine-agnostic, so adapter (LoRA/LoKr)
+                    # block swap works on the single-GPU 'accelerate' engine (native Windows) too.
+                    # Full-model swap still needs gradient_release (DeepSpeed) — enforced at train time.
                 ),
                 _field(
                     "block_swap_prefetch",
@@ -671,21 +739,11 @@ def get_sections() -> list[dict[str, Any]]:
                     default=False,
                     importance="advanced",
                     when_capability="block_swap",
-                    # Only meaningful when blocks are actually being swapped AND the optimizer steps
-                    # per-parameter in the backward (gradient_release). Without gradient_release the
-                    # offloader keeps trainable params resident and forces prefetch off (see
-                    # HookBlockSwapOffloader), so the toggle would be a no-op — hide it there.
-                    when={
-                        "all": [
-                            {"form_nonempty": "blocks_to_swap", "exclude_zero": True},
-                            {
-                                "form_map_truthy": {
-                                    "path": "optimizer.extra_params",
-                                    "key": "gradient_release",
-                                }
-                            },
-                        ]
-                    },
+                    # Meaningful whenever blocks are actually being swapped — overlaps the next block's
+                    # H2D copy with compute via a side stream + pinned buffers. Works for both adapter
+                    # (streams frozen weights, adapters stay resident) and full-model (gradient_release)
+                    # runs, so it is NOT deepspeed-only. Needs >=2 blocks resident (handled at runtime).
+                    when={"form_nonempty": "blocks_to_swap", "exclude_zero": True},
                 ),
                 _field("compile", "torch.compile", "boolean", default=False, importance="advanced"),
                 _field(
@@ -842,9 +900,19 @@ def get_sections() -> list[dict[str, Any]]:
 
 def get_schema() -> dict[str, Any]:
     from rengu_flow_ui.config_field_help import enrich_schema
+    from rengu_flow.engine import resolve_backend
+    from rengu_flow.platform_compat import PLATFORM
+
+    engine = resolve_backend()
+    deepspeed_engine = engine == "deepspeed"
 
     registries = get_registries()
     sections = get_sections()
+    if not deepspeed_engine:
+        # Non-DeepSpeed host (e.g. native Windows 'accelerate'): drop the multi-GPU /
+        # pipeline-only knobs. They raise at train time there and do nothing single-GPU.
+        for section in sections:
+            section["fields"] = [f for f in section["fields"] if not f.get("deepspeed_only")]
     for section in sections:
         if section["id"] == "model":
             attach_model_section_visibility(section["fields"])
@@ -875,6 +943,12 @@ def get_schema() -> dict[str, Any]:
             "registries": registries,
             "sections": sections,
             "default_new_config_toml": default_new_config_toml(),
+            # Host training capabilities — lets the UI explain why some fields are absent.
+            "host": {
+                "engine": engine,
+                "is_windows": PLATFORM.is_windows,
+                "multi_gpu": deepspeed_engine,
+            },
         }
     )
     return attach_visibility_to_schema(schema)

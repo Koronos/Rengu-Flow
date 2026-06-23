@@ -8,6 +8,7 @@ from typing import Any
 
 import toml
 
+from rengu_flow.platform_compat import PLATFORM
 from rengu_flow_ui import datasets_store, db, library_db
 from rengu_flow_ui import runs_scanner
 from rengu_flow_ui.paths import resolve_repo_path
@@ -28,7 +29,9 @@ def _resolve_path_entry(entry: Any) -> Any:
         return entry
     if library_db.is_library_dataset_ref(entry):
         return entry
-    return str(resolve_repo_path(entry))
+    # Forward-slash (PLATFORM.config_path): the resolved path is written back into the config and
+    # re-parsed as TOML; a raw Windows ``C:\…`` path is invalid TOML (toml does not escape on dump).
+    return PLATFORM.config_path(resolve_repo_path(entry))
 
 
 def resolve_config_dataset_paths(config_toml_text: str) -> str:

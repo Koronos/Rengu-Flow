@@ -15,12 +15,12 @@ pytestmark = pytest.mark.no_ui_db
 
 @pytest.fixture
 def as_windows(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(pc, "IS_WINDOWS", True)
+    monkeypatch.setattr(pc, "PLATFORM", pc.WindowsPlatform())
 
 
 @pytest.fixture
 def as_posix(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(pc, "IS_WINDOWS", False)
+    monkeypatch.setattr(pc, "PLATFORM", pc.Platform())
 
 
 # --- venv layout ---------------------------------------------------------

@@ -13,8 +13,10 @@ import torch
 from torch.optim import Optimizer
 
 from transformers.utils.versions import require_version
-from deepspeed import comm as dist
-from deepspeed.accelerator import get_accelerator
+
+# DeepSpeed is imported lazily (only for the model-parallel grad-norm all-reduce, which is a no-op
+# on a single GPU). This lets GenericOptim run on single-GPU / native Windows, where DeepSpeed is
+# not installed. [rengu-flow modification]
 
 
 NS_STEPS = 5
@@ -504,8 +506,15 @@ class GenericOptim(Optimizer):
         if len(skipped_parameter_names) > 0:
             print(f'WARNING: {len(skipped_parameter_names)} parameter updates were skipped due to Inf or NaN.')
 
-        total_norm_cuda = get_accelerator().FloatTensor([float(total_norm)])
+        total_norm_cuda = torch.tensor(
+            [float(total_norm)],
+            dtype=torch.float32,
+            device="cuda" if torch.cuda.is_available() else "cpu",
+        )
         if self.mpu is not None:
+            # Reduce the grad norm across the model-parallel group (DeepSpeed pipeline path only).
+            from deepspeed import comm as dist  # [rengu-flow] lazy: optional on single-GPU/Windows
+
             dist.all_reduce(total_norm_cuda, op=dist.ReduceOp.SUM, group=self.mpu.get_model_parallel_group())
         self._grad_norm = total_norm_cuda[0].item()**(0.5)
 

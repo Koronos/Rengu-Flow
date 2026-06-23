@@ -64,6 +64,9 @@ class TrainingConfig:
     num_gpus: int = 1
     master_port: int = 29500
     extra_args: str = ""
+    # Training engine backend: "" (auto: deepspeed on Linux, accelerate on Windows),
+    # "deepspeed", "accelerate", or "accelerate_deepspeed". See rengu_flow.engine.
+    engine: str = ""
     env: dict[str, str] = field(default_factory=dict)
 
 
@@ -133,6 +136,7 @@ def parse_local_config_dict(data: dict[str, Any], *, root: Path) -> LocalConfig:
         num_gpus=int(train_raw.get("num_gpus", 1)),
         master_port=int(train_raw.get("master_port", 29500)),
         extra_args=str(train_raw.get("extra_args", "")).strip(),
+        engine=str(train_raw.get("engine", "")).strip().lower(),
         env=_parse_training_env(env_raw),
     )
     toolbox_raw = data.get("toolbox") if isinstance(data.get("toolbox"), dict) else {}

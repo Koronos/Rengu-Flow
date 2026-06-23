@@ -41,10 +41,14 @@ def base_train_command(
 ) -> list[str]:
     """Base argv to launch the trainer, shared by the CLI and the web UI.
 
-    DeepSpeed's launcher needs ``--module`` (not ``-m``) for a module target; falls back to
-    ``python -m`` when deepspeed is absent.
+    The DeepSpeed launcher is used only for engine='deepspeed' (multi-GPU pipeline). For
+    engine='accelerate' (single-GPU, default on Windows) we run the module directly — no
+    DeepSpeed launcher, no DeepSpeed needed. DeepSpeed's launcher needs ``--module`` (not
+    ``-m``) for a module target; we fall back to ``python -m`` when deepspeed is absent too.
     """
-    deepspeed = which("deepspeed")
+    from rengu_flow.engine import resolve_backend
+
+    deepspeed = which("deepspeed") if resolve_backend() == "deepspeed" else None
     if deepspeed:
         cmd = [deepspeed, f"--num_gpus={num_gpus}"]
         if master_port is not None:
@@ -84,7 +88,13 @@ def build_train_command(
 
 def training_subprocess_env(training: TrainingConfig | None = None) -> dict[str, str]:
     cfg = ensure_local_config_loaded()
-    env = merge_training_env(None, training or cfg.training)
+    t = training or cfg.training
+    env = merge_training_env(None, t)
+    # Select the engine backend for the child (rengu_flow.engine.resolve_backend reads this).
+    # Empty -> auto (per-OS default). An explicit [training].engine wins; never override one
+    # the user already exported.
+    if t.engine:
+        env.setdefault("RENGU_ENGINE", t.engine)
     # Unbuffered child stdout so @@RFPROG@@ progress markers (and logs) flush per line
     # instead of in block-buffered bursts — the CLI bar and UI log tail both depend on
     # markers arriving promptly. respect_existing semantics: don't override an explicit set.

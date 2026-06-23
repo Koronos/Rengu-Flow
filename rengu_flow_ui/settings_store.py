@@ -24,8 +24,9 @@ from rengu_flow.config.local_config import (
 # Editable field whitelists, by TOML section. A patch may only set these keys.
 # Maintenance is intentionally not surfaced here — the section is disabled (see
 # rengu_flow_ui.maintenance) and its [maintenance] TOML keys are left untouched.
-_EDITABLE_TRAINING_SCALARS = ("num_gpus", "master_port", "extra_args")
+_EDITABLE_TRAINING_SCALARS = ("num_gpus", "master_port", "extra_args", "engine")
 _RESTART_UI = ("public", "token")
+_ENGINE_VALUES = ("", "deepspeed", "accelerate", "accelerate_deepspeed")
 
 
 class SettingsError(ValueError):
@@ -49,6 +50,10 @@ def read_settings(path: Path | None = None) -> dict[str, Any]:
         cfg = parse_local_config_dict(tomlkit.parse(p.read_text(encoding="utf-8")), root=repo_root())
     else:
         cfg = default_local_config()
+    from rengu_flow.engine import resolve_backend
+    from rengu_flow.platform_compat import PLATFORM
+
+    effective_engine = resolve_backend({"engine": cfg.training.engine})
     return {
         "path": str(p),
         "exists": exists,
@@ -57,8 +62,16 @@ def read_settings(path: Path | None = None) -> dict[str, Any]:
                 "num_gpus": cfg.training.num_gpus,
                 "master_port": cfg.training.master_port,
                 "extra_args": cfg.training.extra_args,
+                "engine": cfg.training.engine,
                 "env": dict(cfg.training.env),
             },
+        },
+        # Host training capabilities — the UI hides multi-GPU / DeepSpeed-only settings
+        # (num_gpus, master_port) when the effective engine isn't 'deepspeed'.
+        "host": {
+            "is_windows": PLATFORM.is_windows,
+            "effective_engine": effective_engine,
+            "deepspeed": effective_engine == "deepspeed",
         },
         "restartRequired": {"ui": {"public": cfg.ui.public, "token": cfg.ui.token}},
         "readOnly": {
@@ -87,6 +100,10 @@ def _validate_patch(patch: dict[str, Any]) -> None:
             raise SettingsError("master_port must be an integer in 1..65535")
     if "extra_args" in training and not isinstance(training["extra_args"], str):
         raise SettingsError("extra_args must be a string")
+    if "engine" in training:
+        v = training["engine"]
+        if not isinstance(v, str) or v.strip().lower() not in _ENGINE_VALUES:
+            raise SettingsError(f"engine must be one of {_ENGINE_VALUES}")
     if "env" in training:
         env = training["env"]
         if not isinstance(env, dict):

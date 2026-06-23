@@ -846,16 +846,71 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         ),
         "doc": "docs/developer/vram-optimization.md",
     },
-    "block_swap_prefetch": {
-        "summary": "Overlap block transfers on a side CUDA stream (situational; off by default).",
+    "activation_offload": {
+        "summary": "Stash saved activations in pinned CPU RAM instead of recomputing them (trades VRAM for PCIe, not FLOPs).",
         "detail": (
-            "Pins the swapped blocks' CPU memory and prefetches the next block while the current "
-            "one computes, to hide CPU↔GPU transfer latency. Only takes effect with "
-            "optimizer.gradient_release (full-model training — adapter runs keep trainable params "
-            "resident and force prefetch off) and when blocks_to_swap leaves ≥2 blocks resident, so "
-            "it only helps where there is VRAM headroom (bigger GPUs / native Linux). On an 8 GB "
-            "WSL2 box it is counterproductive — the extra resident block pushes past the "
-            "sysmem-paging threshold and steps get slower — so leave it off there."
+            "Activation checkpointing frees activation VRAM by DROPPING activations and RECOMPUTING "
+            "them in the backward (costs extra forward FLOPs). Activation offload instead keeps the "
+            "saved activations but moves them off the GPU: each large contiguous saved tensor is "
+            "copied to a pinned CPU buffer on a side stream during the forward and streamed back, "
+            "prefetched in reverse, during the backward — both directions overlap compute, so the "
+            "cost is PCIe bandwidth, not recompute. Composes with activation_memory_budget (it is the "
+            "reason you can RAISE the budget: the budget picks save-vs-recompute, the offloader decides "
+            "where the saved ones live). Costs host RAM (the pinned buffers, can't page out). Payoff "
+            "scales with activation size — high resolution / large batch / full fine-tune — and is "
+            "negligible for small activations (low-res LoRA). NOT compatible with "
+            "compile_mode='reduce-overhead' (CUDA-graph capture cannot record the side-stream copies)."
+        ),
+        "doc": "docs/developer/vram-optimization.md",
+    },
+    "activation_offload_min_tensor_mb": {
+        "summary": "Smallest saved activation that gets offloaded; smaller ones stay in VRAM (default 4 MB).",
+        "detail": (
+            "Offloading a tensor costs a fixed D2H/H2D round trip, so tiny activations aren't worth "
+            "moving — only saved activations at least this large go to pinned CPU. Lower it to offload "
+            "more (when many medium-sized activations add up to real VRAM, e.g. higher resolution); "
+            "raise it to move only the largest tensors and keep the rest resident. At low resolution "
+            "most activations fall under the default, which is why offload barely engages there."
+        ),
+        "doc": "docs/developer/vram-optimization.md",
+    },
+    "activation_offload_max_ram_gb": {
+        "summary": "Cap on pinned host RAM for offloaded activations (default: no cap).",
+        "detail": (
+            "Pinned (page-locked) host RAM can't be paged out, so offloading a lot of activations can "
+            "pressure system memory. This caps how much pinned RAM the offloader will use; once hit, "
+            "further activations stay in VRAM (VRAM savings taper instead of exhausting host RAM). "
+            "Leave empty for no cap when you have RAM to spare."
+        ),
+        "doc": "docs/developer/vram-optimization.md",
+    },
+    "activation_offload_prefetch_mb": {
+        "summary": "How much offloaded activation to stream back ahead of the backward (default 512 MB).",
+        "detail": (
+            "During the backward the offloaded activations are copied back from CPU in reverse order, "
+            "prefetched ahead of where the backward is running so the H2D latency hides behind compute. "
+            "This sets how far ahead (in MB) to prefetch. Larger = more overlap but more transient VRAM "
+            "for the in-flight tensors; smaller = less VRAM but the backward may stall waiting on copies."
+        ),
+        "doc": "docs/developer/vram-optimization.md",
+    },
+    "block_swap_prefetch": {
+        "summary": "Speed up block-swap transfers: pinned-DMA copies always, plus compute overlap when VRAM allows.",
+        "detail": (
+            "One switch, two effects (the offloader applies whichever fits — you don't tune them "
+            "separately):\n"
+            "• Pinning (always, on CUDA): page-locks the swapped weights' CPU memory so each H2D "
+            "copy runs as a full-bandwidth DMA instead of a ~half-speed pageable copy. This costs "
+            "host RAM (the locked weights, a few GB), NOT VRAM, so it helps at ANY blocks_to_swap — "
+            "including maximal swap, where it roughly halves step time on its own.\n"
+            "• Overlap (only when blocks_to_swap leaves ≥2 blocks resident): also prefetches the next "
+            "block on a side stream while the current one computes. This keeps a second block resident, "
+            "so it costs +1 block of VRAM and engages only when there is headroom for it.\n"
+            "Works for both adapter (LoRA/LoKr — streams only the frozen base weights, keeps the "
+            "trainable adapters resident) and full-model (gradient_release) runs; loss is identical. "
+            "Recommended ON whenever you block-swap and have spare host RAM. Turn it OFF if host RAM "
+            "is tight (pinning can't page out), and note that on a nearly-full GPU the overlap's extra "
+            "resident block can tip you into sysmem paging — measure the per-step cuda_peak_gb."
         ),
         "doc": "docs/developer/vram-optimization.md",
     },
