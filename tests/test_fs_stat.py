@@ -106,9 +106,9 @@ def test_fs_stat_api(ui_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     assert body["exists"] is True
     assert body["is_file"] is True
 
-    r2 = ui_client.get(
+    r2 = ui_client.post(
         "/api/v1/fs/stat",
-        params={"path": "examples", "expect": "dir"},
+        json={"path": "examples", "expect": "dir"},
     )
     assert r2.status_code == 200
     assert r2.json()["is_dir"] is True

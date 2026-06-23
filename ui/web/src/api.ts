@@ -104,7 +104,6 @@ import type {
   ValidateOnlyResult,
   ValidateResult,
   AugmentationCatalogResponse,
-  MaintenanceEnabledResult,
   QuarantineBatchInfo,
   TagBackupInfo,
   TagCommitResult,
@@ -406,12 +405,6 @@ export const api = {
     });
   },
 
-  /** Full library list (non-paginated); use {@link searchDatasets} for list UIs. */
-  listDatasets: async () => {
-    const data = await request<{ datasets?: DatasetSearchItem[] }>("/datasets");
-    return data.datasets ?? [];
-  },
-
   searchDatasets: (params: QueryParams) => {
     const q = withDefaultPagination(params, { page: "1", page_size: "20" });
     return request<Paginated<DatasetSearchItem>>(`/datasets?${q.toString()}`);
@@ -548,8 +541,6 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(patch),
     }),
-
-  maintenanceEnabled: () => request<MaintenanceEnabledResult>("/maintenance/enabled"),
 
   // --- Dataset prep: tag editor ---
 

@@ -76,8 +76,6 @@ In Docker, mount that folder (set `data_dir` in `rengu.local.toml` to the mount 
 | **Studio** | `/prep` | Dataset Studio: tagging/captioning/cleanup jobs and the tag editor (`/prep/tags`) — see [dataset prep](dataset-prep.md) |
 | **Configuration** | `/settings` | Edit `rengu.local.toml` from the browser (gear icon) |
 
-**Maintenance** (`/maintenance`) appears only when `RENGUFLOW_MAINTENANCE=1` — see [Maintenance](maintenance.md).
-
 There is no separate **Signals** page: signal buttons appear on **run detail** and **job detail** while a job is running (or during disk-export wait).
 
 ## What you can do in the UI

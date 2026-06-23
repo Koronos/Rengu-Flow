@@ -38,11 +38,9 @@ def test_put_settings_writes_training(ui_client, cfg_file: Path) -> None:
 
 
 def test_maintenance_is_force_disabled_and_not_editable(ui_client, cfg_file: Path) -> None:
-    # Maintenance is hidden/disabled: it is no longer an editable settings section, and
-    # the gate stays off regardless of any [maintenance] flag.
+    # Maintenance is no longer an editable settings section: the schema rejects it.
     r = ui_client.put("/api/v1/settings", json={"maintenance": {"enabled": True}})
     assert r.status_code == 422
-    assert ui_client.get("/api/v1/maintenance/enabled").json()["enabled"] is False
 
 
 def test_put_settings_invalid_returns_422(ui_client, cfg_file: Path) -> None:

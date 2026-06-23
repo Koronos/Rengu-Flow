@@ -255,12 +255,10 @@ def test_dataset_library_api(ui_client, ui_data_tmp: Path) -> None:
     assert "total" in page_body
     assert any(row["id"] == lib_id for row in page_body["items"])
 
+    # No page arg defaults to page 1 (paginated shape).
     r = ui_client.get("/api/v1/datasets")
     assert r.status_code == 200
-    list_body = r.json()
-    assert "datasets" in list_body
-    assert "picker" in list_body
-    assert any(row["id"] == lib_id for row in list_body["datasets"])
+    assert "items" in r.json()
 
     r = ui_client.post(
         "/api/v1/datasets/preview",

@@ -55,10 +55,6 @@
               <el-icon><Document /></el-icon>
               <span>Docs</span>
             </el-menu-item>
-            <el-menu-item v-if="maintenanceNav" index="/maintenance">
-              <el-icon><Tools /></el-icon>
-              <span>Maintenance</span>
-            </el-menu-item>
           </el-menu>
         </div>
       </nav>
@@ -131,10 +127,6 @@
               <el-icon><Document /></el-icon>
               <span>Docs</span>
             </el-menu-item>
-            <el-menu-item v-if="maintenanceNav" index="/maintenance">
-              <el-icon><Tools /></el-icon>
-              <span>Maintenance</span>
-            </el-menu-item>
           </el-menu>
         </div>
       </nav>
@@ -160,19 +152,12 @@ import HostStatsBar from "./components/HostStatsBar.vue";
 const route = useRoute();
 const { isMobile } = useBreakpoint();
 const drawerOpen = ref(false);
-const maintenanceNav = ref(false);
 const versionLabel = ref("");
 const versionTitle = ref("");
 const isBeta = ref(false);
 const REPO_URL = "https://github.com/Koronos/Rengu-Flow";
 
 onMounted(async () => {
-  try {
-    const r = await api.maintenanceEnabled();
-    maintenanceNav.value = r.enabled;
-  } catch {
-    maintenanceNav.value = false;
-  }
   try {
     const v = await api.version();
     isBeta.value = v.beta;
@@ -195,7 +180,6 @@ const routeName = computed(() =>
 const activeMenu = computed(() => {
   const name = routeName.value;
   if (name === "docs") return "/docs";
-  if (name === "maintenance") return "/maintenance";
   if (name === "settings") return "/settings";
   if (name === "run-comparison") return "/compare";
   if (name.startsWith("datasets-")) return "/datasets";
@@ -207,7 +191,6 @@ const activeMenu = computed(() => {
 const pageTitle = computed(() => {
   const names: Record<string, string> = {
     docs: "Docs",
-    maintenance: "Maintenance",
     settings: "Configuration",
     jobs: "Runs",
     "job-detail": "Run detail",
@@ -230,7 +213,7 @@ const pageTitle = computed(() => {
 
 <style scoped>
 .app-brand-version {
-  /* Pinned to the bottom, just above the Docs/Maintenance panel. */
+  /* Pinned to the bottom, just above the Docs panel. */
   margin-top: auto;
   display: flex;
   align-items: center;

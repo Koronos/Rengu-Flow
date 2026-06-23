@@ -127,7 +127,7 @@ The training config UI uses a single key-value list per section (parity between 
 - **Optimizer**: `optimizer.type` + `optimizer.extra_params` in the flat form; `rengu_flow_ui/optimizer_form.py` splits/merges KV ↔ flat `[optimizer]` keys via `split_optimizer_extras` / `merge_optimizer_extras` (same pattern as `scheduler_form.py`).
 - **Scheduler**: `lr_scheduler` + `lr_scheduler_args.extra_params`.
 
-Default KV rows when the user changes type are defined in `rengu_flow_ui/optim_kv_defaults.py` (`OPTIMIZER_REGISTRY_KV_DEFAULTS`, `SCHEDULER_BUILTIN_KV_DEFAULTS`, `SCHEDULER_FQN_KV_DEFAULTS`). Keep the TypeScript mirror `ui/web/src/lib/optimKvDefaults.ts` in sync.
+Default KV rows when the user changes type are defined in `rengu_flow_ui/optim_kv_defaults.py` (`OPTIMIZER_REGISTRY_KV_DEFAULTS`, `SCHEDULER_BUILTIN_KV_DEFAULTS`, `SCHEDULER_FQN_KV_DEFAULTS`) and served to the frontend via `get_registries()` — no TypeScript copy.
 
 When adding a registry optimizer with non-trivial constructor args:
 

@@ -13,11 +13,6 @@ const router = createRouter({
     { path: "/", redirect: "/runs" },
     { path: "/docs", name: "docs", component: () => import("./views/DocsView.vue") },
     {
-      path: "/maintenance",
-      name: "maintenance",
-      component: () => import("./views/MaintenanceView.vue"),
-    },
-    {
       path: "/settings",
       name: "settings",
       component: () => import("./views/SettingsView.vue"),

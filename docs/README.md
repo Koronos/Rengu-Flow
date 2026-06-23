@@ -15,7 +15,6 @@
   - [CLI (`rengu`)](user/cli.md) — Setup, training launcher, UI, `rengu.local.toml`.
   - [Native Windows install](user/windows-install.md) — Single-GPU on the `accelerate` engine (no DeepSpeed/WSL); engine selection and the Windows feature matrix.
   - [Web UI](user/web-ui.md) — Optional local UI: `./rengu ui start`, configs, jobs, signals, progress.
-  - [Maintenance](user/maintenance.md) — Dev-only UI/CLI: reset library DB, submodules, dependency extras.
 - **[Implementation backlog](BACKLOG.md)** — Deferred / not-yet-implemented work.
 - **[Developer guide](developer/)** — For contributors and anyone extending the framework (APIs, adding signals, internals). Inline **`[TODO]`** in specs → [BACKLOG.md](BACKLOG.md).
   - [Documentation conventions](developer/documentation-conventions.md) — User vs developer vs spec docs, optional-parameter tables, feature checklist.

@@ -692,12 +692,6 @@ export interface LocalSettingsPatch {
   ui?: Partial<{ public: boolean; token: string | null }>;
 }
 
-// --- Maintenance ---
-
-export interface MaintenanceEnabledResult {
-  enabled: boolean;
-}
-
 // --- Dataset prep: tag editor -------------------------------------------------
 
 export interface TagEditOpDto {

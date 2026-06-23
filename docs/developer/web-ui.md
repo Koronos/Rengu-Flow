@@ -58,8 +58,6 @@ Ctrl+C stops both. No frontend build required.
 
 All JSON routes: `/api/v1`. Static SPA mounted at `/` when `ui/web/dist/index.html` exists.
 
-**Maintenance** (dev only, `RENGUFLOW_MAINTENANCE=1`): `GET /maintenance/enabled`, `GET /maintenance/status`, `POST /maintenance/database/reset`, `POST /maintenance/submodules/update`, `POST /maintenance/deps/install`. Implemented in `rengu_flow_ui/maintenance.py`; UI route `/maintenance`. See **`docs/user/maintenance.md`**.
-
 Authentication: optional `RENGU_FLOW_UI_TOKEN` middleware checks `X-Rengu-Flow-Token` or `Authorization: Bearer`.
 
 ### Route groups

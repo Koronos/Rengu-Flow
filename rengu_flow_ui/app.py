@@ -356,23 +356,17 @@ def create_app() -> FastAPI:
     @app.get(f"{API_PREFIX}/datasets")
     def list_datasets(
         q: str | None = None,
-        page: int | None = Query(None, ge=1),
+        page: int = Query(1, ge=1),
         page_size: int = Query(20, ge=1, le=100),
         sort: str = Query("id", description="id | name | created_at | updated_at"),
         order: str = Query("desc", description="asc | desc"),
     ) -> dict[str, Any]:
-        if page is not None:
-            result = library_db.search_datasets(
-                q or "", page=page, page_size=page_size, sort=sort, order=order
-            )
-            for row in result["items"]:
-                row["dataset_ref"] = datasets_store.dataset_library_ref(row["id"])
-            return result
-        items = [
-            {**row, "dataset_ref": datasets_store.dataset_library_ref(row["id"])}
-            for row in library_db.list_datasets_summary()
-        ]
-        return {"datasets": items, "picker": datasets_store.list_for_training_picker()}
+        result = library_db.search_datasets(
+            q or "", page=page, page_size=page_size, sort=sort, order=order
+        )
+        for row in result["items"]:
+            row["dataset_ref"] = datasets_store.dataset_library_ref(row["id"])
+        return result
 
     @app.get(f"{API_PREFIX}/datasets/schema")
     def dataset_schema() -> dict[str, Any]:
@@ -499,14 +493,6 @@ def create_app() -> FastAPI:
     def fs_stat_post(body: FsStatBody) -> dict[str, Any]:
         expect = body.expect if body.expect in ("file", "dir") else None
         return stat_path(body.path, expect=expect)
-
-    @app.get(f"{API_PREFIX}/fs/stat")
-    def fs_stat_get(
-        path: str = Query(...),
-        expect: str | None = Query(None, description="file | dir"),
-    ) -> dict[str, Any]:
-        kind = expect if expect in ("file", "dir") else None
-        return stat_path(path, expect=kind)
 
     @app.post(f"{API_PREFIX}/datasets/scan-path")
     def dataset_scan_path(body: DatasetScanBody) -> dict[str, Any]:
@@ -1271,12 +1257,6 @@ def create_app() -> FastAPI:
     def version() -> dict[str, str | bool | None]:
         """renga version + git commit + branch/beta channel + installed kaon, for the UI."""
         return version_info()
-
-    @app.get(f"{API_PREFIX}/maintenance/enabled")
-    def maintenance_enabled_route() -> dict[str, bool]:
-        from rengu_flow_ui import maintenance
-
-        return {"enabled": maintenance.maintenance_enabled()}
 
     @app.get(f"{API_PREFIX}/settings")
     def get_settings() -> dict[str, Any]:

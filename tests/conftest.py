@@ -101,7 +101,6 @@ def _isolated_ui_sqlite(
     if (
         "ui_client" in request.fixturenames
         or "ui_client_auth" in request.fixturenames
-        or "maintenance_client" in request.fixturenames
     ):
         return
     base = tmp_path_factory.mktemp("ui_auto")
