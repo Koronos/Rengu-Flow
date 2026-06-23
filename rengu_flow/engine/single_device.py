@@ -1,28 +1,4 @@
-"""Pluggable training engine: pick DeepSpeed (pipeline, multi-GPU) or a plain single-GPU
-torch loop ("accelerate") at runtime.
-
-Three backends, selected by ``resolve_backend`` (env ``RENGU_ENGINE`` > config ``engine`` >
-per-OS default):
-
-* ``deepspeed`` — the original pipeline-parallel path. Default on Linux. Multi-GPU,
-  gradient_release, block_swap, pipeline_stages>1. Imports DeepSpeed only here.
-* ``accelerate`` — single-GPU plain torch (this file's :class:`TorchEngine`). Default on
-  Windows. No DeepSpeed import at all, so native Windows needs no DeepSpeed build.
-* ``accelerate_deepspeed`` — Accelerate driving DeepSpeed ZeRO. Not implemented yet
-  (raises); the knob exists so it can be filled when someone needs ZeRO offload on Windows.
-
-The engine surface the training loop / Saver / eval depend on (kept in sync with
-``deepspeed.runtime``): ``train_batch(iter)`` / ``eval_batch(iter, num_micro_batches=)`` →
-scalar-loss tensor, ``reset_activation_shape()``, ``zero_grad()``, ``get_global_grad_norm()``,
-``save_checkpoint(...)`` / ``load_checkpoint(...)``, attrs ``optimizer`` / ``lr_scheduler`` /
-``communication_data_type`` / ``module`` / ``grid`` / ``is_pipe_parallel`` / ``num_stages`` /
-``micro_batches`` / ``is_first_stage()`` / ``is_last_stage()``.
-
-ponytail: ONE file, single-GPU only for the torch path. block_swap/gradient_release/
-pipeline_stages>1 stay DeepSpeed-only — the SDXL-LoRA-on-8GB smoke (7.5 GB) proves they
-aren't needed for the main Windows workload. Add the torch ports when a model needs swap.
-"""
-
+"""Single-GPU plain-torch engine ("accelerate")."""
 from __future__ import annotations
 
 import os
@@ -31,18 +7,11 @@ from typing import Any
 
 import torch
 
-
-def resolve_backend(config: dict | None = None) -> str:
-    """Pick the training backend. ``RENGU_ENGINE`` env wins, then ``config['engine']``,
-    else the platform default (``accelerate`` on Windows, ``deepspeed`` elsewhere)."""
-    from rengu_flow.platform_compat import PLATFORM
-
-    eng = os.environ.get("RENGU_ENGINE") or (config or {}).get("engine") or ""
-    eng = eng.strip().lower()
-    return eng or PLATFORM.default_engine
+from rengu_flow.engine.base import Engine, TrainingBackend
 
 
-# ------------------------------------------------------------------ single-GPU torch backend
+def _is_adapter(config: dict) -> bool:
+    return bool(config.get("adapter"))
 
 
 class _SingleGpuGrid:
@@ -257,60 +226,53 @@ class TorchEngine:
         return str(ckpt_file), ckpt["client_state"]
 
 
-# ------------------------------------------------------------------------------ construction
+class SingleDeviceBackend(TrainingBackend):
+    """Single-GPU plain-torch engine ("accelerate")."""
 
+    name = "accelerate"
 
-def build_pipe(backend: str, *, layers, num_stages, partition_method, manual_partition_split,
-               loss_fn, extra_kw: dict):
-    """Build the layer-holding module for *backend*. DeepSpeed import stays in its branch."""
-    if backend == "deepspeed":
-        from rengu_flow.utils.pipeline import ManualPipelineModule
+    @classmethod
+    def launch_argv(cls, config, *, config_path, num_gpus, master_port):
+        import sys
+        return [sys.executable, "-m", "rengu_flow.main", "--config", str(config_path)]
 
-        return ManualPipelineModule(
-            layers=layers,
-            num_stages=num_stages,
-            partition_method=partition_method,
-            manual_partition_split=manual_partition_split,
-            loss_fn=loss_fn,
-            **extra_kw,
-        )
-    if backend == "accelerate":
-        if num_stages and num_stages > 1:
-            raise SystemExit(
-                "engine='accelerate' is single-GPU: pipeline_stages must be 1 "
-                "(use engine='deepspeed' on Linux for multi-GPU)."
+    def validate(self, config):
+        if config.get("optimizer", {}).get("gradient_release"):
+            raise ValueError(
+                "optimizer.gradient_release requires engine='deepspeed' (it patches the DeepSpeed "
+                "pipeline engine); engine='accelerate' does not support it."
             )
-        extra_kw = extra_kw or {}
-        return SequentialPipe(
-            layers,
-            loss_fn,
-            activation_checkpoint_interval=extra_kw.get("activation_checkpoint_interval", 0),
-            checkpointable_layers=extra_kw.get("checkpointable_layers"),
-            activation_checkpoint_func=extra_kw.get("activation_checkpoint_func"),
-        )
-    if backend == "accelerate_deepspeed":
-        raise NotImplementedError(
-            "engine='accelerate_deepspeed' (Accelerate+DeepSpeed ZeRO) is not implemented yet; "
-            "use engine='deepspeed' (Linux multi-GPU) or engine='accelerate' (single-GPU)."
-        )
-    raise SystemExit(f"unknown engine backend {backend!r} (deepspeed|accelerate|accelerate_deepspeed)")
+        if config.get("pipeline_stages", 1) > 1:
+            raise ValueError("pipeline_stages > 1 requires engine='deepspeed'.")
+        if config.get("blocks_to_swap", 0) and not _is_adapter(config):
+            raise ValueError(
+                "engine='accelerate' block swap supports adapter (LoRA/LoKr) training only; "
+                "full-model swap needs gradient_release — use engine='deepspeed'."
+            )
 
+    @property
+    def is_distributed(self): return False
 
-def build_engine(backend: str, *, pipeline_model, ds_config, args, get_optimizer,
-                 parameters_to_train, block_swap: bool = False):
-    """Construct the engine for *backend* and return it ready to train."""
-    if backend == "deepspeed":
-        import deepspeed
+    @property
+    def supports_block_swap(self): return True  # adapters only; validate() enforces
 
-        engine, _, _, _ = deepspeed.initialize(args=args, model=pipeline_model, config=ds_config)
-        engine._support_torch_style_backward = True
-        engine._configure_optimizer(get_optimizer, parameters_to_train)
-        return engine
-    if backend == "accelerate":
-        return TorchEngine(pipeline_model, get_optimizer, parameters_to_train, ds_config,
-                           block_swap=block_swap)
-    if backend == "accelerate_deepspeed":
-        raise NotImplementedError(
-            "engine='accelerate_deepspeed' is not implemented yet; use 'deepspeed' or 'accelerate'."
+    @property
+    def supports_gradient_release(self): return False
+
+    def build_pipe(self, *, layers, num_stages, partition_method, manual_partition_split, loss_fn, extra_kw):
+        if num_stages > 1:
+            raise SystemExit("engine='accelerate' is single-stage; set pipeline_stages = 1.")
+        return SequentialPipe(layers, loss_fn, **extra_kw)
+
+    def build_engine(self, *, pipeline_model, ds_config, args, get_optimizer, parameters_to_train):
+        return TorchEngine(
+            pipeline_model, get_optimizer, parameters_to_train, ds_config,
+            block_swap=bool((self.config or {}).get("blocks_to_swap", 0)),
         )
-    raise SystemExit(f"unknown engine backend {backend!r}")
+
+    def make_cache_worker(self, cache_fn, args):
+        import threading
+        import queue as _queue
+        q = _queue.Queue()
+        worker = threading.Thread(target=cache_fn, args=(args, q), daemon=True)
+        return worker, q
