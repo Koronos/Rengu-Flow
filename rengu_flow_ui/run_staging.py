@@ -132,7 +132,12 @@ def _resolve_dataset_value(value: str, job_staging: Path) -> str:
     p = Path(value)
     if p.is_absolute():
         return PLATFORM.config_path(p.resolve())
-    return PLATFORM.config_path((job_staging / p).resolve())
+    # Relative dataset paths resolve from the repo root — the training subprocess runs there
+    # (popen_repo_subprocess uses cwd=repo_root), matching how the `rengu train` CLI loads them.
+    # Resolving against job_staging produced data/staging/<id>/<path> which never exists.
+    from rengu_flow_ui.settings import repo_root
+
+    return PLATFORM.config_path((repo_root() / p).resolve())
 
 
 def materialize_staging(

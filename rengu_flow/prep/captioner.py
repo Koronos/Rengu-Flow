@@ -595,7 +595,17 @@ def _make_bnb_config(quantization: str):
 
 
 def _collapse_to_one_line(text: str) -> str:
-    """Strip surrounding whitespace and collapse internal newlines to spaces."""
+    """Strip a leading <think> reasoning block, then collapse internal newlines to spaces.
+
+    Reasoning VLMs (e.g. ToriiGate-0.5) emit a ``<think>…</think>`` chain-of-thought before the
+    caption; ``</think>`` is not a special token so it survives ``skip_special_tokens``. Keep only
+    the text after the final ``</think>`` (the caption); a truncated/unclosed ``<think>`` is dropped.
+    """
+    import re
+
+    if "</think>" in text:
+        text = text.rsplit("</think>", 1)[1]
+    text = re.sub(r"<think>.*", "", text, flags=re.DOTALL)
     return " ".join(text.splitlines()).strip()
 
 

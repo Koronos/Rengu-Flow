@@ -14,7 +14,7 @@ from shutil import which
 from rengu_flow.config.local_config import ensure_local_config_loaded, repo_root
 from rengu_flow.cli.project_venv import reexec_cli
 from rengu_flow.install import ensure_ui_dependencies, self_heal
-from rengu_flow.platform_compat import free_port_owned_by
+from rengu_flow.platform_compat import PLATFORM, free_port_owned_by
 
 
 def add_parser(sub: argparse._SubParsersAction) -> None:
@@ -55,14 +55,50 @@ def add_parser(sub: argparse._SubParsersAction) -> None:
     ui_sub.add_parser("reset-db", help="Reset UI SQLite database")
 
 
-# The UI frontend builds with pnpm (not npm): the project's source imports transitive @codemirror
-# sub-packages directly, which only resolve under a flat node_modules — pnpm's default isolated layout
-# hides them. `--config.node-linker=hoisted` gives the flat layout; the registry override bypasses a
-# private (CodeArtifact) default registry that breaks public-package installs.
+# Frontend package manager: prefer pnpm, fall back to npm. The registry override bypasses a private
+# (CodeArtifact) default that breaks public-package installs; overridable via RENGU_UI_NPM_REGISTRY.
 PNPM_REGISTRY = os.environ.get("RENGU_UI_NPM_REGISTRY", "https://registry.npmjs.org/")
 
 
+def _real_node_dir() -> str | None:
+    """Directory of the *actual* node binary, resolved past wrapper shims. Volta's shim
+    (``C:\\Program Files\\Volta\\node.exe``) runs fine when invoked directly but breaks in the nested
+    build scripts (vue-tsc → node, vite → node) when ``VOLTA_HOME`` is unset, and its path has a space
+    that trips some shells. Asking node for ``process.execPath`` returns the real, space-free binary
+    (e.g. ``…\\Volta\\tools\\image\\node\\<ver>``); putting that dir first on PATH fixes the nesting."""
+    if not which("node"):
+        return None
+    try:
+        out = subprocess.run(
+            ["node", "-e", "process.stdout.write(process.execPath)"],
+            capture_output=True, text=True, timeout=30, check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    path = out.stdout.strip()
+    return str(Path(path).parent) if out.returncode == 0 and path else None
+
+
+def _build_env() -> dict[str, str]:
+    """Env for the frontend build with the real node dir prepended to PATH (see _real_node_dir)."""
+    env = os.environ.copy()
+    node_dir = _real_node_dir()
+    if node_dir:
+        env["PATH"] = node_dir + os.pathsep + env.get("PATH", "")
+    return env
+
+
+def _pick_pm() -> str | None:
+    """pnpm if present, else npm, else None."""
+    if which("pnpm"):
+        return "pnpm"
+    if which("npm"):
+        return "npm"
+    return None
+
+
 def _ensure_node() -> None:
+    """Ensure Node.js + a JS package manager are usable for the frontend build, with clear errors."""
     if not which("node"):
         nvm_dir = Path(os.environ.get("NVM_DIR", Path.home() / ".nvm"))
         if (nvm_dir / "nvm.sh").is_file():  # nvm must be sourced in shell; try common node path
@@ -71,19 +107,28 @@ def _ensure_node() -> None:
                 os.environ["PATH"] = f"{versions[-1].parent}{os.pathsep}{os.environ.get('PATH', '')}"
     if not which("node"):
         raise SystemExit(
-            "rengu: node not found. Install Node.js (e.g. via Volta or nvm), then retry."
+            "rengu: Node.js not found — the web UI needs it to build the frontend. Install it "
+            "(https://nodejs.org, or via Volta / nvm), then retry. To skip the build use a prebuilt "
+            "ui/web/dist, or run the API only: `rengu ui serve`."
         )
-    if not which("pnpm"):
+    if _pick_pm() is None:
         raise SystemExit(
-            "rengu: pnpm not found. The UI frontend builds with pnpm — install it "
-            "(`corepack enable pnpm`, or `volta install pnpm`), then retry. Manual build: "
-            f"cd ui/web && pnpm install --config.node-linker=hoisted --registry={PNPM_REGISTRY} "
-            "&& pnpm run build"
+            "rengu: no JS package manager found. Install pnpm (recommended: `corepack enable pnpm` "
+            "or `volta install pnpm`) or npm, then retry."
         )
 
 
 def _web_dir(root: Path) -> Path:
     return root / "ui" / "web"
+
+
+def _pm_install_cmd(pm: str) -> list[str]:
+    """Install argv for *pm*. pnpm needs a hoisted (flat) layout so the UI's direct imports of
+    transitive @codemirror sub-packages resolve; npm hoists by default. Both bypass the private default
+    registry."""
+    if pm == "pnpm":
+        return ["pnpm", "install", "--config.node-linker=hoisted", f"--registry={PNPM_REGISTRY}"]
+    return ["npm", "install", f"--registry={PNPM_REGISTRY}"]
 
 
 def _build_web(root: Path, *, force: bool = False) -> None:
@@ -92,14 +137,11 @@ def _build_web(root: Path, *, force: bool = False) -> None:
     if dist.is_file() and not force:
         return
     _ensure_node()
-    print("==> Building web frontend (pnpm)...")
-    install_cmd = [
-        "pnpm", "install",
-        "--config.node-linker=hoisted",
-        f"--registry={PNPM_REGISTRY}",
-    ]
-    subprocess.run(install_cmd, cwd=str(web), check=True)
-    subprocess.run(["pnpm", "run", "build"], cwd=str(web), check=True)
+    pm = _pick_pm()
+    env = _build_env()
+    print(f"==> Building web frontend ({pm})...")
+    subprocess.run(_pm_install_cmd(pm), cwd=str(web), check=True, env=env)
+    subprocess.run([pm, "run", "build"], cwd=str(web), check=True, env=env)
     if not dist.is_file():
         raise SystemExit(f"rengu: build finished but {dist} is missing")
 
@@ -118,17 +160,24 @@ def _wait_health(
     *,
     label: str = "server",
 ) -> bool:
-    if not which("curl"):
-        time.sleep(3)
-        return True
+    # Pure stdlib HTTP poll — NOT curl. The old `curl -sf -o /dev/null` returned non-zero on Windows
+    # (its native curl can't write the POSIX path /dev/null -> CURLE_WRITE_ERROR) *despite* a 200, so
+    # the wait looped forever printing "Waiting for server" while the server was already healthy.
+    import urllib.error
+    import urllib.request
+
+    headers = {"X-Rengu-Flow-Token": token} if token else {}
     deadline = time.monotonic() + timeout
-    curl_base = ["curl", "-sf", "-o", "/dev/null", "--connect-timeout", "1", "--max-time", "2"]
-    if token:
-        curl_base.extend(["-H", f"X-Rengu-Flow-Token: {token}"])
     attempt = 0
     while time.monotonic() < deadline:
-        if subprocess.run([*curl_base, url], check=False).returncode == 0:
-            return True
+        try:
+            with urllib.request.urlopen(
+                urllib.request.Request(url, headers=headers), timeout=2
+            ) as resp:
+                if resp.status < 400:
+                    return True
+        except (urllib.error.URLError, OSError):
+            pass  # not up yet (connection refused / timeout) or 4xx (e.g. token) -> keep waiting
         attempt += 1
         if attempt == 1 or attempt % 10 == 0:
             print(f"==> Waiting for {label} ({url})...", flush=True)
@@ -242,6 +291,25 @@ def run(args: argparse.Namespace) -> None:
 
             threading.Thread(target=_open_when_ready, daemon=True).start()
         print(f"==> Rengu Flow UI: {url}")
+        if PLATFORM.is_windows:
+            # Windows only: run the server as a separate python process so the long-lived server is
+            # python.exe — never the rengu.exe console-script. The OS forbids replacing a running
+            # rengu.exe, so an in-process server would lock it and make every later `uv sync` (e.g.
+            # installing the prep extra) fail with WinError 32. POSIX can replace a running exe, so
+            # it keeps the simpler in-process server below.
+            serve_cmd = [sys.executable, "-m", "rengu_flow_ui", "serve", "--host", host, "--port", str(port)]
+            serve_env = os.environ.copy()
+            serve_env.setdefault("PYTHONUNBUFFERED", "1")
+            proc = subprocess.Popen(serve_cmd, cwd=str(root), env=serve_env)
+            try:
+                raise SystemExit(proc.wait())
+            except KeyboardInterrupt:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                raise SystemExit(0)
         _serve(host, port, reload=False)
         return
 
@@ -252,11 +320,12 @@ def run(args: argparse.Namespace) -> None:
             ensure_ui_dependencies()
             reexec_cli()
         _ensure_node()
+        dev_pm = _pick_pm()
         web = _web_dir(root)
         if not (web / "node_modules").is_dir():
-            install_cmd = ["pnpm", "install", "--config.node-linker=hoisted", f"--registry={PNPM_REGISTRY}"]
+            install_cmd = _pm_install_cmd(dev_pm)
             print(f"==> {' '.join(install_cmd)} (ui/web)...", flush=True)
-            subprocess.run(install_cmd, cwd=str(web), check=True)
+            subprocess.run(install_cmd, cwd=str(web), check=True, env=_build_env())
         api_port = cfg.ui.port
         dev_port = args.dev_port
         free_port_owned_by(
@@ -327,10 +396,10 @@ def run(args: argparse.Namespace) -> None:
         dev_url = f"http://127.0.0.1:{dev_port}/"
         print(f"==> Dev UI: {dev_url}", flush=True)
         print(f"==> API (proxied): http://127.0.0.1:{api_port}/api/v1/", flush=True)
-        npm_env = os.environ.copy()
+        npm_env = _build_env()  # real node dir on PATH for nested vite -> node
         npm_env["RENGU_FLOW_UI_PORT"] = str(api_port)
         npm_env["RENGU_FLOW_UI_DEV_PORT"] = str(dev_port)
-        npm_cmd = ["pnpm", "run", "dev"]
+        npm_cmd = [dev_pm, "run", "dev"]
         if not args.no_open:
             npm_cmd.extend(["--", "--open"])
         try:

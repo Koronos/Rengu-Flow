@@ -217,6 +217,16 @@ def run_previews(
     start = time.time()
     try:
         preview_runner(model, preview_cfg, prompts, sink, step)
+    except Exception as e:  # noqa: BLE001 — a preview failure must NEVER abort the training run
+        import traceback
+
+        if is_main_process():
+            print(
+                f"rengu_flow: preview at step {step} failed — skipping it, training continues. "
+                f"{type(e).__name__}: {e}",
+                flush=True,
+            )
+            traceback.print_exc()
     finally:
         if use_block_swap_hooks:
             empty_cuda_cache()
@@ -244,7 +254,12 @@ def _run_sdxl_previews(
 ) -> None:
     model.load_diffusion_model()
     pipe = model._pipeline
-    device = pipe.device
+    # Caching parks the VAE + text encoders on CPU/meta to free VRAM; bring them back for the
+    # preview (and reload from the checkpoint if they were freed to meta). Restored in `finally`.
+    restore_state = None
+    if hasattr(model, "materialize_for_preview"):
+        restore_state = model.materialize_for_preview()
+    device = "cuda" if torch.cuda.is_available() else "cpu"
 
     negative_prompt = preview_cfg.get("negative_prompt", "")
     width = int(preview_cfg.get("width", 1024))
@@ -261,30 +276,33 @@ def _run_sdxl_previews(
 
     print(f"Running preview at step {step} ({len(prompts)} prompt(s))")
 
-    with torch.no_grad():
-        for idx, (name, prompt) in enumerate(prompts):
-            generator = torch.Generator(device=device).manual_seed(base_seed + step * seed_stride + idx)
-            result = pipe(
-                prompt=prompt,
-                negative_prompt=negative_prompt or None,
-                width=width,
-                height=height,
-                num_inference_steps=num_inference_steps,
-                guidance_scale=guidance_scale,
-                generator=generator,
-                output_type="pil",
-            )
-            image = result.images[0]
-            _log_preview_image(
-                name=name,
-                image=image,
-                sink=sink,
-                preview_cfg=preview_cfg,
-                step=step,
-            )
-
-    for m, was_training in zip(modules, prev_training):
-        m.train(was_training)
+    try:
+        with torch.no_grad():
+            for idx, (name, prompt) in enumerate(prompts):
+                generator = torch.Generator(device=device).manual_seed(base_seed + step * seed_stride + idx)
+                result = pipe(
+                    prompt=prompt,
+                    negative_prompt=negative_prompt or None,
+                    width=width,
+                    height=height,
+                    num_inference_steps=num_inference_steps,
+                    guidance_scale=guidance_scale,
+                    generator=generator,
+                    output_type="pil",
+                )
+                image = result.images[0]
+                _log_preview_image(
+                    name=name,
+                    image=image,
+                    sink=sink,
+                    preview_cfg=preview_cfg,
+                    step=step,
+                )
+    finally:
+        for m, was_training in zip(modules, prev_training):
+            m.train(was_training)
+        if restore_state is not None and hasattr(model, "restore_preview_submodels"):
+            model.restore_preview_submodels(restore_state)
 
 
 def _run_cosmos_previews(

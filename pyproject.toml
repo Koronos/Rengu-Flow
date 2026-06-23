@@ -71,12 +71,30 @@ prep = [
     # LaMa inpainting also runs on onnxruntime (Carve/LaMa-ONNX) — one inference
     # runtime for taggers, inpainting; no extra LaMa package (simple-lama-inpainting
     # pins a Pillow 9.x that doesn't build on Python 3.13).
-    "onnxruntime-gpu>=1.20",
+    # Windows only: onnxruntime-gpu 1.24+ dropped cp310 wheels (1.23.2 is the last with a
+    # Python 3.10 + Windows wheel) and the native-Windows runtime is on CPython 3.10. Other
+    # platforms (Linux/mac, often 3.11+) are left free to take a newer build.
+    "onnxruntime-gpu==1.23.2; sys_platform == 'win32'",
+    "onnxruntime-gpu>=1.20; sys_platform != 'win32'",
     "huggingface-hub>=0.23",
     "transformers>=4.51.0",
     "accelerate>=0.30.0",
     "bitsandbytes",
     "ultralytics>=8.3",
+]
+# Windows-only CUDA 12 runtime for the ONNX prep models (tagger / LaMa). onnxruntime-gpu is built
+# against CUDA 12, but rengu's torch is cu13, so on native Windows the cu12 DLLs it needs
+# (cublasLt64_12, cudnn, cudart) are absent and the CUDAExecutionProvider silently falls back to
+# CPU. Installed on demand only when an ONNX model actually runs on Windows (see
+# rengu_flow/prep/onnx_runtime.py); Linux/WSL provides the cu12 runtime via the system CUDA /
+# manylinux wheels, so the markers leave it empty there.
+onnx-cuda = [
+    "nvidia-cuda-runtime-cu12~=12.0; sys_platform == 'win32'",
+    "nvidia-cuda-nvrtc-cu12~=12.0; sys_platform == 'win32'",
+    "nvidia-cublas-cu12~=12.0; sys_platform == 'win32'",
+    "nvidia-cufft-cu12~=11.0; sys_platform == 'win32'",
+    "nvidia-curand-cu12~=10.0; sys_platform == 'win32'",
+    "nvidia-cudnn-cu12~=9.0; sys_platform == 'win32'",
 ]
 dev = [
     "pytest>=7.0",

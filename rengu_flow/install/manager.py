@@ -41,12 +41,21 @@ def _kaon_optimizer_types() -> frozenset[str]:
     )
 
 
+def _importable(name: str) -> bool:
+    # find_spec raises ModuleNotFoundError for a dotted name whose parent is absent (e.g.
+    # "nvidia.cudnn" when nvidia isn't installed), so treat any failure as not-importable.
+    try:
+        return importlib.util.find_spec(name) is not None
+    except (ImportError, ValueError):
+        return False
+
+
 def profile_installed(profile: str) -> bool:
     """True when all of the profile's required modules import (no checks => always True)."""
     modules = PROFILE_IMPORT_CHECKS.get(profile)
     if not modules:
         return True
-    return all(importlib.util.find_spec(name) is not None for name in modules)
+    return all(_importable(name) for name in modules)
 
 
 def missing_profiles(profiles: list[str]) -> list[str]:

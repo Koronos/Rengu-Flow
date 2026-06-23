@@ -20,13 +20,13 @@ Run from Linux or WSL. See [CLI guide](cli.md) for all commands.
 `rengu ui start`:
 
 1. Runs `uv venv` (if needed) and `uv sync --extra ui` unless `--skip-sync`
-2. Builds `ui/web/dist/` with npm when missing (`--rebuild-web` to force)
+2. Builds `ui/web/dist/` with pnpm (npm fallback) when missing (`--rebuild-web` to force). Needs **Node.js ≥ 20.19/22.12** — see [Requirements](../../README.md#requirements).
 3. Starts the API (default [http://127.0.0.1:8765](http://127.0.0.1:8765)) and opens the browser when `/api/v1/health` responds
 
 | Flag | Description |
 |------|-------------|
 | `--no-open` | Do not open a browser tab |
-| `--rebuild-web` | Force `npm ci` and `npm run build` in `ui/web/` |
+| `--rebuild-web` | Force a fresh `pnpm install` + `pnpm run build` (npm fallback) in `ui/web/` |
 | `--skip-sync` | Skip `uv sync` (launcher scripts use this after `uv sync --extra ui`) |
 
 ### Optional dependencies (Cosmos, LyCORIS, optimizers)

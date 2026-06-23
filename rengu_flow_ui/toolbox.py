@@ -362,7 +362,7 @@ def build_runner_source(entrypoint: str, requirements: list[str]) -> str:
     entry = (entrypoint or DEFAULT_ENTRYPOINT).strip()
     entry_quoted = json.dumps(entry)
     return f'''# /// script
-# requires-python = ">=3.11"
+# requires-python = ">=3.10"
 # dependencies = [{deps}]
 # ///
 import importlib.util
