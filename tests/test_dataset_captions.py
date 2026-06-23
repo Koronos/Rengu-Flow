@@ -250,8 +250,29 @@ def test_metadata_map_fn_directory_caption_fallback(tmp_path, img_dir):
         "mask_file": [None],
     }
     out = fn(batch)
-    # directory_caption is both the fallback text and the caption prefix.
-    assert out["caption"] == [["shared folder captionshared folder caption"]]
+    # No per-image caption: directory_caption is the full caption, applied once (not prefixed onto itself).
+    assert out["caption"] == [["shared folder caption"]]
+
+
+def test_metadata_map_fn_directory_caption_prefixes_existing(tmp_path, img_dir):
+    img = _copy_fixture_image(img_dir, "prefixed")
+    txt = img.with_suffix(".txt")
+    txt.write_text("a cat", encoding="utf-8")
+    dd = DirectoryDataset(
+        {
+            "path": str(img_dir),
+            "num_repeats": 1,
+            "shuffle_metadata": False,
+            "directory_caption": "style: ",
+        },
+        MINIMAL_DATASET_CONFIG,
+        "sdxl",
+        skip_dataset_validation=True,
+    )
+    fn, _ = dd._metadata_map_fn()
+    out = fn({"image_spec": [[None, str(img)]], "caption_file": [str(txt)], "mask_file": [None]})
+    # Per-image caption present: directory_caption is prepended once.
+    assert out["caption"] == [["style: a cat"]]
 
 
 def test_size_bucket_iteration_order_one_row_per_caption(tmp_path):

@@ -1375,21 +1375,15 @@ class DirectoryDataset:
             if captions is None and caption_file:
                 # rengu-flow: .txt = one caption per line
                 captions = _read_captions_from_txt_per_line(caption_file)
+            directory_caption = self.directory_config.get("directory_caption", "")
             if captions is None:
-                # Fallback: directory_caption or empty
-                directory_caption = self.directory_config.get(
-                    "directory_caption"
-                )
-                if directory_caption is not None:
-                    captions = [directory_caption]
-                else:
-                    captions = [""]
-                    logger.warning(
-                        "No caption for %s; using empty caption.",
-                        image_file,
-                    )
-            prefix = self.directory_config.get("directory_caption", "")
-            captions = [prefix + c for c in captions]
+                # No per-image caption: directory_caption is the full caption (not re-prefixed).
+                captions = [directory_caption]
+                if not directory_caption:
+                    logger.warning("No caption for %s; using empty caption.", image_file)
+            else:
+                # Per-image caption present: directory_caption acts as a prefix.
+                captions = [directory_caption + c for c in captions]
             empty_return = {
                 "image_spec": [],
                 "mask_file": [],
