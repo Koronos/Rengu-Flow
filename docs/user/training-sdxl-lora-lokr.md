@@ -187,7 +187,7 @@ For a folder of images (not synthetic data):
 3. Run cache only, then training:
 
 ```bash
-rengu train --config my.toml --cache_only
+rengu cache --config my.toml
 rengu train --config my.toml
 ```
 
