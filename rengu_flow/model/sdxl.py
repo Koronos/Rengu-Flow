@@ -341,8 +341,76 @@ class SDXLPipeline(BasePipeline):
         # submodel's weights must survive on CPU. Adapter runs only emit the adapter — keep just the
         # VAE, which save_model still reads. (Otherwise frozen submodels go to meta to free RAM.)
         if self.config.get("adapter"):
+            # Previews re-encode prompts with the text encoders, so they must survive on CPU (meta
+            # discards the weights and the preview crashes). Costs ~1.4 GB host RAM, only when on.
+            from rengu_flow.utils.preview import previews_configured
+
+            if previews_configured(self.config):
+                return True
             return submodel is self.vae
         return True
+
+    def materialize_for_preview(self):
+        """Move VAE + text encoders (parked on CPU/meta after caching) onto the GPU for a preview.
+
+        Returns a restore record consumed by ``restore_preview_submodels``. When a submodel is on
+        ``meta`` (caching freed it and previews weren't pre-configured — e.g. a "Preview now" click),
+        its weights are reloaded once from the checkpoint and then parked on CPU between previews.
+        """
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        pipe = self.diffusers_pipeline
+        subs = {"vae": pipe.vae, "text_encoder": pipe.text_encoder, "text_encoder_2": pipe.text_encoder_2}
+        on_meta = any(
+            next(m.parameters(), torch.empty(0)).device.type == "meta" for m in subs.values()
+        )
+        if on_meta:
+            self._reload_frozen_submodels_from_checkpoint()
+            pipe = self.diffusers_pipeline
+            subs = {"vae": pipe.vae, "text_encoder": pipe.text_encoder, "text_encoder_2": pipe.text_encoder_2}
+        rest: dict = {}
+        for key, m in subs.items():
+            p = next(m.parameters(), None)
+            rest[key] = p.device if p is not None else torch.device("cpu")
+            m.to(device)
+        # The VAE is upcast to fp32 (upcast_vae, for stable encode) but the UNet emits bf16 latents,
+        # and diffusers only re-casts latents when the VAE is fp16 — so decode hits an fp32-bias vs
+        # bf16-input mismatch. Run the decode in the compute dtype; restored below.
+        compute_dtype = next(pipe.unet.parameters()).dtype
+        rest["_vae_dtype"] = next(pipe.vae.parameters()).dtype
+        pipe.vae.to(compute_dtype)
+        return rest
+
+    def restore_preview_submodels(self, rest: dict) -> None:
+        """Park VAE + text encoders back on their pre-preview device (CPU, never meta — so the next
+        preview skips the disk reload) and restore the VAE's training dtype."""
+        pipe = self.diffusers_pipeline
+        vae_dtype = rest.get("_vae_dtype")
+        if vae_dtype is not None:
+            pipe.vae.to(vae_dtype)
+        for key in ("vae", "text_encoder", "text_encoder_2"):
+            m = getattr(pipe, key)
+            dev = rest.get(key, torch.device("cpu"))
+            if getattr(dev, "type", None) == "meta":
+                dev = torch.device("cpu")
+            m.to(dev)
+
+    def _reload_frozen_submodels_from_checkpoint(self):
+        """Reload VAE + text encoder weights from the checkpoint when caching freed them to meta.
+
+        Steals the freshly-loaded frozen submodels into the live pipeline (the live UNet, which
+        carries the trained adapter, is left untouched)."""
+        if is_main_process():
+            logger.info("rengu_flow: reloading SDXL text encoders/VAE for preview...")
+        fresh = diffusers.StableDiffusionXLPipeline.from_single_file(
+            self.model_config["checkpoint_path"],
+            torch_dtype=self.model_config["dtype"],
+            add_watermarker=False,
+        )
+        fresh.upcast_vae()
+        for key in ("vae", "text_encoder", "text_encoder_2"):
+            getattr(fresh, key).requires_grad_(False)
+            setattr(self._pipeline, key, getattr(fresh, key))
+        del fresh
 
     def get_text_encoders(self):
         if not self.cache_text_embeddings:
