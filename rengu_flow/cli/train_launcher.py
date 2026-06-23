@@ -4,10 +4,7 @@ from __future__ import annotations
 
 import os
 import shlex
-import subprocess
-import sys
 from pathlib import Path
-from shutil import which
 
 from rengu_flow.config.local_config import TrainingConfig, ensure_local_config_loaded
 from rengu_flow.platform_compat import find_free_port
@@ -41,22 +38,15 @@ def base_train_command(
 ) -> list[str]:
     """Base argv to launch the trainer, shared by the CLI and the web UI.
 
-    The DeepSpeed launcher is used only for engine='deepspeed' (multi-GPU pipeline). For
-    engine='accelerate' (single-GPU, default on Windows) we run the module directly — no
-    DeepSpeed launcher, no DeepSpeed needed. DeepSpeed's launcher needs ``--module`` (not
-    ``-m``) for a module target; we fall back to ``python -m`` when deepspeed is absent too.
+    Delegates to the selected backend's ``launch_argv``. Backend is resolved from
+    ``RENGU_ENGINE`` (set upstream by ``--engine``) → config ``engine`` key → OS default.
+    Pass ``{}`` as config here because the loaded config is not available at this call site;
+    the ``--engine`` flag already set ``RENGU_ENGINE`` in the env before this runs.
     """
-    from rengu_flow.engine import resolve_backend
+    from rengu_flow.engine import select_backend
 
-    deepspeed = which("deepspeed") if resolve_backend() == "deepspeed" else None
-    if deepspeed:
-        cmd = [deepspeed, f"--num_gpus={num_gpus}"]
-        if master_port is not None:
-            cmd.append(f"--master_port={master_port}")
-        cmd += ["--module", "rengu_flow.main", "--config", str(config_path)]
-    else:
-        cmd = [sys.executable, "-m", "rengu_flow.main", "--config", str(config_path)]
-    return cmd
+    backend = select_backend({})  # env/OS default; --engine already set RENGU_ENGINE upstream
+    return backend.launch_argv({}, config_path=str(config_path), num_gpus=num_gpus, master_port=master_port)
 
 
 def build_train_command(
