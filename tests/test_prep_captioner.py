@@ -14,6 +14,7 @@ import pytest
 from rengu_flow.prep.captioner import (
     CaptionBackend,
     CaptionerConfig,
+    _collapse_to_one_line,
     build_prompt,
     caption_folder,
     list_caption_models,
@@ -33,6 +34,17 @@ FIXTURE_JPG = (
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def test_collapse_strips_reasoning_think_block():
+    """Reasoning VLMs (ToriiGate-0.5) emit <think>…</think> before the caption; keep only the
+    caption after the final </think>, and collapse newlines."""
+    assert (
+        _collapse_to_one_line("draft thoughts.\n</think>\nThe image shows a cat.")
+        == "The image shows a cat."
+    )
+    assert _collapse_to_one_line("A dog runs.\nFast.") == "A dog runs. Fast."
+    assert _collapse_to_one_line("<think>reasoning got cut off") == ""
 
 
 def _make_img_dir(tmp_path: Path, names: list[str]) -> Path:
