@@ -26,7 +26,7 @@ from rengu_flow.config.local_config import (
 # rengu_flow_ui.maintenance) and its [maintenance] TOML keys are left untouched.
 _EDITABLE_TRAINING_SCALARS = ("num_gpus", "master_port", "extra_args", "engine")
 _RESTART_UI = ("public", "token")
-_ENGINE_VALUES = ("", "deepspeed", "accelerate", "accelerate_deepspeed")
+_ENGINE_VALUES = ("", "deepspeed", "accelerate")
 
 
 class SettingsError(ValueError):

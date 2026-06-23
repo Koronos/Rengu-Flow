@@ -8,7 +8,7 @@ manual GPU smoke; this guards the engine's own logic.
 import torch
 import torch.nn as nn
 
-from rengu_flow.engine import SequentialPipe, TorchEngine, build_pipe, resolve_backend
+from rengu_flow.engine import SequentialPipe, TorchEngine, resolve_backend, select_backend
 
 
 class _TupleLinear(nn.Module):
@@ -48,9 +48,10 @@ def test_resolve_backend_default_per_os():
 
 
 def test_build_pipe_accelerate_is_sequential_no_deepspeed():
-    pipe = build_pipe("accelerate", layers=[_TupleLinear()], num_stages=1,
-                      partition_method="parameters", manual_partition_split=None,
-                      loss_fn=_loss_fn, extra_kw={})
+    pipe = select_backend({"engine": "accelerate"}).build_pipe(
+        layers=[_TupleLinear()], num_stages=1, partition_method="parameters",
+        manual_partition_split=None, loss_fn=_loss_fn, extra_kw={},
+    )
     assert isinstance(pipe, SequentialPipe)
 
 
@@ -69,8 +70,8 @@ def test_activation_checkpoint_interval_trains():
     from functools import partial
     import torch.utils.checkpoint as ckpt
 
-    pipe = build_pipe(
-        "accelerate", layers=[_TupleLinear(), _TupleLinear()], num_stages=1,
+    pipe = select_backend({"engine": "accelerate"}).build_pipe(
+        layers=[_TupleLinear(), _TupleLinear()], num_stages=1,
         partition_method="parameters", manual_partition_split=None, loss_fn=_loss_fn,
         extra_kw={
             "activation_checkpoint_interval": 1,
@@ -118,6 +119,6 @@ if __name__ == "__main__":
     test_activation_checkpoint_interval_trains()
     test_train_batch_steps_and_loss_decreases()
     test_eval_batch_no_grad_finite()
-    import tempfile, pathlib
+    import tempfile, pathlib  # noqa: E401
     test_checkpoint_roundtrip(pathlib.Path(tempfile.mkdtemp()))
     print("ALL ENGINE CHECKS PASSED")

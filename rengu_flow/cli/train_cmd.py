@@ -7,7 +7,7 @@ import os
 import shlex
 from pathlib import Path
 
-ENGINE_CHOICES = ("deepspeed", "accelerate", "accelerate_deepspeed")
+ENGINE_CHOICES = ("deepspeed", "accelerate")
 
 from rengu_flow.cli.progress_display import run_training_with_progress
 from rengu_flow.cli.train_launcher import build_train_command, training_subprocess_env

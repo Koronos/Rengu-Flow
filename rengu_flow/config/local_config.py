@@ -65,7 +65,7 @@ class TrainingConfig:
     master_port: int = 29500
     extra_args: str = ""
     # Training engine backend: "" (auto: deepspeed on Linux, accelerate on Windows),
-    # "deepspeed", "accelerate", or "accelerate_deepspeed". See rengu_flow.engine.
+    # "deepspeed", or "accelerate". See rengu_flow.engine.
     engine: str = ""
     env: dict[str, str] = field(default_factory=dict)
 
