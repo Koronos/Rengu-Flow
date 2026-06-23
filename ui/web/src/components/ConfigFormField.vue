@@ -38,19 +38,25 @@
       @update:model-value="onMicroBatchInput"
     />
 
-    <el-autocomplete
+    <el-select
       v-else-if="field.type === 'select' && field.allow_custom"
-      v-model="editableText"
-      :fetch-suggestions="fetchSuggestions"
+      :model-value="stringValue"
       clearable
+      filterable
+      allow-create
+      default-first-option
       :class="widthClass"
-      placeholder="Edit in place or pick a suggestion…"
-      :trigger-on-focus="true"
-      :select-when-unmatched="false"
-      highlight-first-item
+      :placeholder="effectivePlaceholder || 'Pick a value or type a custom one…'"
+      @update:model-value="onInput"
       @clear="onClear"
-      @select="onAutocompleteSelect"
-    />
+    >
+      <el-option
+        v-for="opt in selectOptionsWithCurrent"
+        :key="opt.value"
+        :label="opt.label"
+        :value="opt.value"
+      />
+    </el-select>
 
     <el-select
       v-else-if="field.type === 'select'"
@@ -342,15 +348,20 @@ const selectOptions = computed(() => {
   return labels.map((o) => ({ label: String(o), value: String(o) }));
 });
 
+// allow_custom selects: surface the current value as an option too, so a persisted custom value
+// (not in the preset list) still renders its label instead of showing blank.
+const selectOptionsWithCurrent = computed(() => {
+  const opts = selectOptions.value;
+  const cur = stringValue.value;
+  if (cur && !opts.some((o) => o.value === cur)) {
+    return [{ label: cur, value: cur }, ...opts];
+  }
+  return opts;
+});
+
 const stringValue = computed(() => {
   const v = effectiveValue.value;
   return v === undefined || v === null ? "" : String(v);
-});
-
-/** v-model for autocomplete so clearable (×) syncs correctly. */
-const editableText = computed({
-  get: () => stringValue.value,
-  set: (val) => onInput(val ?? ""),
 });
 
 const numberValue = computed(() => {
@@ -491,21 +502,6 @@ function onClear() {
   clearPathValidation();
 }
 
-function fetchSuggestions(
-  queryString: string,
-  cb: (items: { value: string }[]) => void
-): void {
-  const opts = selectOptions.value.map((o) => o.value);
-  const q = (queryString || "").trim().toLowerCase();
-  const matches = q ? opts.filter((o) => o.toLowerCase().includes(q)) : opts;
-  cb(matches.slice(0, 80).map((value) => ({ value })));
-}
-
-function onAutocompleteSelect(item: { value?: string }): void {
-  if (item?.value !== undefined) {
-    onInput(item.value);
-  }
-}
 
 async function runProbe(name: string): Promise<void> {
   if (!props.field.allow_custom || !name?.trim()) {
