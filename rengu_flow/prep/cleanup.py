@@ -155,6 +155,11 @@ class LamaInpainter:
             from huggingface_hub import hf_hub_download  # noqa: PLC0415
 
             self._model_path = hf_hub_download(repo_id=_LAMA_REPO_ID, filename=_LAMA_FILENAME)
+        # Windows-only, on demand: install + expose the cu12 runtime so the CUDAExecutionProvider can
+        # load (onnxruntime-gpu is cu12, our torch is cu13). No-op off Windows. See onnx_runtime.py.
+        from rengu_flow.prep.onnx_runtime import ensure_onnx_cuda_runtime  # noqa: PLC0415
+
+        ensure_onnx_cuda_runtime()
         import onnxruntime as ort  # noqa: PLC0415
 
         providers = []
