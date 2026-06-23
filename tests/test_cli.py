@@ -126,7 +126,7 @@ def test_base_train_command_accelerate_bypasses_launcher(tmp_path, monkeypatch):
     from rengu_flow.cli import train_launcher
 
     monkeypatch.setenv("RENGU_ENGINE", "accelerate")
-    monkeypatch.setattr(train_launcher, "which", lambda _: "/usr/bin/deepspeed")
+    monkeypatch.setattr("rengu_flow.engine.deepspeed_pipe.which", lambda _: "/usr/bin/deepspeed")
     cmd = train_launcher.base_train_command(tmp_path / "t.toml", num_gpus=1)
     # accelerate is single-GPU: run the module directly, never the DeepSpeed launcher.
     assert cmd[1] == "-m" and cmd[2] == "rengu_flow.main"
@@ -146,7 +146,7 @@ def test_train_engine_flag_forces_backend(tmp_path, monkeypatch):
     monkeypatch.setattr(train_cmd, "ensure_local_config_loaded", lambda: cfg)
     monkeypatch.setattr(train_launcher, "ensure_local_config_loaded", lambda: cfg)
     monkeypatch.setattr(train_cmd, "ensure_training_extras", lambda *a, **k: None)
-    monkeypatch.setattr(train_launcher, "which", lambda _: "/usr/bin/deepspeed")  # deepspeed available
+    monkeypatch.setattr("rengu_flow.engine.deepspeed_pipe.which", lambda _: "/usr/bin/deepspeed")  # deepspeed available
     captured: dict = {}
     monkeypatch.setattr(
         train_cmd, "run_training_with_progress",
@@ -173,7 +173,7 @@ def test_train_launcher_builds_deepspeed_cmd(tmp_path, monkeypatch, deepspeed_en
         "rengu_flow.cli.train_launcher.ensure_local_config_loaded",
         lambda: LocalConfig(root=tmp_path, training=TrainingConfig(num_gpus=1, master_port=29500)),
     )
-    monkeypatch.setattr("rengu_flow.cli.train_launcher.which", lambda _: "/usr/bin/deepspeed")
+    monkeypatch.setattr("rengu_flow.engine.deepspeed_pipe.which", lambda _: "/usr/bin/deepspeed")
 
     cfg = tmp_path / "train.toml"
     cfg.write_text("dataset = \"x.toml\"\n", encoding="utf-8")
@@ -191,7 +191,7 @@ def test_train_launcher_builds_deepspeed_cmd(tmp_path, monkeypatch, deepspeed_en
 def test_base_train_command_uses_module(tmp_path, monkeypatch, deepspeed_engine):
     from rengu_flow.cli import train_launcher
 
-    monkeypatch.setattr(train_launcher, "which", lambda _: "/usr/bin/deepspeed")
+    monkeypatch.setattr("rengu_flow.engine.deepspeed_pipe.which", lambda _: "/usr/bin/deepspeed")
     cmd = train_launcher.base_train_command(tmp_path / "t.toml", num_gpus=2, master_port=29500)
     assert cmd[0].endswith("deepspeed")
     assert "--num_gpus=2" in cmd
@@ -203,7 +203,7 @@ def test_base_train_command_uses_module(tmp_path, monkeypatch, deepspeed_engine)
 def test_base_train_command_python_fallback(tmp_path, monkeypatch):
     from rengu_flow.cli import train_launcher
 
-    monkeypatch.setattr(train_launcher, "which", lambda _: None)
+    monkeypatch.setattr("rengu_flow.engine.deepspeed_pipe.which", lambda _: None)
     cmd = train_launcher.base_train_command(tmp_path / "t.toml", num_gpus=1)
     # Without deepspeed on PATH, fall back to `python -m rengu_flow.main`.
     assert cmd[1] == "-m"
@@ -216,7 +216,7 @@ def test_ui_job_command_uses_module(tmp_path, monkeypatch, deepspeed_engine):
     from rengu_flow_ui import jobs as ui_jobs
     from rengu_flow_ui.jobs import build_train_command as ui_build
 
-    monkeypatch.setattr(train_launcher, "which", lambda _: "/usr/bin/deepspeed")
+    monkeypatch.setattr("rengu_flow.engine.deepspeed_pipe.which", lambda _: "/usr/bin/deepspeed")
     # jobs.py binds _pick_master_port by direct import — patch THAT binding, not the
     # train_launcher attribute, or the real picker runs and the asserted port drifts
     # whenever 29500 is busy (e.g. a live training run).

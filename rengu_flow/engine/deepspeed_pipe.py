@@ -1,6 +1,9 @@
 """Multi-GPU DeepSpeed pipeline engine ("deepspeed")."""
 from __future__ import annotations
 
+import sys
+from shutil import which
+
 from rengu_flow.engine.base import TrainingBackend
 
 
@@ -9,10 +12,8 @@ class DeepSpeedPipeBackend(TrainingBackend):
 
     @classmethod
     def launch_argv(cls, config, *, config_path, num_gpus, master_port):
-        from shutil import which
         deepspeed = which("deepspeed")
         if not deepspeed:  # fall back like today when the launcher is absent
-            import sys
             return [sys.executable, "-m", "rengu_flow.main", "--config", str(config_path)]
         cmd = [deepspeed, f"--num_gpus={num_gpus}"]
         if master_port is not None:
