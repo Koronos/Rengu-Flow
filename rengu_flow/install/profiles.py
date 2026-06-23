@@ -101,9 +101,19 @@ def uv_sync_argv(profiles: list[str]) -> list[str]:
     so the installed distribution metadata — and anything reading it, e.g. ``importlib.metadata`` —
     lags behind a pulled ``pyproject`` version until a force reinstall. Reinstalling only this one
     package is cheap (editable, ~tens of ms) and keeps the installed version in step after `update`.
+
+    **Windows exception:** a force reinstall must delete and recreate ``Scripts/rengu.exe``, which
+    the OS forbids while *that very* ``rengu.exe`` is the running process driving the sync (e.g.
+    ``rengu ui`` → ``ensure_ui_dependencies``) → ``WinError 32`` (file in use). POSIX can replace a
+    running executable, so it keeps the force-reinstall; Windows drops it and accepts that the
+    distribution version string may lag ``pyproject`` until a fresh ``uv sync`` outside a running rengu.
     """
+    from rengu_flow.platform_compat import PLATFORM
+
     normalized = normalize_profiles(profiles)
-    cmd = ["uv", "sync", "--inexact", "--reinstall-package", "rengu-flow"]
+    cmd = ["uv", "sync", "--inexact"]
+    if not PLATFORM.is_windows:
+        cmd += ["--reinstall-package", "rengu-flow"]
     extras: set[str] = set()
     for p in normalized:
         extra = PROFILE_EXTRAS.get(p)

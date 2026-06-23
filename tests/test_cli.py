@@ -27,10 +27,26 @@ def test_uv_sync_argv_ui_extra():
 
 
 def test_uv_sync_argv_base_is_inexact():
+    from rengu_flow.platform_compat import PLATFORM
+
     argv = uv_sync_argv(["base"])
-    # Additive sync, plus a forced reinstall of just the editable project package so a version-only
-    # bump in pyproject is reflected in the installed metadata after `rengu update`.
-    assert argv == ["uv", "sync", "--inexact", "--reinstall-package", "rengu-flow"]
+    assert argv[:3] == ["uv", "sync", "--inexact"]  # additive sync, never exact
+    # A forced reinstall of just the editable project package keeps installed metadata in step after
+    # a version bump — but it's skipped on Windows (it would replace the running rengu.exe -> WinError 32).
+    assert ("--reinstall-package" in argv) == (not PLATFORM.is_windows)
+
+
+def test_uv_sync_argv_skips_reinstall_on_windows(monkeypatch):
+    """On Windows the force-reinstall must be dropped: a sync driven from within `rengu ui` cannot
+    delete the running rengu.exe (os error 32). POSIX keeps it (can replace a running executable)."""
+    import rengu_flow.platform_compat as pc
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(pc, "PLATFORM", SimpleNamespace(is_windows=True))
+    assert "--reinstall-package" not in uv_sync_argv(["ui"])
+
+    monkeypatch.setattr(pc, "PLATFORM", SimpleNamespace(is_windows=False))
+    assert uv_sync_argv(["base"]) == ["uv", "sync", "--inexact", "--reinstall-package", "rengu-flow"]
 
 
 def test_legacy_train_dispatch(monkeypatch):
