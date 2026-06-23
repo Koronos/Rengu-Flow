@@ -15,7 +15,7 @@ import torch
 from datasets.fingerprint import Hasher
 from tqdm import tqdm
 
-from rengu_flow.utils.cache_factory import CACHE_FORMAT_V2, open_disk_cache
+from rengu_flow.utils.cache import open_disk_cache
 
 NUM_PROC = min(8, os.cpu_count() or 1)
 ROUND_DECIMAL_DIGITS = 3
@@ -113,20 +113,21 @@ def _map_and_cache(
     caching_batch_size: int = 1,
     num_proc: int | None = None,
     keep_in_memory: bool = False,
-    cache_format: str = CACHE_FORMAT_V2,
 ):
     """Map over dataset with map_fn(example, rank), persist results in Cache.
 
-    Cache key = new_fingerprint_args + (fingerprint_override or dataset._fingerprint) +
-    cache_format. Pass ``fingerprint_override`` (e.g. a ``content_fingerprint`` over the
-    columns that actually determine this cache) to decouple it from the dataset's chained
-    HuggingFace fingerprint. If map_fn is None, loads existing cache only (trust_cache path).
+    Cache key = new_fingerprint_args + (fingerprint_override or dataset._fingerprint).
+    Pass ``fingerprint_override`` (e.g. a ``content_fingerprint`` over the columns that
+    actually determine this cache) to decouple it from the dataset's chained HuggingFace
+    fingerprint. If map_fn is None, loads existing cache only (trust_cache path).
     """
     new_fingerprint_args = list(new_fingerprint_args or [])
     new_fingerprint_args.append(
         fingerprint_override if fingerprint_override is not None else dataset._fingerprint
     )
-    new_fingerprint_args.append(f"cache_format={cache_format}")
+    # Literal (not a param): keeps existing cache fingerprints stable now that the
+    # disk cache has a single format.
+    new_fingerprint_args.append("cache_format=v2")
     new_fingerprint = Hasher.hash(new_fingerprint_args)
     cache_dir = Path(cache_dir)
     if cache_file_prefix:

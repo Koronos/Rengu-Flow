@@ -23,7 +23,7 @@ from rengu_flow.control.progress_stream import ProgressEmitter
 
 
 def parse_args(argv: list[str] | None = None):
-    parser = argparse.ArgumentParser(description="Rengu Flow: TOML-driven training (Phase 1).")
+    parser = argparse.ArgumentParser(description="Rengu Flow: TOML-driven training.")
     parser.add_argument(
         "--config",
         required=False,
@@ -49,7 +49,7 @@ def parse_args(argv: list[str] | None = None):
         action="store_true",
         help="Rebuild metadata and text embeddings only; reuse latents when possible.",
     )
-    parser.add_argument("--cache_only", action="store_true", help="Cache then exit (no-op in Phase 1 minimal).")
+    parser.add_argument("--cache_only", action="store_true", help="Cache then exit without training.")
     parser.add_argument("--trust_cache", action="store_true")
     parser.add_argument("--i_know_what_i_am_doing", action="store_true")
     parser.add_argument("--master_port", type=int, default=29500)
@@ -431,7 +431,6 @@ def _run_training(args, config):
             caching_batch_size=config.get("caching_batch_size", 1),
             cache_num_proc=config.get("cache_num_proc"),
             cache_keep_in_memory=config.get("cache_keep_in_memory", False),
-            cache_format=config.get("cache_format", "v2"),
             cache_dedup_text_embeddings=config.get("cache_dedup_text_embeddings", False),
             backend=backend_obj,
         )

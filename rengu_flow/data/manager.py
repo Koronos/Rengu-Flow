@@ -28,7 +28,6 @@ def _cache_fn(
     caching_batch_size: int,
     cache_num_proc: int | None,
     cache_keep_in_memory: bool,
-    cache_format: str,
     cache_dedup_text_embeddings: bool,
 ) -> None:
     """Worker process: run cache_metadata, cache_latents, cache_text_embeddings; send GPU work via queue."""
@@ -119,7 +118,6 @@ def _cache_fn(
             caching_batch_size=caching_batch_size,
             cache_num_proc=cache_num_proc,
             cache_keep_in_memory=cache_keep_in_memory,
-            cache_format=cache_format,
         )
 
     for text_encoder_idx in range(num_text_encoders):
@@ -159,7 +157,6 @@ def _cache_fn(
                 caching_batch_size=caching_batch_size,
                 cache_num_proc=cache_num_proc,
                 cache_keep_in_memory=cache_keep_in_memory,
-                cache_format=cache_format,
             )
 
     queue.put(None)
@@ -192,7 +189,6 @@ class DatasetManager:
         caching_batch_size: int = 1,
         cache_num_proc: int | None = None,
         cache_keep_in_memory: bool = False,
-        cache_format: str = "v2",
         cache_dedup_text_embeddings: bool = False,
         backend=None,
     ) -> None:
@@ -211,7 +207,6 @@ class DatasetManager:
         self.regenerate_cache = regenerate_cache
         self.trust_cache = trust_cache
         self.caching_batch_size = caching_batch_size
-        self.cache_format = cache_format
         self.cache_num_proc = cache_num_proc
         self.cache_keep_in_memory = cache_keep_in_memory
         self.cache_dedup_text_embeddings = cache_dedup_text_embeddings
@@ -252,7 +247,6 @@ class DatasetManager:
                 self.caching_batch_size,
                 self.cache_num_proc,
                 self.cache_keep_in_memory,
-                self.cache_format,
                 self.cache_dedup_text_embeddings,
             ]
             worker, queue = self.backend.make_cache_worker(_run_cache_worker, cache_args)

@@ -112,9 +112,9 @@ def collect_validation_errors(
                 "optimizer.gradient_release requires pipeline_stages = 1 (single-GPU pipeline)."
             )
 
-    if config.get("cache_format") not in (None, "v2"):
+    if config.get("cache_format") is not None:
         issues.append(
-            "cache_format v1 is removed; omit cache_format or set cache_format = \"v2\"."
+            "cache_format is not a valid setting; remove it (the disk cache has a single format)."
         )
 
     train_seed = config.get("train_seed")

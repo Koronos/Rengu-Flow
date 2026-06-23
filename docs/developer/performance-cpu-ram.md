@@ -12,7 +12,7 @@ Developer notes for data loading and cache tuning. User-facing option tables liv
 | Train DataLoader workers | `max_data_loader_n_workers` | standard | config (0 on Win/macOS) | cache threads | `dataloader_num_workers` (default 0) |
 | Prefetch / pin | ecosystem | — | no `pin_memory` ([issue #758](https://github.com/ostris/ai-toolkit/issues/758)) | pinned offload buffers | `dataloader_prefetch`, `dataloader_pin_memory` |
 | Cache build parallelism | pool | `write_batch_size` | mixins | threaded cache ([issue #181](https://github.com/Nerogar/OneTrainer/issues/181)) | `cache_num_proc` + GPU queue |
-| Disk cache layout | — | `compress_disk_cache` | manual cleanup | change cache dir | `cache_format` **`v2`** (mmap bf16 stacks); **`v1`** = pickle shards |
+| Disk cache layout | — | `compress_disk_cache` | manual cleanup | change cache dir | single format: mmap bf16 tensor stacks (no setting) |
 | TE dedup on cache build | — | — | — | — | `cache_dedup_text_embeddings` (caption hash) |
 | Block swap (VRAM) | `blocks_to_swap` (video DiT) | group offloading | varies | offloader | `blocks_to_swap` + [`training/block_swap`](../../rengu_flow/training/block_swap.py) |
 
@@ -22,7 +22,7 @@ Developer notes for data loading and cache tuning. User-facing option tables liv
 |-----------|------|
 | Train loader + prefetch thread | `rengu_flow/data/loader.py` |
 | Cache map/pool | `rengu_flow/data/cache_utils.py` |
-| Disk cache v1 / v2 | `rengu_flow/utils/cache.py`, `cache_v2.py`, `cache_factory.py` |
+| Disk cache | `rengu_flow/utils/cache.py` |
 | Bench CSV / A/B helpers | `rengu_flow/utils/bench.py` |
 | Defaults | `rengu_flow/config/defaults.py` |
 

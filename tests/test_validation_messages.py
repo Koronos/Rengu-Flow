@@ -49,16 +49,18 @@ def test_collect_multiple_missing_sections() -> None:
     assert format_validation_issues(issues).startswith("Fix the following:")
 
 
-def test_invalid_cache_format() -> None:
-    issues = collect_validation_errors(
-        {
-            "dataset": "d.toml",
-            "model": {"type": "sdxl", "dtype": "bfloat16"},
-            "optimizer": {"type": "adamw", "lr": 1e-4},
-            "cache_format": "pickle",
-        }
-    )
-    assert any("cache_format" in e for e in issues)
+def test_cache_format_is_not_a_valid_setting() -> None:
+    # cache_format was removed as an option; any value (even the old "v2") is rejected.
+    for value in ("pickle", "v2"):
+        issues = collect_validation_errors(
+            {
+                "dataset": "d.toml",
+                "model": {"type": "sdxl", "dtype": "bfloat16"},
+                "optimizer": {"type": "adamw", "lr": 1e-4},
+                "cache_format": value,
+            }
+        )
+        assert any("cache_format" in e for e in issues)
 
 
 def _minimal_training_config(dataset: str | list[str]) -> dict:

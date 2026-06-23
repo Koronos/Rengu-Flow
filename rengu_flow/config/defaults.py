@@ -33,10 +33,10 @@ def set_config_defaults(config: dict[str, Any]) -> None:
 
     Replicates the logic of diffusion-pipe train.set_config_defaults so that
     the same TOML files remain valid. Requires config to have 'model' (with 'dtype')
-    and optionally 'adapter'. For Phase 0 we set a default for save_every_n_epochs
-    so that configs without any save_* still validate when Saver is added later.
+    and optionally 'adapter'. Sets a default save_every_n_epochs so configs
+    without any save_* still validate.
     """
-    # Avoid forcing save_* in Phase 0 (no training); set one default so config is valid later.
+    # One save_* default so a config without any is still valid.
     config.setdefault("save_every_n_epochs", 1)
     config.setdefault("output_dir", "output")
     config.setdefault("pipeline_stages", 1)

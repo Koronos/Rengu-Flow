@@ -173,7 +173,7 @@ Point `dataset` at a TOML with `frame_buckets = [1]` for images (see `examples/m
 rengu cache --config my.toml
 ```
 
-With `cache_text_embeddings = true` (default), text embeddings are cached once; VAE latents are cached per resolution bucket. Disk cache uses **`cache_format = "v2"`** by default (see [Training loop](training-loop-and-eval.md#pipeline-cache-and-debug-options)).
+With `cache_text_embeddings = true` (default), text embeddings are cached once; VAE latents are cached per resolution bucket. The disk cache uses mmap bf16 tensor stacks (see [Training loop](training-loop-and-eval.md#pipeline-cache-and-debug-options)).
 
 ## Performance and VRAM (Anima / Cosmos)
 

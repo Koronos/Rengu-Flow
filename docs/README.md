@@ -21,7 +21,7 @@
   - [Architecture and design goals](developer/architecture.md) — Registries, execution flow, extensibility principles.
   - [Testing](developer/testing.md) — How to run tests, layout, fixtures, and dataset/data loading tests.
   - [Dataset and cache](developer/dataset-and-cache.md) — Dataset config contract, code locations, cache v1/v2.
-  - [CPU/RAM and disk cache performance](developer/performance-cpu-ram.md) — `cache_format`, dataloader/cache tuning, smoke A/B.
+  - [CPU/RAM and disk cache performance](developer/performance-cpu-ram.md) — dataloader/cache tuning, smoke A/B.
   - [POC CPU/RAM results](developer/poc-cpu-ram-results.md) — Benchmark verdicts and default policy for cache/dataloader flags.
   - [Dataset augmentation](developer/dataset-augmentation.md) — String strategy names, parameters, presets, merge rules, cache/seed modes, implementation hook.
   - [Training loop and evaluation](developer/training-loop-and-eval.md) — Loop flow, evaluate() contract, TensorBoard/WandB, Saver and signal files, isolate_rng, PipelineDataLoader.reset().

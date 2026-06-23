@@ -18,7 +18,7 @@ python scripts/poc_cpu_ram_optimizations.py --json tmp/poc_cpu_ram_results.json
 
 | Idea | Verdict | Default | POC metrics (summary) |
 |------|---------|---------|------------------------|
-| mmap + bf16 cache layout | **Adopt** (v2 shipped) | **`cache_format = "v2"`** | ~46% faster read vs pickle; ~51% less disk |
+| mmap + bf16 cache layout | **Adopt** (shipped, single format) | _(no setting)_ | ~46% faster read vs pickle; ~51% less disk |
 | Batch read one handle / shard | **Adopt** | **Yes** (code) | ~11% faster micro-batch; `Cache.get_many` + `get_items_batch` |
 | TE dedup by caption hash | Opt-in | **No** | 0% on smoke_cc0; ~95% TE entries saved on synthetic tag-heavy set |
 | cache_dir on NVMe | Docs | — | User placement |
@@ -35,7 +35,7 @@ python scripts/poc_cpu_ram_optimizations.py --json tmp/poc_cpu_ram_results.json
 
 - **`Cache.get_many`** — groups reads by shard (`rengu_flow/utils/cache.py`).
 - **`SizeBucketDataset.get_items_batch`** + **`ConcatenatedBatchedDataset`** fast path when a micro-batch hits one bucket.
-- **Cache v2** — `rengu_flow/utils/cache_v2.py`, wired via `cache_format` in `_map_and_cache` / `DatasetManager`.
+- **mmap bf16 cache** — `rengu_flow/utils/cache.py`, used by `_map_and_cache` / `DatasetManager` (single format, no setting).
 
 ## Shipped since POC
 
@@ -53,5 +53,4 @@ python scripts/poc_cpu_ram_optimizations.py --json tmp/poc_cpu_ram_results.json
 | `dataloader_num_workers` | `0` | Safe everywhere; tune per host |
 | `cache_keep_in_memory` | `false` | Less RAM on large cache resume |
 | `cache_num_proc` | `min(8, cpus)` | Good cache-build throughput |
-| `cache_format` | `v2` | mmap bf16 stacks; use `v1` only for legacy dirs |
-| Disk-saving compression (pickle) | off | v2 already stores floats as bf16 |
+| Disk-saving compression (pickle) | off | the cache already stores floats as bf16 |

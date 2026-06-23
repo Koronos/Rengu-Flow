@@ -151,7 +151,6 @@ Checkpoint restores model, optimizer, LR scheduler, and dataloader state (epoch 
 | **`cache_root`** | Root folder for all v2 dataset caches (metadata, latents, text embeddings). | Path string. | `cache/` under the install directory (gitignored). |
 | **`cache_num_proc`** | Parallel CPU preprocessing threads for metadata map and latent/embedding cache (image load/decode/resize runs on these threads; GPU encode stays on the main process). | Positive integer. | `min(8, CPU count)` |
 | **`cache_keep_in_memory`** | Keep the HuggingFace dataset slice in RAM while resuming cache. | `true` / `false`. | `false` (lower RAM; OS page cache still helps train reads) |
-| **`cache_format`** | On-disk layout for latent and text-embedding cache. | `v2` (mmap bf16 tensor stacks + SQLite metadata) or `v1` (legacy pickle shards). | `v2` |
 | **`cache_dedup_text_embeddings`** | During `--cache_only`, reuse text-encoder outputs when captions are identical (hash dedup). | `true` or `false`. | `false` |
 | **`dataloader_num_workers`** | PyTorch DataLoader workers for training (load cached latents from disk). | Non-negative integer. | `0` |
 | **`dataloader_prefetch`** | Background thread loads the next raw batch while the GPU trains (only when `dataloader_num_workers = 0`). Off, the load runs synchronously and stalls the GPU every step. | `true` / `false`. | `true` |
@@ -160,7 +159,7 @@ Checkpoint restores model, optimizer, LR scheduler, and dataloader state (epoch 
 | **`dataloader_persistent_workers`** | Keep DataLoader worker processes alive between epochs. | `true` / `false`. | `true` |
 | **`image_micro_batch_size_per_gpu`** | Micro-batch for image-only steps when mixing modalities. | Integer or dict, or omit to use `micro_batch_size_per_gpu`. | Same as `micro_batch_size_per_gpu` |
 
-**Disk hygiene:** Dataset cache lives under **`cache_root`** / `<dataset_id>` / `<directory_id>` / `<model_name>/` (see **`cache_root`** above). With **`cache_format = "v2"`**, each bucket stores `manifest.json`, `tensors/*.bin`, and `meta.db` under `latents/` and `text_embeddings_*` (no automatic migration from v1 — use `--regenerate_cache` after switching format). GPU smokes via `scripts/run_model_smoke.sh` delete `output/` and fixture caches under the default **`cache_root`** by default. Set `KEEP_SMOKE_ARTIFACTS=1` to keep them for inspection.
+**Disk hygiene:** Dataset cache lives under **`cache_root`** / `<dataset_id>` / `<directory_id>` / `<model_name>/` (see **`cache_root`** above). Each bucket stores `manifest.json`, `tensors/*.bin`, and `meta.db` under `latents/` and `text_embeddings_*`. A legacy v1 cache is rejected — use `--regenerate_cache`. GPU smokes via `scripts/run_model_smoke.sh` delete `output/` and fixture caches under the default **`cache_root`** by default. Set `KEEP_SMOKE_ARTIFACTS=1` to keep them for inspection.
 
 Developer notes (POC benchmarks, v2 layout): [performance-cpu-ram](../developer/performance-cpu-ram.md), [dataset and cache](../developer/dataset-and-cache.md).
 

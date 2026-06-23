@@ -1,4 +1,8 @@
-"""Cache format v2: stacked bf16/fp tensors (mmap) + SQLite for per-item metadata."""
+"""Disk cache: stacked bf16/fp tensors (mmap) + SQLite for per-item metadata.
+
+``FORMAT_VERSION`` is stamped into the manifest and checked on load; a mismatch
+clears the cache (forward-compat guard). A legacy ``metadata.db`` cache is rejected.
+"""
 
 from __future__ import annotations
 
@@ -38,7 +42,7 @@ def _storage_dtype(dtype: torch.dtype) -> torch.dtype:
     return dtype
 
 
-class CacheV2:
+class Cache:
     """Disk cache with mmap tensor stacks and JSON metadata in SQLite.
 
     Same public surface as ``Cache`` (legacy v1): ``__len__``, ``__getitem__``,
@@ -67,13 +71,13 @@ class CacheV2:
 
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         if manifest.get("format_version") != FORMAT_VERSION:
-            print("[CACHE v2] Format version mismatch, clearing")
+            print("[CACHE] Format version mismatch, clearing")
             self.clear()
             return
 
         existing_fp = manifest.get("fingerprint")
         if existing_fp != self.fingerprint:
-            print(f"[CACHE v2] Fingerprint changed ({existing_fp} -> {self.fingerprint}), clearing")
+            print(f"[CACHE] Fingerprint changed ({existing_fp} -> {self.fingerprint}), clearing")
             self.clear()
             return
 
@@ -240,12 +244,12 @@ class CacheV2:
         actual = tuple(int(x) for x in tensor.shape)
         if len(actual) != len(spec_shape) or actual[1:] != spec_shape[1:]:
             raise ValueError(
-                f"Cache v2 tensor {key} shape {actual} incompatible with bucket {spec_shape}"
+                f"Cache tensor {key} shape {actual} incompatible with bucket {spec_shape}"
             )
         if actual[0] > spec_shape[0]:
             if len(spec_shape) != 2:
                 raise ValueError(
-                    f"Cache v2 tensor {key} shape {actual} incompatible with bucket {spec_shape}"
+                    f"Cache tensor {key} shape {actual} incompatible with bucket {spec_shape}"
                 )
             self._grow_tensor_dim0(key, actual[0])
             spec_shape = tuple(int(x) for x in self.tensor_specs[key]["shape"])
@@ -406,3 +410,19 @@ class CacheV2:
         if not indices:
             return []
         return [self._build_item(i) for i in indices]
+
+
+def reject_legacy_v1(path: str | Path) -> None:
+    """Raise if *path* holds a legacy v1 (``metadata.db``) cache; no longer supported."""
+    if (Path(path) / "metadata.db").is_file():
+        raise ValueError(
+            f"Legacy cache v1 at {path}; regenerate cache. "
+            "Delete the old cache directory or run with --regenerate_cache."
+        )
+
+
+def open_disk_cache(path: str | Path, fingerprint: str) -> Cache:
+    """Return a ``Cache`` for *path* (raises on a legacy v1 cache)."""
+    path = Path(path)
+    reject_legacy_v1(path)
+    return Cache(path, fingerprint)
