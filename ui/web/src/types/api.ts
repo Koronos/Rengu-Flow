@@ -564,7 +564,6 @@ export interface DatasetSchemaResponse {
 export interface AugmentationCatalogResponse {
   version?: string;
   seed_modes?: string[];
-  variant_sampling_modes?: string[];
   presets?: {
     name: string;
     label: string;
@@ -578,7 +577,6 @@ export interface AugmentationCatalogResponse {
     label: string;
     category: string;
     implemented: boolean;
-    enumerable: boolean;
     parameters: {
       path: string;
       label: string;

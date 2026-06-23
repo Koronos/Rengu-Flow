@@ -71,7 +71,6 @@ Canonical list of **not-yet-implemented** or **deferred** work for Rengu Flow. D
 - Remaining catalogue strategies ([dataset-augmentation.md](developer/dataset-augmentation.md)).
 - Video per-frame augmentation.
 - Enable deferred presets once strategies exist.
-- **`enumerated` sampling** for continuous strategies after explicit discretisation in spec.
 
 ---
 

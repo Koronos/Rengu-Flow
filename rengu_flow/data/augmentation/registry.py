@@ -32,18 +32,9 @@ def horizontal_flip(
     mask: Image.Image | None,
     params: dict[str, Any],
     rng: random.Random,
-    forced_branch: str | None,
-    *,
-    sampling: str = "probability",
 ) -> tuple[Image.Image, Image.Image | None]:
-    if sampling == "enumerated":
-        do_flip = forced_branch == "mirror"
-    elif forced_branch == "mirror":
-        do_flip = True
-    else:
-        prob = float(params.get("probability", 0.5))
-        do_flip = rng.random() < prob
-    if do_flip:
+    prob = float(params.get("probability", 0.5))
+    if rng.random() < prob:
         image = ImageOps.mirror(image)
         if mask is not None:
             mask = ImageOps.mirror(mask)

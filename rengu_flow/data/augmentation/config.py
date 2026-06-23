@@ -14,27 +14,12 @@ from rengu_flow.data.augmentation.names import (
     ALL_PRESET_NAMES,
     DEFERRED_PRESET_NAMES,
     DEFERRED_PRESET_STRATEGIES,
-    ENUMERABLE_STRATEGIES,
     IMPLEMENTED_STRATEGIES,
     KNOWN_STRATEGIES,
     MVP_PRESET_NAMES,
     SEED_MODES,
-    VARIANT_SAMPLING_MODES,
 )
 from rengu_flow.data.augmentation.presets import get_preset_strategies
-
-
-def _normalize_sampling(value: str | None) -> str | None:
-    if value is None:
-        return None
-    v = str(value).strip().lower()
-    if v == "enumerate":
-        v = "enumerated"
-    if v in VARIANT_SAMPLING_MODES:
-        return v
-    raise AugmentationConfigError(
-        f"Invalid sampling mode {value!r}; use 'probability' or 'enumerated'."
-    )
 
 
 def _merge_strategy_entry(
@@ -42,10 +27,7 @@ def _merge_strategy_entry(
 ) -> dict[str, Any]:
     out = deepcopy(base) if base else {}
     for key, val in override.items():
-        if key == "sampling":
-            out["sampling"] = _normalize_sampling(val)
-        else:
-            out[key] = val
+        out[key] = val
     if "enabled" not in out:
         out["enabled"] = True
     return out
@@ -77,7 +59,7 @@ def merge_directory_augmentation(
     global_aug = _global_augmentation_defaults(dataset_config)
     dir_aug = _directory_augmentation_raw(directory_config)
     merged: dict[str, Any] = {}
-    for key in ("enabled", "preset", "seed_mode", "variant_sampling", "max_branches_per_image"):
+    for key in ("enabled", "preset", "seed_mode", "branches_per_image"):
         if key in dir_aug:
             merged[key] = dir_aug[key]
         elif key in global_aug:
@@ -120,20 +102,16 @@ def resolve_augmentation_config(
         raise AugmentationConfigError(
             f"Invalid seed_mode {seed_mode!r}; use {', '.join(sorted(SEED_MODES))}."
         )
-    variant_sampling = _normalize_sampling(raw.get("variant_sampling")) or "probability"
-    max_branches = raw.get("max_branches_per_image")
-    if max_branches is not None:
-        max_branches = int(max_branches)
-        if max_branches < 1:
-            raise AugmentationConfigError("max_branches_per_image must be a positive integer.")
+    branches_per_image = int(raw.get("branches_per_image", 1) or 0)
+    if branches_per_image < 0:
+        raise AugmentationConfigError("branches_per_image must be 0 or a positive integer.")
 
     if not enabled:
         return {
             "enabled": False,
             "preset": preset,
             "seed_mode": seed_mode,
-            "variant_sampling": variant_sampling,
-            "max_branches_per_image": max_branches,
+            "branches_per_image": branches_per_image,
             "strategies": {},
         }
 
@@ -196,18 +174,11 @@ def resolve_augmentation_config(
             raise AugmentationStrategyNotImplementedError(
                 f"Strategy {name!r} is not implemented in the MVP build."
             )
-        params = {k: v for k, v in entry.items() if k != "enabled"}
-        sampling = _normalize_sampling(params.pop("sampling", None))
-        if sampling is None:
-            sampling = variant_sampling
-        if sampling == "enumerated" and name not in ENUMERABLE_STRATEGIES:
-            raise AugmentationConfigError(
-                f"Strategy {name!r} does not support sampling='enumerated'."
-            )
+        # Drop any legacy per-strategy 'sampling' key gracefully; everything is probabilistic now.
+        params = {k: v for k, v in entry.items() if k not in ("enabled", "sampling")}
         resolved_strategies[name] = {
             "enabled": True,
             "params": params,
-            "sampling": sampling,
         }
 
     if enabled and not resolved_strategies:
@@ -219,8 +190,7 @@ def resolve_augmentation_config(
         "enabled": enabled,
         "preset": preset,
         "seed_mode": seed_mode,
-        "variant_sampling": variant_sampling,
-        "max_branches_per_image": max_branches,
+        "branches_per_image": branches_per_image,
         "strategies": resolved_strategies,
     }
 
@@ -231,8 +201,7 @@ def augmentation_fingerprint(resolved: dict[str, Any]) -> str:
         "enabled": resolved.get("enabled"),
         "preset": resolved.get("preset"),
         "seed_mode": resolved.get("seed_mode"),
-        "variant_sampling": resolved.get("variant_sampling"),
-        "max_branches_per_image": resolved.get("max_branches_per_image"),
+        "branches_per_image": resolved.get("branches_per_image"),
         "strategies": resolved.get("strategies"),
     }
     return json.dumps(payload, sort_keys=True, separators=(",", ":"))

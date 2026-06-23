@@ -43,7 +43,6 @@ const mockCatalog: AugmentationCatalog = {
       label: "Color jitter",
       category: "photometric",
       implemented: true,
-      enumerable: false,
       parameters: [{ path: "brightness", label: "Brightness", type: "number", default: 0.05 }],
     },
   ],

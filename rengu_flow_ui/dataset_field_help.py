@@ -79,8 +79,8 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "summary": "deterministic_per_image (cache-safe) or stochastic (not supported with fixed cache).",
         "doc": "docs/user/dataset-augmentation.md",
     },
-    "directory.augmentation.variant_sampling": {
-        "summary": "probability = one random branch; enumerated = all flip branches in cache.",
+    "directory.augmentation.branches_per_image": {
+        "summary": "Augmented copies cached per image besides the pristine original (deterministic seeds). 0 = original only. Higher = more regularization and more cache disk.",
         "doc": "docs/user/dataset-augmentation.md",
     },
     "directory.augmentation.strategies": {

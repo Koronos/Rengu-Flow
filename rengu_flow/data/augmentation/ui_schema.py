@@ -8,11 +8,9 @@ from rengu_flow.data.augmentation.names import (
     ALL_PRESET_NAMES,
     AUG_MVP_VERSION,
     DEFERRED_PRESET_NAMES,
-    ENUMERABLE_STRATEGIES,
     IMPLEMENTED_STRATEGIES,
     MVP_PRESET_NAMES,
     SEED_MODES,
-    VARIANT_SAMPLING_MODES,
 )
 from rengu_flow.data.augmentation.presets import get_preset_strategies
 from rengu_flow.data.augmentation.registry import GEOMETRIC_ORDER, PHOTOMETRIC_ORDER
@@ -21,7 +19,6 @@ from rengu_flow.data.augmentation.registry import GEOMETRIC_ORDER, PHOTOMETRIC_O
 _STRATEGY_PARAM_FIELDS: dict[str, list[dict[str, Any]]] = {
     "horizontal_flip": [
         {"path": "probability", "label": "Probability", "type": "number", "default": 0.5, "min": 0, "max": 1, "step": 0.05},
-        {"path": "sampling", "label": "Sampling", "type": "select", "options": ["probability", "enumerated"], "default": "probability"},
     ],
     "color_jitter": [
         {"path": "brightness", "label": "Brightness", "type": "number", "default": 0.05, "min": 0, "step": 0.01},
@@ -68,11 +65,7 @@ _STRATEGY_PARAM_FIELDS: dict[str, list[dict[str, Any]]] = {
 # UI help for strategy override parameters (shown in dataset augmentation editor).
 _STRATEGY_PARAM_HELP: dict[str, dict[str, str]] = {
     "horizontal_flip": {
-        "probability": "Chance to apply a horizontal mirror when sampling = probability.",
-        "sampling": (
-            "Probability: one random branch per image in cache. "
-            "Enumerated: cache both original and mirrored rows."
-        ),
+        "probability": "Chance to apply a horizontal mirror to each augmented copy.",
     },
     "color_jitter": {
         "brightness": "Max random shift in pixel brightness (fraction of full range).",
@@ -117,7 +110,7 @@ _STRATEGY_PARAM_HELP: dict[str, dict[str, str]] = {
 }
 
 _STRATEGY_SUMMARY_HELP: dict[str, str] = {
-    "horizontal_flip": "Mirror images; enumerated sampling caches both orientations.",
+    "horizontal_flip": "Mirror images at random per its probability.",
     "color_jitter": "Random brightness, contrast, saturation, and hue shifts.",
     "gamma": "Random gamma correction within min/max bounds.",
     "jpeg_simulation": "Re-encode through JPEG at random quality to mimic compression artifacts.",
@@ -168,7 +161,6 @@ def _strategy_catalog_entry(name: str, *, category: str) -> dict[str, Any]:
         "label": name.replace("_", " ").title(),
         "category": category,
         "implemented": name in IMPLEMENTED_STRATEGIES,
-        "enumerable": name in ENUMERABLE_STRATEGIES,
         "help": _STRATEGY_SUMMARY_HELP.get(name, ""),
         "parameters": _parameters_with_help(name),
     }
@@ -202,15 +194,13 @@ def get_augmentation_catalog() -> dict[str, Any]:
     return {
         "version": AUG_MVP_VERSION,
         "seed_modes": sorted(SEED_MODES),
-        "variant_sampling_modes": sorted(VARIANT_SAMPLING_MODES),
         "presets": presets,
         "strategies": strategies,
         "directory_fields": [
             {"path": "enabled", "label": "Enable augmentation", "type": "boolean", "default": False},
             {"path": "preset", "label": "Preset", "type": "select", "default": "none"},
             {"path": "seed_mode", "label": "Seed mode", "type": "select", "default": "deterministic_per_image"},
-            {"path": "variant_sampling", "label": "Variant sampling", "type": "select", "default": "probability"},
-            {"path": "max_branches_per_image", "label": "Max branches per image", "type": "integer", "min": 1},
+            {"path": "branches_per_image", "label": "Branches per image", "type": "integer", "min": 0, "default": 1},
             {"path": "enable_strategies", "label": "Enable strategies", "type": "string_list"},
             {"path": "strategies", "label": "Strategy overrides", "type": "strategy_map"},
         ],

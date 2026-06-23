@@ -76,38 +76,17 @@
         <el-form-item>
           <template #label>
             <span class="label-row">
-              <span>Variant sampling</span>
-              <FieldHelpIcon :field="fieldFor('variant_sampling')" />
-            </span>
-          </template>
-          <el-select
-            :model-value="local.variant_sampling || 'probability'"
-            class="field-full"
-            @update:model-value="(v) => patch({ variant_sampling: String(v) })"
-          >
-            <el-option
-              v-for="mode in catalog?.variant_sampling_modes || ['probability', 'enumerated']"
-              :key="mode"
-              :label="mode"
-              :value="mode"
-            />
-          </el-select>
-        </el-form-item>
-      </el-col>
-      <el-col :xs="24" :sm="12">
-        <el-form-item>
-          <template #label>
-            <span class="label-row">
-              <span>Max branches per image</span>
-              <FieldHelpIcon :field="fieldFor('max_branches_per_image')" />
+              <span>Branches per image</span>
+              <FieldHelpIcon :field="fieldFor('branches_per_image')" />
             </span>
           </template>
           <el-input-number
-            :model-value="numOrNull(local.max_branches_per_image)"
-            :min="1"
+            :model-value="numOrNull(local.branches_per_image)"
+            :min="0"
             :step="1"
+            placeholder="1"
             class="field-narrow"
-            @update:model-value="(v) => patch({ max_branches_per_image: v == null ? undefined : Number(v) })"
+            @update:model-value="(v) => patch({ branches_per_image: v == null ? undefined : Number(v) })"
           />
         </el-form-item>
       </el-col>
@@ -265,8 +244,7 @@ function fieldFor(path: string): SchemaField {
     enabled: "Enable augmentation",
     preset: "Preset",
     seed_mode: "Seed mode",
-    variant_sampling: "Variant sampling",
-    max_branches_per_image: "Max branches per image",
+    branches_per_image: "Branches per image",
     strategies: "Strategy overrides",
   };
   return lookupSchemaField(fieldsByPath.value, path, labels[path] || path);

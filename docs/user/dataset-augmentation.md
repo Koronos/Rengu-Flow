@@ -2,7 +2,7 @@
 
 This page describes dataset augmentation in Rengu Flow: small in-distribution variations on training images to reduce overfitting to a single pixel–caption pair.
 
-**Status: implemented (MVP)** — Tier A–B strategies, core presets, `deterministic_per_image` seeding, and `horizontal_flip` enumeration. **Video is not supported** with augmentation enabled in this release (use `frame_buckets = [1]` only). Presets `photo_cinematic`, `retro_scan`, and `manga_print` are documented but not available until their extra strategies are implemented.
+**Status: implemented (MVP)** — Tier A–B strategies, core presets, `deterministic_per_image` seeding. **Video is not supported** with augmentation enabled in this release (use `frame_buckets = [1]` only). Presets `photo_cinematic`, `retro_scan`, and `manga_print` are documented but not available until their extra strategies are implemented.
 
 Augmentation applies **per directory** (each `[[directory]]` can choose a different profile). It is conceptually similar to multi-scale copies and to tools that apply mild geometric or colour jitter (see [References](#references)).
 
@@ -29,54 +29,17 @@ Supported **modes** (see [developer doc](../developer/dataset-augmentation.md#ca
 
 Tools such as [Kohya sd-scripts](https://github.com/kohya-ss/sd-scripts) document that image augmentations conflict with latent caching in the same way: augmentations apply when reading RGB before the VAE.
 
-## Discrete branches: probability vs enumeration
+## How augmented copies work
 
-With **`probability`** on a discrete strategy (for example `horizontal_flip`), each training row is an **independent** random draw. In a fixed latent cache you can see the **same** branch twice (e.g. two non-flips) and **never** the mirror for that image in one cache build. That wastes slots if you expected diversity but got redundant copies of the same branch. Enumeration fixes **coverage** of discrete outcomes; it does **not** remove the un-augmented view (see below).
+Each training image produces one **pristine original** plus up to **`branches_per_image`** augmented copies in the latent cache. Each copy uses a distinct deterministic seed (derived from the image path + branch index), so the same config always produces the same cache layout.
 
-**Identity vs “real” image:** For flips, the **identity** branch is the image as fed through the pipeline **without** that flip — i.e. the faithful “real” orientation for training. **Enumeration** adds **additional** rows for the other discrete branches (e.g. mirror). You still keep the baseline row; you are not replacing the original with only augmented pixels.
+- **`branches_per_image = 0`** — only the pristine original; augmentation is effectively off for that image.
+- **`branches_per_image = 1`** (default) — one augmented copy besides the original; the cache has 2 rows per image.
+- **`branches_per_image = N`** — N additional augmented copies; the cache has N+1 rows per image.
 
-### Simplest configuration (recommended)
+Each copy is an **independent probabilistic draw**: every strategy (e.g. `horizontal_flip`, `color_jitter`) applies at its configured probability per copy. Raising `branches_per_image` increases cache disk usage proportionally and gives the model more augmented views of each image per epoch.
 
-Use **one** knob unless you need a directory-wide default for several discrete strategies:
-
-1. **Default** — omit both `variant_sampling` and `sampling`: discrete strategies behave like **one random branch per image** (`probability`), same idea as today.
-2. **Guarantee flip + identity in cache** — set only the strategy:
-
-```toml
-[directory.augmentation.strategies.horizontal_flip]
-sampling = "enumerated"
-```
-
-Same string as directory-level mode: **`probability`** \| **`enumerated`** everywhere (no mixed verbs).
-
-3. **Optional** — set **`variant_sampling = "enumerated"`** on `[directory.augmentation]` only if you want **all** enumerable discrete strategies in that directory to default to enumerated expansion without repeating `sampling` under each strategy. Per-strategy **`sampling`** still **overrides** that default for that strategy.
-
-**`max_branches_per_image`** matters only when **several** enumerable strategies could multiply branches; omit it until you hit that case.
-
-**Variant resolution** — full picture:
-
-| Concept | Role |
-|--------|------|
-| **`variant_sampling`** (optional, on `augmentation`) | **`probability`** — one sampled branch per `image_spec` per cache pass (RNG seeded per image when `seed_mode = deterministic_per_image`). **`enumerated`** — materialise **all** documented finite branches per applicable strategy, up to **`max_branches_per_image`**. |
-| **`sampling`** (optional, under a discrete strategy, e.g. `horizontal_flip`) | Same two values: **`probability`** \| **`enumerated`**. Overrides **`variant_sampling`** for that strategy only. |
-| **`max_branches_per_image`** (optional) | Cap on training rows per `image_spec` when multiple enumerable strategies combine (product of branches). Overflow: **documented** priority or **clear error** (developer spec). |
-
-Full example (only if you prefer setting the directory default explicitly):
-
-```toml
-[directory.augmentation]
-enabled = true
-preset = "photo_safe"
-seed_mode = "deterministic_per_image"
-variant_sampling = "enumerated"
-
-[directory.augmentation.strategies.horizontal_flip]
-sampling = "enumerated"
-```
-
-**Note:** Continuous-parameter strategies (e.g. `color_jitter`) do not use this enumeration mechanism unless a future spec adds explicit discretisation; they stay **probability** / bounded sampling.
-
-**`num_repeats`:** Repeats control how often an example appears in the schedule; they are **not** a substitute for enumerating discrete branches under independent RNG — see [developer doc](../developer/dataset-augmentation.md#variant-sampling-and-discrete-branches).
+**`num_repeats`:** Repeats control how often an example appears in the schedule; they are **not** a substitute for more augmented branches — see [developer doc](../developer/dataset-augmentation.md#cache-and-seed-modes).
 
 ## Configuration layout
 
@@ -91,7 +54,7 @@ augmentation = { enabled = true, preset = "easy", seed_mode = "deterministic_per
 
 ### Full control: preset + named strategies with parameters
 
-`strategies` is a table keyed by **strategy name**. Each entry can set `enabled = false` to turn off that piece of the preset, or set numeric fields to **override** strength. Omitted strategies keep the preset’s defaults.
+`strategies` is a table keyed by **strategy name**. Each entry can set `enabled = false` to turn off that piece of the preset, or set numeric fields to **override** strength. Omitted strategies keep the preset's defaults.
 
 ```toml
 [[directory]]
@@ -102,6 +65,7 @@ num_repeats = 1
 enabled = true
 preset = "photo_safe"
 seed_mode = "deterministic_per_image"
+branches_per_image = 2
 
 [directory.augmentation.strategies.horizontal_flip]
 enabled = false
@@ -126,6 +90,7 @@ augmentation = {
   enabled = true,
   preset = "photo_safe",
   seed_mode = "deterministic_per_image",
+  branches_per_image = 2,
   strategies = {
     horizontal_flip = { probability = 0.0 },
     color_jitter = { brightness = 0.05, contrast = 0.05, saturation = 0.04, hue = 0.015 },
@@ -144,7 +109,7 @@ Use **`preset = "none"`** or **`preset = "custom"`** and list only the strategie
 |----------|--------|
 | `color_jitter`, `gamma`, `jpeg_simulation`, `temperature_tint`, `chromatic_aberration` | Tier A (photometric) |
 | `gaussian_noise`, `crop_jitter`, `small_rotation`, `film_grain`, `lab_jitter`, `split_toning` | Tier B |
-| `horizontal_flip` | Geometric; supports `sampling = "enumerated"` |
+| `horizontal_flip` | Geometric; flips at random per its `probability` |
 
 Other names in the [developer catalogue](../developer/dataset-augmentation.md#canonical-strategy-names-and-parameters) are reserved; using them in TOML returns a clear error.
 
@@ -164,10 +129,9 @@ Other names in the [developer catalogue](../developer/dataset-augmentation.md#ca
 | **`enabled`** | Use augmentation for this folder. | `true` / `false` | Inherit or `false` |
 | **`preset`** | Bundle of default enabled strategies and strengths. | See [Presets](#presets) | Inherit or `"none"` |
 | **`seed_mode`** | Randomness vs cache. | `deterministic_per_image`, `stochastic` | `deterministic_per_image` |
-| **`variant_sampling`** | How discrete augmentation branches are resolved into training rows. | `probability` (one sampled branch per image where applicable), `enumerated` (materialise all documented finite branches, subject to `max_branches_per_image`) | `probability` |
-| **`max_branches_per_image`** | Cap on combined discrete branches per `image_spec` when multiple enumerable strategies interact. | Positive integer | Implementation-defined default or omitted (no cap) |
+| **`branches_per_image`** | Augmented copies cached per image besides the pristine original. 0 = original only; raises cache disk proportionally. | Integer ≥ 0 | `1` |
 | **`strategies`** | Table of **named** strategy blocks; each overrides or disables part of the preset. Keys are **strings** (`snake_case`). | Map name → parameters | Empty (use preset only) |
-| **`enable_strategies`** | Optional **list of strings** (strategy names) to restrict a preset, e.g. `["color_jitter", "gamma"]`. Intersects with the preset’s default set. Omit if unused. | List of strings | omitted |
+| **`enable_strategies`** | Optional **list of strings** (strategy names) to restrict a preset, e.g. `["color_jitter", "gamma"]`. Intersects with the preset's default set. Omit if unused. | List of strings | omitted |
 
 Prefer **`strategies`** when you need per-parameter control; use **`enable_strategies`** only as a compact filter on preset strategy names.
 
@@ -177,7 +141,7 @@ Each name maps to one logical transform. Parameters are examples; exact keys and
 
 | Strategy name | What you configure (examples) |
 |---------------|-------------------------------|
-| **`horizontal_flip`** | `probability`, `enabled`, or **`sampling`** (`probability` \| `enumerated`) — see [Discrete branches](#discrete-branches-probability-vs-enumeration) |
+| **`horizontal_flip`** | `probability`, `enabled` — flips at random per the probability per branch |
 | **`vertical_flip`** | `probability` |
 | **`color_jitter`** | `brightness`, `contrast`, `saturation`, `hue` (max delta per application, torch-style factors) |
 | **`gamma`** | `gamma_min`, `gamma_max` or `exposure_ev_range` |
@@ -193,13 +157,14 @@ Each name maps to one logical transform. Parameters are examples; exact keys and
 
 On the **Augmentation** tab, choosing a **preset** expands its default strategies in the form so you can see each transform, toggle **Enabled**, and edit parameters (same controls as per-folder customization). Overrides are stored under `strategies` in TOML; values that match the preset default are omitted on save. Changing the preset clears previous per-strategy overrides. Use **Add strategy** to attach extra transforms from the catalog (`preset = "none"` / `"custom"` starts from an empty list).
 
+**Branches per image** sets how many augmented copies are cached per image (default 1). Set to 0 to cache only the original without any augmented copy.
+
 ## Presets vs `strategies` (merge rules)
 
 1. Start from the **preset** definition (which strategies are on by default and their default strengths).
 2. If **`enable_strategies`** is set, keep only strategies whose **name** appears in that string list (intersection with the preset).
-3. Merge **`strategies`** on top: any named block **overrides** that strategy’s parameters; `enabled = false` **disables** it even if the preset would enable it.
+3. Merge **`strategies`** on top: any named block **overrides** that strategy's parameters; `enabled = false` **disables** it even if the preset would enable it.
 4. If **`preset`** is `none` / `custom`, only strategies listed under **`strategies`** run (each should be explicitly configured or use documented defaults for that name).
-5. **`variant_sampling`** on the **`augmentation`** table sets the default for discrete branch expansion (`probability` \| `enumerated`); per-strategy **`sampling`** (where defined, e.g. `horizontal_flip`) **overrides** that default for that strategy only. Same value vocabulary at both levels.
 
 Everything is keyed by **string names**, not numeric indices.
 
@@ -207,7 +172,7 @@ Everything is keyed by **string names**, not numeric indices.
 
 Presets group default **named** strategies with conservative strengths. Implementations expand a preset to a full `strategies` map internally. Details of default numbers are in the [developer doc](../developer/dataset-augmentation.md#domain-presets-default-strategy-sets).
 
-### General “catch-all” presets (mixed content)
+### General "catch-all" presets (mixed content)
 
 | Preset | Typical use |
 |--------|-------------|

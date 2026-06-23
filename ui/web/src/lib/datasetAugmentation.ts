@@ -17,7 +17,6 @@ export interface AugStrategyCatalogEntry {
   label: string;
   category: "geometric" | "photometric" | string;
   implemented: boolean;
-  enumerable: boolean;
   help?: string;
   parameters: AugParamField[];
 }
@@ -59,7 +58,6 @@ export interface AugPresetCatalogEntry {
 export interface AugmentationCatalog {
   version?: string;
   seed_modes?: string[];
-  variant_sampling_modes?: string[];
   presets?: AugPresetCatalogEntry[];
   strategies?: AugStrategyCatalogEntry[];
 }
@@ -68,8 +66,7 @@ export interface AugmentationConfig {
   enabled?: boolean;
   preset?: string;
   seed_mode?: string;
-  variant_sampling?: string;
-  max_branches_per_image?: number;
+  branches_per_image?: number;
   enable_strategies?: string[];
   strategies?: Record<string, Record<string, unknown>>;
 }
@@ -78,7 +75,6 @@ export const DEFAULT_AUGMENTATION: AugmentationConfig = {
   enabled: false,
   preset: "none",
   seed_mode: "deterministic_per_image",
-  variant_sampling: "probability",
 };
 
 function parseJsonObject(raw: unknown): Record<string, unknown> | null {
@@ -118,9 +114,8 @@ export function parseAugmentationConfig(raw: unknown): AugmentationConfig | null
   if ("enabled" in obj) config.enabled = Boolean(obj.enabled);
   if (typeof obj.preset === "string") config.preset = obj.preset;
   if (typeof obj.seed_mode === "string") config.seed_mode = obj.seed_mode;
-  if (typeof obj.variant_sampling === "string") config.variant_sampling = obj.variant_sampling;
-  if (obj.max_branches_per_image != null && obj.max_branches_per_image !== "") {
-    config.max_branches_per_image = Number(obj.max_branches_per_image);
+  if (obj.branches_per_image != null && obj.branches_per_image !== "") {
+    config.branches_per_image = Number(obj.branches_per_image);
   }
   if (Array.isArray(obj.enable_strategies)) {
     config.enable_strategies = obj.enable_strategies.map(String);
@@ -150,9 +145,8 @@ export function serializeAugmentationConfig(
   if (config.enabled != null) out.enabled = config.enabled;
   if (config.preset) out.preset = config.preset;
   if (config.seed_mode) out.seed_mode = config.seed_mode;
-  if (config.variant_sampling) out.variant_sampling = config.variant_sampling;
-  if (config.max_branches_per_image != null && Number.isFinite(config.max_branches_per_image)) {
-    out.max_branches_per_image = config.max_branches_per_image;
+  if (config.branches_per_image != null && Number.isFinite(config.branches_per_image)) {
+    out.branches_per_image = config.branches_per_image;
   }
   if (config.enable_strategies?.length) {
     out.enable_strategies = [...config.enable_strategies];
@@ -173,9 +167,8 @@ export function serializeGlobalAugmentation(
   if (config.enabled != null) payload.enabled = config.enabled;
   if (config.preset) payload.preset = config.preset;
   if (config.seed_mode && config.enabled) payload.seed_mode = config.seed_mode;
-  if (config.variant_sampling && config.enabled) payload.variant_sampling = config.variant_sampling;
-  if (config.max_branches_per_image != null && config.enabled) {
-    payload.max_branches_per_image = config.max_branches_per_image;
+  if (config.branches_per_image != null && Number.isFinite(config.branches_per_image) && config.enabled) {
+    payload.branches_per_image = config.branches_per_image;
   }
   if (config.enable_strategies?.length && config.enabled) {
     payload.enable_strategies = config.enable_strategies;
@@ -205,9 +198,8 @@ export function serializeDirectoryAugmentation(
       delete out.preset;
     }
     if (out.seed_mode === global.seed_mode) delete out.seed_mode;
-    if (out.variant_sampling === global.variant_sampling) delete out.variant_sampling;
-    if (out.max_branches_per_image === global.max_branches_per_image) {
-      delete out.max_branches_per_image;
+    if (out.branches_per_image === global.branches_per_image) {
+      delete out.branches_per_image;
     }
     if (
       Array.isArray(out.enable_strategies) &&
@@ -234,10 +226,7 @@ export function shouldWriteGlobalAugmentation(config: AugmentationConfig): boole
   if (config.enable_strategies?.length) return true;
   if (config.strategies && Object.keys(config.strategies).length > 0) return true;
   if (config.seed_mode && config.seed_mode !== DEFAULT_AUGMENTATION.seed_mode) return true;
-  if (config.variant_sampling && config.variant_sampling !== DEFAULT_AUGMENTATION.variant_sampling) {
-    return true;
-  }
-  if (config.max_branches_per_image != null && Number.isFinite(config.max_branches_per_image)) {
+  if (config.branches_per_image != null && Number.isFinite(config.branches_per_image)) {
     return true;
   }
   return false;
@@ -256,13 +245,7 @@ export function shouldWriteDirectoryAugmentation(
   if (config.seed_mode && config.seed_mode !== (globalConfig.seed_mode ?? DEFAULT_AUGMENTATION.seed_mode)) {
     return true;
   }
-  if (
-    config.variant_sampling &&
-    config.variant_sampling !== (globalConfig.variant_sampling ?? DEFAULT_AUGMENTATION.variant_sampling)
-  ) {
-    return true;
-  }
-  if (config.max_branches_per_image != null && Number.isFinite(config.max_branches_per_image)) {
+  if (config.branches_per_image != null && Number.isFinite(config.branches_per_image)) {
     return true;
   }
   return false;
@@ -278,13 +261,7 @@ export function directoryAugmentationNeedsFullEditor(
   if (config.seed_mode && config.seed_mode !== (globalConfig.seed_mode ?? DEFAULT_AUGMENTATION.seed_mode)) {
     return true;
   }
-  if (
-    config.variant_sampling &&
-    config.variant_sampling !== (globalConfig.variant_sampling ?? DEFAULT_AUGMENTATION.variant_sampling)
-  ) {
-    return true;
-  }
-  if (config.max_branches_per_image != null && Number.isFinite(config.max_branches_per_image)) {
+  if (config.branches_per_image != null && Number.isFinite(config.branches_per_image)) {
     return true;
   }
   return false;

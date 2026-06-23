@@ -24,20 +24,13 @@ Do **not** expose numeric strategy indices in config files or user docs.
 
 | Mode | Behaviour | Latent cache |
 |------|-----------|--------------|
-| **`deterministic_per_image`** | Hash or path-derived seed; one draw per `(image_spec, augmentation_config_fingerprint)` | Compatible: same tensor every run if config unchanged. |
+| **`deterministic_per_image`** | Hash or path-derived seed; one draw per `(image_spec, branch_index, augmentation_config_fingerprint)` | Compatible: same tensor every run if config unchanged. |
 | **`stochastic`** | New draw each time the image is loaded for encoding | Incompatible with **fixed** precomputed latent cache for that step; requires on-the-fly encode or cache invalidation per epoch. |
 | **Offline** | User stores augmented copies as separate files | Standard cache; no special RNG in pipeline. |
 
-**Fingerprinting:** Hash the **fully merged** resolved strategy map (preset defaults + user `strategies` overrides). Include **`variant_sampling`**, per-strategy **`sampling`** (where present), and any **enumerated branch keys** implied by the resolved config, so changing between probability and enumeration invalidates cached latents. Include in `new_fingerprint_args` for `_map_and_cache` / `Cache`.
+**Fingerprinting:** Hash the **fully merged** resolved strategy map (preset defaults + user `strategies` overrides) and `branches_per_image`, so changing either invalidates cached latents. Include in `new_fingerprint_args` for `_map_and_cache` / `Cache`.
 
 **Reference:** Kohya documents tension between `--cache_latents` and image augmentations; same principle applies here.
-
-### Interaction with `seed_mode`
-
-- **`deterministic_per_image`:** In **`probability`** variant resolution, one RNG draw per `(image_spec, augmentation fingerprint)` as today. In **`enumerated`** resolution, each materialised branch is a distinct row; seeds should be **stable per branch** (e.g. `(image_spec, variant_key)`) so caches are reproducible.
-- **`stochastic`:** Still incompatible with a **fixed** precomputed latent cache for those steps; enumeration does not remove the need for fresh encodes each load if the pipeline stays stochastic.
-
-See [Variant sampling and discrete branches](#variant-sampling-and-discrete-branches) for merge rules and which strategies may use **`enumerated`** per-strategy **`sampling`**.
 
 ## TOML schema (implementation contract)
 
@@ -58,8 +51,7 @@ Each `[[directory]]` may include an **`augmentation`** table:
 | `enabled` | bool | |
 | `preset` | string | Preset name; `none` means no preset defaults (only `strategies` if any). |
 | `seed_mode` | string | `deterministic_per_image` \| `stochastic` |
-| `variant_sampling` | string | Optional. `probability` \| `enumerated` — how discrete branches become training rows (see [Variant sampling and discrete branches](#variant-sampling-and-discrete-branches)). Default: `probability`. |
-| `max_branches_per_image` | int | Optional cap on the number of latent rows per `image_spec` when multiple enumerable strategies combine; if the product exceeds the cap, define **deterministic priority** or **error** (document in implementation). |
+| `branches_per_image` | int | Number of augmented copies generated per image besides the pristine original. 0 = original only; default 1. Each branch uses a distinct deterministic seed `(image_spec, branch_index)`. |
 | `strategies` | map | Keys = **canonical strategy name strings** (see below); values = parameter tables. |
 | `enable_strategies` | [string] | Optional allow-list of strategy names to intersect with a preset; each entry must be a known **`snake_case`** identifier. |
 
@@ -70,26 +62,16 @@ Each `[[directory]]` may include an **`augmentation`** table:
 3. If **`preset`** is `none` / missing and **`strategies`** is non-empty → only named strategies with `enabled != false` run (defaults per strategy from schema).
 4. If **`preset`** is `custom` → treat like `none` for bundling; user supplies **`strategies`** explicitly.
 5. Resolve merge conflicts: user table wins. Validate unknown strategy names → error with suggestion list.
-6. If **`enable_strategies`** is set (non-empty list of strings): intersect the resolved preset’s strategy **names** with this list (unknown names → error). Empty intersection → validation error or warning per product rules.
-7. Resolve **`variant_sampling`** (directory-level default) with per-strategy **`sampling`** overrides on strategies that declare it (e.g. `horizontal_flip`). Per-strategy wins when set; otherwise inherit directory **`variant_sampling`** for that strategy’s discrete resolution. **`sampling = "enumerated"`** on a strategy that has **no** documented finite branch set → **validation error**.
+6. If **`enable_strategies`** is set (non-empty list of strings): intersect the resolved preset's strategy **names** with this list (unknown names → error). Empty intersection → validation error or warning per product rules.
+7. For each enabled strategy, each branch draw (up to `branches_per_image`) is an independent probabilistic sample seeded by `(image_spec, branch_index)`. Strategies with a `probability` param flip at that probability independently per branch.
 
-### Variant sampling and discrete branches
+### Branch expansion and cache rows
 
-This section defines the **implementation contract** for discrete augmentation branches (complements the [user doc](../user/dataset-augmentation.md#discrete-branches-probability-vs-enumeration)).
+The latent cache stores `branches_per_image + 1` rows per image:
+- Row 0: pristine original (no augmentation applied).
+- Rows 1…N: augmented branches, each independently drawn.
 
-| Level | Key | Values | Role |
-|-------|-----|--------|------|
-| `augmentation` | **`variant_sampling`** | `probability` \| `enumerated` | Global default for how finite discrete strategies expand into rows: sample one branch vs enumerate all documented branches (subject to `max_branches_per_image`). |
-| `augmentation` | **`max_branches_per_image`** | positive int, optional | Limits the product of branches across enumerable strategies per `image_spec`; overflow handling must be **documented** (priority order or error). |
-| `strategies.<name>` | **`sampling`** (where supported) | `probability` \| `enumerated` | Per-strategy override; same values as **`variant_sampling`**. Only catalogue entries with a **finite** branch set may use **`enumerated`**. |
-
-**Optional synonyms (implementations may accept, not required):** Per-strategy **`sampling = "enumerate"`** as an alias for **`"enumerated"`** (shorter); **`discrete_branch_mode`** with `sample_one` \| `enumerate_all` mapped to **`variant_sampling`** / **`sampling`** — keeps older drafts working.
-
-**Which strategies support `enumerated`:** Only strategies with a **documented finite** discrete set in this spec (e.g. `horizontal_flip` → identity + mirror). **Continuous** parameter spaces (`color_jitter`, unbounded rotations, etc.) do **not** support **`enumerated`** unless a future spec adds an explicit discretisation grid.
-
-**Dataset / cache implications:** The latent path (`latents_map_fn`, `SizeBucketDataset.cache_latents`, `iteration_order`) must allow **multiple rows per `image_spec`** keyed by **`(image_spec, variant_key)`** or equivalent metadata — not a single `latents_idx` per image only. Batching must reference each branch without treating two enumerated branches as duplicate “copies” unless `num_repeats` explicitly increases multiplicity.
-
-**Merge with presets:** Presets imply **`variant_sampling = probability`** unless the merged directory table sets otherwise. Strategy-level **`sampling`** overrides only that strategy’s expansion behaviour.
+The metadata path (`latents_map_fn`, `SizeBucketDataset.cache_latents`, `iteration_order`) must allow **multiple rows per `image_spec`** keyed by **`(image_spec, branch_index)`** — not a single `latents_idx` per image only. Batching must reference each branch without treating branches as duplicate copies unless `num_repeats` explicitly increases multiplicity.
 
 ## Implemented strategies (MVP code)
 
@@ -99,7 +81,7 @@ This section defines the **implementation contract** for discrete augmentation b
 | `rengu_flow/data/augmentation/presets.py` | Preset → default strategies |
 | `rengu_flow/data/augmentation/registry.py` | PIL implementations |
 | `rengu_flow/data/augmentation/apply.py` | `apply_augmentation()` |
-| `rengu_flow/data/augmentation/branches.py` | Enumerated variant keys |
+| `rengu_flow/data/augmentation/branches.py` | Branch index → seed derivation |
 | `rengu_flow/data/preprocess_media.py` | Hook before crop/resize |
 | `rengu_flow/data/dataset.py` | Metadata rows + latent fingerprint |
 
@@ -109,8 +91,6 @@ This section defines the **implementation contract** for discrete augmentation b
 
 **Deferred presets (validation error if enabled):** `photo_cinematic`, `retro_scan`, `manga_print`.
 
-**`max_branches_per_image`:** If the product of enumerated branches exceeds the cap, configuration fails with `AugmentationConfigError` (no silent truncation).
-
 ## Canonical strategy names and parameters
 
 **Status:** Names not in the MVP list above are specified here but not yet implemented at runtime.
@@ -119,7 +99,7 @@ Each **`name`** is the only public identifier (TOML key under `strategies`). Def
 
 | name | Parameters (documented contract) |
 |------|--------------------------------|
-| `horizontal_flip` | `probability` ∈ [0, 1], or `enabled` bool; **`sampling`**: `probability` \| `enumerated` (two branches: identity, horizontal mirror). Per-strategy **`sampling`** overrides directory **`variant_sampling`** for this strategy (see merge step 7). |
+| `horizontal_flip` | `probability` ∈ [0, 1], or `enabled` bool; flips at random per the probability on each branch draw. |
 | `vertical_flip` | `probability` |
 | `color_jitter` | `brightness`, `contrast`, `saturation`, `hue` — non-negative max **delta** per op (torch-style), **not** absolute 0–255 |
 | `gamma` | `gamma_min`, `gamma_max` **or** `exposure_ev_range` |
@@ -208,8 +188,8 @@ Presets are defined as **enabled strategy names (strings) + default parameter st
 1. **Done (MVP)** Parse `augmentation` with **`strategies`** as named maps; validate keys against canonical names.
 2. **Done (MVP)** Preset → default strategy map merge with user `strategies`.
 3. **Done (MVP)** `apply_augmentation()` in `PreprocessMediaFile` (`rengu_flow/data/preprocess_media.py`) before crop/resize.
-4. **Done (MVP)** Fingerprint resolved config in `SizeBucketDataset.cache_latents` (`aug_mvp=1` + JSON fingerprint).
-5. **Done (MVP)** Metadata expansion with `image_spec` variant suffix; separate latent rows per branch.
+4. **Done (MVP)** Fingerprint resolved config in `SizeBucketDataset.cache_latents` (`aug_mvp=1` + JSON fingerprint including `branches_per_image`).
+5. **Done (MVP)** Metadata expansion with `image_spec` branch suffix; separate latent rows per branch (pristine + augmented copies).
 6. **Done (MVP)** Tests in `tests/test_augmentation.py`.
 7. **Future** Remaining catalogue strategies; video per-frame augmentation; deferred presets.
 

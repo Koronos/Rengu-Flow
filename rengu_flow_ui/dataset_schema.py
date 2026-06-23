@@ -214,12 +214,12 @@ def get_augmentation_directory_fields() -> list[dict[str, Any]]:
             show_if_set=True,
         ),
         _field(
-            "variant_sampling",
-            "Variant sampling",
-            "select",
-            default="probability",
-            options=["probability", "enumerated"],
-            description="How discrete strategies (e.g. flip) expand into cache rows.",
+            "branches_per_image",
+            "Branches per image",
+            "integer",
+            default=1,
+            min=0,
+            description="Augmented copies generated per image besides the pristine original. 0 = original only.",
             show_if_set=True,
         ),
         _field(

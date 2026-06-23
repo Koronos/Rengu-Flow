@@ -7,7 +7,6 @@ from typing import Any
 
 from PIL import Image
 
-from rengu_flow.data.augmentation.branches import parse_variant_key
 from rengu_flow.data.augmentation.registry import (
     GEOMETRIC_ORDER,
     PHOTOMETRIC_ORDER,
@@ -33,12 +32,15 @@ def apply_augmentation(
     resolved: dict[str, Any],
     variant_key: str | None = None,
 ) -> tuple[Image.Image, Image.Image | None]:
-    """Apply active strategies in fixed order (geometric → photometric)."""
-    if not resolved.get("enabled") or not resolved.get("strategies"):
+    """Apply active strategies in fixed order (geometric → photometric).
+
+    ``variant_key is None`` keys the pristine original — it is returned untouched even when
+    augmentation is enabled. Only the augmented copies ("1".."N") run the strategy stack.
+    """
+    if variant_key is None or not resolved.get("enabled") or not resolved.get("strategies"):
         return pil_image, mask
 
     strategies = resolved["strategies"]
-    forced = parse_variant_key(variant_key) if variant_key else {}
     rng = random.Random(seed)
     image = pil_image
     mask_out = mask
@@ -48,18 +50,7 @@ def apply_augmentation(
             continue
         entry = strategies[name]
         params = entry.get("params") or {}
-        fn = _GEOMETRIC_FNS[name]
-        if name == "horizontal_flip":
-            image, mask_out = fn(
-                image,
-                mask_out,
-                params,
-                rng,
-                forced.get(name),
-                sampling=entry.get("sampling", "probability"),
-            )
-        else:
-            image, mask_out = fn(image, mask_out, params, rng)
+        image, mask_out = _GEOMETRIC_FNS[name](image, mask_out, params, rng)
 
     image = _to_rgb(image)
     for name in PHOTOMETRIC_ORDER:

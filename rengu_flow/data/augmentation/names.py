@@ -20,9 +20,6 @@ IMPLEMENTED_STRATEGIES = frozenset(
     }
 )
 
-# Strategies with a documented finite branch set (may use sampling=enumerated).
-ENUMERABLE_STRATEGIES = frozenset({"horizontal_flip"})
-
 # Presets that ship in config but require not-yet-implemented strategies.
 DEFERRED_PRESET_STRATEGIES: dict[str, frozenset[str]] = {
     "photo_cinematic": frozenset(
@@ -102,5 +99,4 @@ DEFERRED_PRESET_NAMES = frozenset({"photo_cinematic", "retro_scan", "manga_print
 ALL_PRESET_NAMES = MVP_PRESET_NAMES | DEFERRED_PRESET_NAMES
 
 SEED_MODES = frozenset({"deterministic_per_image", "stochastic"})
-VARIANT_SAMPLING_MODES = frozenset({"probability", "enumerated"})
 AUG_MVP_VERSION = "aug_mvp=1"
