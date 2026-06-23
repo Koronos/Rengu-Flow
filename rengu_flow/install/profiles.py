@@ -15,6 +15,9 @@ PROFILE_EXTRAS: dict[str, str | None] = {
     # git source, so uv installs and version-manages it like any other extra (lockfile-pinned).
     "kaon": "kaon",
     "prep": "prep",
+    # On-demand, Windows-only (see prep/onnx_runtime.py). Empty extra off Windows — never put it in
+    # ALL_PROFILE_NAMES or `rengu init all`, whose import-check would then fail on non-Windows.
+    "onnx-cuda": "onnx-cuda",
 }
 
 PROFILE_LABELS: dict[str, str] = {
@@ -27,6 +30,7 @@ PROFILE_LABELS: dict[str, str] = {
     "dev": "Development (pytest, httpx)",
     "kaon": "K-Optimizers (Adakaon, AdaMuon, KProdigy, Autokaon, Lion, AdaPNM, AdaBelief, AdamP, ADOPT, ScheduleFree, Lookahead, SAM, MSAM, Nekaon)",
     "prep": "Dataset preparation (taggers, captioners, watermark cleanup)",
+    "onnx-cuda": "ONNX GPU runtime (CUDA 12, Windows)",
 }
 
 PROFILE_DESCRIPTIONS: dict[str, str] = {
@@ -39,6 +43,7 @@ PROFILE_DESCRIPTIONS: dict[str, str] = {
     "dev": "pytest and httpx for development.",
     "kaon": "Memory-efficient optimizers (Adakaon, AdaMuon, KProdigy, Autokaon, Lion, AdaPNM, AdaBelief, AdamP, ADOPT, ScheduleFree, Lookahead, SAM, MSAM, Nekaon) from github.com/Koronos/K-Optimizers.",
     "prep": "ONNX taggers, JoyCaption/ToriiGate captioners, YOLO+LaMa watermark cleanup for `rengu prep`.",
+    "onnx-cuda": "CUDA 12 runtime DLLs (cublas/cudnn/cudart) so the ONNX tagger runs on GPU on native Windows.",
 }
 
 ALL_PROFILE_NAMES = ("base", "ui", "cosmos", "optim", "lycoris", "dev", "kaon", "prep")
@@ -54,6 +59,7 @@ PROFILE_IMPORT_CHECKS: dict[str, tuple[str, ...]] = {
     "dev": ("pytest",),
     "kaon": ("kaon",),
     "prep": ("onnxruntime", "transformers", "ultralytics"),
+    "onnx-cuda": ("nvidia.cudnn", "nvidia.cublas"),
 }
 
 # Profile -> pip/git requirement specs that uv cannot install via pyproject extras. Installed

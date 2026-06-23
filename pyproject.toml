@@ -82,6 +82,20 @@ prep = [
     "bitsandbytes",
     "ultralytics>=8.3",
 ]
+# Windows-only CUDA 12 runtime for the ONNX prep models (tagger / LaMa). onnxruntime-gpu is built
+# against CUDA 12, but rengu's torch is cu13, so on native Windows the cu12 DLLs it needs
+# (cublasLt64_12, cudnn, cudart) are absent and the CUDAExecutionProvider silently falls back to
+# CPU. Installed on demand only when an ONNX model actually runs on Windows (see
+# rengu_flow/prep/onnx_runtime.py); Linux/WSL provides the cu12 runtime via the system CUDA /
+# manylinux wheels, so the markers leave it empty there.
+onnx-cuda = [
+    "nvidia-cuda-runtime-cu12~=12.0; sys_platform == 'win32'",
+    "nvidia-cuda-nvrtc-cu12~=12.0; sys_platform == 'win32'",
+    "nvidia-cublas-cu12~=12.0; sys_platform == 'win32'",
+    "nvidia-cufft-cu12~=11.0; sys_platform == 'win32'",
+    "nvidia-curand-cu12~=10.0; sys_platform == 'win32'",
+    "nvidia-cudnn-cu12~=9.0; sys_platform == 'win32'",
+]
 dev = [
     "pytest>=7.0",
     "httpx>=0.27.0",

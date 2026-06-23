@@ -330,6 +330,13 @@ class OnnxTagger:
         if self._session is not None:
             return
 
+        # Windows-only, on demand: install + expose the cu12 runtime so the CUDAExecutionProvider can
+        # load (onnxruntime-gpu is cu12, our torch is cu13). No-op off Windows. Must run before the
+        # session is created, so the GPU tagger only pulls ~1 GB of CUDA libs the first time it runs.
+        from rengu_flow.prep.onnx_runtime import ensure_onnx_cuda_runtime
+
+        ensure_onnx_cuda_runtime()
+
         import onnxruntime as ort  # lazy — never at module top
 
         available = ort.get_available_providers()
