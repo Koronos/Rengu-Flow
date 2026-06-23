@@ -41,8 +41,11 @@ def _micro_batches(engine, gas, target):
     return iter([((feat,), (target,)) for _ in range(gas)])
 
 
-def test_resolve_backend_default_per_os():
+def test_resolve_backend_default_per_os(monkeypatch):
     import sys
+    # Assert the genuine per-OS default: clear RENGU_ENGINE so this is not polluted by another
+    # test in the same xdist worker (the --engine flag sets os.environ['RENGU_ENGINE'] directly).
+    monkeypatch.delenv("RENGU_ENGINE", raising=False)
     assert resolve_backend({}) == ("accelerate" if sys.platform == "win32" else "deepspeed")
     assert resolve_backend({"engine": "deepspeed"}) == "deepspeed"
 

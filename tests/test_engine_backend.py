@@ -5,6 +5,14 @@ import sys
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _clear_engine_env(monkeypatch):
+    # Engine selection lets RENGU_ENGINE override the config (by design, for the --engine flag).
+    # Clear it before each test so these assert against the explicit config and are immune to
+    # env pollution leaking from another test in the same xdist worker.
+    monkeypatch.delenv("RENGU_ENGINE", raising=False)
+
+
 def test_select_backend_resolution(monkeypatch):
     from rengu_flow.engine import select_backend
     monkeypatch.delenv("RENGU_ENGINE", raising=False)
