@@ -174,8 +174,10 @@
                 </thead>
                 <tbody>
                   <tr v-for="col in visibleHparamCols" :key="col.key" :class="{ varies: col.varies }">
-                    <td class="k-col">{{ col.key }}</td>
-                    <td v-for="r in selectedRuns" :key="r.run_id">{{ fmt(flatHparams[r.run_id]?.[col.key]) }}</td>
+                    <td class="k-col" :class="{ nested: col.nested }">
+                      <span v-if="col.nested" class="k-path">{{ col.prefix }}</span>{{ col.leaf }}
+                    </td>
+                    <td v-for="r in selectedRuns" :key="r.run_id">{{ fmt(r.hparams[col.key]) }}</td>
                   </tr>
                   <tr v-if="!visibleHparamCols.length">
                     <td :colspan="selectedRuns.length + 1" class="muted">No differing hyperparameters</td>
@@ -532,45 +534,25 @@ function resetAllZoom() {
   resetToken.value += 1;
 }
 
-// Flatten nested objects/arrays into dotted/indexed leaf keys so each scalar
-// gets its own table row instead of an unreadable inline JSON blob.
-function flatten(value: unknown, prefix: string, out: Record<string, unknown>): void {
-  if (value === null || typeof value !== "object") {
-    out[prefix] = value;
-    return;
-  }
-  const entries = Array.isArray(value)
-    ? value.map((v, i) => [`${prefix}[${i}]`, v] as const)
-    : Object.entries(value as Record<string, unknown>).map(
-        ([k, v]) => [prefix ? `${prefix}.${k}` : k, v] as const
-      );
-  if (!entries.length) {
-    out[prefix] = Array.isArray(value) ? "[]" : "{}";
-    return;
-  }
-  for (const [k, v] of entries) flatten(v, k, out);
+// hparams arrive pre-flattened to dotted/indexed keys from the backend (rengu_track
+// flatten_hparams). Split each key into its nested path prefix + leaf so nested-derived
+// rows can be visually marked (dimmed path, indented).
+function keyParts(key: string): { prefix: string; leaf: string; nested: boolean } {
+  const m = key.match(/^(.*[.\]])([^.\]]+)$/);
+  if (!m) return { prefix: "", leaf: key, nested: false };
+  return { prefix: m[1], leaf: m[2], nested: true };
 }
-
-const flatHparams = computed<Record<string, Record<string, unknown>>>(() => {
-  const out: Record<string, Record<string, unknown>> = {};
-  for (const r of selectedRuns.value) {
-    const flat: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(r.hparams || {})) flatten(v, k, flat);
-    out[r.run_id] = flat;
-  }
-  return out;
-});
 
 const hparamCols = computed(() => {
   const seen = new Map<string, Set<string>>();
   for (const r of selectedRuns.value) {
-    for (const [k, v] of Object.entries(flatHparams.value[r.run_id] || {})) {
+    for (const [k, v] of Object.entries(r.hparams || {})) {
       if (!seen.has(k)) seen.set(k, new Set());
       seen.get(k)!.add(JSON.stringify(v));
     }
   }
   return [...seen.entries()]
-    .map(([key, vals]) => ({ key, varies: vals.size > 1 }))
+    .map(([key, vals]) => ({ key, varies: vals.size > 1, ...keyParts(key) }))
     .sort((a, b) => a.key.localeCompare(b.key));
 });
 const visibleHparamCols = computed(() =>
@@ -919,6 +901,16 @@ function hardwareLabel(r: CompareRunRow): string {
   position: sticky;
   left: 0;
   background: var(--el-bg-color);
+}
+/* Nested-derived rows (dotted/indexed keys): indented, with the parent path dimmed so
+   it's clear the value came from a nested config object rather than a top-level param. */
+.cmp-table .k-col.nested {
+  padding-left: 18px;
+  box-shadow: inset 3px 0 0 var(--el-color-info-light-5);
+}
+.cmp-table .k-col.nested .k-path {
+  color: var(--el-text-color-secondary);
+  font-weight: 400;
 }
 /* Differing hyperparameters: a subtle on-brand cyan wash (was a muddy warning brown). */
 .cmp-table tr.varies td {

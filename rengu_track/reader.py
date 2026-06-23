@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from rengu_track.events import read_events
-from rengu_track.run import MANIFEST_NAME, read_manifest
+from rengu_track.run import MANIFEST_NAME, flatten_hparams, read_manifest
 
 # Preview frames are written by the trainer as ``step{NNNNNNNN}_{prompt}.ext`` (step first,
 # zero-padded, so a file browser sorts them chronologically). Parsing here — not in the UI —
@@ -198,7 +198,9 @@ def run_row(run_dir: str | Path) -> dict[str, Any] | None:
         "status": manifest.status,
         "created_at": manifest.created_at,
         "updated_at": manifest.updated_at,
-        "hparams": manifest.hparams_flat,
+        # Re-derive from config so runs whose manifest was written before the list-aware
+        # flattener still render nested list-of-dicts as rows; fall back to the stored flat.
+        "hparams": flatten_hparams(manifest.config) if manifest.config else manifest.hparams_flat,
         "summary": manifest.summary,
         "system_summary": manifest.system_summary,
         "lineage": manifest.lineage,

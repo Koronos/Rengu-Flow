@@ -86,9 +86,21 @@ def test_flatten_hparams_scalars_lists_and_nested():
     )
     assert flat["optimizer.type"] == "adamw"
     assert flat["optimizer.lr"] == 1e-4
-    assert flat["resolutions"] == "512, 1024"  # list -> joined string column
+    assert flat["resolutions"] == "512, 1024"  # scalar list -> joined string column
     assert flat["enabled"] is True
     assert flat["nested.a.b"] == 3
+
+
+def test_flatten_hparams_list_of_dicts_becomes_indexed_rows():
+    # A list of dicts must NOT collapse into one repr blob; each leaf gets its own column.
+    flat = flatten_hparams(
+        {"schedule": {"stage": [{"res": [512, 1024], "frac": 0.4}, {"res": [1024], "frac": 0.2}]}}
+    )
+    assert flat["schedule.stage[0].res"] == "512, 1024"
+    assert flat["schedule.stage[0].frac"] == 0.4
+    assert flat["schedule.stage[1].res"] == "1024"
+    assert flat["schedule.stage[1].frac"] == 0.2
+    assert not any("{" in str(v) for v in flat.values())  # no inline-dict blobs survive
 
 
 # --- events -----------------------------------------------------------------------------------

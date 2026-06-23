@@ -25,12 +25,23 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def flatten_dict(data: dict[str, Any], parent: str = "", sep: str = ".") -> dict[str, Any]:
-    """Flatten a nested dict to dotted keys, recursing only into dicts (leaves kept as-is)."""
+def flatten_dict(data: Any, parent: str = "", sep: str = ".") -> dict[str, Any]:
+    """Flatten nested dicts/lists to dotted/indexed keys.
+
+    Recurses into dicts and into lists that contain dicts/lists (indexed ``key[i]``), so a
+    list-of-dicts like ``stage=[{...},{...}]`` becomes ``stage[0].x`` rows instead of one
+    unreadable repr blob. A list of plain scalars is kept as a leaf so the caller can render
+    it in a single cell (e.g. ``betas=[0.9, 0.999]``).
+    """
     out: dict[str, Any] = {}
-    for key, value in data.items():
-        dotted = f"{parent}{sep}{key}" if parent else str(key)
-        if isinstance(value, dict):
+    if isinstance(data, dict):
+        pairs = [(f"{parent}{sep}{k}" if parent else str(k), v) for k, v in data.items()]
+    else:  # list/tuple
+        pairs = [(f"{parent}[{i}]", v) for i, v in enumerate(data)]
+    for dotted, value in pairs:
+        if isinstance(value, dict) or (
+            isinstance(value, (list, tuple)) and any(isinstance(i, (dict, list, tuple)) for i in value)
+        ):
             out.update(flatten_dict(value, dotted, sep))
         else:
             out[dotted] = value
