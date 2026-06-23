@@ -49,7 +49,7 @@
       class="mb-12"
     />
 
-    <el-row v-if="showAdvanced && local.enabled" :gutter="16" class="advanced-row">
+    <el-row v-if="local.enabled || hideEnable" :gutter="16" class="advanced-row">
       <el-col :xs="24" :sm="12">
         <el-form-item>
           <template #label>
@@ -235,7 +235,6 @@ const props = withDefaults(
     config: AugmentationConfig;
     catalog: AugmentationCatalog | null;
     schemaFields?: SchemaField[];
-    showAdvanced?: boolean;
     showStrategies?: boolean;
     disabled?: boolean;
     hideEnable?: boolean;
@@ -243,7 +242,6 @@ const props = withDefaults(
   }>(),
   {
     schemaFields: () => [],
-    showAdvanced: false,
     showStrategies: false,
     disabled: false,
     hideEnable: false,

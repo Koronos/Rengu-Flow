@@ -24,7 +24,6 @@
         :config="globalConfig"
         :catalog="catalog"
         :schema-fields="augmentationSchemaFields"
-        show-advanced
         show-strategies
         @update="onGlobalUpdate"
       />
@@ -81,7 +80,6 @@
             :schema-fields="augmentationSchemaFields"
             :hide-enable="!folderNeedsFullEditor(entry)"
             :hide-preset="!folderNeedsFullEditor(entry)"
-            :show-advanced="folderNeedsFullEditor(entry)"
             show-strategies
             @update="(cfg) => onFolderUpdate(index, cfg)"
           />
