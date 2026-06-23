@@ -124,12 +124,18 @@ def self_heal(*, root: Path | None = None, reason: str = "Restoring recorded ext
 
 
 def ensure_ui_dependencies(*, root: Path | None = None) -> Path:
-    """Guarantee the ``[ui]`` extra (additive) and record it for self-healing."""
-    from rengu_flow.cli.project_venv import ensure_ui_dependencies as _ensure_ui
+    """Guarantee the ``[ui]`` extra (additive), gated by an import probe so it is a no-op when the
+    extra is already present.
 
-    py = _ensure_ui(root=root)
-    record_installed_profiles(["ui"], root=root)
-    return py
+    Routes through ``ensure_profiles`` (same gate as ``self_heal``): it runs ``uv sync`` only when
+    ``fastapi``/``uvicorn`` aren't importable. A bare ``sync_dependencies(["ui"])`` would run on
+    every ``rengu ui`` start — and that sync carries ``--reinstall-package rengu-flow``, rebuilding
+    and reinstalling the project package each launch even when nothing is missing. ``ensure_profiles``
+    also records the satisfied profile for self-healing, so the explicit record is unneeded."""
+    from rengu_flow.cli.project_venv import ensure_project_venv
+
+    ensure_profiles(["ui"], root=root, reason="rengu ui")
+    return ensure_project_venv(root)
 
 
 def profiles_for_config_dict(data: dict[str, Any]) -> list[str]:

@@ -153,6 +153,23 @@ def test_self_heal_restores_recorded_profiles(tmp_path, monkeypatch):
     assert synced == [["cosmos"]]
 
 
+def test_ensure_ui_dependencies_noop_when_present(tmp_path, monkeypatch):
+    # `rengu ui` must NOT run uv sync (which does --reinstall-package rengu-flow, rebuilding the
+    # project) on every start when the ui extra is already importable.
+    synced = _wire(monkeypatch, {"ui"})
+    monkeypatch.setattr("rengu_flow.cli.project_venv.ensure_project_venv", lambda root=None: tmp_path / "py")
+    manager.ensure_ui_dependencies(root=tmp_path)
+    assert synced == []  # no sync, no rebuild when ui already present
+    assert read_installed_profiles(tmp_path) == ["ui"]  # still recorded for self-heal
+
+
+def test_ensure_ui_dependencies_installs_when_missing(tmp_path, monkeypatch):
+    synced = _wire(monkeypatch, set())  # ui missing; fake_sync marks it satisfied
+    monkeypatch.setattr("rengu_flow.cli.project_venv.ensure_project_venv", lambda root=None: tmp_path / "py")
+    manager.ensure_ui_dependencies(root=tmp_path)
+    assert synced == [["ui"]]  # synced because the extra was missing
+
+
 def test_self_heal_noop_when_nothing_recorded(tmp_path, monkeypatch):
     synced = _wire(monkeypatch, set())
     assert manager.self_heal(root=tmp_path) == []
