@@ -130,6 +130,8 @@ def test_build_runner_source_has_pep723_header():
 
     src = toolbox.build_runner_source("run", ["numpy>=2.0", "pillow"])
     assert "# /// script" in src
+    # Floor matches the repo's runtime (3.10); >=3.11 made uv warn and would fail a 3.11-only tool.
+    assert 'requires-python = ">=3.10"' in src
     assert '"numpy>=2.0"' in src and '"pillow"' in src
     assert 'getattr(mod, "run")(**kwargs)' in src
     # No requirements → still a valid (empty) dependencies list
