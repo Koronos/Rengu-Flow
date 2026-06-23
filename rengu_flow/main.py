@@ -343,16 +343,13 @@ def _run_training(args, config):
     import torch
 
     from rengu_flow import distributed as dist
-    from rengu_flow.engine import build_engine, build_pipe, resolve_backend, select_backend
+    from rengu_flow.engine import select_backend
     from rengu_flow.utils.common import empty_cuda_cache
     import time
 
     # Engine backend: 'deepspeed' (pipeline, multi-GPU, default Linux) or 'accelerate'
     # (single-GPU plain torch, default Windows — no DeepSpeed import at all). DeepSpeed is
     # imported only inside the deepspeed branches below so native Windows needs no DeepSpeed.
-    backend = resolve_backend(config)
-    # Backend object: carries capability properties and centralized validation. The string
-    # `backend` is kept for call sites Task 4 hasn't migrated yet (build_engine, build_pipe).
     backend_obj = select_backend(config)
     backend_obj.validate(config)  # raises ValueError for unsupported feature combos
 
@@ -398,7 +395,7 @@ def _run_training(args, config):
         # file_system sharing strategy is POSIX-only (shared-memory files); raises on Windows.
         torch.multiprocessing.set_sharing_strategy("file_system")
     world_size, rank, local_rank = _distributed_init(args)
-    if backend == "deepspeed":
+    if backend_obj.is_distributed:
         import deepspeed
 
         deepspeed.init_distributed()
@@ -523,8 +520,7 @@ def _run_training(args, config):
             use_reentrant=config.get("reentrant_activation_checkpointing", False),
         )
 
-    pipeline_model = build_pipe(
-        backend,
+    pipeline_model = backend_obj.build_pipe(
         layers=layers,
         num_stages=num_stages,
         partition_method=partition_method,
@@ -594,7 +590,7 @@ def _run_training(args, config):
     if gradient_release and not backend_obj.supports_gradient_release:
         raise ValueError(
             f"optimizer.gradient_release requires engine='deepspeed' (it patches the DeepSpeed "
-            f"pipeline engine); engine={backend!r} does not support it yet."
+            f"pipeline engine); engine={backend_obj.name!r} does not support it yet."
         )
     ds_config = {
         "train_micro_batch_size_per_gpu": micro_batch,
@@ -613,14 +609,12 @@ def _run_training(args, config):
         gradient_release=gradient_release,
     )
 
-    model_engine = build_engine(
-        backend,
+    model_engine = backend_obj.build_engine(
         pipeline_model=pipeline_model,
         ds_config=ds_config,
         args=args,
         get_optimizer=get_optimizer,
         parameters_to_train=parameters_to_train,
-        block_swap=bool(config.get("blocks_to_swap", 0)),
     )
     optimizer = model_engine.optimizer
 
