@@ -4,18 +4,16 @@ from __future__ import annotations
 
 import hashlib
 import os
+import queue as _queue_mod
 import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
 import torch
 from datasets.fingerprint import Hasher
 from tqdm import tqdm
-
-try:
-    import multiprocess as mp
-except ImportError:
-    import multiprocessing as mp  # type: ignore[no-redef]
 
 from rengu_flow.utils.cache_factory import CACHE_FORMAT_V2, open_disk_cache
 
@@ -76,6 +74,34 @@ def seed_from_hash(item) -> int:
     return int(hashlib.md5(str(item).encode()).hexdigest(), 16) % int(1e9)
 
 
+# Per-worker rank lives in thread-local storage: each ThreadPoolExecutor thread pulls a distinct
+# rank in its initializer so its GPU-handoff Pipe (pipes[rank] in the map_fn) never collides with
+# another thread's. The in-thread (num_proc<=1) path sets rank 0 on the calling thread.
+_thread_ctx = threading.local()
+
+
+def _ordered_parallel_map(executor, fn, iterable, *, max_inflight):
+    """Apply ``fn`` over ``iterable`` on ``executor`` threads, yielding results in input order
+    (like ``pool.imap``) while keeping at most ``max_inflight`` tasks in flight. Bounded so workers
+    can't run far ahead of the in-order GPU consumer and pile up results in RAM."""
+    from collections import deque
+
+    it = iter(iterable)
+    pending: deque = deque()
+    for _ in range(max_inflight):
+        try:
+            pending.append(executor.submit(fn, next(it)))
+        except StopIteration:
+            break
+    while pending:
+        result = pending.popleft().result()
+        try:
+            pending.append(executor.submit(fn, next(it)))
+        except StopIteration:
+            pass
+        yield result
+
+
 def _map_and_cache(
     dataset,
     map_fn,
@@ -125,30 +151,28 @@ def _map_and_cache(
     )
 
     pool_workers = resolve_cache_num_proc(num_proc)
-    # With a single worker (Windows default, or num_proc<=1) run the map IN-PROCESS. An mp.Pool
-    # always spawns a child process even for one worker, and on Windows (spawn, no fork) that child
-    # cannot share the in-process queue/pipe that the GPU-encode handoff uses — it deadlocks.
-    use_pool = pool_workers > 1
-    pool = None
-    if use_pool:
-        manager = mp.Manager()
-        id_queue = manager.Queue()
-
-        def init(queue):
-            global rank
-            rank = queue.get()
-
+    # Parallelize the CPU-side preprocessing (image load/decode/resize/augment) on a
+    # ThreadPoolExecutor while the GPU encode stays serialized in the main process (each worker
+    # marshals its tensor over the queue+Pipe handoff). Threads, not an mp.Pool: the GPU encode is
+    # the bottleneck (the pool sat mostly idle waiting on it), and threads have no fork-after-CUDA
+    # hazard and no cross-process queue to deadlock on — the pattern kohya/OneTrainer use.
+    # num_proc<=1 (Windows, or explicit) runs the map on the calling thread.
+    use_threads = pool_workers > 1
+    executor = None
+    if use_threads:
+        rank_queue = _queue_mod.Queue()
         for i in range(pool_workers):
-            id_queue.put(i)
+            rank_queue.put(i)
 
-        pool = mp.Pool(pool_workers, init, (id_queue,))
+        def _assign_rank():
+            _thread_ctx.rank = rank_queue.get()
+
+        executor = ThreadPoolExecutor(max_workers=pool_workers, initializer=_assign_rank)
     else:
-        global rank
-        rank = 0
+        _thread_ctx.rank = 0
 
     def wrapper(example):
-        global rank
-        return map_fn(example, rank)
+        return map_fn(example, _thread_ctx.rank)
 
     def recursive_clone_tensors(obj):
         if torch.is_tensor(obj):
@@ -176,7 +200,11 @@ def _map_and_cache(
     cache_emitter = ProgressEmitter() if is_main_process() else None
 
     batch_iter = dataset.iter(batch_size=caching_batch_size)
-    map_iter = pool.imap(wrapper, batch_iter) if use_pool else map(wrapper, batch_iter)
+    map_iter = (
+        _ordered_parallel_map(executor, wrapper, batch_iter, max_inflight=pool_workers * 2)
+        if use_threads
+        else map(wrapper, batch_iter)
+    )
     pbar = tqdm(
         map_iter,
         initial=completed_batches,
@@ -205,7 +233,7 @@ def _map_and_cache(
                 force=bool(is_last),
             )
 
-    if pool is not None:
-        pool.close()
+    if executor is not None:
+        executor.shutdown(wait=True)
     cache.finalize_current_shard()
     return cache

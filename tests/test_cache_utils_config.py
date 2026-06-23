@@ -23,13 +23,27 @@ def test_resolve_cache_num_proc_explicit():
     assert resolve_cache_num_proc(0) == 1
 
 
-@patch("rengu_flow.data.cache_utils.mp.Pool")
-@patch("rengu_flow.data.cache_utils.mp.Manager")
-def test_map_and_cache_passes_keep_in_memory_false(mock_manager, mock_pool):
-    from rengu_flow.data.cache_utils import _map_and_cache
+def test_ordered_parallel_map_preserves_input_order():
+    # Results must come back in INPUT order even when later items finish first, and every item
+    # must be processed exactly once (the cache loop relies on imap-like ordering).
+    import time
+    from concurrent.futures import ThreadPoolExecutor
 
-    mock_manager.return_value.Queue.return_value = MagicMock()
-    mock_pool.return_value.imap.return_value = iter([])
+    from rengu_flow.data.cache_utils import _ordered_parallel_map
+
+    def fn(x):
+        time.sleep((12 - x) * 0.005)  # later inputs complete sooner
+        return x
+
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        out = list(_ordered_parallel_map(ex, fn, range(12), max_inflight=8))
+    assert out == list(range(12))
+
+
+@patch("rengu_flow.data.cache_utils.ThreadPoolExecutor")
+@patch("rengu_flow.data.cache_utils._ordered_parallel_map", return_value=iter([]))
+def test_map_and_cache_passes_keep_in_memory_false(mock_omap, mock_executor):
+    from rengu_flow.data.cache_utils import _map_and_cache
 
     ds = MagicMock()
     ds._fingerprint = "fp"
