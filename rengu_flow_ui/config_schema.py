@@ -612,19 +612,83 @@ def get_sections() -> list[dict[str, Any]]:
                     importance="advanced",
                     example=50,
                 ),
+                _field("compile", "torch.compile", "boolean", default=False, importance="advanced"),
                 _field(
-                    "pipeline_stages",
-                    "Pipeline stages",
-                    "integer",
-                    default=1,
-                    min_value=1,
-                    deepspeed_only=True,
+                    "compile_mode",
+                    "torch.compile mode",
+                    "select",
+                    options=[
+                        "default",
+                        "reduce-overhead",
+                        "max-autotune",
+                        "max-autotune-no-cudagraphs",
+                    ],
+                    allow_custom=True,
+                    importance="advanced",
+                    when={"field": "compile", "equals": True},
+                    description=(
+                        "Inductor mode passed to torch.compile. 'reduce-overhead' uses CUDA graphs "
+                        "to cut per-step launch overhead (best for fixed-shape steps). Leave unset "
+                        "for 'default'."
+                    ),
                 ),
                 _field(
-                    "partition_method", "Partition method", "select",
-                    options=PARTITION_METHODS, deepspeed_only=True,
+                    "compile_dynamic",
+                    "torch.compile dynamic shapes",
+                    "boolean",
+                    default=False,
+                    importance="advanced",
+                    when={"field": "compile", "equals": True},
+                    description="Pass dynamic=True to torch.compile when input shapes vary between steps.",
                 ),
-                _field("partition_split", "Partition split (manual)", "json", deepspeed_only=True),
+                _field(
+                    "compile_disk_cache",
+                    "Persist compile cache to disk",
+                    "select",
+                    options=["auto", True, False],
+                    allow_custom=True,
+                    importance="advanced",
+                    when={"field": "compile", "equals": True},
+                    description=(
+                        "'auto' (default) persists Inductor/Triton kernels only when compile_dynamic is off "
+                        "(static shapes — where the cache actually hits; dynamic shapes are a no-op). Needs an "
+                        "ext4 cache dir; auto-disables with a warning on encrypted homes."
+                    ),
+                ),
+                _field(
+                    "compile_cache_dir",
+                    "Compile cache dir",
+                    "string",
+                    importance="advanced",
+                    when={"field": "compile", "equals": True},
+                    placeholder="<cache_root>/compile",
+                    description="Where the on-disk compile cache lives (must be ext4/255-char). Default: a 'compile' subdir of the dataset cache_root.",
+                ),
+                _field("x_axis_examples", "TensorBoard x-axis = examples", "boolean"),
+                _field(
+                    "ema_decay",
+                    "EMA decay",
+                    "number",
+                    importance="advanced",
+                    description="Optional; CPU shadow weights updated each step. No auto-export yet.",
+                    example=0.999,
+                ),
+                _field("dataloader_num_workers", "Train DataLoader workers", "integer", default=0, min_value=0),
+                _field("dataloader_prefetch", "Prefetch next batch (thread)", "boolean", default=True),
+                _field("dataloader_pin_memory", "Pin memory (CUDA)", "boolean", default=False),
+                _field("dataloader_prefetch_factor", "DataLoader prefetch factor", "integer", default=2, min_value=1),
+                _field(
+                    "dataloader_persistent_workers",
+                    "Persistent DataLoader workers",
+                    "boolean",
+                    default=True,
+                ),
+            ],
+        },
+        {
+            "id": "memory",
+            "title": "Memory savings",
+            "fields": [
                 _field(
                     "activation_checkpointing",
                     "Activation checkpointing",
@@ -745,77 +809,25 @@ def get_sections() -> list[dict[str, Any]]:
                     # runs, so it is NOT deepspeed-only. Needs >=2 blocks resident (handled at runtime).
                     when={"form_nonempty": "blocks_to_swap", "exclude_zero": True},
                 ),
-                _field("compile", "torch.compile", "boolean", default=False, importance="advanced"),
+            ],
+        },
+        {
+            "id": "deepspeed",
+            "title": "DeepSpeed (multi-GPU)",
+            "fields": [
                 _field(
-                    "compile_mode",
-                    "torch.compile mode",
-                    "select",
-                    options=[
-                        "default",
-                        "reduce-overhead",
-                        "max-autotune",
-                        "max-autotune-no-cudagraphs",
-                    ],
-                    allow_custom=True,
-                    importance="advanced",
-                    when={"field": "compile", "equals": True},
-                    description=(
-                        "Inductor mode passed to torch.compile. 'reduce-overhead' uses CUDA graphs "
-                        "to cut per-step launch overhead (best for fixed-shape steps). Leave unset "
-                        "for 'default'."
-                    ),
+                    "pipeline_stages",
+                    "Pipeline stages",
+                    "integer",
+                    default=1,
+                    min_value=1,
+                    deepspeed_only=True,
                 ),
                 _field(
-                    "compile_dynamic",
-                    "torch.compile dynamic shapes",
-                    "boolean",
-                    default=False,
-                    importance="advanced",
-                    when={"field": "compile", "equals": True},
-                    description="Pass dynamic=True to torch.compile when input shapes vary between steps.",
+                    "partition_method", "Partition method", "select",
+                    options=PARTITION_METHODS, deepspeed_only=True,
                 ),
-                _field(
-                    "compile_disk_cache",
-                    "Persist compile cache to disk",
-                    "select",
-                    options=["auto", True, False],
-                    allow_custom=True,
-                    importance="advanced",
-                    when={"field": "compile", "equals": True},
-                    description=(
-                        "'auto' (default) persists Inductor/Triton kernels only when compile_dynamic is off "
-                        "(static shapes — where the cache actually hits; dynamic shapes are a no-op). Needs an "
-                        "ext4 cache dir; auto-disables with a warning on encrypted homes."
-                    ),
-                ),
-                _field(
-                    "compile_cache_dir",
-                    "Compile cache dir",
-                    "string",
-                    importance="advanced",
-                    when={"field": "compile", "equals": True},
-                    placeholder="<cache_root>/compile",
-                    description="Where the on-disk compile cache lives (must be ext4/255-char). Default: a 'compile' subdir of the dataset cache_root.",
-                ),
-                _field("x_axis_examples", "TensorBoard x-axis = examples", "boolean"),
-                _field(
-                    "ema_decay",
-                    "EMA decay",
-                    "number",
-                    importance="advanced",
-                    description="Optional; CPU shadow weights updated each step. No auto-export yet.",
-                    example=0.999,
-                ),
-                _field("dataloader_num_workers", "Train DataLoader workers", "integer", default=0, min_value=0),
-                _field("dataloader_prefetch", "Prefetch next batch (thread)", "boolean", default=True),
-                _field("dataloader_pin_memory", "Pin memory (CUDA)", "boolean", default=False),
-                _field("dataloader_prefetch_factor", "DataLoader prefetch factor", "integer", default=2, min_value=1),
-                _field(
-                    "dataloader_persistent_workers",
-                    "Persistent DataLoader workers",
-                    "boolean",
-                    default=True,
-                ),
+                _field("partition_split", "Partition split (manual)", "json", deepspeed_only=True),
             ],
         },
         {
