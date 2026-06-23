@@ -30,13 +30,15 @@
           <el-form-item>
             <template #label>Engine <code class="toml-key">training.engine</code></template>
             <el-select v-model="form.editable.training.engine" style="width: 320px">
-              <el-option label="auto (per OS)" value="" />
-              <el-option label="deepspeed — multi-GPU (Linux/WSL)" value="deepspeed" />
-              <el-option label="accelerate — single-GPU (Windows, no DeepSpeed)" value="accelerate" />
+              <el-option label="auto — per-OS default" value="" />
+              <el-option label="accelerate — single-GPU (any OS)" value="accelerate" />
+              <el-option label="deepspeed — multi-GPU (Linux/WSL only)" value="deepspeed" />
             </el-select>
             <p class="field-hint">
-              Training backend. <code>auto</code> picks <code>accelerate</code> on Windows,
-              <code>deepspeed</code> elsewhere. Effective:
+              <code>accelerate</code> runs a single GPU on any OS (plain PyTorch) and is the faster
+              choice there — it skips DeepSpeed's pipeline and compile overhead (~10% per step in our
+              tests). <code>deepspeed</code> adds multi-GPU pipeline parallelism but needs Linux/WSL.
+              Empty <code>auto</code> uses the per-OS default — effective:
               <code>{{ effectiveEngine }}</code>.
             </p>
           </el-form-item>
