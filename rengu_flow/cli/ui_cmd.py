@@ -14,7 +14,7 @@ from shutil import which
 from rengu_flow.config.local_config import ensure_local_config_loaded, repo_root
 from rengu_flow.cli.project_venv import reexec_cli
 from rengu_flow.install import ensure_ui_dependencies, self_heal
-from rengu_flow.platform_compat import free_port_owned_by
+from rengu_flow.platform_compat import PLATFORM, free_port_owned_by
 
 
 def add_parser(sub: argparse._SubParsersAction) -> None:
@@ -291,23 +291,26 @@ def run(args: argparse.Namespace) -> None:
 
             threading.Thread(target=_open_when_ready, daemon=True).start()
         print(f"==> Rengu Flow UI: {url}")
-        # Run the server as a separate python process (not in-process) so the long-lived server is
-        # python.exe — never the rengu.exe console-script. On Windows the OS forbids replacing a
-        # running rengu.exe, so an in-process server would lock it and make every later `uv sync`
-        # (e.g. installing the prep extra) fail with WinError 32. `uv run rengu` is unchanged.
-        serve_cmd = [sys.executable, "-m", "rengu_flow_ui", "serve", "--host", host, "--port", str(port)]
-        serve_env = os.environ.copy()
-        serve_env.setdefault("PYTHONUNBUFFERED", "1")
-        proc = subprocess.Popen(serve_cmd, cwd=str(root), env=serve_env)
-        try:
-            raise SystemExit(proc.wait())
-        except KeyboardInterrupt:
-            proc.terminate()
+        if PLATFORM.is_windows:
+            # Windows only: run the server as a separate python process so the long-lived server is
+            # python.exe — never the rengu.exe console-script. The OS forbids replacing a running
+            # rengu.exe, so an in-process server would lock it and make every later `uv sync` (e.g.
+            # installing the prep extra) fail with WinError 32. POSIX can replace a running exe, so
+            # it keeps the simpler in-process server below.
+            serve_cmd = [sys.executable, "-m", "rengu_flow_ui", "serve", "--host", host, "--port", str(port)]
+            serve_env = os.environ.copy()
+            serve_env.setdefault("PYTHONUNBUFFERED", "1")
+            proc = subprocess.Popen(serve_cmd, cwd=str(root), env=serve_env)
             try:
-                proc.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-            raise SystemExit(0)
+                raise SystemExit(proc.wait())
+            except KeyboardInterrupt:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                raise SystemExit(0)
+        _serve(host, port, reload=False)
         return
 
     if cmd == "dev":
