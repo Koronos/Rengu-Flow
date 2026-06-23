@@ -11,6 +11,11 @@ def test_accelerate_uses_python_m(monkeypatch):
 
 
 def test_deepspeed_uses_launcher(monkeypatch):
+    # Simulate the deepspeed launcher being present so we assert the real launcher shape
+    # (not the python -m fallback that fires when `which("deepspeed")` is None).
     monkeypatch.setenv("RENGU_ENGINE", "deepspeed")
+    monkeypatch.setattr("rengu_flow.engine.deepspeed_pipe.which", lambda _: "/usr/bin/deepspeed")
     cmd = base_train_command(Path("cfg.toml"), num_gpus=2, master_port=29500)
-    assert "rengu_flow.main" in cmd and ("--module" in cmd or cmd[1:3] == ["-m", "rengu_flow.main"])
+    assert cmd[0] == "/usr/bin/deepspeed"
+    assert "--num_gpus=2" in cmd
+    assert "--module" in cmd and "rengu_flow.main" in cmd

@@ -1,4 +1,4 @@
-"""Build DeepSpeed / training subprocess commands from ``rengu.local.toml``."""
+"""Build training subprocess commands (via the selected engine backend) from ``rengu.local.toml``."""
 
 from __future__ import annotations
 
