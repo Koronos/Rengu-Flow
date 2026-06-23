@@ -14,7 +14,12 @@ export function sanitizeConfigForm(
   }
   let form: FormValues;
   try {
-    form = structuredClone(raw) as FormValues;
+    // JSON round-trip rather than structuredClone: the form holds JSON-data bound for TOML,
+    // and values copied from the reactive schema registry (e.g. optimizer KV defaults with a
+    // nested `betas` array) are Vue reactive proxies that structuredClone refuses to clone.
+    // That threw here, sanitize returned null, and setForm then silently dropped the update —
+    // the optimizer picker looked frozen. JSON reads through proxies and yields plain data.
+    form = JSON.parse(JSON.stringify(raw)) as FormValues;
   } catch {
     return null;
   }

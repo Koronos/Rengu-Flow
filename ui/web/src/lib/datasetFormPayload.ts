@@ -50,7 +50,11 @@ export function sanitizeDatasetForm(raw: unknown): FormValues | null {
   }
   let form: DatasetFormValues;
   try {
-    form = structuredClone(raw) as DatasetFormValues;
+    // JSON round-trip rather than structuredClone: dataset form values copied from the reactive
+    // schema registry are Vue reactive proxies, which structuredClone refuses to clone — that
+    // would throw here, return null, and make setForm silently drop the update. JSON reads
+    // through proxies and yields plain data. (Same fix as sanitizeConfigForm.)
+    form = JSON.parse(JSON.stringify(raw)) as DatasetFormValues;
   } catch {
     return null;
   }
