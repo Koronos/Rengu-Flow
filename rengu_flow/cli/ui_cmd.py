@@ -51,23 +51,34 @@ def add_parser(sub: argparse._SubParsersAction) -> None:
     serve.add_argument("--port", type=int, default=None)
     serve.add_argument("--reload", action="store_true")
 
-    ui_sub.add_parser("build", help="Build ui/web frontend (npm run build)")
+    ui_sub.add_parser("build", help="Build ui/web frontend (pnpm)")
     ui_sub.add_parser("reset-db", help="Reset UI SQLite database")
 
 
+# The UI frontend builds with pnpm (not npm): the project's source imports transitive @codemirror
+# sub-packages directly, which only resolve under a flat node_modules — pnpm's default isolated layout
+# hides them. `--config.node-linker=hoisted` gives the flat layout; the registry override bypasses a
+# private (CodeArtifact) default registry that breaks public-package installs.
+PNPM_REGISTRY = os.environ.get("RENGU_UI_NPM_REGISTRY", "https://registry.npmjs.org/")
+
+
 def _ensure_node() -> None:
-    if which("npm"):
-        return
-    nvm_dir = Path(os.environ.get("NVM_DIR", Path.home() / ".nvm"))
-    nvm_sh = nvm_dir / "nvm.sh"
-    if nvm_sh.is_file():
-        # nvm must be sourced in shell; try common node path
-        versions = sorted((nvm_dir / "versions" / "node").glob("*/bin/npm"))
-        if versions:
-            os.environ["PATH"] = f"{versions[-1].parent}:{os.environ.get('PATH', '')}"
-    if not which("npm"):
+    if not which("node"):
+        nvm_dir = Path(os.environ.get("NVM_DIR", Path.home() / ".nvm"))
+        if (nvm_dir / "nvm.sh").is_file():  # nvm must be sourced in shell; try common node path
+            versions = sorted((nvm_dir / "versions" / "node").glob("*/bin/node"))
+            if versions:
+                os.environ["PATH"] = f"{versions[-1].parent}{os.pathsep}{os.environ.get('PATH', '')}"
+    if not which("node"):
         raise SystemExit(
-            "rengu: npm not found. Install Node.js or nvm, then run: cd ui/web && npm ci && npm run build"
+            "rengu: node not found. Install Node.js (e.g. via Volta or nvm), then retry."
+        )
+    if not which("pnpm"):
+        raise SystemExit(
+            "rengu: pnpm not found. The UI frontend builds with pnpm — install it "
+            "(`corepack enable pnpm`, or `volta install pnpm`), then retry. Manual build: "
+            f"cd ui/web && pnpm install --config.node-linker=hoisted --registry={PNPM_REGISTRY} "
+            "&& pnpm run build"
         )
 
 
@@ -81,11 +92,14 @@ def _build_web(root: Path, *, force: bool = False) -> None:
     if dist.is_file() and not force:
         return
     _ensure_node()
-    print("==> Building web frontend...")
-    lock = web / "package-lock.json"
-    install_cmd = ["npm", "ci"] if lock.is_file() else ["npm", "install"]
+    print("==> Building web frontend (pnpm)...")
+    install_cmd = [
+        "pnpm", "install",
+        "--config.node-linker=hoisted",
+        f"--registry={PNPM_REGISTRY}",
+    ]
     subprocess.run(install_cmd, cwd=str(web), check=True)
-    subprocess.run(["npm", "run", "build"], cwd=str(web), check=True)
+    subprocess.run(["pnpm", "run", "build"], cwd=str(web), check=True)
     if not dist.is_file():
         raise SystemExit(f"rengu: build finished but {dist} is missing")
 
@@ -240,8 +254,7 @@ def run(args: argparse.Namespace) -> None:
         _ensure_node()
         web = _web_dir(root)
         if not (web / "node_modules").is_dir():
-            lock = web / "package-lock.json"
-            install_cmd = ["npm", "ci"] if lock.is_file() else ["npm", "install"]
+            install_cmd = ["pnpm", "install", "--config.node-linker=hoisted", f"--registry={PNPM_REGISTRY}"]
             print(f"==> {' '.join(install_cmd)} (ui/web)...", flush=True)
             subprocess.run(install_cmd, cwd=str(web), check=True)
         api_port = cfg.ui.port
@@ -317,7 +330,7 @@ def run(args: argparse.Namespace) -> None:
         npm_env = os.environ.copy()
         npm_env["RENGU_FLOW_UI_PORT"] = str(api_port)
         npm_env["RENGU_FLOW_UI_DEV_PORT"] = str(dev_port)
-        npm_cmd = ["npm", "run", "dev"]
+        npm_cmd = ["pnpm", "run", "dev"]
         if not args.no_open:
             npm_cmd.extend(["--", "--open"])
         try:
