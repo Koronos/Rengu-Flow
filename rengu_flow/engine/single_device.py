@@ -260,9 +260,16 @@ class SingleDeviceBackend(TrainingBackend):
     def supports_gradient_release(self): return False
 
     def build_pipe(self, *, layers, num_stages, partition_method, manual_partition_split, loss_fn, extra_kw):
-        if num_stages > 1:
+        if num_stages and num_stages > 1:
             raise SystemExit("engine='accelerate' is single-stage; set pipeline_stages = 1.")
-        return SequentialPipe(layers, loss_fn, **extra_kw)
+        extra_kw = extra_kw or {}
+        return SequentialPipe(
+            layers,
+            loss_fn,
+            activation_checkpoint_interval=extra_kw.get("activation_checkpoint_interval", 0),
+            checkpointable_layers=extra_kw.get("checkpointable_layers"),
+            activation_checkpoint_func=extra_kw.get("activation_checkpoint_func"),
+        )
 
     def build_engine(self, *, pipeline_model, ds_config, args, get_optimizer, parameters_to_train):
         return TorchEngine(

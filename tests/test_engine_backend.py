@@ -44,6 +44,12 @@ def test_base_is_torch_free():
     assert result.returncode == 0, result.stderr
 
 
+def test_build_engine_has_block_swap_param():
+    import inspect
+    from rengu_flow.engine import build_engine
+    assert "block_swap" in inspect.signature(build_engine).parameters
+
+
 def test_launch_argv_accelerate():
     from rengu_flow.engine import select_backend
     argv = select_backend({"engine": "accelerate"}).launch_argv(

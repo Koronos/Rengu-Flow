@@ -32,8 +32,10 @@ def build_pipe(backend: str, *, layers, num_stages, partition_method, manual_par
     )
 
 
-def build_engine(backend: str, *, pipeline_model, ds_config, args, get_optimizer, parameters_to_train):
-    return _BACKENDS[backend]({}).build_engine(
+def build_engine(backend: str, *, pipeline_model, ds_config, args, get_optimizer, parameters_to_train,
+                 block_swap: bool = False):
+    cfg = {"blocks_to_swap": 1} if block_swap else {}
+    return _BACKENDS[backend](cfg).build_engine(
         pipeline_model=pipeline_model, ds_config=ds_config, args=args,
         get_optimizer=get_optimizer, parameters_to_train=parameters_to_train,
     )
