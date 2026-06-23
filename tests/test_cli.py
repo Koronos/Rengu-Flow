@@ -43,7 +43,10 @@ def test_uv_sync_argv_skips_reinstall_on_windows(monkeypatch):
     from types import SimpleNamespace
 
     monkeypatch.setattr(pc, "PLATFORM", SimpleNamespace(is_windows=True))
-    assert "--reinstall-package" not in uv_sync_argv(["ui"])
+    win = uv_sync_argv(["ui"])
+    assert "--reinstall-package" not in win
+    # Skips reinstalling the editable project so the running rengu.exe is never replaced.
+    assert "--no-install-project" in win
 
     monkeypatch.setattr(pc, "PLATFORM", SimpleNamespace(is_windows=False))
     assert uv_sync_argv(["base"]) == ["uv", "sync", "--inexact", "--reinstall-package", "rengu-flow"]

@@ -114,6 +114,13 @@ def uv_sync_argv(profiles: list[str]) -> list[str]:
     cmd = ["uv", "sync", "--inexact"]
     if not PLATFORM.is_windows:
         cmd += ["--reinstall-package", "rengu-flow"]
+    else:
+        # On Windows, installing a new extra makes uv reinstall the editable project, which must
+        # delete and recreate Scripts/rengu.exe — forbidden while that very rengu.exe is the running
+        # process driving the sync (e.g. `rengu prep` → ensure_profiles) → WinError 32. The project
+        # is already present (editable, --inexact keeps it); skip reinstalling it so only the extra's
+        # dependencies are added. (Editable code is live; only the metadata version string may lag.)
+        cmd += ["--no-install-project"]
     extras: set[str] = set()
     for p in normalized:
         extra = PROFILE_EXTRAS.get(p)

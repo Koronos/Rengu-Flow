@@ -291,7 +291,23 @@ def run(args: argparse.Namespace) -> None:
 
             threading.Thread(target=_open_when_ready, daemon=True).start()
         print(f"==> Rengu Flow UI: {url}")
-        _serve(host, port, reload=False)
+        # Run the server as a separate python process (not in-process) so the long-lived server is
+        # python.exe — never the rengu.exe console-script. On Windows the OS forbids replacing a
+        # running rengu.exe, so an in-process server would lock it and make every later `uv sync`
+        # (e.g. installing the prep extra) fail with WinError 32. `uv run rengu` is unchanged.
+        serve_cmd = [sys.executable, "-m", "rengu_flow_ui", "serve", "--host", host, "--port", str(port)]
+        serve_env = os.environ.copy()
+        serve_env.setdefault("PYTHONUNBUFFERED", "1")
+        proc = subprocess.Popen(serve_cmd, cwd=str(root), env=serve_env)
+        try:
+            raise SystemExit(proc.wait())
+        except KeyboardInterrupt:
+            proc.terminate()
+            try:
+                proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+            raise SystemExit(0)
         return
 
     if cmd == "dev":
