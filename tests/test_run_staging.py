@@ -58,6 +58,22 @@ def test_materialize_staging_absolute_dataset_unchanged(ui_data_tmp: Path) -> No
     assert cfg["dataset"] == abs_ds.resolve().as_posix()
 
 
+def test_materialize_staging_relative_dataset_resolves_from_repo_root(ui_data_tmp: Path) -> None:
+    """A relative dataset path must resolve from the repo root (where the training subprocess runs),
+    NOT the job staging dir — the old behavior produced data/staging/<id>/<path> which never exists."""
+    from rengu_flow_ui.settings import repo_root
+
+    content = MINIMAL_TOML.replace(
+        'dataset = "rengu-flow-dataset:my_dataset"',
+        'dataset = "tests/fixtures/smoke/dataset_cc0.toml"',
+    )
+    out = run_staging.materialize_staging(content, "job-rel")
+    cfg = toml.loads(out.read_text(encoding="utf-8"))
+    expected = (repo_root() / "tests/fixtures/smoke/dataset_cc0.toml").resolve().as_posix()
+    assert cfg["dataset"] == expected
+    assert "staging" not in cfg["dataset"]
+
+
 def test_materialize_staging_does_not_persist_defaults(ui_data_tmp: Path) -> None:
     """RF-03: set_config_defaults() mutates the config in place — it converts dtype strings
     into torch.dtype objects (serialized as "torch.bfloat16") and injects alpha=rank into
