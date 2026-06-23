@@ -343,7 +343,7 @@ def _run_training(args, config):
     import torch
 
     from rengu_flow import distributed as dist
-    from rengu_flow.engine import build_engine, build_pipe, resolve_backend
+    from rengu_flow.engine import build_engine, build_pipe, resolve_backend, select_backend
     from rengu_flow.utils.common import empty_cuda_cache
     import time
 
@@ -351,6 +351,10 @@ def _run_training(args, config):
     # (single-GPU plain torch, default Windows — no DeepSpeed import at all). DeepSpeed is
     # imported only inside the deepspeed branches below so native Windows needs no DeepSpeed.
     backend = resolve_backend(config)
+    # Backend object: carries capability properties and centralized validation. The string
+    # `backend` is kept for call sites Task 4 hasn't migrated yet (build_engine, build_pipe).
+    backend_obj = select_backend(config)
+    backend_obj.validate(config)  # raises ValueError for unsupported feature combos
 
     from rengu_flow.utils.bench import bench_enabled, bench_init, bench_record, bench_summarize
     from rengu_flow.utils.training_metrics import install_grad_norm_capture, log_training_step
@@ -464,37 +468,16 @@ def _run_training(args, config):
     # trainable block resident at once, defeating the swap. DeepSpeed places the model on the GPU
     # normally; prepare_block_swap_training() (after initialize) pushes swappable blocks to CPU,
     # and the offloader pulls them back on demand.
-    if config.get("blocks_to_swap", 0):
-        if backend not in ("deepspeed", "accelerate"):
-            raise ValueError(
-                f"blocks_to_swap needs engine='deepspeed' or 'accelerate'; engine={backend!r} "
-                f"cannot block-swap. Drop blocks_to_swap or switch engine."
-            )
-        if config.get("pipeline_stages", 1) != 1:
-            raise ValueError("Block swapping requires pipeline_stages = 1.")
-        is_adapter = bool(config.get("adapter"))
-        if backend == "accelerate" and not is_adapter:
-            # The hook offloader is engine-agnostic, but full-model swap needs gradient_release (per-
-            # parameter step inside the backward), which only the DeepSpeed pipeline engine has. The
-            # accelerate (single-GPU torch) engine does a monolithic optimizer.step(), so it can only
-            # swap the frozen base weights while keeping the small trainable adapters resident.
-            raise ValueError(
-                "engine='accelerate' block swap supports adapter (LoRA/LoKr) training only; "
-                "full-model swap needs gradient_release — use engine='deepspeed' for that."
-            )
-        if backend == "deepspeed" and not is_adapter and not config["optimizer"].get("gradient_release"):
-            raise ValueError(
-                "Block swapping for full-model training requires optimizer.gradient_release = true "
-                "(the per-parameter optimizer step must run during the backward pass while each "
-                "block is on the GPU)."
-            )
-        if backend == "deepspeed":
-            # Keep DeepSpeed from hauling the whole model onto the GPU at init / broadcasting CPU
-            # blocks; the offloader + prepare_block_swap_training own placement. The accelerate engine
-            # has no such init move to neutralize (TorchEngine skips its .to(device) when swapping).
-            from rengu_flow.training.block_swap import patch_deepspeed_for_block_swap
-
-            patch_deepspeed_for_block_swap()
+    # Capability/config validation (unsupported backend, non-adapter accelerate, pipeline_stages>1)
+    # is handled by backend_obj.validate() called above; only the setup side-effect remains here.
+    if config.get("blocks_to_swap", 0) and backend_obj.is_distributed:
+        # Keep DeepSpeed from hauling the whole model onto the GPU at init / broadcasting CPU
+        # blocks; the offloader + prepare_block_swap_training own placement. The accelerate engine
+        # has no such init move to neutralize (TorchEngine skips its .to(device) when swapping).
+        from rengu_flow.training.block_swap import patch_deepspeed_for_block_swap
+        patch_deepspeed_for_block_swap()
+        model.enable_block_swap(config["blocks_to_swap"])
+    elif config.get("blocks_to_swap", 0):
         model.enable_block_swap(config["blocks_to_swap"])
 
     layers = model.to_layers()
@@ -608,7 +591,7 @@ def _run_training(args, config):
     global_batch_size_for_opt = micro_batch * gradient_accumulation_steps * world_size_for_opt
 
     gradient_release = config["optimizer"].get("gradient_release", False)
-    if gradient_release and backend != "deepspeed":
+    if gradient_release and not backend_obj.supports_gradient_release:
         raise ValueError(
             f"optimizer.gradient_release requires engine='deepspeed' (it patches the DeepSpeed "
             f"pipeline engine); engine={backend!r} does not support it yet."

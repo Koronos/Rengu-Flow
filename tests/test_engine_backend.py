@@ -57,3 +57,42 @@ def test_launch_argv_accelerate():
     )
     assert argv[1:3] == ["-m", "rengu_flow.main"]
     assert "--config" in argv and "cfg.toml" in argv
+
+
+def test_validate_accelerate_rejects_gradient_release():
+    from rengu_flow.engine import select_backend
+    b = select_backend({"engine": "accelerate"})
+    with pytest.raises(ValueError):
+        b.validate({"optimizer": {"gradient_release": True}})
+    with pytest.raises(ValueError):
+        b.validate({"pipeline_stages": 2})
+
+
+def test_validate_deepspeed_allows():
+    from rengu_flow.engine import select_backend
+    # gradient_release + single stage: allowed
+    select_backend({"engine": "deepspeed"}).validate(
+        {"optimizer": {"gradient_release": True}, "pipeline_stages": 1}
+    )  # no raise
+    # no blocks_to_swap: pipeline_stages > 1 is fine
+    select_backend({"engine": "deepspeed"}).validate(
+        {"optimizer": {"gradient_release": True}, "pipeline_stages": 2}
+    )  # no raise
+
+
+def test_validate_deepspeed_blockswap_requires_single_stage():
+    from rengu_flow.engine import select_backend
+    b = select_backend({"engine": "deepspeed"})
+    with pytest.raises(ValueError):
+        b.validate({"blocks_to_swap": 8, "pipeline_stages": 2})
+
+
+def test_validate_deepspeed_fullmodel_blockswap_requires_gradient_release():
+    from rengu_flow.engine import select_backend
+    b = select_backend({"engine": "deepspeed"})
+    with pytest.raises(ValueError):
+        b.validate({"blocks_to_swap": 8, "pipeline_stages": 1})  # no adapter, no gradient_release
+    # adapter block-swap is allowed:
+    b.validate({"blocks_to_swap": 8, "pipeline_stages": 1, "adapter": {"type": "lora"}})
+    # full-model + gradient_release is allowed:
+    b.validate({"blocks_to_swap": 8, "pipeline_stages": 1, "optimizer": {"gradient_release": True}})

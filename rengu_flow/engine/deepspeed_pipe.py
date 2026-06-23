@@ -22,9 +22,16 @@ class DeepSpeedPipeBackend(TrainingBackend):
         return cmd
 
     def validate(self, config):
-        # DeepSpeed supports the full feature set; only the data-parallel constraint for
-        # gradient_release (handled where the optimizer is built) applies. No-op here for now.
-        return None
+        # Block-swap guards that apply to the DeepSpeed engine.
+        if config.get("blocks_to_swap", 0):
+            if config.get("pipeline_stages", 1) != 1:
+                raise ValueError("Block swapping requires pipeline_stages = 1.")
+            if not bool(config.get("adapter")) and not config.get("optimizer", {}).get("gradient_release"):
+                raise ValueError(
+                    "Block swapping for full-model training requires optimizer.gradient_release = true "
+                    "(the per-parameter optimizer step must run during the backward pass while each "
+                    "block is on the GPU)."
+                )
 
     @property
     def is_distributed(self): return True
