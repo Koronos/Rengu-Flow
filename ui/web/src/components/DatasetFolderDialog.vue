@@ -179,7 +179,11 @@ watch(
   () => [props.modelValue, props.entry],
   () => {
     if (!props.modelValue) return;
-    draft.value = props.entry ? structuredClone(props.entry) : emptyDirectoryRow();
+    // JSON round-trip, not structuredClone: props.entry is a Vue reactive proxy (a directory row
+    // from the store, or the ref-wrapped empty row), and structuredClone throws DataCloneError on
+    // reactive proxies — the watcher then aborted and draft stayed empty, so the path field (and
+    // every field) vanished from the dialog. JSON reads through the proxy into a plain deep copy.
+    draft.value = props.entry ? JSON.parse(JSON.stringify(props.entry)) : emptyDirectoryRow();
   },
   { immediate: true }
 );
