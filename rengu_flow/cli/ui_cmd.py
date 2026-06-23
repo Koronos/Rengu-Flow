@@ -160,17 +160,24 @@ def _wait_health(
     *,
     label: str = "server",
 ) -> bool:
-    if not which("curl"):
-        time.sleep(3)
-        return True
+    # Pure stdlib HTTP poll — NOT curl. The old `curl -sf -o /dev/null` returned non-zero on Windows
+    # (its native curl can't write the POSIX path /dev/null -> CURLE_WRITE_ERROR) *despite* a 200, so
+    # the wait looped forever printing "Waiting for server" while the server was already healthy.
+    import urllib.error
+    import urllib.request
+
+    headers = {"X-Rengu-Flow-Token": token} if token else {}
     deadline = time.monotonic() + timeout
-    curl_base = ["curl", "-sf", "-o", "/dev/null", "--connect-timeout", "1", "--max-time", "2"]
-    if token:
-        curl_base.extend(["-H", f"X-Rengu-Flow-Token: {token}"])
     attempt = 0
     while time.monotonic() < deadline:
-        if subprocess.run([*curl_base, url], check=False).returncode == 0:
-            return True
+        try:
+            with urllib.request.urlopen(
+                urllib.request.Request(url, headers=headers), timeout=2
+            ) as resp:
+                if resp.status < 400:
+                    return True
+        except (urllib.error.URLError, OSError):
+            pass  # not up yet (connection refused / timeout) or 4xx (e.g. token) -> keep waiting
         attempt += 1
         if attempt == 1 or attempt % 10 == 0:
             print(f"==> Waiting for {label} ({url})...", flush=True)
