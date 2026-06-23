@@ -65,4 +65,9 @@ class DeepSpeedPipeBackend(TrainingBackend):
         manager = mp.Manager()
         q = manager.Queue()
         worker = mp.Process(target=cache_fn, args=(args, q))
+        # Pin the Manager to the worker so its process stays alive as long as the queue is used:
+        # DatasetManager.cache() holds the worker until worker.join(). Without this, the local
+        # `manager` would be dropped on return and its process could be GC-shut-down, invalidating
+        # the broadcast queue proxy on the other ranks.
+        worker._cache_mp_manager = manager
         return worker, q
