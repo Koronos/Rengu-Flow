@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import os
 import shlex
 from pathlib import Path
+
+ENGINE_CHOICES = ("deepspeed", "accelerate", "accelerate_deepspeed")
 
 from rengu_flow.cli.progress_display import run_training_with_progress
 from rengu_flow.cli.train_launcher import build_train_command, training_subprocess_env
@@ -15,6 +18,14 @@ from rengu_flow.config.local_config import ensure_local_config_loaded
 def add_parser(sub: argparse._SubParsersAction) -> None:
     p = sub.add_parser("train", help="Launch training via DeepSpeed")
     p.add_argument("--config", required=True, help="Training TOML config path")
+    p.add_argument(
+        "--engine",
+        choices=ENGINE_CHOICES,
+        default=None,
+        help="Override the training backend (sets RENGU_ENGINE). Default: config 'engine' "
+        "key, else per-OS (accelerate on Windows, deepspeed elsewhere). Use to e.g. force "
+        "'accelerate' on Linux.",
+    )
     p.add_argument("--num-gpus", type=int, default=None)
     p.add_argument("--master-port", type=int, default=None)
     p.add_argument("--resume-from-checkpoint", nargs="?", const=True, default=None)
@@ -43,6 +54,10 @@ def _main_extra_from_remainder(extra: list[str]) -> list[str]:
 
 def run_train(args: argparse.Namespace) -> None:
     cfg = ensure_local_config_loaded()
+    # --engine sets RENGU_ENGINE before build_train_command, so base_train_command picks the right
+    # launcher (DeepSpeed vs plain `python -m`) AND it propagates into the subprocess env.
+    if getattr(args, "engine", None):
+        os.environ["RENGU_ENGINE"] = args.engine
     extra = _main_extra_from_remainder(getattr(args, "extra", []) or [])
     config_path = Path(args.config)
     ensure_training_extras(config_path, root=cfg.root)

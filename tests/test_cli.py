@@ -117,6 +117,38 @@ def test_base_train_command_accelerate_bypasses_launcher(tmp_path, monkeypatch):
     assert not cmd[0].endswith("deepspeed")
 
 
+def test_train_engine_flag_forces_backend(tmp_path, monkeypatch):
+    """`rengu train --engine accelerate` must force accelerate even with deepspeed on PATH
+    (e.g. testing accelerate on Linux): it sets RENGU_ENGINE so the launcher picks `python -m`."""
+    import argparse
+
+    from rengu_flow.cli import train_cmd, train_launcher
+    from rengu_flow.config.local_config import LocalConfig, TrainingConfig
+
+    monkeypatch.delenv("RENGU_ENGINE", raising=False)  # records cleanup -> teardown restores
+    cfg = LocalConfig(root=tmp_path, training=TrainingConfig(num_gpus=1, master_port=29500))
+    monkeypatch.setattr(train_cmd, "ensure_local_config_loaded", lambda: cfg)
+    monkeypatch.setattr(train_launcher, "ensure_local_config_loaded", lambda: cfg)
+    monkeypatch.setattr(train_cmd, "ensure_training_extras", lambda *a, **k: None)
+    monkeypatch.setattr(train_launcher, "which", lambda _: "/usr/bin/deepspeed")  # deepspeed available
+    captured: dict = {}
+    monkeypatch.setattr(
+        train_cmd, "run_training_with_progress",
+        lambda cmd, env=None, cwd=None: (captured.update(cmd=cmd, env=env), 0)[1],
+    )
+
+    cfgfile = tmp_path / "t.toml"
+    cfgfile.write_text('dataset = "x.toml"\n', encoding="utf-8")
+    args = argparse.Namespace(config=str(cfgfile), engine="accelerate", num_gpus=None,
+                              master_port=None, resume_from_checkpoint=None, extra=[])
+    with pytest.raises(SystemExit):
+        train_cmd.run_train(args)
+    import os
+    assert os.environ["RENGU_ENGINE"] == "accelerate"
+    assert "-m" in captured["cmd"] and not captured["cmd"][0].endswith("deepspeed")
+    assert captured["env"].get("RENGU_ENGINE") == "accelerate"  # propagated to the subprocess
+
+
 def test_train_launcher_builds_deepspeed_cmd(tmp_path, monkeypatch, deepspeed_engine):
     from rengu_flow.cli.train_launcher import build_train_command
     from rengu_flow.config.local_config import LocalConfig, TrainingConfig
