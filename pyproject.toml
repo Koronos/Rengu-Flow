@@ -71,7 +71,9 @@ prep = [
     # LaMa inpainting also runs on onnxruntime (Carve/LaMa-ONNX) — one inference
     # runtime for taggers, inpainting; no extra LaMa package (simple-lama-inpainting
     # pins a Pillow 9.x that doesn't build on Python 3.13).
-    "onnxruntime-gpu>=1.20",
+    # Pinned: onnxruntime-gpu 1.24+ dropped cp310 wheels (1.23.2 is the last with a
+    # Python 3.10 + Windows wheel), and the native-Windows runtime is on CPython 3.10.
+    "onnxruntime-gpu==1.23.2",
     "huggingface-hub>=0.23",
     "transformers>=4.51.0",
     "accelerate>=0.30.0",
