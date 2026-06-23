@@ -26,6 +26,51 @@ Legend: ⛔ REJECTED (measured net-negative) · ⏸ PARKED (dead here, viable on
 - **Where the code was:** `main.py` AC block (removed; git history has it, plus the re-test resurrection on `worktree-activation-offload`).
 - **Revisit when:** a supported model can't compile at all (auto requires `compile = true`).
 
+### ⏸ Eager `activation_checkpointing="auto"` — a memory-budget dial without compile (parked 2026-06-22)
+- **What:** make the `auto` budget dial (and its OOM `BudgetBackoff`) work on the **no-compile** path
+  (today `auto` raises unless `compile = true`, because the budget is Inductor's min-cut/knapsack
+  partitioner over the compiled joint graph). Goal: a VRAM/speed dial + OOM-budget-recovery in pure
+  eager (native Windows, where compile has friction: triton, recompiles on AR buckets).
+- **What was tried & measured (8.59 GB RTX 3000 Ada laptop, SDXL Illustrious LoRA, eager):**
+  1. **SAC, model-aware policy.** Re-tested `create_selective_checkpoint_contexts` saving conv (the
+     right op for a conv-heavy UNet, per the PyTorch blog) instead of attention-only. Still **slower
+     than full AC**: attn 2.05, conv 2.08, conv+mm 2.07 s/it vs full AC 1.28 @512. The policy was
+     never the problem — eager SAC's **per-op Python interception overhead** (policy callback + save
+     cache on every op, no Inductor fusion) exceeds the recompute it saves. Confirms the SAC entry
+     above from a different angle: the value needs compile's fusion.
+  2. **Tensor-level DTR** (Dynamic Tensor Rematerialization) in pure Python via `__torch_dispatch__` +
+     a `CheckpointTensor` subclass + `h(t)=c/(m·s)` eviction. Forward works (correct evict/remat), but
+     (a) the wrapper multiplies dispatched ops ~85×/layer → high per-op overhead, and (b) the
+     autograd/training integration breaks in naive Python (`grad_fn` not threaded through evict/remat).
+     Faithful DTR is research-grade — uwsampl shipped it as a **C++ fork**, not Python.
+  3. **Block-fraction** (checkpoint a fraction of blocks, plain `checkpoint`). Works as a VRAM dial
+     (monotonic) with **no per-op overhead**, but even-spacing is **cost-blind** so its speed benefit
+     is back-loaded (only at budget≈0.75 @512) and on this 8 GB card there is **no VRAM headroom at
+     1024** (full AC already ~7 GB; any un-checkpointing → sysmem fallback → ~10× slower).
+  4. **Block-level DTR** (the practical distillation): profile each block's `m` (activation bytes) and
+     `c` (recompute cost), checkpoint lowest `c/m` until under a memory budget (knapsack), recompute
+     via plain `checkpoint`. PoC: at **matched memory** it beats naive even-spacing — ~half the
+     recompute cost, 6–16% faster — **when blocks are heterogeneous in c/m**.
+- **Why parked (works, but immature + model-dependent):** real per-block profiling shows the win is
+  **structure-dependent**. **SDXL (UNet): strongly heterogeneous** — `m` 1.6→944 MB, `c/m` 0.026→15
+  (~580×); down-blocks cheap+big (checkpoint), up-blocks/upsamplers expensive+small (keep) → DTR wins.
+  **Cosmos (DiT): homogeneous** — 28 identical `TransformerLayer` at `m`≈759 MB each → any selection is
+  equivalent → DTR reduces to even-spacing (no benefit, no harm). So block-level DTR helps UNets and
+  is a no-op for transformers — usable, but the value is uneven across the model zoo. Unresolved before
+  it could ship: (a) **`c` can't be profiled by timing** — both models showed `c` inflated by
+  sysmem-fallback *during* profiling; needs a FLOP-based estimate (`FlopCounterMode`, as Inductor does)
+  or profiling under full checkpointing; (b) a **model-agnostic** story (when to bother), (c) **eager
+  OOM-backoff** (mutate the checkpoint set on OOM) unimplemented, (d) composition with `block_swap`
+  (un-checkpointed blocks pin weights → can't swap) undefined. Net: not rejected — it measured net
+  *positive* on SDXL — but too immature and too model-dependent to own a config path yet.
+- **Where the code was:** all PoCs were throwaway spikes (standalone scripts + env-gated branches in
+  `engine.py`/`main.py`, reverted; see this investigation's transcript). Nothing merged. The supported
+  budget system stays compile-only (`training/activation_budget.py`, `resolve_auto_ac_budget` still
+  guards `auto` ⇒ `compile=true`).
+- **Revisit when:** the no-compile budget dial is genuinely needed (e.g. eager OOM auto-recovery is a
+  hard requirement) AND someone solves FLOP-based `c` estimation + a model-agnostic heterogeneity test
+  + eager OOM-backoff + block_swap composition. Block-level (not tensor-level, not SAC) is the path.
+
 ### ↩ unsloth-style CPU-offload checkpointing — `activation_checkpointing = "unsloth"` (retired 2026-06)
 - **What:** custom autograd.Function offloading each block's input hidden_states to CPU during forward, restoring on backward (`utils/unsloth_utils.py`).
 - **Why superseded:** measured **+2.6% step time for only −0.5 GB** vs full checkpointing @1024 (non-pinned, effectively synchronous transfers). Dominated by `true` (simpler) and `auto` (faster).
