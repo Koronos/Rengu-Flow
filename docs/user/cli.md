@@ -41,7 +41,7 @@ so the UI port and training defaults always exist. An existing file is never ove
 | `rengu ui` / `rengu ui start` | `uv sync --extra ui`, build `ui/web/dist`, serve API, open browser (bare `rengu ui` defaults to `start`) |
 | `rengu ui serve` | API only (`--host`, `--port`, `--reload`) |
 | `rengu ui dev` | API with reload + Vite dev server |
-| `rengu ui build` | `npm run build` in `ui/web` |
+| `rengu ui build` | Build `ui/web` frontend (pnpm, npm fallback) |
 | `rengu ui reset-db` | Reset UI SQLite library |
 
 Legacy: `rengu --config foo.toml` (without `train`) still works.
