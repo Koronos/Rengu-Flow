@@ -153,6 +153,16 @@ class SignalBody(BaseModel):
     type: str
 
 
+class EstimateStepsBody(BaseModel):
+    # Dataset TOML (as the editor serializes it) + the training config form. The endpoint scans
+    # each directory for its image count (unless image_counts supplies it) and returns the
+    # estimated steps_per_epoch / total_steps so the UI can show them while configuring a run.
+    dataset_toml: str
+    config: dict[str, Any]
+    image_counts: dict[str, int] | None = None
+    num_gpus: int = 1
+
+
 class PreviewConfigBody(BaseModel):
     # Full replacement for the run's [preview] table (prompts, cadence, enabled, sampling).
     preview: dict[str, Any]
@@ -493,6 +503,29 @@ def create_app() -> FastAPI:
     def fs_stat_post(body: FsStatBody) -> dict[str, Any]:
         expect = body.expect if body.expect in ("file", "dir") else None
         return stat_path(body.path, expect=expect)
+
+    @app.post(f"{API_PREFIX}/runs/estimate-steps")
+    def estimate_run_steps(body: EstimateStepsBody) -> dict[str, Any]:
+        """Estimate steps_per_epoch / total_steps for a run being configured, before caching."""
+        from rengu_flow.data.step_estimate import estimate_total_steps
+        from rengu_flow_ui.dataset_form import loads_for_training
+
+        try:
+            dataset_config = loads_for_training(body.dataset_toml)
+        except Exception as exc:  # malformed in-progress edit: report, don't 500
+            return {"ok": False, "error": f"dataset config: {exc}"}
+
+        counts = dict(body.image_counts or {})
+        for d in dataset_config.get("directory", []) or []:
+            path = str(d.get("path", "") or "")
+            if path and path not in counts:
+                scan = scan_folder(path)
+                counts[path] = int(scan.get("image_count", 0)) if scan.get("ok") else 0
+
+        out = estimate_total_steps(
+            dataset_config, body.config, counts, world_size=max(1, int(body.num_gpus or 1))
+        )
+        return {"ok": True, "image_counts": counts, **out}
 
     @app.post(f"{API_PREFIX}/datasets/scan-path")
     def dataset_scan_path(body: DatasetScanBody) -> dict[str, Any]:
