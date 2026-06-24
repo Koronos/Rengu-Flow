@@ -28,6 +28,7 @@ from rengu_flow.data.augmentation import (
     with_variant_key,
 )
 from rengu_flow.data.augmentation.names import AUG_MVP_VERSION
+from rengu_flow.data.cache_paths import resolve_directory_cache_dir
 from rengu_flow.platform_compat import PLATFORM
 from rengu_flow.data.cache_utils import (
     _map_and_cache,
@@ -873,10 +874,12 @@ class DirectoryDataset:
         round_to_multiple: int = 32,
         skip_dataset_validation: bool = False,
         cache_text_embeddings: bool = False,
+        training_config: dict | None = None,
     ) -> None:
         self._set_defaults(directory_config, dataset_config)
         self.directory_config = directory_config
         self.dataset_config = dataset_config
+        self._training_config = training_config or {}
         # Whether the model caches text embeddings (drives cached caption-variant baking
         # in SizeBucketDataset; the live path applies tag dropout per sample instead).
         # Note: distinct name from the cache_text_embeddings() method to avoid shadowing it.
@@ -957,7 +960,14 @@ class DirectoryDataset:
             if "default_mask_file" in self.directory_config
             else None
         )
-        self.cache_dir = self.path / "cache" / self.model_name
+        # Cache lives under cache_root (training config; default <repo>/cache), NOT
+        # co-located in the dataset folder. See rengu_flow/data/cache_paths.py.
+        self.cache_dir = resolve_directory_cache_dir(
+            self.dataset_config,
+            self.path,
+            self.model_name,
+            training_config=self._training_config,
+        )
         self.grouping_keys_json_file = (
             self.cache_dir / "metadata/grouping_keys.json"
         )
@@ -1631,8 +1641,10 @@ class Dataset:
         dataset_config: dict,
         model,
         skip_dataset_validation: bool = False,
+        training_config: dict | None = None,
     ) -> None:
         self.dataset_config = dataset_config
+        self._training_config = training_config or {}
         self.model = model
         self.model_name = getattr(self.model, "name", "model")
         self.post_init_called = False
@@ -1660,6 +1672,7 @@ class Dataset:
                 ),
                 skip_dataset_validation=skip_dataset_validation,
                 cache_text_embeddings=cache_text_embeddings,
+                training_config=self._training_config,
             )
             self.directory_datasets.append(dir_dataset)
         # Tag dropout + cached text embeddings is no longer refused: with the cache on, the

@@ -423,6 +423,7 @@ def _run_training(args, config):
             dataset_config,
             model,
             skip_dataset_validation=args.i_know_what_i_am_doing,
+            training_config=config,
         )
         dataset_manager = DatasetManager(
             model,
@@ -441,6 +442,7 @@ def _run_training(args, config):
                 eval_dataset_config,
                 model,
                 skip_dataset_validation=args.i_know_what_i_am_doing,
+                training_config=config,
             )
             eval_data_map[name] = eval_data
             dataset_manager.register(eval_data)

@@ -108,6 +108,21 @@ def _isolated_ui_sqlite(
     _init_ui_data_dir(base)
 
 
+@pytest.fixture(autouse=True)
+def _isolate_cache_root(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path_factory: pytest.TempPathFactory,
+) -> None:
+    """Keep dataset caches out of the real <repo>/cache during tests.
+
+    Datasets resolve their cache under ``default_cache_root()`` (= <repo>/cache) when no
+    cache_root is configured; redirect that to a temp dir so tests stay hermetic. The dir
+    is still named ``cache`` so ``test_cache_paths`` default-name assertions hold.
+    """
+    base = tmp_path_factory.mktemp("cache_root") / "cache"
+    monkeypatch.setattr("rengu_flow.data.cache_paths.default_cache_root", lambda: base)
+
+
 @pytest.fixture
 def ui_client(ui_data_tmp: Path, monkeypatch: pytest.MonkeyPatch):
     """FastAPI TestClient with UI routes (no auth token)."""
