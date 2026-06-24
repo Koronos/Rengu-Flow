@@ -314,6 +314,36 @@ def test_scheduled_order_round_robins_buckets_evenly_across_rebuilds():
         assert max(counts) - min(counts) <= 1
 
 
+def test_cursor_state_round_trips_for_resume():
+    """Dataset.cursor_state/load_cursor_state persist the round-robin positions so a resume
+    continues the rotation instead of restarting every cursor at cycle 0."""
+    from rengu_flow.data.sampling import RoundRobinCursor
+
+    ds = object.__new__(Dataset)
+    ds._bucket_cursors = [RoundRobinCursor(5, seed=0), RoundRobinCursor(3, seed=1)]
+    ds._bucket_cursors[0].take(7)  # advance into a second cycle
+    ds._bucket_cursors[1].take(2)
+    state = ds.cursor_state()
+
+    resumed = object.__new__(Dataset)
+    resumed._bucket_cursors = [RoundRobinCursor(5, seed=99), RoundRobinCursor(3, seed=99)]
+    resumed.load_cursor_state(state)
+
+    # Both continue from the same restored position -> identical future draws.
+    assert resumed._bucket_cursors[0].take(6) == ds._bucket_cursors[0].take(6)
+    assert resumed._bucket_cursors[1].take(4) == ds._bucket_cursors[1].take(4)
+
+
+def test_load_cursor_state_ignores_mismatched_length():
+    from rengu_flow.data.sampling import RoundRobinCursor
+
+    ds = object.__new__(Dataset)
+    ds._bucket_cursors = [RoundRobinCursor(5, seed=0)]
+    ds.load_cursor_state([])  # empty / wrong length -> no-op, no crash
+    ds.load_cursor_state([{"seed": 0, "cycle": 9, "pos": 1, "total": 1}, {"x": 1}])
+    assert ds._bucket_cursors[0]._cycle == 0  # unchanged
+
+
 def test_build_iteration_order_falls_back_when_stage_empty():
     stages = [{"resolutions": [512], "fraction": 1}]
     ds = _schedule_dataset_with_buckets(stages, target=10, current_step=1)

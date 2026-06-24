@@ -296,15 +296,22 @@ class PipelineDataLoader:
         self.epoch = max(x for x in result if x is not None)
 
     def state_dict(self):
-        return {
+        sd = {
             "epoch": self.epoch,
             "num_batches_pulled": self.num_batches_pulled,
         }
+        cursor_state = getattr(self.dataset, "cursor_state", None)
+        if callable(cursor_state):
+            sd["cursors"] = cursor_state()
+        return sd
 
     def load_state_dict(self, state_dict):
         assert not self.iter_called
         self.epoch = state_dict["epoch"]
         self.num_batches_pulled = state_dict["num_batches_pulled"]
+        load_cursors = getattr(self.dataset, "load_cursor_state", None)
+        if callable(load_cursors) and state_dict.get("cursors"):
+            load_cursors(state_dict["cursors"])
         self._create_dataloader(skip_first_n_batches=self.num_batches_pulled)
         self.data = self._pull_batches_from_dataloader()
         self.recreate_dataloader = True

@@ -18,6 +18,7 @@ from rengu_flow.utils.async_model_export import (
 )
 from rengu_flow.utils.common import is_main_process
 from rengu_flow.utils.logging import logger
+from rengu_flow.utils.rng_state import capture_rng_state
 from rengu_flow.utils.save_io import (
     cleanup_export_dir,
     global_step_sort_key,
@@ -449,6 +450,7 @@ class Saver:
                         "step": step,
                         "examples": examples,
                         "custom_loader": self.train_dataloader.state_dict(),
+                        "rng_state": capture_rng_state(),
                     },
                     save_latest=True,
                     exclude_frozen_parameters=True,

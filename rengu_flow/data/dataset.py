@@ -1904,6 +1904,23 @@ class Dataset:
         """Set the total step budget the resolution schedule is measured against."""
         self._schedule_target = int(target_steps) if target_steps else None
 
+    def cursor_state(self) -> list:
+        """Serializable per-bucket round-robin cursor positions (empty when none).
+
+        Lets a resume continue the coverage rotation instead of restarting every cursor at
+        cycle 0. Best-effort: post_init rebuilds + advances the cursors before the resume
+        restores them, so the *current* epoch's order is already drawn from fresh cursors;
+        restoring keeps subsequent epochs on the saved rotation.
+        """
+        return [c.state() for c in getattr(self, "_bucket_cursors", None) or []]
+
+    def load_cursor_state(self, states) -> None:
+        cursors = getattr(self, "_bucket_cursors", None)
+        if not cursors or not states or len(states) != len(cursors):
+            return
+        for cursor, state in zip(cursors, states):
+            cursor.set_state(state)
+
     def update_active_stage(self, step: int) -> bool:
         """Update progress and switch the active stage if ``step`` crossed a boundary.
 

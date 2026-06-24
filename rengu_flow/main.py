@@ -1069,6 +1069,11 @@ def _run_training(args, config):
                 train_dataloader.epoch = client_state["custom_loader"]["epoch"]
             else:
                 train_dataloader.load_state_dict(client_state["custom_loader"])
+            # Restore the global RNG so post-resume augmentation/dropout/shuffling reproduce the
+            # uninterrupted run's stochastic stream (exact for dataloader_num_workers=0).
+            from rengu_flow.utils.rng_state import restore_rng_state
+
+            restore_rng_state(client_state.get("rng_state"))
             step = client_state["step"] + 1
             examples = client_state.get("examples", (step - 1) * global_batch_size) + global_batch_size
             epoch = epoch_schedule.current(step)
