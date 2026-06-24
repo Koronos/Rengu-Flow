@@ -314,6 +314,60 @@ def expand_caption_variants(
     return out
 
 
+def maybe_expand_caption_variants(metadata_dataset, directory_dataset, *, warn: bool = False):
+    """Bake K seeded tag-dropout/shuffle caption variants into the caption column.
+
+    Active when text embeddings are cached and ``cached_caption_variants > 1`` (or
+    ``cached_caption_shuffle`` / ``tag_dropout``). Must be applied to BOTH the per-size-bucket
+    iteration order AND the per-AR-bucket text-embedding cache, or their caption counts disagree
+    and ``caption_number`` runs past the te cache (IndexError at training). Returns
+    ``(metadata, expanded)``; identity (``expanded=False``) for K=1 with no dropout/shuffle, so
+    default configs are untouched.
+    """
+    ds_cfg = getattr(directory_dataset, "dataset_config", None) or {}
+    if not bool(getattr(directory_dataset, "caches_text_embeddings", False)):
+        return metadata_dataset, False
+    tag_dropout = getattr(directory_dataset, "tag_dropout", None) or TagDropoutConfig()
+    cached_variants = int(ds_cfg.get("cached_caption_variants", 1) or 1)
+    cached_shuffle = bool(ds_cfg.get("cached_caption_shuffle", False))
+    if not (cached_variants > 1 or cached_shuffle or tag_dropout.enabled):
+        return metadata_dataset, False
+    if (
+        warn
+        and cached_variants > 1
+        and not tag_dropout.enabled
+        and not cached_shuffle
+        and is_main_process()
+    ):
+        print(
+            "[data] cached_caption_variants > 1 with no tag dropout and no shuffle bakes "
+            "identical copies (no regularization); set tag_dropout_enabled or "
+            "cached_caption_shuffle, or leave variants at 1.",
+            flush=True,
+        )
+
+    def _expand(example):
+        return {
+            "caption": expand_caption_variants(
+                list(example["caption"]),
+                cached_variants,
+                tag_dropout,
+                cached_shuffle,
+                seed_key=str(example["image_spec"][-1]),
+            )
+        }
+
+    return (
+        metadata_dataset.map(
+            _expand,
+            keep_in_memory=True,
+            load_from_cache_file=False,
+            desc="Expanding caption variants",
+        ),
+        True,
+    )
+
+
 class SizeBucketDataset:
     """Single size bucket from one directory: latents + text embeddings cache, iteration order."""
 
@@ -355,54 +409,16 @@ class SizeBucketDataset:
         )
 
         # Cached caption variants: when text embeddings are cached, bake K seeded
-        # tag-dropout/shuffle variants per caption into the caption column. Both the
-        # text-embedding cache (keyed by caption content) and the iteration order (which
-        # rotates caption_number across epochs) read this same column, so the existing
-        # multi-caption machinery handles the rest. Only meaningful for the cached path —
-        # the live path applies tag dropout per sample in _sample_from_entry instead.
-        # K = 1 with dropout/shuffle bakes a single fixed augmented variant for the whole
-        # dataset (diffusion-pipe's default behaviour); K >= 2 gives variants that rotate.
-        ds_cfg = getattr(directory_dataset, "dataset_config", None) or {}
-        cache_text_embeddings = bool(
-            getattr(directory_dataset, "caches_text_embeddings", False)
-        )
-        cached_variants = int(ds_cfg.get("cached_caption_variants", 1) or 1)
-        cached_shuffle = bool(ds_cfg.get("cached_caption_shuffle", False))
-        if cache_text_embeddings and (
-            cached_variants > 1 or cached_shuffle or self.tag_dropout.enabled
-        ):
-            tag_dropout = self.tag_dropout
-            if (
-                cached_variants > 1
-                and not tag_dropout.enabled
-                and not cached_shuffle
-                and is_main_process()
-            ):
-                print(
-                    "[data] cached_caption_variants > 1 with no tag dropout and no "
-                    "shuffle bakes identical copies (no regularization); set "
-                    "tag_dropout_enabled or cached_caption_shuffle, or leave variants at 1.",
-                    flush=True,
-                )
-
-            def _expand(example):
-                return {
-                    "caption": expand_caption_variants(
-                        list(example["caption"]),
-                        cached_variants,
-                        tag_dropout,
-                        cached_shuffle,
-                        seed_key=str(example["image_spec"][-1]),
-                    )
-                }
-
-            self.metadata_dataset = self.metadata_dataset.map(
-                _expand,
-                keep_in_memory=True,
-                load_from_cache_file=False,
-                desc="Expanding caption variants",
+        # tag-dropout/shuffle variants per caption into the caption column, so the iteration
+        # order rotates caption_number across epochs. The per-AR-bucket text-embedding cache
+        # expands identically (maybe_expand_caption_variants) so the counts match. Only
+        # meaningful for the cached path — the live path applies tag dropout per sample in
+        # _sample_from_entry instead.
+        self.metadata_dataset, self._caption_variants_expanded = (
+            maybe_expand_caption_variants(
+                self.metadata_dataset, directory_dataset, warn=True
             )
-            self._caption_variants_expanded = True
+        )
 
         if len(size_bucket) == 4:
             old_cache_dir = cache_base / f"cache_{bucket_suffix(size_bucket[1:])}"
@@ -925,8 +941,14 @@ class ARBucketDataset:
         cache_keep_in_memory: bool = False,
     ) -> None:
         print(f"caching text embeddings: {self.ar_frames}")
+        # Expand caption variants to match each size bucket's iteration order, which expands
+        # them too (maybe_expand_caption_variants in SizeBucketDataset). Without this the te
+        # cache holds only the base captions while caption_number runs 0..K-1 -> IndexError.
+        metadata, _ = maybe_expand_caption_variants(
+            self.metadata_dataset, self.directory_dataset
+        )
         te_dataset = _cache_text_embeddings(
-            self.metadata_dataset,
+            metadata,
             map_fn,
             i,
             self.cache_dir,

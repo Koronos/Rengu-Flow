@@ -12,12 +12,14 @@ import toml
 import torch
 
 from rengu_flow.data.dataset import (
+    ARBucketDataset,
     CAPTIONS_JSON_FILE,
     DirectoryDataset,
     FolderSubsampler,
     SizeBucketDataset,
     _read_captions_from_txt_per_line,
 )
+from rengu_flow.data.tag_dropout import TagDropoutConfig
 from rengu_flow.data.dump_dataset import dump_dataset
 
 FIXTURE_JPG = (
@@ -307,6 +309,64 @@ def test_size_bucket_iteration_order_one_row_per_caption(tmp_path):
     assert numbers == [0, 0, 1, 1]
     captions = sorted(row["caption"] for row in sb.iteration_order)
     assert captions == ["cap a1", "cap a2", "cap b1", "cap b2"]
+
+
+class _CaptionVariantDirStub:
+    """Minimal directory_dataset carrying the cached-caption-variant config the
+    expansion reads (caches_text_embeddings + dataset_config + tag_dropout)."""
+
+    def __init__(self, k: int):
+        self.caches_text_embeddings = True
+        self.tag_dropout = TagDropoutConfig()  # disabled; K>1 alone triggers expansion
+        self.captions_dict = None
+        self.dataset_config = {
+            "cached_caption_variants": k,
+            "cached_caption_shuffle": True,
+        }
+
+
+def test_ar_bucket_te_cache_expands_caption_variants_to_match_iteration_order(tmp_path):
+    """Regression: cached_caption_variants=K bakes K captions/image into the per-size-bucket
+    iteration order (caption_number 0..K-1), so the per-AR-bucket text-embedding cache must
+    expand identically. When it cached only the base captions, caption_number ran past the te
+    cache -> IndexError at training step 1."""
+    import numpy as np
+
+    K = 4
+    metadata = datasets.Dataset.from_dict(
+        {
+            "image_spec": [[None, "a.jpg"], [None, "b.jpg"]],
+            "caption": [["cap a"], ["cap b"]],  # one base caption each
+        }
+    )
+    ar = ARBucketDataset(
+        ar_frames=(1.0, 1),
+        resolutions=np.array([512]),
+        metadata_dataset=metadata,
+        directory_config={"path": str(tmp_path), "num_repeats": 1},
+        cache_base=tmp_path / "cache",
+        round_to_multiple=32,
+        directory_dataset=_CaptionVariantDirStub(K),
+    )
+
+    def fake_latent_map(example, rank):
+        return {"latents": torch.zeros(len(example["image_spec"]), 4)}
+
+    ar.cache_latents(fake_latent_map, regenerate_cache=True, trust_cache=False)
+    sb = ar.size_buckets[0]
+    assert max(row["caption_number"] for row in sb.iteration_order) == K - 1
+
+    def fake_te_map(example, rank):
+        return {"prompt_embeds": torch.zeros(len(example["image_spec"]), 2)}
+
+    ar.cache_text_embeddings(fake_te_map, 1, regenerate_cache=True)
+    te = sb.text_embedding_datasets[0]
+
+    # The te cache must carry K embeddings per image, so every caption_number resolves.
+    assert all(len(v) == K for v in te.image_spec_to_te_idx.values())
+    for row in sb.iteration_order:
+        spec = tuple(row["image_spec"])
+        assert row["caption_number"] < len(te.image_spec_to_te_idx[spec])
 
 
 def test_size_bucket_directory_subsample_ratio(tmp_path):
