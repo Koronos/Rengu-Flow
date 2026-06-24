@@ -137,3 +137,35 @@ def test_open_browser_no_fallback_on_success(monkeypatch, capsys):
     monkeypatch.setattr("webbrowser.open", lambda url: True)
     pc.open_browser("http://localhost:9999/")
     assert "Open in browser" not in capsys.readouterr().out
+
+
+def test_raise_open_file_limit_lifts_soft_to_hard(monkeypatch):
+    import resource
+
+    captured = {}
+    monkeypatch.setattr(resource, "getrlimit", lambda r: (1024, 1_048_576))
+    monkeypatch.setattr(resource, "setrlimit", lambda r, lim: captured.update(lim=lim))
+    assert pc.raise_open_file_limit(log=False) == (1024, 1_048_576)
+    assert captured["lim"] == (1_048_576, 1_048_576)
+
+
+def test_raise_open_file_limit_noop_when_already_at_hard(monkeypatch):
+    import resource
+
+    def _boom(*a):
+        raise AssertionError("setrlimit must not be called when already at the hard limit")
+
+    monkeypatch.setattr(resource, "getrlimit", lambda r: (1_048_576, 1_048_576))
+    monkeypatch.setattr(resource, "setrlimit", _boom)
+    assert pc.raise_open_file_limit(log=False) is None
+
+
+def test_raise_open_file_limit_caps_infinite_hard(monkeypatch):
+    import resource
+
+    captured = {}
+    monkeypatch.setattr(resource, "getrlimit", lambda r: (1024, resource.RLIM_INFINITY))
+    monkeypatch.setattr(resource, "setrlimit", lambda r, lim: captured.update(lim=lim))
+    pc.raise_open_file_limit(log=False)
+    # Infinite hard -> request a large finite soft, keep hard unchanged.
+    assert captured["lim"] == (1_048_576, resource.RLIM_INFINITY)

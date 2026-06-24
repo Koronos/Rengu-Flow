@@ -342,6 +342,37 @@ _WSL_ALLOC_DEFAULTS = {
 }
 
 
+def raise_open_file_limit(log: bool = True) -> tuple[int, int] | None:
+    """Lift the soft open-file limit (RLIMIT_NOFILE) to the hard limit.
+
+    The disk cache memory-maps many files at once during training — per size bucket: the latent
+    stack, its SQLite metadata, and the Arrow iteration-order/metadata tables. A multi-resolution,
+    AR-bucketed dataset can hold hundreds of descriptors open as the sampler reads across buckets,
+    exhausting the common 1024 soft limit after a few steps (OSError 24, "Too many open files").
+    Raising the soft limit to the hard limit — what mmap-heavy ML frameworks do — fixes it without
+    changing the (bounded) working set. No-op without ``resource`` (Windows) or already at the hard
+    limit. Returns ``(old_soft, new_soft)`` when it changed anything.
+    """
+    try:
+        import resource
+    except ImportError:
+        return None
+    try:
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    except (ValueError, OSError):
+        return None
+    target = 1_048_576 if hard == resource.RLIM_INFINITY else hard
+    if soft >= target:
+        return None
+    try:
+        resource.setrlimit(resource.RLIMIT_NOFILE, (target, hard))
+    except (ValueError, OSError):
+        return None
+    if log:
+        print(f"[rengu-flow] raised open-file limit {soft} -> {target}")
+    return (soft, target)
+
+
 def configure_cuda_allocator(*, is_wsl: bool | None = None, env: dict | None = None, log: bool = True) -> str | None:
     """Apply WSL-safe CUDA caching-allocator settings. No-op off WSL.
 
