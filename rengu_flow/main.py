@@ -1147,9 +1147,13 @@ def _run_training(args, config):
 
     oom_skip_cfg = config.get("train", {}).get("oom_skip", {})
     oom_skip_enabled = bool(oom_skip_cfg.get("enabled", False))
-    # Emergency checkpoint on an otherwise-fatal CUDA OOM (e.g. during a preview/eval) so the run is
-    # resumable instead of lost. Best-effort: a failed save never masks the original error.
-    save_on_oom = bool(config.get("train", {}).get("save_checkpoint_on_oom", True))
+    # Emergency checkpoint on ANY otherwise-fatal error (OOM, I/O, etc.) so the run is resumable
+    # instead of lost. Best-effort: a failed save never masks the original error. Legacy key
+    # ``save_checkpoint_on_oom`` is honoured as the default when the broader key is unset.
+    _train_cfg = config.get("train", {})
+    save_on_error = bool(
+        _train_cfg.get("save_checkpoint_on_error", _train_cfg.get("save_checkpoint_on_oom", True))
+    )
     from rengu_flow.utils.oom_skip import is_cuda_oom, reset_engine_timers
 
     oom_skip_state = None
@@ -1445,14 +1449,15 @@ def _run_training(args, config):
         sink.close(status="stopped")
         raise
     except Exception as exc:
-        # Last-ditch checkpoint on a fatal CUDA OOM (commonly during a preview/eval) so the run can
-        # resume instead of being lost. Best-effort and rank-0 gated logging; the original error is
-        # always re-raised. Note: in multi-GPU runs the save's collective may not complete if only
-        # some ranks OOM — the re-raise still tears the job down.
-        if save_on_oom and is_cuda_oom(exc) and last_checkpoint_step != step:
+        # Last-ditch checkpoint on ANY otherwise-fatal error (OOM during a preview/eval, an I/O
+        # error, etc.) so the run can resume instead of being lost. Best-effort and rank-0 gated
+        # logging; the original error is always re-raised. Note: in multi-GPU runs the save's
+        # collective may not complete if only some ranks failed — the re-raise still tears down.
+        if save_on_error and last_checkpoint_step != step:
+            reason = "CUDA OOM" if is_cuda_oom(exc) else f"error ({type(exc).__name__})"
             if is_main_process():
                 print(
-                    f"rengu_flow: CUDA OOM at step {step} — attempting emergency checkpoint "
+                    f"rengu_flow: fatal {reason} at step {step} — attempting emergency checkpoint "
                     "before exit...",
                     flush=True,
                 )
@@ -1466,10 +1471,10 @@ def _run_training(args, config):
                             "--resume_from_checkpoint.",
                             flush=True,
                         )
-            except Exception as save_exc:  # noqa: BLE001 - never mask the original OOM
+            except Exception as save_exc:  # noqa: BLE001 - never mask the original error
                 if is_main_process():
                     print(
-                        f"rengu_flow: emergency checkpoint FAILED after OOM: {save_exc}",
+                        f"rengu_flow: emergency checkpoint FAILED after {reason}: {save_exc}",
                         flush=True,
                     )
         if sampler is not None:
