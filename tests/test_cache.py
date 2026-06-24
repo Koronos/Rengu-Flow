@@ -166,11 +166,15 @@ def test_mmaps_open_lazily_per_key(tmp_path):
     assert c1._mmaps == {}, "finalize must not eager-open mmaps"
     c1.close()
 
+    assert c1._meta_con is None, "finalize must release the SQLite connection too"
+
     c2 = Cache(cache_dir, "fp-lazy")
     assert c2._mmaps == {}, "opening a cache must not mmap anything"
-    item = c2[0]  # first read maps on demand
+    assert c2._meta_con is None, "opening a cache must not open SQLite"
+    item = c2[0]  # first read maps + opens meta on demand
     assert item["latents"] is not None
     assert "latents" in c2._mmaps  # the touched key is now mapped
+    assert c2._meta_con is not None  # meta opened on first read
     c2.close()
 
 

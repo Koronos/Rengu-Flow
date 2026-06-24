@@ -66,7 +66,6 @@ class Cache:
         manifest_path = self.path / MANIFEST_NAME
         if not manifest_path.is_file():
             self._write_manifest()
-            self._open_meta()
             return
 
         try:
@@ -93,8 +92,7 @@ class Cache:
 
         self.count = count
         self.tensor_specs = tensor_specs
-        self._open_meta(read_only=True)
-        # mmaps open lazily per key on first read — an opened-but-unread cache holds no
+        # SQLite + mmaps open lazily on first use — an opened-but-unread cache holds no
         # file handles, so many bucket caches can coexist without exhausting the fd limit.
 
     def _write_manifest(self) -> None:
@@ -160,18 +158,27 @@ class Cache:
                 mm.close()
         self._mmaps.clear()
 
-    def close(self) -> None:
-        """Release all file handles (mmaps + SQLite + tensor files) without deleting the cache.
-
-        Call this when done with a cache before another run may clear it: on Windows the clear
-        ``unlink`` fails (WinError 32) while this instance still has the tensor files mmap'd.
-        """
+    def _close_meta(self) -> None:
+        """Commit and close the SQLite connection; reads re-open it read-only on demand."""
         if self._meta_con is not None:
             if not self._meta_read_only:
                 self._meta_con.commit()
             self._meta_con.close()
             self._meta_con = None
             self._meta_read_only = False
+
+    def _ensure_meta_for_read(self) -> None:
+        """Open the meta DB read-only if it is closed; leave a write connection as-is."""
+        if self._meta_con is None:
+            self._open_meta(read_only=True)
+
+    def close(self) -> None:
+        """Release all file handles (mmaps + SQLite + tensor files) without deleting the cache.
+
+        Call this when done with a cache before another run may clear it: on Windows the clear
+        ``unlink`` fails (WinError 32) while this instance still has the tensor files mmap'd.
+        """
+        self._close_meta()
         for f in self._tensor_files.values():
             if hasattr(f, "close"):
                 f.close()
@@ -324,7 +331,7 @@ class Cache:
             self._register_tensor_key(key, tensor)
 
     def _ensure_writable(self) -> None:
-        if self._meta_read_only:
+        if self._meta_con is None or self._meta_read_only:
             self._open_meta(read_only=False)
         self._mmaps.clear()
         for key in self.tensor_specs:
@@ -375,11 +382,11 @@ class Cache:
             if hasattr(f, "close"):
                 f.close()
         self._tensor_files.clear()
-        if self._meta_con is not None:
-            self._meta_con.commit()
         self._write_manifest()
-        # Invalidate any stale maps (the stack files just grew); reads re-map lazily.
+        # Bucket finished caching: drop its mmaps and SQLite handle so a cached-but-unread
+        # cache holds zero fds (reads re-open lazily). Bounds fds across many bucket caches.
         self._close_mmaps()
+        self._close_meta()
 
     def _read_tensor(self, key: str, idx: int) -> torch.Tensor:
         spec = self.tensor_specs[key]
@@ -396,7 +403,7 @@ class Cache:
         return t
 
     def _build_item(self, idx: int) -> dict:
-        assert self._meta_con is not None
+        self._ensure_meta_for_read()
         row = self._meta_con.execute(
             "SELECT payload FROM item_meta WHERE idx=?", (idx,)
         ).fetchone()
