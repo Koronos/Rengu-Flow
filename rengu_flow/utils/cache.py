@@ -69,8 +69,18 @@ class Cache:
             self._open_meta()
             return
 
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        if manifest.get("format_version") != FORMAT_VERSION:
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            format_version = manifest["format_version"]
+            count = int(manifest["count"])
+            tensor_specs = manifest["tensors"]
+        except (json.JSONDecodeError, KeyError, ValueError, TypeError):
+            # Manifest truncated/corrupt (e.g. crash mid-write — it is not written
+            # atomically). Regenerate rather than crash on resume.
+            print("[CACHE] Manifest unreadable, clearing")
+            self.clear()
+            return
+        if format_version != FORMAT_VERSION:
             print("[CACHE] Format version mismatch, clearing")
             self.clear()
             return
@@ -81,8 +91,8 @@ class Cache:
             self.clear()
             return
 
-        self.count = int(manifest["count"])
-        self.tensor_specs = manifest["tensors"]
+        self.count = count
+        self.tensor_specs = tensor_specs
         self._open_meta(read_only=True)
         self._open_mmaps()
 

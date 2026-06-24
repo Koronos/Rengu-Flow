@@ -153,6 +153,38 @@ def test_cache_variable_dim0_prompt_embeds(tmp_path):
     assert cache.tensor_specs["prompt_embeds"]["shape"] == [8, 768]
 
 
+def test_corrupt_manifest_regenerates_instead_of_crashing(tmp_path):
+    """A manifest truncated by a crash mid-write must regenerate, not raise on resume."""
+    cache_dir = tmp_path / "latents"
+    c1 = Cache(cache_dir, "fp-corrupt")
+    c1.add(_latents_item())
+    c1.finalize_current_shard()
+    assert len(c1) == 1
+    c1.close()
+
+    # Simulate a crash mid-write: manifest.json left as invalid JSON.
+    (cache_dir / MANIFEST_NAME).write_text('{"format_version": 2, "coun', encoding="utf-8")
+
+    c2 = Cache(cache_dir, "fp-corrupt")  # must not raise
+    assert len(c2) == 0
+    manifest = json.loads((cache_dir / MANIFEST_NAME).read_text(encoding="utf-8"))
+    assert manifest["count"] == 0
+
+
+def test_manifest_missing_required_key_regenerates(tmp_path):
+    """A structurally-wrong manifest (missing keys) regenerates rather than KeyError."""
+    cache_dir = tmp_path / "latents"
+    c1 = Cache(cache_dir, "fp-key")
+    c1.add(_latents_item())
+    c1.finalize_current_shard()
+    c1.close()
+
+    (cache_dir / MANIFEST_NAME).write_text('{"format_version": 2}', encoding="utf-8")  # no count/tensors
+
+    c2 = Cache(cache_dir, "fp-key")  # must not raise
+    assert len(c2) == 0
+
+
 def test_reject_legacy_v1_and_open(tmp_path):
     v2_dir = tmp_path / "current"
     v2_dir.mkdir()
