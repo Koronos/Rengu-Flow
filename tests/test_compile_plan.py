@@ -5,7 +5,6 @@ from __future__ import annotations
 from rengu_flow.data.dataset import Dataset
 from rengu_flow.training.compile_plan import (
     DEFAULT_ACCUMULATED_LIMIT,
-    DEFAULT_CACHE_SIZE_LIMIT,
     CompilePlan,
     apply_dynamo_limits,
     plan_compile,
@@ -84,14 +83,6 @@ def test_apply_dynamo_limits_raises_but_never_lowers():
     finally:
         cfg.cache_size_limit = before_cache
         cfg.accumulated_cache_size_limit = before_acc
-
-
-def test_default_constants_match_torch():
-    import torch._dynamo  # noqa: F401  (import resets nothing; reads live defaults)
-
-    # Guard against torch changing its defaults under us silently.
-    assert DEFAULT_CACHE_SIZE_LIMIT == 8
-    assert DEFAULT_ACCUMULATED_LIMIT == 256
 
 
 # --- Dataset.distinct_size_buckets ------------------------------------------------

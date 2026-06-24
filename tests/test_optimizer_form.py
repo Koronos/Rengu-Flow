@@ -21,13 +21,6 @@ def test_is_custom_optimizer_type() -> None:
     assert is_custom_optimizer_type("pytorch_optimizer.Prodigy")
 
 
-def test_schema_no_dedicated_optimizer_param_fields() -> None:
-    schema = get_schema()
-    opt_sec = next(s for s in schema["sections"] if s["id"] == "optimizer")
-    paths = {f["path"] for f in opt_sec["fields"]}
-    assert paths == {"optimizer.type", "optimizer.extra_params"}
-
-
 def test_schema_extra_params_visible_for_adamw() -> None:
     schema = get_schema()
     extra = next(

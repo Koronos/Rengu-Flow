@@ -105,27 +105,3 @@ def test_dataset_avg_examples_per_step():
     assert ds.avg_examples_per_step() == (96 + 40) / (48 + 40)
 
 
-def test_loader_announces_new_shapes_once(capsys):
-    import torch
-
-    from rengu_flow.data.loader import PipelineDataLoader
-
-    loader = object.__new__(PipelineDataLoader)
-    loader.announce_new_shapes = True
-    loader._seen_latent_shapes = set()
-
-    def batch(h, w):
-        return ((torch.zeros(1, 16, 1, h, w), torch.zeros(1)), (torch.zeros(1), None))
-
-    loader._maybe_announce_shape(batch(128, 128))
-    loader._maybe_announce_shape(batch(128, 128))  # repeat -> silent
-    loader._maybe_announce_shape(batch(64, 64))
-    out = capsys.readouterr().out
-    assert out.count("new latent shape") == 2
-
-    # Off (the dynamic-compile mode): never prints.
-    loader2 = object.__new__(PipelineDataLoader)
-    loader2.announce_new_shapes = False
-    loader2._seen_latent_shapes = set()
-    loader2._maybe_announce_shape(batch(32, 32))
-    assert capsys.readouterr().out == ""

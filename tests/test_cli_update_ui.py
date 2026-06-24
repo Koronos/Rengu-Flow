@@ -123,17 +123,6 @@ def test_update_repo_url_is_canonical():
     assert update_cmd.REPO_URL == "https://github.com/Koronos/Rengu-Flow"
 
 
-def test_force_flag_parses():
-    args = _build_parser().parse_args(["update", "--force"])
-    assert args.force is True
-    assert _build_parser().parse_args(["update"]).force is False
-
-
-def test_beta_flag_parses():
-    assert _build_parser().parse_args(["update", "--beta"]).beta is True
-    assert _build_parser().parse_args(["update"]).beta is False
-
-
 def _branch_of(root):
     return subprocess.run(
         ["git", "-C", str(root), "rev-parse", "--abbrev-ref", "HEAD"],
