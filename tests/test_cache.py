@@ -153,6 +153,27 @@ def test_cache_variable_dim0_prompt_embeds(tmp_path):
     assert cache.tensor_specs["prompt_embeds"]["shape"] == [8, 768]
 
 
+def test_mmaps_open_lazily_per_key(tmp_path):
+    """An opened-but-unread cache holds no mmaps; reading maps only the keys touched.
+
+    Keeps the fd count bounded so many bucket caches can coexist (was: every cache
+    eagerly mmap'd all tensors on open -> 'too many open files' with many buckets).
+    """
+    cache_dir = tmp_path / "latents"
+    c1 = Cache(cache_dir, "fp-lazy")
+    c1.add(_latents_item())  # latents + mask tensors
+    c1.finalize_current_shard()
+    assert c1._mmaps == {}, "finalize must not eager-open mmaps"
+    c1.close()
+
+    c2 = Cache(cache_dir, "fp-lazy")
+    assert c2._mmaps == {}, "opening a cache must not mmap anything"
+    item = c2[0]  # first read maps on demand
+    assert item["latents"] is not None
+    assert "latents" in c2._mmaps  # the touched key is now mapped
+    c2.close()
+
+
 def test_corrupt_manifest_regenerates_instead_of_crashing(tmp_path):
     """A manifest truncated by a crash mid-write must regenerate, not raise on resume."""
     cache_dir = tmp_path / "latents"

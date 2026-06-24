@@ -94,7 +94,8 @@ class Cache:
         self.count = count
         self.tensor_specs = tensor_specs
         self._open_meta(read_only=True)
-        self._open_mmaps()
+        # mmaps open lazily per key on first read — an opened-but-unread cache holds no
+        # file handles, so many bucket caches can coexist without exhausting the fd limit.
 
     def _write_manifest(self) -> None:
         payload = {
@@ -132,19 +133,23 @@ class Cache:
             self._meta_con.commit()
         self._meta_read_only = read_only
 
-    def _open_mmaps(self) -> None:
-        self._mmaps.clear()
-        for key, spec in self.tensor_specs.items():
-            path = self.path / TENSORS_DIR / f"{key}.bin"
-            if not path.is_file():
-                continue
-            dtype = _dtype_from_str(spec["storage_dtype"])
-            shape = (self.count,) + tuple(spec["shape"])
-            if dtype == torch.bfloat16:
-                self._mmaps[key] = np.memmap(path, dtype=np.uint16, mode="r", shape=shape)
-            else:
-                np_dtype = np.dtype(str(dtype).removeprefix("torch."))
-                self._mmaps[key] = np.memmap(path, dtype=np_dtype, mode="r", shape=shape)
+    def _open_mmap(self, key: str) -> None:
+        """Memory-map a single tensor stack on demand (one fd), if not already open."""
+        if key in self._mmaps:
+            return
+        spec = self.tensor_specs.get(key)
+        if spec is None:
+            return
+        path = self.path / TENSORS_DIR / f"{key}.bin"
+        if not path.is_file():
+            return
+        dtype = _dtype_from_str(spec["storage_dtype"])
+        shape = (self.count,) + tuple(spec["shape"])
+        if dtype == torch.bfloat16:
+            self._mmaps[key] = np.memmap(path, dtype=np.uint16, mode="r", shape=shape)
+        else:
+            np_dtype = np.dtype(str(dtype).removeprefix("torch."))
+            self._mmaps[key] = np.memmap(path, dtype=np_dtype, mode="r", shape=shape)
 
     def _close_mmaps(self) -> None:
         # np.memmap holds the file open until its underlying mmap is closed; dropping the dict
@@ -373,14 +378,14 @@ class Cache:
         if self._meta_con is not None:
             self._meta_con.commit()
         self._write_manifest()
-        self._open_mmaps()
+        # Invalidate any stale maps (the stack files just grew); reads re-map lazily.
+        self._close_mmaps()
 
     def _read_tensor(self, key: str, idx: int) -> torch.Tensor:
         spec = self.tensor_specs[key]
         original_dtype = _dtype_from_str(spec["dtype"])
         storage_dtype = _dtype_from_str(spec["storage_dtype"])
-        if key not in self._mmaps:
-            self._open_mmaps()
+        self._open_mmap(key)
         arr = self._mmaps[key][idx]
         if storage_dtype == torch.bfloat16:
             t = torch.from_numpy(np.asarray(arr).copy()).view(torch.bfloat16)
