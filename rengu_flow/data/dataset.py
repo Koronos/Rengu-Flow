@@ -1204,6 +1204,14 @@ class DirectoryDataset:
         trust_cache: bool = False,
         cache_num_proc: int | None = None,
     ) -> None:
+        # Idempotent: rebuild the bucket lists from scratch each call. cache_metadata runs
+        # more than once per directory (cache worker + main process, plus the eval/val-gap
+        # setup), and it appends one (AR|size) bucket per grouping key — without this reset the
+        # buckets accumulated N copies, so a per-folder max_images cap was applied per copy and
+        # the effective image budget (and step count) inflated N-fold.
+        self.size_bucket_datasets = []
+        self.ar_bucket_datasets = []
+
         def check_grouped():
             if not self.grouping_keys_json_file.exists():
                 return False, None

@@ -131,6 +131,27 @@ def test_dump_dataset_json_takes_precedence_over_txt(tmp_path, img_dir):
     assert records[0]["captions"] == ["from json"]
 
 
+def test_cache_metadata_idempotent_no_bucket_duplication(tmp_path, img_dir):
+    """Regression: cache_metadata runs more than once per directory (cache worker + main process,
+    plus the eval/val-gap setup). It must rebuild the bucket lists, not append — duplicated
+    AR/size buckets made a per-folder max_images cap apply per copy, inflating the effective
+    image budget (and the step count) N-fold."""
+    for i in range(3):
+        _copy_fixture_image(img_dir, f"pic{i}")
+    dd = DirectoryDataset(
+        {"path": str(img_dir), "num_repeats": 1, "shuffle_metadata": False},
+        {**MINIMAL_DATASET_CONFIG, "enable_ar_bucket": True},
+        "sdxl",
+        skip_dataset_validation=True,
+    )
+    dd.cache_metadata(regenerate_cache=True, cache_num_proc=1)
+    first = len(dd.ar_bucket_datasets)
+    assert first > 0
+    # The second pass the main process runs after the cache worker.
+    dd.cache_metadata(trust_cache=True, cache_num_proc=1)
+    assert len(dd.ar_bucket_datasets) == first  # no duplication on the repeat call
+
+
 def test_metadata_map_fn_reads_txt_multiple_lines(tmp_path, img_dir):
     img = _copy_fixture_image(img_dir, "pic")
     txt = img_dir / "pic.txt"
