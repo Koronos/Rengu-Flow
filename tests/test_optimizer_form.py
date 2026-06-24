@@ -156,6 +156,15 @@ def test_merge_optimizer_extras() -> None:
     assert "optimizer.extra_params" not in merged
 
 
+def test_merge_optimizer_extras_parses_json_string() -> None:
+    # extra_params may arrive as a JSON string (raw API); it must parse, not NameError.
+    merged = merge_optimizer_extras({"optimizer.extra_params": '{"weight_decay": 0.01}'})
+    assert merged["optimizer.weight_decay"] == 0.01
+    assert "optimizer.extra_params" not in merged
+    # Malformed JSON degrades gracefully (drops the key), still no NameError.
+    assert merge_optimizer_extras({"optimizer.extra_params": "not json"}) == {}
+
+
 def test_prodigy_builtin_kv_defaults() -> None:
     kv = OPTIMIZER_REGISTRY_KV_DEFAULTS["prodigy"]
     assert kv["lr"] == 1.0

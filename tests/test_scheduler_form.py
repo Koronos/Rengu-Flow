@@ -159,6 +159,15 @@ def test_merge_scheduler_extras_legacy_warmup_in_kv() -> None:
     assert "lr_scheduler_args.warmup_steps" not in merged
 
 
+def test_merge_scheduler_extras_parses_json_string() -> None:
+    # extra_params may arrive as a JSON string (raw API); it must parse, not NameError.
+    merged = merge_scheduler_extras({"lr_scheduler_args.extra_params": '{"lr_min": 0.0}'})
+    assert merged["lr_scheduler_args.lr_min"] == 0.0
+    assert "lr_scheduler_args.extra_params" not in merged
+    # Malformed JSON degrades gracefully (drops the key), still no NameError.
+    assert merge_scheduler_extras({"lr_scheduler_args.extra_params": "not json"}) == {}
+
+
 def test_split_scheduler_extras_migrates_legacy_warmup_from_kv() -> None:
     form = {
         "lr_scheduler": "cosine",
