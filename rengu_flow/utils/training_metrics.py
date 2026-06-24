@@ -118,6 +118,16 @@ def log_training_step(
     if grad_norm is not None:
         sink.scalar("train/grad_norm", grad_norm, x_axis)
 
+    # Human-readable per-step line to stdout (every logging_steps). Not a @@RFPROG@@ marker, so
+    # the web UI does not strip it — this is what shows in the live log panel (the throttled
+    # marker only drives the progress bar/metrics). Raise logging_steps to log less often.
+    parts = [f"step {step}", f"loss {loss:.4f}"]
+    if lr is not None:
+        parts.append(f"lr {lr:.2e}")
+    if grad_norm is not None:
+        parts.append(f"grad_norm {grad_norm:.3f}")
+    print(" | ".join(parts), flush=True)
+
     opt_name = type(optimizer).__name__
     if opt_name == "Prodigy":
         sink.scalar("train/prodigy_d", get_prodigy_d(optimizer), x_axis)

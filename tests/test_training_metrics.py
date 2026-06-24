@@ -132,6 +132,38 @@ def test_log_training_step_logs_lr_and_engine_grad_norm():
     sink.scalar.assert_any_call("train/grad_norm", 1.5, 10)
 
 
+def test_log_training_step_prints_human_readable_line_to_stdout(capsys):
+    # The per-step line must reach stdout (the web UI's live log panel) and not be a marker.
+    opt = MagicMock()
+    opt.__class__.__name__ = "AdamW"
+    opt.param_groups = [{"lr": 3e-5}]
+    engine = MagicMock()
+    engine.get_global_grad_norm = MagicMock(return_value=1.5)
+    log_training_step(
+        sink=MagicMock(),
+        optimizer=opt,
+        loss=0.1234,
+        x_axis=10,
+        step=10,
+        logging_steps=10,
+        is_main=True,
+        model_engine=engine,
+    )
+    out = capsys.readouterr().out
+    assert "step 10" in out and "loss 0.1234" in out and "lr 3.00e-05" in out
+    assert "@@RFPROG@@" not in out  # not a progress marker -> the UI keeps it in the log
+
+
+def test_log_training_step_no_stdout_when_not_logging_step(capsys):
+    opt = MagicMock()
+    opt.__class__.__name__ = "AdamW"
+    log_training_step(
+        sink=MagicMock(), optimizer=opt, loss=0.1, x_axis=1, step=11,
+        logging_steps=10, is_main=True,
+    )
+    assert capsys.readouterr().out == ""  # off-cadence step: silent
+
+
 def test_log_training_step_grad_norm_falls_back_to_optimizer():
     sink = MagicMock()
 
