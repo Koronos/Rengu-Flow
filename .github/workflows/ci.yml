@@ -1,0 +1,34 @@
+# CPU CI: lint + the full pytest suite (GPU-gated tests skip themselves via
+# `skipif(not torch.cuda.is_available())`). The GPU model smokes in
+# scripts/run_model_smoke.sh are NOT run here — they need a self-hosted CUDA
+# runner; wire them as a separate workflow on such a runner when available.
+#
+# Note: torch is pinned to the cu130 index (pyproject), so `uv sync` pulls the
+# CUDA wheels even on this CPU runner — large but importable (CUDA just reports
+# unavailable). First run may need a tweak if the install times out.
+name: ci
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.13"
+          enable-cache: true
+      # Tests only: the repo isn't ruff-clean yet (no [tool.ruff] config, ~59
+      # pre-existing violations incl. F821), so a lint gate would fail on debt
+      # unrelated to the PR. Add a Lint step once ruff is adopted.
+      - name: Tests
+        run: uv run --extra dev --extra ui pytest -q
