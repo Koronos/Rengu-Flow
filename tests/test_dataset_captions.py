@@ -14,6 +14,7 @@ import torch
 from rengu_flow.data.dataset import (
     CAPTIONS_JSON_FILE,
     DirectoryDataset,
+    FolderSubsampler,
     SizeBucketDataset,
     _read_captions_from_txt_per_line,
 )
@@ -340,7 +341,16 @@ def test_size_bucket_directory_subsample_ratio(tmp_path):
     # subsample_ratio no longer trims the cache: the full pool stays available so the
     # per-epoch window can rotate over all of it.
     assert len(sb.iteration_order) == 8
-    # Effective per-epoch rows = floor(8 * 0.25) = 2.
+
+    # The cap is now applied at the folder level (shared across buckets). Inject a folder
+    # subsampler over this bucket's 8 base images with the floor(8 * 0.25) = 2 cap.
+    sub = FolderSubsampler(sb._base_keys, cap=2, static=False, seed=0)
+
+    class _Dir:
+        def folder_subsampler(self):
+            return sub
+
+    sb.directory_dataset = _Dir()
     assert len(sb) == 2
     # Rotating by default: consecutive epochs serve a different slice of the pool.
     sb.set_epoch(1)
@@ -348,6 +358,45 @@ def test_size_bucket_directory_subsample_ratio(tmp_path):
     sb.set_epoch(2)
     epoch2 = {sb._pool_index(i) for i in range(len(sb))}
     assert epoch1 != epoch2
+
+
+def test_max_images_caps_the_folder_total_not_each_bucket(tmp_path):
+    """Regression: max_images caps a FOLDER's per-epoch base images, shared across its size
+    buckets — not max_images per bucket (which made a multi-bucket folder contribute N x buckets)."""
+
+    def make_bucket(names, bucket):
+        sb = SizeBucketDataset(
+            datasets.Dataset.from_dict(
+                {"image_spec": [[None, n] for n in names], "caption": [["c"] for _ in names]}
+            ),
+            {"path": str(tmp_path), "num_repeats": 1},
+            bucket,
+            tmp_path / "cache",
+            None,
+        )
+        sb.iteration_order = datasets.Dataset.from_dict(
+            {
+                "image_spec": [[None, n] for n in names],
+                "latents_idx": list(range(len(names))),
+                "caption": [""] * len(names),
+                "caption_number": [0] * len(names),
+            }
+        )
+        return sb
+
+    b1 = make_bucket([f"a{i}.jpg" for i in range(5)], (512, 512, 1))
+    b2 = make_bucket([f"b{i}.jpg" for i in range(5)], (768, 768, 1))  # 10 base images, 2 buckets
+    sub = FolderSubsampler(list(b1._base_keys) + list(b2._base_keys), cap=4, static=False, seed=0)
+
+    class _Dir:
+        def folder_subsampler(self):
+            return sub
+
+    b1.directory_dataset = b2.directory_dataset = _Dir()
+    b1.set_epoch(1)
+    b2.set_epoch(1)
+    # The folder serves exactly `cap` base images TOTAL across both buckets (not cap per bucket).
+    assert len(b1) + len(b2) == 4
 
 
 def test_size_bucket_online_captions_selects_caption_number(tmp_path):
@@ -360,6 +409,9 @@ def test_size_bucket_online_captions_selects_caption_number(tmp_path):
 
     class FakeDir:
         captions_dict = {"img.png": ["first", "second", "third"]}
+
+        def folder_subsampler(self):
+            return FolderSubsampler([], cap=None, static=False, seed=0)  # uncapped
 
     sb = SizeBucketDataset(
         metadata,

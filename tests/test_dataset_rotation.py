@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 
 from rengu_flow.data.dataset import (
+    FolderSubsampler,
     SizeBucketDataset,
     effective_sample_cap,
     rotation_window_index,
@@ -20,29 +21,26 @@ def _window(epoch, pool_len, cap, static):
 
 
 class _FakeBucket:
-    """Minimal stand-in exposing only the fields SizeBucketDataset._pool_index reads, so the
-    uncapped per-epoch reshuffle can be tested without building a real cached dataset."""
+    """Minimal stand-in for the uncapped per-epoch reshuffle path of SizeBucketDataset._pool_index
+    (no directory => no folder cap), without building a real cached dataset."""
 
-    def __init__(self, pool_len, cap=None, static=False):
+    def __init__(self, pool_len, static=False):
         self._len = pool_len
-        self._cap = cap
+        self.directory_dataset = None
         self.subsample_shuffle = not static
         self._epoch = 1
         self._epoch_order_seed = 4242
         self._epoch_order_cache = None
         self._epoch_order_for = None
+        self._served_cache = None
+        self._served_for = None
 
     @property
     def _pool_len(self):
         return self._len
 
-    @property
-    def _sample_cap(self):
-        return self._cap
-
-    @property
-    def _effective_len(self):
-        return self._len if self._cap is None else self._cap
+    _served_rows = SizeBucketDataset._served_rows
+    _effective_len = SizeBucketDataset._effective_len
 
     def _epoch_pool_order(self):
         return SizeBucketDataset._epoch_pool_order(self)
@@ -68,12 +66,36 @@ def test_uncapped_pool_index_varies_per_epoch():
     assert e1 != e2  # the slice dropped on a partial pass differs between epochs
 
 
-def test_capped_pool_index_still_uses_rotation_window():
-    # With a cap the existing coverage-guaranteeing rotation is kept (not the reshuffle path).
-    b = _FakeBucket(pool_len=10, cap=4)
-    b._epoch = 2
-    expected = [rotation_window_index(p, 2, 10, 4, False) for p in range(4)]
-    assert [b.pool_index(i) for i in range(4)] == expected
+# --- FolderSubsampler: the per-folder base-image cap (max_images / subsample_ratio) ---------
+
+
+def test_folder_subsampler_caps_and_rotates_to_cover():
+    keys = [f"img{i}" for i in range(10)]
+    sub = FolderSubsampler(keys, cap=4, static=False, seed=0)
+    seen: set = set()
+    for epoch in range(1, math.ceil(10 / 4) + 1):
+        sel = sub.selected(epoch)
+        assert len(sel) == 4  # the folder contributes exactly `cap` base images per epoch
+        seen.update(sel)
+    assert seen == set(keys)  # rotation covers the whole folder
+
+
+def test_folder_subsampler_frozen_when_static():
+    keys = [f"img{i}" for i in range(10)]
+    sub = FolderSubsampler(keys, cap=4, static=True, seed=0)
+    assert sub.selected(1) == sub.selected(2) == sub.selected(5)
+
+
+def test_folder_subsampler_small_folder_repeats_to_cap():
+    sub = FolderSubsampler(["a", "b", "c"], cap=8, static=False, seed=0)
+    sel = sub.selected(1)
+    assert len(sel) == 8  # fills its quota by repeating
+    assert set(sel) == {"a", "b", "c"}
+
+
+def test_folder_subsampler_uncapped_returns_whole_folder():
+    sub = FolderSubsampler(["a", "b", "c"], cap=None, static=False, seed=0)
+    assert sorted(sub.selected(1)) == ["a", "b", "c"]
 
 
 def test_no_cap_is_identity_modulo_pool():

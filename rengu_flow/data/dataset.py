@@ -28,6 +28,7 @@ from rengu_flow.data.augmentation import (
     with_variant_key,
 )
 from rengu_flow.data.augmentation.names import AUG_MVP_VERSION
+from rengu_flow.data.augmentation.spec_utils import image_spec_base
 from rengu_flow.data.cache_paths import resolve_directory_cache_dir
 from rengu_flow.platform_compat import PLATFORM
 from rengu_flow.data.cache_utils import (
@@ -154,7 +155,12 @@ def directory_subsample_ratio(directory_config: dict) -> float:
 
 
 def directory_max_images(directory_config: dict) -> int | None:
-    """Absolute per-size-bucket image cap for a directory (``max_images``), or None for no cap."""
+    """Absolute per-epoch base-image cap for the whole folder (``max_images``), or None for no cap.
+
+    Applied once over the folder's base images (see :class:`FolderSubsampler`), not per size
+    bucket — so a folder contributes this many base images per epoch regardless of how many
+    resolution/AR buckets it spans, then resolution + augmentation expand each one normally.
+    """
     value = directory_config.get("max_images")
     if value is None:
         return None
@@ -214,6 +220,39 @@ def rotation_window_index(
         return pos % pool_len
     offset = 0 if static else ((epoch - 1) * cap) % pool_len
     return (offset + pos) % pool_len
+
+
+class FolderSubsampler:
+    """Per-folder base-image sampler shared across a directory's size buckets.
+
+    ``max_images`` / ``subsample_ratio`` cap how many **base images** a folder contributes per
+    epoch — *not* per bucket (the cap is applied here, once, over the folder's whole image set,
+    then resolution + augmentation expand each selected image normally). ``selected(epoch)``
+    returns ``cap`` base keys: a rotating window over the folder when ``subsample_shuffle`` is on
+    (full coverage across epochs), or a frozen seeded subset when off. ``cap`` larger than the
+    folder repeats up to it, so a small folder still fills its quota (balances uneven folders).
+    Pure given ``(epoch)`` — every data-parallel rank selects the same images.
+    """
+
+    def __init__(self, base_keys, cap: int | None, static: bool, seed: int) -> None:
+        self._base = list(base_keys)
+        random.Random(int(seed)).shuffle(self._base)
+        self.cap = cap
+        self._static = static
+        self._cache_epoch: int | None = None
+        self._cache: list | None = None
+
+    def selected(self, epoch: int) -> list:
+        if self.cap is None:
+            return self._base
+        if self._cache_epoch != epoch or self._cache is None:
+            n = len(self._base)
+            self._cache = [
+                self._base[rotation_window_index(p, epoch, n, self.cap, self._static)]
+                for p in range(self.cap)
+            ]
+            self._cache_epoch = epoch
+        return self._cache
 
 
 def uniform_caption_variants(caption_lists) -> int:
@@ -387,6 +426,13 @@ class SizeBucketDataset:
         self._epoch_order_cache: list[int] | None = None
         self._epoch_order_for: int | None = None
         self._aug_fingerprint = getattr(directory_dataset, "_aug_fingerprint", "")
+        # Folder-level subsampling: max_images/subsample_ratio cap the *folder's* per-epoch base
+        # images (shared across its buckets), not each bucket. Built lazily on the directory.
+        self.directory_dataset = directory_dataset
+        self._rows_by_base_cache: dict | None = None
+        self._base_keys_cache: list | None = None
+        self._served_cache: list[int] | None = None
+        self._served_for: int | None = None
 
     @property
     def caption_variants(self) -> int:
@@ -609,34 +655,64 @@ class SizeBucketDataset:
         return len(self.iteration_order)
 
     @property
-    def _sample_cap(self) -> int | None:
-        """Per-epoch row count from max_images or subsample_ratio (None => whole pool)."""
-        return effective_sample_cap(
-            self._pool_len, self.max_images, self.subsample_ratio
-        )
+    def _rows_by_base(self) -> dict:
+        """Map each base image (variant-stripped image_spec) to its row indices in this bucket."""
+        if self._rows_by_base_cache is None:
+            rbb: dict = {}
+            order: list = []
+            for i, spec in enumerate(self.iteration_order["image_spec"]):
+                bk = image_spec_base(tuple(spec))
+                bucket = rbb.get(bk)
+                if bucket is None:
+                    rbb[bk] = bucket = []
+                    order.append(bk)
+                bucket.append(i)
+            self._rows_by_base_cache = rbb
+            self._base_keys_cache = order
+        return self._rows_by_base_cache
+
+    @property
+    def _base_keys(self) -> list:
+        """Distinct base images present in this bucket (in iteration_order order)."""
+        if self._base_keys_cache is None:
+            _ = self._rows_by_base
+        return self._base_keys_cache
+
+    @property
+    def _served_rows(self) -> list[int]:
+        """Row indices of iteration_order served this epoch, after the folder-level cap.
+
+        When the folder caps its per-epoch base images (max_images / subsample_ratio), serve only
+        the rows whose base image the folder selected this epoch (so all of the folder's buckets
+        share one cap). Uncapped, serve the whole pool — reshuffled per epoch when subsample_shuffle
+        is on, in static order otherwise (the previous behaviour).
+        """
+        if self._served_for == self._epoch and self._served_cache is not None:
+            return self._served_cache
+        dd = self.directory_dataset
+        sub = dd.folder_subsampler() if dd is not None and hasattr(dd, "folder_subsampler") else None
+        if sub is not None and sub.cap is not None:
+            rbb = self._rows_by_base
+            served = [ri for bk in sub.selected(self._epoch) for ri in rbb.get(bk, ())]
+        elif self.subsample_shuffle:
+            served = list(self._epoch_pool_order())
+        else:
+            served = list(range(self._pool_len))
+        self._served_cache = served
+        self._served_for = self._epoch
+        return served
 
     @property
     def _effective_len(self) -> int:
-        """Rows served per epoch: the active sampler's cap, or the whole pool when uncapped."""
-        cap = self._sample_cap
-        return self._pool_len if cap is None else cap
+        """Rows served per epoch (after the folder's base-image cap, or the whole pool)."""
+        return len(self._served_rows)
 
     def _pool_index(self, idx: int) -> int:
-        """Map an upper-layer index (0..len-1) to a row of the full pool, honoring rotation."""
-        m = self._effective_len
-        if m <= 0:
+        """Map an upper-layer index (0..len-1) to a row of iteration_order for this epoch."""
+        served = self._served_rows
+        if not served:
             return 0
-        pos = idx % m
-        cap = self._sample_cap
-        if cap is None and self.subsample_shuffle:
-            # Whole pool served every epoch: reshuffle the row order per epoch (RandomCursor) so
-            # the partial passes at schedule-stage boundaries / run end don't always drop the same
-            # tail. Coverage is preserved (it's a full permutation); a capped pool keeps its own
-            # coverage-guaranteeing window rotation below.
-            return self._epoch_pool_order()[pos]
-        return rotation_window_index(
-            pos, self._epoch, self._pool_len, cap, not self.subsample_shuffle
-        )
+        return served[idx % len(served)]
 
     def _epoch_pool_order(self) -> list[int]:
         """Cached per-epoch permutation of the whole pool (built once per epoch)."""
@@ -880,6 +956,7 @@ class DirectoryDataset:
         self.directory_config = directory_config
         self.dataset_config = dataset_config
         self._training_config = training_config or {}
+        self._folder_subsampler = None
         # Whether the model caches text embeddings (drives cached caption-variant baking
         # in SizeBucketDataset; the live path applies tag dropout per sample instead).
         # Note: distinct name from the cache_text_embeddings() method to avoid shadowing it.
@@ -1526,6 +1603,34 @@ class DirectoryDataset:
         for ar_ds in self.ar_bucket_datasets:
             result.extend(ar_ds.get_size_bucket_datasets())
         return result
+
+    def folder_subsampler(self) -> "FolderSubsampler":
+        """Lazily build the shared per-folder base-image subsampler (max_images / subsample_ratio).
+
+        Base images are resolution-independent, so the cap spans the whole folder: the union of
+        base keys across all size buckets, capped once, then each bucket serves only the rows whose
+        base the folder picked this epoch.
+        """
+        if self._folder_subsampler is None:
+            bases: list = []
+            seen: set = set()
+            for sb in self.get_size_bucket_datasets():
+                for bk in sb._base_keys:
+                    if bk not in seen:
+                        seen.add(bk)
+                        bases.append(bk)
+            cap = effective_sample_cap(
+                len(bases),
+                directory_max_images(self.directory_config),
+                directory_subsample_ratio(self.directory_config),
+            )
+            self._folder_subsampler = FolderSubsampler(
+                bases,
+                cap,
+                static=not directory_subsample_shuffle(self.directory_config),
+                seed=seed_from_hash(("folder_subsample", str(self.path))),
+            )
+        return self._folder_subsampler
 
     def cache_latents(
         self,
