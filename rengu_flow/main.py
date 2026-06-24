@@ -748,16 +748,16 @@ def _run_training(args, config):
             "rengu_flow: val_gap_enable is set but no eval_datasets are configured; "
             "the train-val gap probe is disabled (add an eval_datasets entry to enable it)."
         )
-    # A resolution schedule samples only a subset of resolutions per epoch, so the
-    # live dataloader length shrinks; measure steps_per_epoch over the full set of
-    # resolutions (full_epoch_len) to keep total_steps/progress stable.
+    # total_steps is the authority; an "epoch" is just an N/epochs slice for cadence
+    # (save/eval/preview/display), not a clean pass over the data. One nominal epoch is
+    # the schedule-weighted optimizer-step count: each bucket contributes len(bucket)*phi,
+    # where phi is the fraction of the run its resolution is active (phi=1 with no
+    # schedule, so this matches the old full-resolution count). len(bucket) already folds
+    # in the per-resolution batch and gradient accumulation, so the budget shrinks exactly
+    # by the resolutions a schedule drops -- no extra division, and the stage fractions
+    # stay exact on the [0, N] step axis regardless of where epoch boundaries fall.
     schedule_active = getattr(train_data, "schedule_active", False)
-    if schedule_active:
-        steps_per_epoch = max(
-            1, train_data.full_epoch_len // gradient_accumulation_steps
-        )
-    else:
-        steps_per_epoch = max(1, len(train_dataloader) // gradient_accumulation_steps)
+    steps_per_epoch = max(1, round(train_data.scheduled_epoch_len()))
     # Caption variants (multi-line .txt) multiply the iteration order, but they are
     # regularization samples of the same images, not new data. Divide them out so an
     # "epoch" still means one pass over the images — save/eval/preview cadence and

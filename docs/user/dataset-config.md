@@ -264,10 +264,16 @@ How it works:
   stage = they are **mixed** during that stage (sampled in proportion to image
   count, like the default). A single stage with every resolution reproduces the
   default mixed behavior.
-- **Budget.** "100% of training" is your **`max_steps`** if you set it (that
-  option takes precedence); otherwise the system derives it from
-  `epochs × steps_per_epoch` (measured over the full resolution set). You do not
-  have to set `max_steps`.
+- **Budget — the schedule shrinks total steps.** Each resolution is only trained
+  for the fraction of the run it is active, so it contributes that share of its
+  steps. A resolution in every stage is trained the whole run; one in a single
+  33% stage costs ~⅓ of its full-mixing steps. Example: 250 images/res at batch
+  2/2/1 is 500 steps/epoch fully mixed; with stages {500,1000}/{700,1000}/{1000}
+  at 40/40/20 it becomes 350 (1000 stays at 250, but 500 and 700 only cost
+  0.4 × 125 = 50 each). `total_steps` is this reduced count × `epochs`; an
+  "epoch" is just a `total_steps / epochs` slice for save/eval/preview cadence,
+  not a full pass. Set **`max_steps`** to pin an absolute budget instead (it
+  takes precedence and the stage fractions then split *it*).
 - **Granularity.** Stage changes happen at the **exact step** that crosses a
   boundary (iteration restarts mid-epoch), so the schedule is precise even with
   very few epochs / large datasets where a single-resolution epoch can span more

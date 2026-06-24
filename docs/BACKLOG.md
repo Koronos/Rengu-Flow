@@ -46,6 +46,7 @@ Canonical list of **not-yet-implemented** or **deferred** work for Rengu Flow. D
 | ID | Item | Source | Notes |
 |----|------|--------|-------|
 | P2-2 | **Safetensors pack per bucket** | [poc-cpu-ram-results.md](developer/poc-cpu-ram-results.md) | Alternative on-disk layout to stacked `.bin` (cache v2). |
+| P2-4 | **Per-directory schedule windows** | `dataset.py:1953`, `main.py:scheduled_epoch_len` | Today the schedule is global-per-resolution (`phi` per resolution in `scheduled_epoch_len`). Generalize to a per-`[[directory]]` activation window over `[0,1]` so a folder can deactivate at a point, or two clones (aug on/off) interleave. Buckets currently merge size-buckets across all directories (`ConcatenatedBatchedDataset`), so this needs splitting that grouping + sampler composition by directory + UI/validation. The step calc already accommodates it: `phi` moves from per-resolution to per-(directory,resolution) bucket, same formula. |
 | P2-3 | **Block-swap overlapped prefetch + Linux/multi-GPU validation** | [spec/sdxl-full-finetune-low-vram.md](spec/sdxl-full-finetune-low-vram.md) | `block_swap_prefetch` is opt-in/off — counterproductive on 8 GB WSL (sysmem spill); validate on native Linux / larger GPU, add GPU-buffer-reuse so pulls don't alloc fresh tensors each step. Also validate `pipeline_stages > 1` / multi-GPU + the DeepSpeed `_broadcast_model`/`PipelineModule.to` no-ops there. WSL2 was dev-only. |
 
 ---

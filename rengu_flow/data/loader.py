@@ -152,9 +152,12 @@ class PipelineDataLoader:
             set_epoch(self.epoch)
 
     def _rotation_needs_worker_refresh(self) -> bool:
-        """Persistent/forked workers hold a stale dataset copy; re-fork them when rotating."""
-        return self.num_dataloader_workers > 0 and getattr(
-            self.dataset, "rotation_active", False
+        """Persistent/forked workers hold a stale dataset copy; re-fork them when the
+        per-epoch iteration order changes -- max_images rotation, or a resolution
+        schedule (whose bucket cursors advance every epoch, see Dataset.set_epoch)."""
+        return self.num_dataloader_workers > 0 and (
+            getattr(self.dataset, "rotation_active", False)
+            or getattr(self.dataset, "schedule_active", False)
         )
 
     def refresh_for_step(self, step: int) -> None:

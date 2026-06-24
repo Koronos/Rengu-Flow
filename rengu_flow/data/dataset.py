@@ -30,6 +30,7 @@ from rengu_flow.data.augmentation import (
 from rengu_flow.data.augmentation.names import AUG_MVP_VERSION
 from rengu_flow.data.augmentation.spec_utils import image_spec_base
 from rengu_flow.data.cache_paths import resolve_directory_cache_dir
+from rengu_flow.data.sampling import RoundRobinCursor
 from rengu_flow.platform_compat import PLATFORM
 from rengu_flow.data.cache_utils import (
     _map_and_cache,
@@ -1738,6 +1739,22 @@ def parse_resolution_schedule(dataset_config: dict):
     return True, stages, cum_frac
 
 
+def resolution_active_fractions(stages) -> dict[int, float]:
+    """phi per resolution: the fraction of the run each resolution is active.
+
+    ``stages`` is the ``(frozenset_of_resolutions, fraction)`` list from
+    ``parse_resolution_schedule`` (fractions already normalized to sum 1.0). A
+    resolution that appears in several stages sums their fractions, so one always
+    on (in every stage) gets 1.0. An empty list returns an empty dict; callers
+    read a missing resolution as 1.0 (no schedule => trained the whole run).
+    """
+    frac: dict[int, float] = defaultdict(float)
+    for res_set, f in stages:
+        for r in res_set:
+            frac[r] += f
+    return dict(frac)
+
+
 class Dataset:
     """Top-level dataset: multiple DirectoryDatasets, post_init for DP rank and batch sizes."""
 
@@ -1812,6 +1829,11 @@ class Dataset:
         self._schedule_target = None
         self._active_stage = None
         self.full_epoch_len = 0
+        # One RoundRobinCursor per bucket (built in post_init). Persisting them for the
+        # whole run is the schedule fix: each rebuild resumes a bucket where it left off
+        # and reshuffles on wrap, so a resolution's limited budget spreads evenly across
+        # all its images instead of replaying a fixed seed-0 prefix and starving the tail.
+        self._bucket_cursors: list = []
 
     @property
     def caption_variants(self) -> int:
@@ -1834,20 +1856,19 @@ class Dataset:
     def set_epoch(self, epoch: int) -> None:
         """Propagate the current epoch to every size bucket so rotation advances.
 
-        When a resolution schedule is active, also re-evaluate which stage the
-        current step falls in and rebuild the iteration order if it changed. This
-        runs during the loader's epoch rollover, right before the dataloader is
-        re-created, so the new stage's resolutions take effect immediately.
+        When a resolution schedule is active, also rebuild the iteration order for
+        the current stage. This runs during the loader's epoch rollover, right before
+        the dataloader is re-created, so a new stage takes effect immediately and -- on
+        a same-stage rollover -- the bucket cursors advance, rotating coverage to the
+        next slice of each resolution instead of replaying the same images every epoch.
         """
         for bucket in getattr(self, "buckets", []):
             bucket.set_epoch(epoch)
         if self.schedule_active and self.post_init_called:
-            stage = self._stage_for_step(self.current_step)
-            if stage != self._active_stage:
-                self._active_stage = stage
-                self.iteration_order = self._build_iteration_order(
-                    self._active_resolutions_for_stage(stage)
-                )
+            self._active_stage = self._stage_for_step(self.current_step)
+            self.iteration_order = self._build_iteration_order(
+                self._active_resolutions_for_stage(self._active_stage)
+            )
 
     def set_schedule_target(self, target_steps: int) -> None:
         """Set the total step budget the resolution schedule is measured against."""
@@ -1959,6 +1980,12 @@ class Dataset:
                 data_parallel_rank,
                 data_parallel_world_size,
             )
+        # Persistent round-robin cursor per bucket. Seeded by index so every
+        # data-parallel rank builds identical cursors (and advances them in lockstep,
+        # since all ranks rebuild at the same steps) -> identical iteration order.
+        self._bucket_cursors = [
+            RoundRobinCursor(len(b), seed=k) for k, b in enumerate(self.buckets)
+        ]
         # full_epoch_len reflects all resolutions (used for total_steps / progress),
         # independent of which schedule stage is currently active.
         full_order = self._build_iteration_order(active_resolutions=None)
@@ -1979,24 +2006,42 @@ class Dataset:
         stage filters down to no rows (e.g. a configured resolution produced no
         images), fall back to all buckets so a run never stalls on an empty epoch.
         """
-        iteration_order = []
-        for i, bucket in enumerate(self.buckets):
-            if active_resolutions is not None and bucket.resolution not in active_resolutions:
-                continue
-            iteration_order.extend([i] * len(bucket))
-        if active_resolutions is not None and not iteration_order:
+        active = [
+            i
+            for i, bucket in enumerate(self.buckets)
+            if active_resolutions is None or bucket.resolution in active_resolutions
+        ]
+        if active_resolutions is not None and not active:
             logger.warning(
                 "resolution_schedule stage %s matched no cached buckets; "
                 "falling back to all resolutions for this epoch.",
                 sorted(active_resolutions),
             )
-            for i, bucket in enumerate(self.buckets):
-                iteration_order.extend([i] * len(bucket))
-        shuffle_with_seed(iteration_order, 0)
-        cumulative = [0] * len(self.buckets)
-        for k, idx in enumerate(iteration_order):
-            iteration_order[k] = (idx, cumulative[idx])
-            cumulative[idx] += 1
+            active = list(range(len(self.buckets)))
+
+        cursors = getattr(self, "_bucket_cursors", None)
+        if self.schedule_active and active_resolutions is not None and cursors:
+            # Schedule active: each bucket draws one full pass from its persistent
+            # round-robin cursor, so consecutive rebuilds (every epoch / stage change)
+            # continue the cycle and reshuffle on wrap -> even coverage of every image
+            # across the run, never the same dropped tail. Buckets still interleave in
+            # proportion to size (each contributes len(bucket) draws); the interleave
+            # seed varies by step so the per-segment order is not identical each time.
+            iteration_order = [
+                (i, j) for i in active for j in cursors[i].take(len(self.buckets[i]))
+            ]
+            shuffle_with_seed(iteration_order, self.current_step)
+        else:
+            # Measurement (full_epoch_len) and non-scheduled runs: one fixed full pass.
+            order = []
+            for i in active:
+                order.extend([i] * len(self.buckets[i]))
+            shuffle_with_seed(order, 0)
+            cumulative = [0] * len(self.buckets)
+            iteration_order = []
+            for idx in order:
+                iteration_order.append((idx, cumulative[idx]))
+                cumulative[idx] += 1
         if subsample_ratio := self.dataset_config.get("subsample_ratio"):
             new_len = max(1, int(len(iteration_order) * subsample_ratio))
             iteration_order = iteration_order[:new_len]
@@ -2019,6 +2064,22 @@ class Dataset:
         total_images = sum(len(b.iteration_order) for b in self.buckets)
         total_steps = sum(len(b) for b in self.buckets)
         return total_images / max(1, total_steps)
+
+    def scheduled_epoch_len(self) -> float:
+        """Optimizer steps for one nominal epoch, weighted by the schedule.
+
+        Each bucket contributes ``len(bucket) * phi``, where ``phi`` is the
+        fraction of the run its resolution is active (``resolution_active_fractions``).
+        ``len(bucket)`` already folds in the per-resolution batch and gradient
+        accumulation, so the budget shrinks exactly by the resolutions a schedule
+        drops. With no schedule every ``phi`` is 1, so this equals ``full_epoch_len``.
+        This is the authority for ``total_steps``; epochs are ``N/epochs`` slices.
+        """
+        assert self.post_init_called
+        if not self.schedule_active:
+            return float(self.full_epoch_len)
+        phi = resolution_active_fractions(self._schedule_stages)
+        return sum(phi.get(b.resolution, 1.0) * len(b) for b in self.buckets)
 
     def __getitem__(self, idx):
         assert self.post_init_called

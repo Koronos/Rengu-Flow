@@ -2,10 +2,11 @@
 # Trains each third of the run at a different resolution (no mixing). See
 # docs/user/dataset-config.md -> "Staged multi-resolution: resolution_schedule".
 #
+# The schedule shrinks total steps: each resolution is only trained for the
+# fraction of the run it is active, so single-stage resolutions cost ~1/3 here.
 # The schedule's "100%" is your max_steps if set in the main config, otherwise
-# epochs * steps_per_epoch (measured over the full resolution set). Latents are
-# cached for every resolution listed below; the schedule only decides which ones
-# are sampled at each point in training.
+# epochs * (the schedule-weighted step count). Latents are cached for every
+# resolution listed below regardless of the schedule.
 
 resolutions = [512, 768, 1024]
 frame_buckets = [1]
