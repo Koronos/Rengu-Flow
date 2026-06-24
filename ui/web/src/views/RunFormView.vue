@@ -22,6 +22,7 @@
             maxlength="120"
             show-word-limit
           />
+          <StepsReadout :result="stepsEstimate" :loading="stepsLoading" class="run-form-view__steps" />
         </div>
 
         <el-alert
@@ -281,6 +282,7 @@ import ConfigFormSectionCard from "../components/ConfigFormSectionCard.vue";
 import FieldHelpIcon from "../components/FieldHelpIcon.vue";
 import ImportTomlOverlay from "../components/ImportTomlOverlay.vue";
 import RunDatasetsTab from "../components/RunDatasetsTab.vue";
+import StepsReadout from "../components/StepsReadout.vue";
 import {
   buildConfigFormTabs,
   type ConfigSchemaSection,
@@ -288,6 +290,7 @@ import {
 import { sectionHasVisibleFields } from "../lib/configFormSectionLogic";
 import { getModelCapability } from "../lib/formUtils";
 import { useConfigEditorStore } from "../stores/configEditor";
+import { useEstimateSteps } from "../composables/useEstimateSteps";
 import type { CheckpointInfo } from "../types/api";
 import type { FormValues, SchemaField } from "../types/forms";
 
@@ -355,6 +358,10 @@ const HELP = {
 
 // Launch params (kept local; persisted on submit).
 const numGpus = ref(1);
+
+// Live steps estimate — updates debounced whenever config or dataset change.
+const { result: stepsEstimate, loading: stepsLoading } = useEstimateSteps(form, numGpus);
+
 const resumeFrom = ref<string>("");
 const fromScratch = ref(false);
 const cacheOnly = ref(false);
@@ -750,7 +757,14 @@ async function exportBundle(): Promise<void> {
   margin-top: var(--rf-space-sm);
 }
 .run-form-view__name-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
   margin-bottom: var(--rf-space-sm);
+}
+.run-form-view__steps {
+  flex-shrink: 0;
 }
 .run-name-input {
   max-width: 520px;

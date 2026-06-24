@@ -70,6 +70,9 @@ import type {
   DocContentResult,
   DocsIndexResult,
   DuplicateConfigResult,
+  EstimateStepsBody,
+  EstimateStepsError,
+  EstimateStepsResult,
   ExportBundleResult,
   FsRunRecord,
   FsRunsListResult,
@@ -691,4 +694,11 @@ export const api = {
     ),
   cancelToolboxRun: (id: string) =>
     request<{ ok: boolean }>(`/toolbox/tools/${id}/run/cancel`, { method: "POST" }),
+
+  /** Estimate total training steps for a run config + dataset (no server-side disk scan by default). */
+  estimateSteps: (body: EstimateStepsBody) =>
+    request<EstimateStepsResult | EstimateStepsError>("/runs/estimate-steps", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
 };

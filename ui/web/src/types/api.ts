@@ -883,3 +883,27 @@ export interface PrepModelDownloadResult {
   ok: boolean;
   path?: string;
 }
+
+// --- Steps estimator ---------------------------------------------------------
+
+export interface EstimateStepsBody {
+  dataset_toml: string;
+  config: Record<string, unknown>;
+  num_gpus?: number;
+  image_counts?: Record<string, number>;
+}
+
+export interface EstimateStepsResult {
+  ok: true;
+  steps_per_epoch: number;
+  total_steps: number;
+  images_per_resolution: number;
+  epochs: number;
+  per_resolution: Record<string, unknown>;
+  image_counts: Record<string, number>;
+}
+
+export interface EstimateStepsError {
+  ok: false;
+  error: string;
+}
