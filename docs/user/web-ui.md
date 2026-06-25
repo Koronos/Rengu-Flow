@@ -73,7 +73,7 @@ In Docker, mount that folder (set `data_dir` in `rengu.local.toml` to the mount 
 | **Datasets** | `/datasets` | Dataset TOML library (folders, augmentation, compose) |
 | **Configs** | `/configs` | Training config TOML library (form + raw TOML) |
 | **Runs** | `/runs` | Launch jobs, queue, live monitor, output folders, run detail |
-| **Studio** | `/prep` | Dataset Studio: tagging/captioning/cleanup jobs and the tag editor (`/prep/tags`) — see [dataset prep](dataset-prep.md) |
+| **Studio** | `/prep` | Dataset Studio: tagging/captioning/cleanup jobs and the tag editor (`/prep/tags`) — see [dataset prep](dataset-prep.md). The first job auto-installs the **`prep`** extra (taggers/captioners), so expect a one-time dependency sync before it starts. |
 | **Configuration** | `/settings` | Edit `rengu.local.toml` from the browser (gear icon) |
 
 There is no separate **Signals** page: signal buttons appear on **run detail** and **job detail** while a job is running (or during disk-export wait).

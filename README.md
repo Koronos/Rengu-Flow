@@ -92,7 +92,9 @@ The `./rengu` wrapper runs `uv sync` on first use, so the venv is built automati
 | `dev` | Test/dev tools |
 | `all` | All of the above |
 
-`./rengu init --only-config` writes `rengu.local.toml` and directories without syncing. Advanced users can run `uv sync` themselves and call `.venv/bin/rengu` directly. Before any `train`/`validate`/`cache`, Rengu Flow inspects the config and auto-installs any missing extras it needs.
+`./rengu init --only-config` writes `rengu.local.toml` and directories without syncing. Advanced users can run `uv sync` themselves and call `.venv/bin/rengu` directly. Before any `train`/`validate`/`cache` (and `prep`/`ui`), Rengu Flow inspects what it needs and auto-installs any missing extras — additively, leaving your other profiles in place.
+
+> **Adding a profile later?** Use `./rengu init <profile>` or `./rengu update` (both additive). A bare `uv sync --extra <x>` is an **exact** sync: it installs that extra but **removes** any you don't list — e.g. `uv sync --extra prep` after a UI install drops the `ui` extra (uvicorn) and the UI stops serving. Re-list every extra you want, or just let the on-demand installer handle it.
 
 ## Updating
 

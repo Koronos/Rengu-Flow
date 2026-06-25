@@ -71,7 +71,7 @@ Recommended for **Anima** previews: **`num_inference_steps = 20`**, **`guidance_
 | **`preview.preview_offload_text_encoder`** | Move LLM/T5 to CPU during the Euler loop to save VRAM. | `true` |
 | **`preview.preview_blocks_to_swap`** | Cosmos only: DiT blocks kept on CPU between Euler preview steps. `0` disables. Uses the same offloader as training `blocks_to_swap` ([Training loop — block swap](training-loop-and-eval.md#block-swap-vram-adapter-training)). | `0` |
 | **`preview.preview_offload_dit_for_decode`** | Cosmos only: move the DiT to CPU during the VAE decode. **Unsafe on DeepSpeed/compiled runs** (the CPU↔GPU round-trip invalidates parameter storage the engine still points at, crashing the next NCCL op). Rarely needed — the decode is tiled (see note below). | `false` |
-| **`preview.preview_save_png`** | Also write `preview/{name}_step{N}.png` under the run directory (same folder as TensorBoard logs). | `false` |
+| **`preview.preview_save_png`** | Also write `preview/{name}_step{N}.png` under the run directory (same folder as TensorBoard logs). **The web UI run page's preview gallery reads these PNGs, so enable this to see previews in the UI** — TensorBoard's IMAGES tab shows them either way. | `false` |
 
 The preview **VAE decode is tiled**: latents larger than 512×512 px decode in overlapping 512 px tiles that are blended together, so the decode's activation peak stays small enough to fit next to the resident DiT and training state even on a 16 GB GPU at 1024×1024.
 
