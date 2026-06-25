@@ -38,7 +38,9 @@ def test_users_config_18900_at_18_epochs_with_aug_and_cap():
         "resolutions": [512, 768, 1024],
         "max_images": 50,
         "directory": [{"path": f"/d{i}", "num_repeats": 1} for i in range(5)],
-        "augmentation": {"enabled": True, "branches_per_image": 2},
+        # Global augmentation lives under the nested [dataset.augmentation] table (what the
+        # UI writes and the trainer reads), not a top-level "augmentation" key.
+        "dataset": {"augmentation": {"enabled": True, "branches_per_image": 2}},
         "resolution_schedule": {
             "enabled": True,
             "stage": [
@@ -58,6 +60,57 @@ def test_users_config_18900_at_18_epochs_with_aug_and_cap():
     out = estimate_total_steps(dataset_config, training_config, counts)
     assert out["images_per_resolution"] == 750
     # 1.0*(750//1) + 0.4*(750//2) + 0.4*(750//2) = 750 + 150 + 150 = 1050
+    assert out["steps_per_epoch"] == 1050
+    assert out["total_steps"] == 18900
+
+
+def test_augmentation_top_level_fallback():
+    """A top-level `augmentation` key (not nested under [dataset]) is still honored."""
+    out = estimate_total_steps(
+        {
+            "resolutions": [512],
+            "directory": [{"path": "/d", "num_repeats": 1}],
+            "augmentation": {"enabled": True, "branches_per_image": 2},
+        },
+        {"epochs": 1, "micro_batch_size_per_gpu": 1},
+        {"/d": 10},
+    )
+    assert out["images_per_resolution"] == 30  # 10 base x 3 (original + 2 branches)
+
+
+def test_ui_form_round_trip_estimate(tmp_path):
+    """End-to-end through the UI serialization: a dataset form with nested global augmentation
+    survives form_to_toml -> loads_for_training and is counted (regression for the 6300 vs 18900
+    bug, where the nested [dataset.augmentation] was dropped)."""
+    import json
+
+    from rengu_flow_ui.dataset_form import form_to_toml, loads_for_training
+
+    form = {
+        "resolutions": [512, 768, 1024],
+        "max_images": 50,
+        "_dataset_augmentation": json.dumps(
+            {"enabled": True, "preset": "easy", "branches_per_image": 2}
+        ),
+        "resolution_schedule": json.dumps(
+            {
+                "enabled": True,
+                "stage": [
+                    {"resolutions": [512, 1024], "fraction": 0.4},
+                    {"resolutions": [1024, 768], "fraction": 0.4},
+                    {"resolutions": [1024], "fraction": 0.2},
+                ],
+            }
+        ),
+        "_directories": [{"path": f"/d{i}", "num_repeats": 1} for i in range(5)],
+    }
+    dataset_config = loads_for_training(form_to_toml(form))
+    out = estimate_total_steps(
+        dataset_config,
+        {"epochs": 18, "micro_batch_size_per_gpu": {512: 2, 768: 2, 1024: 1}},
+        {f"/d{i}": 50 for i in range(5)},
+    )
+    assert out["images_per_resolution"] == 750
     assert out["steps_per_epoch"] == 1050
     assert out["total_steps"] == 18900
 

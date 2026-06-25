@@ -105,12 +105,23 @@ def _served_base_images(dir_cfg: Mapping, count: int, global_max, global_ratio) 
 
 
 def _augmentation_multiplier(dir_cfg: Mapping, dataset_config: Mapping) -> int:
-    """Rows per base image from augmentation: pristine original + N branches (N+1), else 1."""
-    aug = dir_cfg.get("augmentation", dataset_config.get("augmentation"))
-    if not isinstance(aug, Mapping) or not aug.get("enabled", False):
+    """Rows per base image from augmentation: pristine original + N branches (N+1), else 1.
+
+    The global augmentation lives under the nested ``[dataset.augmentation]`` table (what the
+    trainer reads in ``_global_augmentation_defaults``); a ``[[directory]].augmentation`` table
+    overrides it. Mirror that here, with a top-level ``augmentation`` fallback for robustness.
+    """
+    global_aug = (dataset_config.get("dataset") or {}).get("augmentation")
+    if not isinstance(global_aug, Mapping):
+        global_aug = dataset_config.get("augmentation")
+    global_aug = global_aug if isinstance(global_aug, Mapping) else {}
+    dir_aug = dir_cfg.get("augmentation")
+    dir_aug = dir_aug if isinstance(dir_aug, Mapping) else {}
+    merged = {**global_aug, **dir_aug}  # directory overrides global (mirrors merge_directory_augmentation)
+    if not merged.get("enabled", False):
         return 1
     try:
-        branches = int(aug.get("branches_per_image", 1) or 0)
+        branches = int(merged.get("branches_per_image", 1) or 0)
     except (TypeError, ValueError):
         branches = 0
     return max(1, branches + 1)
