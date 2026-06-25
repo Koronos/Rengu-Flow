@@ -137,7 +137,7 @@ _BACKENDS = {b.name: b for b in (SingleDeviceBackend, DeepSpeedPipeBackend)}
 
 def select_backend(config) -> TrainingBackend:
     name = (os.environ.get("RENGU_ENGINE") or config.get("engine") or "").strip().lower()
-    name = name or PLATFORM.default_engine            # accelerate on Windows, deepspeed elsewhere
+    name = name or PLATFORM.default_engine            # accelerate everywhere (deepspeed is opt-in)
     try:
         return _BACKENDS[name](config)
     except KeyError:

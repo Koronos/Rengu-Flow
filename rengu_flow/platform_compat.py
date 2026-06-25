@@ -51,8 +51,11 @@ class Platform:
     is_wsl = False
 
     # --- training / caching policy -------------------------------------------------------------
-    #: Engine backend used when the user/config leaves it unset.
-    default_engine = "deepspeed"
+    #: Engine backend used when the user/config leaves it unset. Default to the single-GPU
+    #: "accelerate" engine: it is the faster path for the common single-GPU run (~10%/step,
+    #: ~half the compile tax) and is what most users want. Multi-GPU pipeline runs opt into
+    #: "deepspeed" explicitly (engine = "deepspeed" or RENGU_ENGINE=deepspeed).
+    default_engine = "accelerate"
     #: DeepSpeed pipeline parallel (multi-GPU) is available. Windows has no NCCL.
     supports_multi_gpu = True
     #: torch.multiprocessing "file_system" sharing strategy is supported (POSIX shared memory).

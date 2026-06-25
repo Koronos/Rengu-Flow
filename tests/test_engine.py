@@ -41,13 +41,15 @@ def _micro_batches(engine, gas, target):
     return iter([((feat,), (target,)) for _ in range(gas)])
 
 
-def test_resolve_backend_default_per_os(monkeypatch):
-    import sys
-    # Assert the genuine per-OS default: clear RENGU_ENGINE so this is not polluted by another
-    # test in the same xdist worker (the --engine flag sets os.environ['RENGU_ENGINE'] directly).
+def test_resolve_backend_default_is_accelerate(monkeypatch):
+    # accelerate is the default on every platform (faster single-GPU path); deepspeed is opt-in.
+    # Clear RENGU_ENGINE so this is not polluted by another test in the same xdist worker (the
+    # --engine flag sets os.environ['RENGU_ENGINE'] directly).
     monkeypatch.delenv("RENGU_ENGINE", raising=False)
-    assert resolve_backend({}) == ("accelerate" if sys.platform == "win32" else "deepspeed")
+    assert resolve_backend({}) == "accelerate"
     assert resolve_backend({"engine": "deepspeed"}) == "deepspeed"
+    monkeypatch.setenv("RENGU_ENGINE", "deepspeed")
+    assert resolve_backend({}) == "deepspeed"  # env overrides the default
 
 
 def test_build_pipe_accelerate_is_sequential_no_deepspeed():
@@ -117,7 +119,7 @@ def test_checkpoint_roundtrip(tmp_path):
 
 
 if __name__ == "__main__":
-    test_resolve_backend_default_per_os()
+    test_resolve_backend_default_is_accelerate()
     test_build_pipe_accelerate_is_sequential_no_deepspeed()
     test_activation_checkpoint_interval_trains()
     test_train_batch_steps_and_loss_decreases()
