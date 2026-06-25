@@ -373,9 +373,14 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "doc": "docs/user/optimizer-and-scheduler.md",
     },
     "lr_scheduler": {
-        "summary": "Registry name (cosine, linear, …) or a fully-qualified scheduler class.",
+        "summary": "Registry name (cosine, rex, wsd, …) or a fully-qualified scheduler class.",
         "detail": (
-            "Built-in names: constant, linear, cosine, rex, none. "
+            "Built-in names: constant, linear, cosine, rex, wsd, none. "
+            "wsd = constant LR then a decay tail carved from the total (NOT added: a 1000-step run "
+            "with decay 100 is 900 stable + 100 decay). Set decay: float=fraction of the run, "
+            "int=absolute steps; decay_type rex/cosine/linear, rex_d, lr_min. With wsd the "
+            "trainer auto-saves a protected 'predecay' fork checkpoint at the decay onset, so you "
+            "can extend the run by resuming from it with a larger epochs/max_steps. "
             "For custom classes, use Scheduler parameters and runtime token string values "
             "(total_steps, effective_total_steps, …) — open the (i) help on that field for "
             "meanings; resolved when training starts."

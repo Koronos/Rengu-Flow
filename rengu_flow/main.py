@@ -793,6 +793,23 @@ def _run_training(args, config):
     lr_scheduler = apply_warmup(optimizer, lr_scheduler, config.get("warmup_steps", 0))
     model_engine.lr_scheduler = lr_scheduler
 
+    # WSD: the step where the LR leaves the constant phase and the decay tail begins. The loop
+    # saves a protected pre-decay "fork" checkpoint here so the run can be extended from before
+    # the decay (resume from it with a larger length; the tail re-anchors to the new end).
+    wsd_fork_step = None
+    if config.get("lr_scheduler", "constant").lower() == "wsd":
+        from rengu_flow.optim.resolver import wsd_decay_onset_step
+
+        onset = wsd_decay_onset_step(config, lr_horizon_steps)
+        if onset > 0:
+            wsd_fork_step = onset
+            if is_main_process():
+                print(
+                    f"rengu_flow: WSD — LR held constant until step {onset}, then a decay tail; a "
+                    f"protected 'predecay' fork checkpoint is saved at step {onset} (extend the run "
+                    "by resuming from it with a larger epochs/max_steps)."
+                )
+
     # Establish run_dir on rank 0 and broadcast (compatible with diffusion-pipe multi-GPU)
     output_dir = config["output_dir"]
     resume_from_checkpoint = (
@@ -1047,6 +1064,12 @@ def _run_training(args, config):
 
     if resume_from_checkpoint:
         load_lr = "force_constant_lr" not in config and not args.reset_optimizer and not args.reset_optimizer_params
+        # WSD rebuilds its schedule for the (possibly extended) horizon and fast-forwards to the
+        # resumed step below — loading the saved scheduler state would restore the OLD decay
+        # milestone and misplace the tail when extending. Skip the state load for wsd.
+        resume_is_wsd = config.get("lr_scheduler", "constant").lower() == "wsd"
+        if resume_is_wsd:
+            load_lr = False
         load_optimizer = not args.reset_optimizer
         param_groups = getattr(optimizer, "param_groups", None)
         if param_groups is not None:
@@ -1079,6 +1102,13 @@ def _run_training(args, config):
             epoch = epoch_schedule.current(step)
             if is_main_process():
                 print(f"Resuming from checkpoint at epoch {epoch}, step {step}")
+            # WSD: position the freshly-built schedule at the resumed step. The stable phase is
+            # constant, so this re-anchors the decay tail to the (possibly new) horizon end —
+            # resuming the 'predecay' fork with a larger length extends the flat phase instead of
+            # re-dropping an already-lowered LR. Cheap arithmetic, even for large step counts.
+            if resume_is_wsd and model_engine.lr_scheduler is not None:
+                for _ in range(max(0, step - 1)):
+                    model_engine.lr_scheduler.step()
 
     # Lifecycle event (rank 0): one per process start. `resumed` carries the restored step; a
     # restart from step 1 in a folder that already saw a prior run is `restarted_from_scratch`
@@ -1404,6 +1434,15 @@ def _run_training(args, config):
             if step_saved:
                 saved = True
                 last_save_step = step
+
+            # WSD: at the decay onset, save the protected pre-decay fork once (LR still at base).
+            if wsd_fork_step is not None and step >= wsd_fork_step:
+                if saver.save_fork_checkpoint(step, examples) and is_main_process():
+                    print(
+                        f"rengu_flow: WSD pre-decay fork saved at step {step} (tag 'predecay'); "
+                        "extend later by resuming from it with a larger epochs/max_steps."
+                    )
+                wsd_fork_step = None  # fire once
 
             # Hot-reload the [preview] section from the config file on a `reload_config`
             # signal (edit the TOML, then signal). Applies live to the checks below; only

@@ -162,6 +162,7 @@ Set **`lr_scheduler`** at the top level of your config (or omit it; default is `
 - **linear** — Linear decay from initial LR to 0 over training.
 - **cosine** — Cosine annealing; minimum LR via `lr_min` in `[lr_scheduler_args]`.
 - **rex** — REX reflected-exponential decay (Chen et al. 2021); decays slowly early and faster near the end. With remaining fraction `z = 1 - step/total_steps`, the multiplier is `z / ((1−d) + d·z)` (1.0 at the start, 0.0 at the end) and `lr = lr_min + (base_lr − lr_min)·multiplier`. Tune the curve via `rex_d` in `[lr_scheduler_args]` (`0.0` = linear, `0.5` = canonical REX (default), `→1.0` = holds LR higher then drops sharply) and the floor via `lr_min`. Often a strong default for short-budget LoRA runs.
+- **wsd** — **Warmup-Stable-Decay**: hold the base LR constant, then decay only over a final tail. The flat phase is the most *continuable* shape (no mid-run LR drop to recover from); the tail is what lands the model. Configure in `[lr_scheduler_args]`: `decay` sets the tail length — a **float is a fraction** of the run (`0.1` → last 10%), an **int is absolute steps** (`500` → last 500); `decay_type` is `rex` (default), `cosine`, or `linear`; `rex_d` shapes the REX tail (default **`0.9`** — high LR held long, then a sharp final drop); `lr_min` is the floor (rex/cosine). **The tail is carved from your existing budget, not added:** a 1000-step run with `decay = 100` is **900 stable + 100 decay = 1000 steps total** (`decay = 0.1` is identical). The run length stays exactly your `epochs`/`max_steps`; to train *longer*, raise those (or [extend from the fork](#extending-a-wsd-run-the-predecay-fork)). **Because the LR is still at base when the tail begins, the trainer auto-saves a protected `predecay` fork checkpoint there.** Warmup-aware: the decay always finishes at the run's last step.
 - **none** — No scheduler (optimizer LR is used as-is).
 
 In the training config form, **Scheduler parameters** is a single key-value list for every scheduler type (built-in and custom). Rows map to TOML as follows:
@@ -192,8 +193,29 @@ When you pick a built-in name in the form, common keys are pre-filled (edit as n
 | **linear** | `start_factor`, `end_factor`, `total_iters` → `total_steps`, `warmup_steps` → `0` |
 | **cosine** | `lr_min` → `0.0`, `warmup_steps` → `0` |
 | **rex** | `lr_min` → `0.0`, `rex_d` → `0.5`, `warmup_steps` → `0` |
+| **wsd** | `decay` → `0.1`, `decay_type` → `"rex"`, `rex_d` → `0.9`, `lr_min` → `0.0`, `warmup_steps` → `0` |
 
 Built-in training code uses fixed defaults for some keys today (e.g. linear decay uses full `total_steps`); extra `[lr_scheduler_args]` keys are stored for clarity and forward compatibility.
+
+### Extending a wsd run (the `predecay` fork)
+
+`wsd` is built for the case where you are not sure how long to train. Keep the LR flat, decay at the
+end — but if the result is under-trained, you do **not** want to re-raise an LR you already decayed
+(that tends to *worsen* the model). So `wsd` lets you branch from *before* the decay:
+
+1. When the decay tail begins, the trainer writes a resume checkpoint with the fixed tag
+   **`predecay`** into the run folder. It is **exempt from `max_checkpoints_to_keep`** (it is not a
+   `global_step*` directory, so retention never prunes or counts it) — your rolling budget is
+   unchanged, the fork is an extra. There is one fork; extending overwrites it with the new onset.
+2. If the run finished and you want more, **resume from the fork with a larger length**:
+
+   ```bash
+   ./rengu train --config my.toml --run_dir output/<run> --resume_from_checkpoint predecay -- --epochs 2
+   ```
+
+   `wsd` rebuilds its schedule for the new horizon and fast-forwards to the fork step: the stable
+   phase **extends** and the decay tail **re-anchors to the new end** — no re-raised LR. Happy with
+   the result instead? Delete the `predecay/` folder to reclaim its disk.
 
 ### Runtime tokens in `[lr_scheduler_args]`
 

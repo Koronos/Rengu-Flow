@@ -276,6 +276,14 @@ SCHEDULER_BUILTIN_KV_DEFAULTS: dict[str, dict[str, Any]] = {
         "lr_min": 0.0,
         "rex_d": 0.5,
     },
+    # WSD (constant + decay tail). `decay`: float = fraction of the run, int = absolute steps.
+    # The trainer auto-saves a protected `predecay` fork checkpoint at the decay onset.
+    "wsd": {
+        "decay": 0.1,
+        "decay_type": "rex",
+        "rex_d": 0.9,
+        "lr_min": 0.0,
+    },
 }
 
 # Fully-qualified scheduler paths -> default [lr_scheduler_args] (runtime tokens as strings).

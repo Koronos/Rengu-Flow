@@ -43,6 +43,10 @@ def _convert_state_dict_dtype(state_dict, dtype):
 
 _last_checkpoint_time = None
 
+# WSD pre-decay "fork" checkpoint tag. Fixed (not a global_step* dir) so retention pruning
+# never removes or counts it — see Saver.save_fork_checkpoint.
+FORK_CHECKPOINT_TAG = "predecay"
+
 
 def _need_to_checkpoint(config, epoch=None):
     global _last_checkpoint_time
@@ -468,6 +472,43 @@ class Saver:
             dist.barrier()
             if is_main_process():
                 _prune_old_checkpoints(self.save_root, self.config.get("max_checkpoints_to_keep"))
+            dist.barrier()
+            return True
+
+    def save_fork_checkpoint(self, step, examples) -> bool:
+        """WSD: write the protected pre-decay "fork" resume checkpoint (tag ``predecay``).
+
+        Saved once, at the decay onset, while the LR is still at base — the clean branch point
+        to extend from. It uses a fixed tag (not a ``global_step*`` dir), so retention pruning
+        never sees or counts it: ``max_checkpoints_to_keep`` keeps its rolling budget *plus*
+        this fork. ``save_latest=False`` so normal resume still uses the rolling ``latest``.
+        Overwrites any earlier fork so it always marks the current decay onset. Returns False on
+        a full disk (training continues; the fork is best-effort).
+        """
+        self._wait_async_export()
+        with self._persist_at_true_iterate():
+            dist.barrier()
+            try:
+                self.model_engine.save_checkpoint(
+                    str(self.save_root),
+                    tag=FORK_CHECKPOINT_TAG,
+                    client_state={
+                        "step": step,
+                        "examples": examples,
+                        "custom_loader": self.train_dataloader.state_dict(),
+                        "rng_state": capture_rng_state(),
+                    },
+                    save_latest=False,
+                    exclude_frozen_parameters=True,
+                )
+            except OSError as exc:
+                dist.barrier()
+                if not is_disk_full_error(exc):
+                    raise
+                if is_main_process():
+                    print(f"Disk full while writing the WSD fork checkpoint (skipped): {exc}")
+                dist.barrier()
+                return False
             dist.barrier()
             return True
 

@@ -272,3 +272,110 @@ def test_optimizer_display_labels_vendor_prefix():
     pairs = optimizer_options()
     assert ("adakaon", "Kaon.Adakaon") in pairs
     assert all(label == optimizer_display_label(value) for value, label in pairs)
+
+
+# --- wsd scheduler (constant + decay tail) -------------------------------------
+
+from rengu_flow.optim.resolver import parse_wsd_decay_steps, wsd_decay_onset_step  # noqa: E402
+
+
+@pytest.mark.parametrize("decay, total, expected", [
+    (0.1, 1000, 100),     # float -> fraction
+    (0.2, 100, 20),
+    (1.0, 100, 100),      # float 1.0 -> all decay
+    (100, 1000, 100),     # int -> absolute steps
+    (5, 3, 3),            # int clamped to total
+    (True, 100, 10),      # bool -> default 0.1
+    (None, 100, 10),      # None -> default 0.1
+], ids=["frac10", "frac20", "frac100", "int100", "clamp", "bool", "none"])
+def test_parse_wsd_decay_steps(decay, total, expected):
+    assert parse_wsd_decay_steps(decay, total) == expected
+
+
+def test_wsd_decay_onset_step():
+    cfg = {"lr_scheduler_args": {"decay": 0.2}}
+    assert wsd_decay_onset_step(cfg, 100) == 80  # stable = total - decay
+
+
+def _collect_lrs(scheduler, optimizer, total_steps):
+    """Step optimizer-then-scheduler (correct order) and record the LR used at each step."""
+    p = optimizer.param_groups[0]["params"][0]
+    p.grad = torch.zeros_like(p)
+    lrs = []
+    for _ in range(total_steps):
+        lrs.append(optimizer.param_groups[0]["lr"])
+        optimizer.step()
+        scheduler.step()
+    return lrs
+
+
+def test_wsd_flat_then_decays():
+    base = 1.0
+    total = 100
+    opt = torch.optim.SGD([torch.nn.Parameter(torch.zeros(1))], lr=base)
+    cfg = {"lr_scheduler_args": {"decay": 0.2, "decay_type": "rex", "rex_d": 0.9, "lr_min": 0.0}}
+    sched = resolve_scheduler("wsd", opt, cfg, total, steps_per_epoch=10)
+    assert sched.wsd_decay_onset == 80
+    lrs = _collect_lrs(sched, opt, total)
+    # stable phase: flat at base through the decay onset
+    assert all(abs(lr - base) < 1e-9 for lr in lrs[:80]), lrs[:5]
+    # decay phase: starts at base (smooth handoff) and is non-increasing
+    decay = lrs[80:]
+    assert abs(decay[0] - base) < 1e-9
+    assert all(decay[i + 1] <= decay[i] + 1e-9 for i in range(len(decay) - 1))
+    # the tail reaches lr_min by the end (read after the final step)
+    assert opt.param_groups[0]["lr"] < 1e-6
+
+
+def test_wsd_all_decay_when_fraction_one():
+    opt = torch.optim.SGD([torch.nn.Parameter(torch.zeros(1))], lr=1.0)
+    cfg = {"lr_scheduler_args": {"decay": 1.0}}
+    sched = resolve_scheduler("wsd", opt, cfg, 50, steps_per_epoch=10)
+    assert sched.wsd_decay_onset == 0  # no stable phase
+
+
+def test_wsd_warmup_keeps_decay_at_run_end():
+    # warmup-aware: decay onset stays at total - decay_steps regardless of warmup.
+    cfg = {"warmup_steps": 20, "lr_scheduler_args": {"decay": 0.1}}
+    opt = torch.optim.SGD([torch.nn.Parameter(torch.zeros(1))], lr=1.0)
+    sched = resolve_scheduler("wsd", opt, cfg, 200, steps_per_epoch=10)
+    # internal stable = effective(180) - decay(20) = 160; global onset helper = 200 - 20 = 180.
+    assert sched.wsd_decay_onset == 160
+    assert wsd_decay_onset_step(cfg, 200) == 180
+
+
+def test_wsd_extend_reanchors_decay():
+    """Mirrors main.py's extend path: rebuild for a longer horizon + fast-forward to the fork
+    step → LR stays flat past the original end and only decays at the new end."""
+    base = 1.0
+    cfg = {"lr_scheduler_args": {"decay": 0.2, "rex_d": 0.9, "lr_min": 0.0}}
+    # Original run was total=100 (stable 80, fork at step 80). Extend to total=200.
+    opt = torch.optim.SGD([torch.nn.Parameter(torch.zeros(1))], lr=base)
+    p = opt.param_groups[0]["params"][0]
+    p.grad = torch.zeros_like(p)
+    sched = resolve_scheduler("wsd", opt, cfg, 200, steps_per_epoch=10)
+    assert sched.wsd_decay_onset == 160  # new decay onset, not the old 80
+
+    fork_step = 80
+    for _ in range(fork_step):          # fast-forward to the resumed (fork) step
+        opt.step()
+        sched.step()
+    # at the resumed fork step the LR is still base — extending did NOT re-drop it
+    assert abs(opt.param_groups[0]["lr"] - base) < 1e-9
+
+    lrs = []
+    for _ in range(200 - fork_step):    # continue to the new end
+        lrs.append(opt.param_groups[0]["lr"])
+        opt.step()
+        sched.step()
+    # global steps 80..159 (first 80 collected) stay flat — well past the original 100
+    assert all(abs(x - base) < 1e-9 for x in lrs[:80]), lrs[:5]
+    # past the new onset (160) it decays, reaching lr_min by 200
+    assert lrs[81] < base
+    assert opt.param_groups[0]["lr"] < 1e-6
+
+
+def test_wsd_unknown_decay_type_raises():
+    opt = torch.optim.SGD([torch.nn.Parameter(torch.zeros(1))], lr=1.0)
+    with pytest.raises(ValueError, match="decay_type"):
+        resolve_scheduler("wsd", opt, {"lr_scheduler_args": {"decay_type": "bogus"}}, 100, 10)

@@ -135,10 +135,95 @@ def _none_scheduler(optimizer: torch.optim.Optimizer, config: dict[str, Any], to
     return None
 
 
+def parse_wsd_decay_steps(decay: Any, total_steps: int) -> int:
+    """Resolve the WSD ``decay`` arg to a step count.
+
+    A **float** is a fraction of ``total_steps`` (``0.1`` → last 10%, ``1.0`` → all decay);
+    an **int** is an absolute number of decay steps (``100`` → last 100 steps). Clamped to
+    ``[1, total_steps]``. ``bool`` is treated as "use default" (it is an ``int`` subclass).
+    """
+    if isinstance(decay, bool) or decay is None:
+        decay = 0.1
+    if isinstance(decay, float):
+        frac = min(max(decay, 0.0), 1.0)
+        steps = round(total_steps * frac)
+    else:
+        steps = int(decay)
+    return max(1, min(steps, max(1, total_steps)))
+
+
+def wsd_decay_onset_step(config: dict[str, Any], total_steps: int) -> int:
+    """Global training step where the WSD decay tail begins (where the fork is saved).
+
+    Equals ``total_steps - decay_steps`` — warmup-independent, because warmup shortens the
+    stable phase by the same amount it prepends (the factory sizes the stable phase over the
+    post-warmup budget). The trainer saves the protected pre-decay checkpoint here.
+    """
+    decay = config.get("lr_scheduler_args", {}).get("decay", 0.1)
+    return max(0, total_steps - parse_wsd_decay_steps(decay, total_steps))
+
+
+def _wsd_scheduler(
+    optimizer: torch.optim.Optimizer, config: dict[str, Any], total_steps: int, steps_per_epoch: int
+) -> torch.optim.lr_scheduler.LRScheduler:
+    """Warmup-Stable-Decay: hold the base LR constant, then decay over a final tail.
+
+    The flat "stable" phase is the most *continuable* shape (no mid-run LR drop to recover
+    from); the decay tail is what actually lands the model. Because the LR is still at base at
+    the decay onset, the trainer auto-saves a resume checkpoint there (the "fork") so you can
+    later extend the run from before the decay and re-anchor the tail to the new end.
+
+    ``lr_scheduler_args``: ``decay`` (float = fraction of total, int = absolute steps;
+    default ``0.1``), ``decay_type`` (``"rex"`` default, ``"cosine"``, ``"linear"``),
+    ``rex_d`` (REX shape, default ``0.9`` — high LR held long, sharp final drop) and
+    ``lr_min`` (decay floor for rex/cosine; default ``0.0``).
+    """
+    args = config.get("lr_scheduler_args", {})
+    # Stable phase is sized over the post-warmup budget so the decay still ends exactly at
+    # the run's last step (apply_warmup prepends the warmup phase on top of this scheduler).
+    warmup = int(config.get("warmup_steps", 0) or 0)
+    effective = max(1, total_steps - warmup)
+    decay_steps = min(parse_wsd_decay_steps(args.get("decay", 0.1), total_steps), effective)
+    stable_steps = max(0, effective - decay_steps)
+    decay_type = str(args.get("decay_type", "rex")).lower()
+    lr_min = args.get("lr_min", 0.0)
+
+    if decay_type == "rex":
+        decay_sched: torch.optim.lr_scheduler.LRScheduler = RexLR(
+            optimizer, total_steps=decay_steps, lr_min=lr_min, rex_d=args.get("rex_d", 0.9)
+        )
+    elif decay_type == "cosine":
+        decay_sched = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer, T_max=decay_steps, eta_min=lr_min
+        )
+    elif decay_type == "linear":
+        decay_sched = torch.optim.lr_scheduler.LinearLR(
+            optimizer, start_factor=1.0, end_factor=0.0, total_iters=decay_steps
+        )
+    else:
+        raise ValueError(
+            f"Unknown wsd decay_type '{decay_type}'. Use 'rex', 'cosine', or 'linear'."
+        )
+
+    if stable_steps <= 0:
+        scheduler: torch.optim.lr_scheduler.LRScheduler = decay_sched
+    else:
+        stable = torch.optim.lr_scheduler.ConstantLR(
+            optimizer, factor=1.0, total_iters=stable_steps
+        )
+        scheduler = torch.optim.lr_scheduler.SequentialLR(
+            optimizer, schedulers=[stable, decay_sched], milestones=[stable_steps]
+        )
+    # The trainer reads this to place the protected pre-decay fork checkpoint.
+    scheduler.wsd_decay_onset = stable_steps  # type: ignore[attr-defined]
+    return scheduler
+
+
 register_scheduler("constant")(_constant_scheduler)
 register_scheduler("linear")(_linear_scheduler)
 register_scheduler("cosine")(_cosine_scheduler)
 register_scheduler("rex")(_rex_scheduler)
+register_scheduler("wsd")(_wsd_scheduler)
 register_scheduler("none")(_none_scheduler)
 
 
@@ -166,7 +251,7 @@ def resolve_scheduler(
         return scheduler_class(optimizer, **scheduler_kwargs)
     raise ValueError(
         f"Unknown scheduler type '{scheduler_type}'. "
-        "Use 'constant', 'linear', 'cosine', 'rex', 'none', or a fully-qualified path."
+        "Use 'constant', 'linear', 'cosine', 'rex', 'wsd', 'none', or a fully-qualified path."
     )
 
 
