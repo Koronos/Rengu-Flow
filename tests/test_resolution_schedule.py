@@ -254,6 +254,26 @@ def test_update_active_stage_noop_when_schedule_inactive():
     assert ds.update_active_stage(123) is False
 
 
+def test_loader_load_state_dict_tolerates_old_checkpoint_without_cursors():
+    """Backward compat: checkpoints written before the cursor field omit "cursors", and a plain
+    dataset has no cursor methods. load_state_dict must resume from such a checkpoint, not require
+    the new key."""
+    from rengu_flow.data.loader import PipelineDataLoader
+
+    loader = object.__new__(PipelineDataLoader)
+    loader.iter_called = False
+    loader.dataset = object()  # no cursor_state / load_cursor_state
+    calls = []
+    loader._create_dataloader = lambda skip_first_n_batches=None: calls.append(skip_first_n_batches)
+    loader._pull_batches_from_dataloader = lambda: iter(())
+
+    loader.load_state_dict({"epoch": 3, "num_batches_pulled": 7})  # old-style: no "cursors"
+
+    assert loader.epoch == 3
+    assert loader.num_batches_pulled == 7
+    assert calls == [7]  # still skips into the right batch
+
+
 def test_loader_refresh_for_step_restarts_only_on_stage_change():
     """PipelineDataLoader.refresh_for_step restarts iteration iff the stage changed."""
     from rengu_flow.data.loader import PipelineDataLoader
