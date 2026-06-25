@@ -1,6 +1,8 @@
 # Rengu Flow documentation
 
 - **[User guide](user/)** — For anyone using the framework (training, controlling runs, signal files).
+  - **[Tutorials](user/tutorials/)** — Walkthroughs narrated by Poet, the mascot.
+    - [Train your first Anima LoRA — A→Z with Poet](user/tutorials/training-an-anima-lora-with-poet.md) — Tagger → dataset → LoKr run → previews → compare, in one epoch.
   - [Training SDXL LoRA and LoKr](user/training-sdxl-lora-lokr.md) — Config, saving, and running adapter training.
   - [Training Cosmos Predict2 / Anima](user/training-cosmos-predict2-lora-lokr-finetune.md) — LoRA, LoKr, and full finetune for Cosmos Predict2 DiT checkpoints.
   - [Full-model finetuning (SDXL)](user/full-model-training-sdxl.md) — Training the full model (no adapter), optional UNet-only with `freeze_text_encoders`.

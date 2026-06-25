@@ -15,3 +15,10 @@ background for chroma-key extraction.
 
 The UI/favicon icon is a separate, simpler mark (a flowing cyan "Flow" wave) — see
 `ui/web/public/icon.svg`.
+
+## Usable assets
+
+- **`poet.png`** — the cleaned mascot used across the docs and the tutorial / character sheet ([POET.md](POET.md)).
+- **`poet-cover.png`** — Civitai post cover art (1672×941, chibi Poet holding the glowing scroll); crop to 850:400 centered for the banner.
+- **`poet_v3_fullbody.png`** — full-body chibi render.
+- **`rengu-logo-300.png`** — small logo mark.
