@@ -240,6 +240,11 @@
                       <FieldHelpIcon :field="(HELP.trustCache as unknown as SchemaField)" />
                       <code class="cli-flag">--trust_cache</code>
                     </span>
+                    <div v-if="isContinue" class="field-hint">
+                      On by default when continuing a run — reuses the existing cache instead of
+                      re-checking it, for a faster start. Turn it off if you changed the dataset
+                      (images or captions) since the last run.
+                    </div>
                     <span class="launch-label">
                       <el-checkbox v-model="regenerateCache">
                         Regenerate cache (force a full rebuild)
@@ -343,7 +348,10 @@ const HELP = {
     doc_path: "docs/developer/dataset-and-cache.md",
   },
   trustCache: {
-    help: "Skip the cache freshness check and reuse the existing cache as-is.",
+    help:
+      "Skip the cache freshness check and reuse the existing cache as-is. On by default when " +
+      "continuing a run (same dataset) for a faster start — turn it off if you changed the " +
+      "dataset (images or captions) since the last run.",
     doc_path: "docs/developer/dataset-and-cache.md",
   },
   regenerateCache: {
@@ -365,7 +373,7 @@ const { result: stepsEstimate, loading: stepsLoading } = useEstimateSteps(form, 
 const resumeFrom = ref<string>("");
 const fromScratch = ref(false);
 const cacheOnly = ref(false);
-const trustCache = ref(false);
+const trustCache = ref(false);  // defaulted on for continue mode in init()
 const regenerateCache = ref(false);
 
 const checkpoints = ref<CheckpointInfo[]>([]);
@@ -514,6 +522,9 @@ async function loadCheckpoints(opts: { jobId?: string; runDir?: string }): Promi
 async function init(): Promise<void> {
   resetParams();
   await editor.fetchSchema();
+  // Continuing a run reuses the same dataset, so trust the existing cache by default (skip the
+  // freshness re-check) for a faster start; the user disables it if they changed the dataset.
+  if (isContinue.value) trustCache.value = true;
   if (isEdit.value && routeJobId.value) {
     try {
       const j = await api.getJob(routeJobId.value);
