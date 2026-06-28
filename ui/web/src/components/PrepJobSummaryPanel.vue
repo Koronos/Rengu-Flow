@@ -117,6 +117,14 @@
           <dt>Min label</dt>
           <dd>{{ qualityForm.aesthetic_min_label }}</dd>
         </div>
+        <div v-if="qualityForm.metric === 'iqa'" class="prep-summary__row">
+          <dt>IQA model</dt>
+          <dd>{{ qualityForm.iqa_model }}</dd>
+        </div>
+        <div v-if="qualityForm.metric === 'iqa'" class="prep-summary__row">
+          <dt>Threshold</dt>
+          <dd>{{ qualityForm.iqa_threshold }}</dd>
+        </div>
         <div class="prep-summary__row">
           <dt>Action</dt>
           <dd>{{ qualityForm.move ? 'move to low_quality/' : 'report only' }}</dd>
@@ -181,11 +189,13 @@ interface CleanForm {
   copy_undetected: boolean;
 }
 interface QualityForm {
-  metric: "blur" | "aesthetic";
+  metric: "blur" | "aesthetic" | "iqa";
   blur_threshold: number;
   min_side: number;
   min_detail: number;
   aesthetic_min_label: string;
+  iqa_model: string;
+  iqa_threshold: number;
   move: boolean;
   output_dir: string;
 }

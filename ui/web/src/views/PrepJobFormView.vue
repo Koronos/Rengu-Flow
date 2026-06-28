@@ -589,12 +589,13 @@
           <el-form label-position="top">
             <el-form-item>
               <template #label>
-                Metric <FieldHelpIcon :field="help('Blur/resolution uses Laplacian sharpness and a minimum-side check — fast, no download. Aesthetic runs a booru-quality model (worst→masterpiece) in an isolated environment and downloads a model on first use.')" />
+                Metric <FieldHelpIcon :field="help('Blur: fast Laplacian + resolution heuristic, no download. Aesthetic: anime booru appeal model (worst→masterpiece), downloads on first use. Technical IQA: learned No-Reference model scoring perceived technical quality (blur, noise, compression) — works on anime and natural photos, downloads a model on first use.')" />
                 <FieldPathTag path="quality.metric" />
               </template>
               <el-select v-model="qualityForm.metric" class="w-full">
                 <el-option label="Blur / resolution (fast, no download)" value="blur" />
                 <el-option label="Aesthetic — booru quality (deepghs, downloads a model)" value="aesthetic" />
+                <el-option label="Technical IQA — image quality (pyiqa, anime + photo, downloads a model)" value="iqa" />
               </el-select>
             </el-form-item>
 
@@ -655,6 +656,37 @@
                 <el-option label="masterpiece — flag everything below masterpiece" value="masterpiece" />
               </el-select>
             </el-form-item>
+
+            <template v-if="qualityForm.metric === 'iqa'">
+              <el-form-item>
+                <template #label>
+                  Model <FieldHelpIcon :field="help('Which NR-IQA model scores quality. clipiqa/arniqa generalize to illustration; musiq/maniqa are tuned on natural photos; brisque/niqe are classic baselines.')" />
+                  <FieldPathTag path="quality.iqa_model" />
+                </template>
+                <el-select v-model="qualityForm.iqa_model" class="w-full">
+                  <el-option label="CLIP-IQA — any domain (anime + photo)" value="clipiqa" />
+                  <el-option label="ARNIQA — any domain, robust" value="arniqa" />
+                  <el-option label="MUSIQ — natural photos" value="musiq" />
+                  <el-option label="MANIQA — natural photos" value="maniqa" />
+                  <el-option label="BRISQUE — classic, photos" value="brisque" />
+                  <el-option label="NIQE — classic, opinion-free" value="niqe" />
+                </el-select>
+              </el-form-item>
+
+              <el-form-item>
+                <template #label>
+                  Threshold <FieldHelpIcon :field="help('Images on the bad side of this score are flagged. Scale depends on the model: clipiqa/arniqa ~0–1 (try 0.5), musiq ~0–100 (try 50). Run in report mode first and set it between your good and bad samples.')" />
+                  <FieldPathTag path="quality.iqa_threshold" />
+                </template>
+                <el-input-number
+                  v-model="qualityForm.iqa_threshold"
+                  :min="0"
+                  :step="0.05"
+                  placeholder="0.5"
+                  controls-position="right"
+                />
+              </el-form-item>
+            </template>
 
             <el-form-item>
               <template #label>
@@ -810,11 +842,13 @@ const cleanForm = reactive({
 
 // --- quality form ---
 const qualityForm = reactive({
-  metric: "blur" as "blur" | "aesthetic",
+  metric: "blur" as "blur" | "aesthetic" | "iqa",
   blur_threshold: 80,
   min_side: 0,
   min_detail: 0,
   aesthetic_min_label: "normal",
+  iqa_model: "clipiqa",
+  iqa_threshold: 0.5,
   move: false,
   output_dir: "",
 });
@@ -1029,6 +1063,8 @@ function buildConfig() {
         min_side: qualityForm.min_side,
         min_detail: qualityForm.min_detail,
         aesthetic_min_label: qualityForm.aesthetic_min_label,
+        iqa_model: qualityForm.iqa_model,
+        iqa_threshold: qualityForm.iqa_threshold,
         action: (qualityForm.move ? "move" : "report") as "move" | "report",
         output_dir: qualityForm.output_dir,
       },

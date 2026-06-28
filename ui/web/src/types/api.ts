@@ -810,11 +810,13 @@ export interface PrepCleanConfig {
 }
 
 export interface PrepQualityConfig {
-  metric: "blur" | "aesthetic";
+  metric: "blur" | "aesthetic" | "iqa";
   blur_threshold: number;
   min_side: number;
   min_detail?: number;
   aesthetic_min_label: string;
+  iqa_model?: string;
+  iqa_threshold?: number;
   action: "report" | "move";
   output_dir: string;
 }
