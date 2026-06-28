@@ -191,12 +191,20 @@
 
         <div v-if="getWorstItems(model).length" class="qi-view__gallery">
           <div
-            v-for="item in getWorstItems(model)"
+            v-for="(item, idx) in getWorstItems(model)"
             :key="item.path"
             class="qi-view__thumb-cell"
             :class="{ 'qi-view__thumb-cell--removed': itemWillRemove(model, item) }"
           >
-            <div class="qi-view__thumb-wrap">
+            <div
+              class="qi-view__thumb-wrap"
+              role="button"
+              tabindex="0"
+              :title="`${item.name} — score ${item.quality.toFixed(1)} (click to view full size)`"
+              @click="openImage(model, idx)"
+              @keydown.enter="openImage(model, idx)"
+              @keydown.space.prevent="openImage(model, idx)"
+            >
               <img
                 :src="api.datasetPreviewImageUrl(item.token)"
                 class="qi-view__thumb"
@@ -254,6 +262,7 @@ import { ElMessage, ElMessageBox } from "element-plus";
 import { ArrowLeft } from "@element-plus/icons-vue";
 import { api } from "../api";
 import { usePrepJobLive } from "../composables/usePrepJobLive";
+import { useDatasetImageViewerStore } from "../stores/datasetImageViewer";
 import PathFieldControl from "../components/PathFieldControl.vue";
 import type {
   QualityIndexStatsResult,
@@ -277,6 +286,17 @@ const MODEL_OPTIONS = [
 
 function modelLabel(model: string): string {
   return MODEL_OPTIONS.find((m) => m.value === model)?.label ?? model;
+}
+
+// ---------------------------------------------------------------------------
+// Image viewer
+// ---------------------------------------------------------------------------
+
+const imageViewer = useDatasetImageViewerStore();
+
+function openImage(model: string, index: number): void {
+  const urls = getWorstItems(model).map((it) => api.datasetPreviewImageUrl(it.token));
+  imageViewer.openDatasetImageViewer(urls, index);
 }
 
 // ---------------------------------------------------------------------------
@@ -783,6 +803,7 @@ async function openApplyConfirm(): Promise<void> {
   border-radius: 5px;
   overflow: hidden;
   line-height: 0;
+  cursor: pointer;
 }
 
 .qi-view__thumb {
