@@ -725,7 +725,7 @@
         <div v-if="previewJobId" class="preview-report-panel mt-8">
           <div v-if="previewRunning" class="preview-progress">
             <el-text size="small" class="hint-text">{{ previewProgress?.msg || 'Running…' }}</el-text>
-            <el-progress :percentage="Math.round((previewProgress?.percent ?? 0) * 100)" :show-text="false" class="mt-8" />
+            <el-progress :percentage="Math.min(100, Math.round(previewProgress?.percent ?? 0))" :show-text="false" class="mt-8" />
           </div>
           <el-alert v-if="previewError" type="error" :title="previewError" show-icon :closable="false" class="mt-8" />
           <template v-if="previewReport">

@@ -33,7 +33,7 @@
       <div v-if="progress" class="prep-live-progress">
         <el-progress
           v-if="progress.percent != null"
-          :percentage="Math.round(progress.percent * 100)"
+          :percentage="Math.min(100, Math.round(progress.percent))"
           :status="progressStatus"
           striped
           striped-flow
@@ -111,7 +111,7 @@ const streamTagType = computed((): "success" | "warning" | "info" => {
 const progressStatus = computed(() => {
   if (!progress.value) return undefined;
   const pct = progress.value.percent ?? 0;
-  return pct >= 1 ? "success" : undefined;
+  return pct >= 100 ? "success" : undefined;
 });
 
 async function onStop(): Promise<void> {

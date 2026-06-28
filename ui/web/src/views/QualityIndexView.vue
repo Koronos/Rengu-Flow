@@ -51,7 +51,7 @@
 
       <div v-if="building" class="qi-view__build-progress">
         <el-progress
-          :percentage="Math.round((progress?.percent ?? 0) * 100)"
+          :percentage="Math.min(100, Math.round(progress?.percent ?? 0))"
           striped
           :striped-flow="true"
           :duration="10"
