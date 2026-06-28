@@ -464,24 +464,46 @@ async function fetchCullPreview(): Promise<void> {
 }
 
 /**
- * Read an already-built index for the current path + selected models without
- * triggering a build. Called on mount and whenever path/selectedModels change.
- * Models that have never been indexed (reference === 0) are simply omitted.
+ * Read an already-built index for the current path without triggering a build.
+ * Phase 1: discover registered models via the models endpoint and merge them
+ * into the dropdown selection (preserving any manual additions).
+ * Phase 2: load stats/worst/cull-preview for all models in the merged selection
+ * that actually have scores (reference > 0).
+ * Called on mount and whenever path/selectedModels change.
  */
 async function loadExistingIndex(): Promise<void> {
-  if (building.value || !path.value.trim() || selectedModels.value.length === 0) return;
+  if (building.value || !path.value.trim()) return;
 
   try {
+    // Phase 1: discover which models already have scores for this path
+    try {
+      const { models: registered } = await api.qualityIndexModels(path.value);
+      const toAdd = registered
+        .filter((r) => r.reference > 0 && !selectedModels.value.includes(r.model))
+        .map((r) => r.model);
+      if (toAdd.length > 0) {
+        // Merge into dropdown; the watch will re-fire once, which is fine —
+        // the second pass will see toAdd empty and not mutate again.
+        selectedModels.value = [...selectedModels.value, ...toAdd];
+      }
+    } catch {
+      // Folder not indexed yet or endpoint unavailable; proceed with current selection
+    }
+
+    // Phase 2: load per-model data for the now-merged selection
+    const modelsToCheck = selectedModels.value;
+    if (modelsToCheck.length === 0) return;
+
     const results = await Promise.all(
-      selectedModels.value.map((model) =>
+      modelsToCheck.map((model) =>
         api.qualityIndexStats(path.value, model).then(
           (stats) => ({ model, stats }),
-          () => null // network / 404: treat as not indexed
+          () => null // 404 / network error: treat as not indexed
         )
       )
     );
 
-    // Keep selection order; only include models that have been scored before
+    // Keep selection order; only surface models that have been scored before
     const newModels: string[] = [];
     for (const r of results) {
       if (!r || r.stats.reference <= 0) continue;
@@ -500,7 +522,7 @@ async function loadExistingIndex(): Promise<void> {
     await Promise.all(newModels.map((m) => loadWorst(m)));
     await fetchCullPreview();
   } catch (e) {
-    // Non-fatal: index may not exist yet; placeholder stays visible
+    // Non-fatal: placeholder stays visible
     console.warn("[QualityIndex] loadExistingIndex failed:", e);
   }
 }

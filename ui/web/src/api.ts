@@ -128,6 +128,7 @@ import type {
   PrepCaptionConfig,
   LocalSettings,
   LocalSettingsPatch,
+  QualityIndexModelsResult,
   QualityIndexStatsResult,
   QualityIndexWorstResult,
   QualityIndexCullPreviewResult,
@@ -707,6 +708,12 @@ export const api = {
     }),
 
   // --- Dataset prep: quality index ---
+
+  /** List every quality model that has scores recorded for a folder. */
+  qualityIndexModels: (path: string) =>
+    request<QualityIndexModelsResult>(
+      `/prep/quality-index/models?path=${encodeURIComponent(path)}`
+    ),
 
   /** Live stats for one quality model in a dataset (reflects current state after culls). */
   qualityIndexStats: (path: string, model: string) =>

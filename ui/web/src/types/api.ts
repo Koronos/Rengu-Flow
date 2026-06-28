@@ -841,6 +841,11 @@ export interface PrepConfigDto {
 
 // --- Dataset prep: quality index ---------------------------------------------
 
+export interface QualityIndexModelsResult {
+  /** Every quality model that has scores recorded for this folder. */
+  models: { model: string; reference: number; present: number }[];
+}
+
 export interface QualityIndexStatsResult {
   model: string;
   /** Total images ever scored by this model, including those moved to low_quality/. */
