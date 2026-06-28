@@ -624,6 +624,20 @@
                   controls-position="right"
                 />
               </el-form-item>
+
+              <el-form-item>
+                <template #label>
+                  Min detail <FieldHelpIcon :field="help('Effective-resolution floor: flags pixelated or upscaled images (a 64px picture blown up to 1024 still reads as sharp to the blur check, but has little real detail). 0 disables it. Typical starting point ~12–15; calibrate in report mode.')" />
+                  <FieldPathTag path="quality.min_detail" />
+                </template>
+                <el-input-number
+                  v-model="qualityForm.min_detail"
+                  :min="0"
+                  :step="0.5"
+                  placeholder="0"
+                  controls-position="right"
+                />
+              </el-form-item>
             </template>
 
             <el-form-item v-if="qualityForm.metric === 'aesthetic'">
@@ -799,6 +813,7 @@ const qualityForm = reactive({
   metric: "blur" as "blur" | "aesthetic",
   blur_threshold: 80,
   min_side: 0,
+  min_detail: 0,
   aesthetic_min_label: "normal",
   move: false,
   output_dir: "",
@@ -1012,6 +1027,7 @@ function buildConfig() {
         metric: qualityForm.metric,
         blur_threshold: qualityForm.blur_threshold,
         min_side: qualityForm.min_side,
+        min_detail: qualityForm.min_detail,
         aesthetic_min_label: qualityForm.aesthetic_min_label,
         action: (qualityForm.move ? "move" : "report") as "move" | "report",
         output_dir: qualityForm.output_dir,

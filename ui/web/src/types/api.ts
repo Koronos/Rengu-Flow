@@ -813,6 +813,7 @@ export interface PrepQualityConfig {
   metric: "blur" | "aesthetic";
   blur_threshold: number;
   min_side: number;
+  min_detail?: number;
   aesthetic_min_label: string;
   action: "report" | "move";
   output_dir: string;

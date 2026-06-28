@@ -109,6 +109,10 @@
           <dt>Min side</dt>
           <dd>{{ qualityForm.min_side }} px</dd>
         </div>
+        <div v-if="qualityForm.metric === 'blur' && qualityForm.min_detail > 0" class="prep-summary__row">
+          <dt>Min detail</dt>
+          <dd>{{ qualityForm.min_detail }}</dd>
+        </div>
         <div v-if="qualityForm.metric === 'aesthetic'" class="prep-summary__row">
           <dt>Min label</dt>
           <dd>{{ qualityForm.aesthetic_min_label }}</dd>
@@ -180,6 +184,7 @@ interface QualityForm {
   metric: "blur" | "aesthetic";
   blur_threshold: number;
   min_side: number;
+  min_detail: number;
   aesthetic_min_label: string;
   move: boolean;
   output_dir: string;
