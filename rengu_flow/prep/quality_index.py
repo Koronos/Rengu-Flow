@@ -86,18 +86,42 @@ def _quality_of(rec: dict) -> float | None:
     return None
 
 
+# A scorer: given a model id and the image paths to score, yields
+# (path, raw_score, quality) as results arrive. Injectable so the index logic is
+# testable without the GPU; the default shells out to the uv-overlay scorers.
+ScoreFn = Callable[[str, list[str], "Callable[[], bool] | None"], "Iterable[tuple[str, float | None, float]]"]
+
+
+def _default_score_fn(model: str, paths: list[str], should_stop):
+    scorer, pkg, model_arg = _scorer_for(model)
+    manifest = Path(tempfile.mkstemp(suffix=".txt", prefix="qidx_")[1])
+    manifest.write_text("\n".join(paths), encoding="utf-8")
+    try:
+        for img_path, rec in _iter_scorer(scorer, pkg, manifest, model_arg):
+            if should_stop is not None and should_stop():
+                break
+            quality = _quality_of(rec)
+            if quality is not None:
+                yield str(img_path), rec.get("score"), quality
+    finally:
+        manifest.unlink(missing_ok=True)
+
+
 def build_index(
     src: str | Path,
     models: Iterable[str],
     *,
+    score_fn: ScoreFn | None = None,
     on_progress: Callable[[int, int, str], None] | None = None,
     should_stop: Callable[[], bool] | None = None,
 ) -> dict:
     """Score every (current image, model) pair that isn't indexed yet.
 
     Refreshes the ``present`` flags (so moved images stay in the reference set but
-    drop out of culling) and rescoring any image whose mtime changed.
+    drop out of culling) and rescoring any image whose mtime changed. ``score_fn``
+    is injectable for testing; it defaults to the GPU uv-overlay scorers.
     """
+    score_fn = score_fn or _default_score_fn
     src = Path(src).resolve()
     models = list(models)
     conn = _connect(src)
@@ -132,29 +156,19 @@ def build_index(
                 report["models"][model] = 0
                 continue
             id_by_path = {path: iid for iid, path in todo}
-            scorer, pkg, model_arg = _scorer_for(model)
-
-            manifest = Path(tempfile.mkstemp(suffix=".txt", prefix="qidx_")[1])
-            manifest.write_text("\n".join(p for _, p in todo), encoding="utf-8")
             scored = 0
-            try:
-                for img_path, rec in _iter_scorer(scorer, pkg, manifest, model_arg):
-                    if should_stop is not None and should_stop():
-                        break
-                    iid = id_by_path.get(str(img_path))
-                    quality = _quality_of(rec)
-                    if iid is None or quality is None:
-                        continue
-                    conn.execute(
-                        "INSERT OR REPLACE INTO scores(image_id, model, raw, quality) "
-                        "VALUES(?, ?, ?, ?)",
-                        (iid, model, rec.get("score"), quality),
-                    )
-                    scored += 1
-                    if on_progress is not None:
-                        on_progress(scored, len(todo), f"{model}:{img_path.name}")
-            finally:
-                manifest.unlink(missing_ok=True)
+            for path, raw, quality in score_fn(model, [p for _, p in todo], should_stop):
+                iid = id_by_path.get(path)
+                if iid is None:
+                    continue
+                conn.execute(
+                    "INSERT OR REPLACE INTO scores(image_id, model, raw, quality) "
+                    "VALUES(?, ?, ?, ?)",
+                    (iid, model, raw, quality),
+                )
+                scored += 1
+                if on_progress is not None:
+                    on_progress(scored, len(todo), f"{model}:{Path(path).name}")
             conn.commit()
             report["models"][model] = scored
         return report
