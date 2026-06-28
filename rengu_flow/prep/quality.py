@@ -25,6 +25,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
@@ -124,17 +125,37 @@ def _iter_scorer(scorer: Path, with_pkg: str, src: Path, model_name: str):
            "python", str(scorer), str(src)]
     if model_name:
         cmd.append(model_name)
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=sys.stderr, text=True)
-    try:
-        for line in proc.stdout:  # type: ignore[union-attr]
-            line = line.strip()
-            if line:
-                rec = json.loads(line)
+    # Sanitized env: a parent already under `uv run` leaks VIRTUAL_ENV / UV_* into
+    # the nested uv, and a leaked PYTHONPATH would let the overlay import the
+    # project's packages by accident.
+    env = {k: v for k, v in os.environ.items()
+           if k not in ("VIRTUAL_ENV", "PYTHONPATH") and not k.startswith("UV_")}
+    # Child stderr -> temp file, never the inherited stderr: when the parent's stderr
+    # is a pipe, `uv run` races on it at teardown and returns 120 *after* every result
+    # was already emitted. The file also captures the traceback if launch truly fails.
+    produced = False
+    with tempfile.TemporaryFile(mode="w+") as errf:
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=errf, text=True, env=env)
+        try:
+            for line in proc.stdout:  # type: ignore[union-attr]
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except json.JSONDecodeError:
+                    continue  # stray non-JSON noise (uv notice, tqdm bar) — ignore
+                produced = True
                 yield Path(rec["path"]), rec
-    finally:
-        proc.stdout.close()  # type: ignore[union-attr]
-        if proc.wait() != 0:
-            raise RuntimeError(f"{scorer.name} exited with code {proc.returncode}")
+        finally:
+            proc.stdout.close()  # type: ignore[union-attr]
+            rc = proc.wait()
+            # Only a launch failure (model load, bad deps) yields nothing; a non-zero
+            # code after a full run is a uv/torch teardown artifact and is ignored.
+            if rc != 0 and not produced:
+                errf.seek(0)
+                tail = errf.read()[-2000:]
+                raise RuntimeError(f"{scorer.name} exited with code {rc} and no output:\n{tail}")
 
 
 def filter_folder(

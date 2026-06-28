@@ -14,16 +14,34 @@ runs it as::
 A NON-isolated overlay: uv reuses the project's torch (and CUDA/GPU) and layers
 pyiqa on top; the project .venv is untouched.
 
+Each image is decoded to a first-frame RGB PIL image (GIF/palette/RGBA/CMYK/
+grayscale all normalized) and handed to pyiqa as a *PIL image*, NOT a raw tensor:
+pyiqa then applies each model's own preprocessing. That matters — feeding a raw
+native-resolution tensor bypasses it, giving wrong scores and OOM-ing attention
+models like MANIQA (which crops to 224). So inference is per-image (no cross-model
+batching); the GPU is kept fed by decoding ahead in worker threads, since the
+real bottleneck for these small models is serial disk decode, not GPU compute.
+
 Score scale and direction vary by model, so each record carries ``lower_better``
 and the caller thresholds accordingly. Emits one JSON object per image to stdout
 as it goes (JSONL) so the caller can stream progress.
 """
 
 import json
+import os
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".jfif", ".avif"}
+
+# Bound how many decoded images buffer ahead of the GPU (memory cap for huge folders).
+PREFETCH_CHUNK = 64
+
+
+def _emit(rec: dict) -> None:
+    sys.stdout.write(json.dumps(rec) + "\n")
+    sys.stdout.flush()
 
 
 def main() -> int:
@@ -35,24 +53,54 @@ def main() -> int:
 
     import pyiqa
     import torch
+    from PIL import Image
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     metric = pyiqa.create_metric(model_name, device=device)
     lower_better = bool(getattr(metric, "lower_better", False))
 
+    def load_rgb(path: Path):
+        # First-frame RGB so GIFs/palette/RGBA/CMYK/grayscale all normalize to a
+        # clean 3-channel image pyiqa can preprocess. Returns (path, image) or
+        # (path, exception) so decode can run in worker threads without losing
+        # which file failed.
+        try:
+            with Image.open(path) as im:
+                if getattr(im, "is_animated", False):
+                    im.seek(0)
+                return path, im.convert("RGB")
+        except Exception as exc:  # noqa: BLE001 — reported per-image
+            return path, exc
+
     images = sorted(
         p for p in folder.iterdir() if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS
     )
-    for path in images:
-        try:
-            score = float(metric(str(path)).item())
-            rec = {"path": str(path), "score": round(score, 4), "lower_better": lower_better}
-        except Exception as exc:  # noqa: BLE001 — report per-image, keep going
-            rec = {"path": str(path), "error": f"{type(exc).__name__}: {exc}"}
-        sys.stdout.write(json.dumps(rec) + "\n")
-        sys.stdout.flush()
+
+    # Decode ahead in worker threads (PIL releases the GIL) so disk IO overlaps GPU
+    # inference; score sequentially per image so each model's preprocessing runs.
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        for i in range(0, len(images), PREFETCH_CHUNK):
+            for path, res in pool.map(load_rgb, images[i:i + PREFETCH_CHUNK]):
+                if isinstance(res, Exception):
+                    _emit({"path": str(path), "error": f"{type(res).__name__}: {res}"})
+                    continue
+                try:
+                    with torch.no_grad():
+                        score = float(metric(res).item())
+                    _emit({"path": str(path), "score": round(score, 4),
+                           "lower_better": lower_better})
+                except Exception as exc:  # noqa: BLE001 — keep going past a bad image
+                    if device == "cuda":
+                        torch.cuda.empty_cache()
+                    _emit({"path": str(path), "error": f"{type(exc).__name__}: {exc}"})
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    # os._exit after a clean run: torch/CUDA interpreter-shutdown teardown can race
+    # with the parent closing our stdout pipe and return a spurious non-zero code
+    # (120) even though every score was already emitted and flushed. A real failure
+    # raises inside main() and still surfaces with a traceback + non-zero exit.
+    rc = main()
+    sys.stdout.flush()
+    os._exit(rc)
