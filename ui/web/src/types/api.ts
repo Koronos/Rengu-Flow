@@ -870,6 +870,11 @@ export interface QualityIndexCullPreviewResult {
   union: number;
   /** Images currently present in the folder. */
   present: number;
+  /**
+   * Per-model quality score cutoffs. An image is culled by model M when
+   * `image.quality < cutoffs[M]`. Null when that model's slider is 0 (no cull).
+   */
+  cutoffs: Record<string, number | null>;
 }
 
 export interface QualityIndexApplyResult {

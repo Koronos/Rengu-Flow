@@ -175,19 +175,53 @@
         <el-text size="small" type="info" class="qi-view__gallery-loading">Loading…</el-text>
       </template>
       <template v-else>
+        <!-- Legend: only shown when a cutoff is active for this model -->
+        <div
+          v-if="sliderValues[model] > 0 && cullPreview && getWorstItems(model).length"
+          class="qi-view__gallery-legend"
+        >
+          <span class="qi-view__legend-swatch qi-view__legend-swatch--removed" aria-hidden="true" />
+          <el-text size="small" type="danger">Will be removed</el-text>
+          <span class="qi-view__legend-swatch qi-view__legend-swatch--kept" aria-hidden="true" />
+          <el-text size="small" type="info">Kept</el-text>
+          <el-text size="small" type="info">
+            — lowest {{ sliderValues[model] }}% by score
+          </el-text>
+        </div>
+
         <div v-if="getWorstItems(model).length" class="qi-view__gallery">
           <div
             v-for="item in getWorstItems(model)"
             :key="item.path"
             class="qi-view__thumb-cell"
+            :class="{ 'qi-view__thumb-cell--removed': itemWillRemove(model, item) }"
           >
-            <img
-              :src="api.datasetPreviewImageUrl(item.token)"
-              class="qi-view__thumb"
-              :alt="item.name"
-              loading="lazy"
-            />
-            <div class="qi-view__thumb-score">{{ item.quality.toFixed(1) }}</div>
+            <div class="qi-view__thumb-wrap">
+              <img
+                :src="api.datasetPreviewImageUrl(item.token)"
+                class="qi-view__thumb"
+                :alt="item.name"
+                loading="lazy"
+              />
+              <!-- Red tint overlay for removed items -->
+              <div
+                v-if="itemWillRemove(model, item)"
+                class="qi-view__thumb-overlay"
+                aria-hidden="true"
+              />
+              <!-- Corner badge -->
+              <span
+                v-if="itemWillRemove(model, item)"
+                class="qi-view__thumb-badge"
+                aria-label="will be removed"
+              >×</span>
+            </div>
+            <div
+              class="qi-view__thumb-score"
+              :class="{ 'qi-view__thumb-score--removed': itemWillRemove(model, item) }"
+            >
+              {{ item.quality.toFixed(1) }}
+            </div>
             <div class="qi-view__thumb-name" :title="item.name">{{ item.name }}</div>
           </div>
         </div>
@@ -299,6 +333,15 @@ function getModelStats(model: string): QualityIndexStatsResult | null {
 
 function getWorstItems(model: string): QualityIndexWorstItem[] {
   return worstItemsMap[model] ?? [];
+}
+
+/**
+ * Returns true when the current cull-preview cutoff for `model` means this
+ * item would be removed (quality strictly below the cutoff score).
+ */
+function itemWillRemove(model: string, item: QualityIndexWorstItem): boolean {
+  const cutoff = cullPreview.value?.cutoffs?.[model];
+  return cutoff != null && item.quality < cutoff;
 }
 
 // ---------------------------------------------------------------------------
@@ -616,11 +659,46 @@ async function openApplyConfirm(): Promise<void> {
   overflow: auto;
 }
 
+/* Gallery legend */
+.qi-view__gallery-legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.qi-view__legend-swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.qi-view__legend-swatch--removed {
+  background: var(--el-color-danger);
+}
+
+.qi-view__legend-swatch--kept {
+  background: var(--el-fill-color-darker);
+  border: 1px solid var(--el-border-color);
+}
+
+/* Thumbnail cells */
 .qi-view__thumb-cell {
   display: flex;
   flex-direction: column;
   gap: 3px;
   min-width: 0;
+}
+
+/* Image wrapper: needed for overlay + badge positioning */
+.qi-view__thumb-wrap {
+  position: relative;
+  border-radius: 5px;
+  overflow: hidden;
+  line-height: 0;
 }
 
 .qi-view__thumb {
@@ -630,6 +708,42 @@ async function openApplyConfirm(): Promise<void> {
   border-radius: 5px;
   background: var(--el-fill-color-darker);
   display: block;
+  transition: opacity 0.15s, filter 0.15s;
+}
+
+/* Removed-state visuals */
+.qi-view__thumb-cell--removed .qi-view__thumb {
+  opacity: 0.5;
+  filter: saturate(0.3);
+}
+
+.qi-view__thumb-cell--removed .qi-view__thumb-wrap {
+  outline: 2px solid var(--el-color-danger);
+  outline-offset: -2px;
+}
+
+/* Semi-transparent red tint over the image */
+.qi-view__thumb-overlay {
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--el-color-danger) 20%, transparent);
+  pointer-events: none;
+}
+
+/* Corner badge "×" */
+.qi-view__thumb-badge {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  background: var(--el-color-danger);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 3px;
+  pointer-events: none;
+  user-select: none;
 }
 
 .qi-view__thumb-score {
@@ -637,6 +751,10 @@ async function openApplyConfirm(): Promise<void> {
   font-weight: 600;
   text-align: center;
   color: var(--el-text-color-primary);
+}
+
+.qi-view__thumb-score--removed {
+  color: var(--el-color-danger);
 }
 
 .qi-view__thumb-name {
