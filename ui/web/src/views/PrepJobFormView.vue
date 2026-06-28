@@ -675,12 +675,12 @@
 
               <el-form-item>
                 <template #label>
-                  Minimum quality <FieldHelpIcon :field="help('Normalized quality 1–100, the same scale for every model (higher = better). Images scoring below this are flagged — raise it to be stricter, lower it to keep more. Run report mode first to see the scores.')" />
+                  Discard lowest % <FieldHelpIcon :field="help('Flags the lowest-quality N% of the dataset, ranked by the selected model (same behavior for every model). 10 = drop the worst 10%; raise it to cull more. Run report mode first to see how many fall at each level.')" />
                   <FieldPathTag path="quality.iqa_threshold" />
                 </template>
                 <el-slider
                   v-model="qualityForm.iqa_threshold"
-                  :min="1"
+                  :min="0"
                   :max="100"
                   :step="1"
                   show-input
@@ -884,7 +884,7 @@ const qualityForm = reactive({
   min_detail: 0,
   aesthetic_min_label: "normal",
   iqa_model: "clipiqa",
-  iqa_threshold: 50,
+  iqa_threshold: 10,
   move: false,
   output_dir: "",
 });

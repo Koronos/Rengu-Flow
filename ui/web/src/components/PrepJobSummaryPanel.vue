@@ -122,8 +122,8 @@
           <dd>{{ qualityForm.iqa_model }}</dd>
         </div>
         <div v-if="qualityForm.metric === 'iqa'" class="prep-summary__row">
-          <dt>Min quality</dt>
-          <dd>{{ qualityForm.iqa_threshold }}</dd>
+          <dt>Cull lowest %</dt>
+          <dd>{{ qualityForm.iqa_threshold }}%</dd>
         </div>
         <div class="prep-summary__row">
           <dt>Action</dt>
