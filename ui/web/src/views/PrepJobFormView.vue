@@ -675,15 +675,16 @@
 
               <el-form-item>
                 <template #label>
-                  Threshold <FieldHelpIcon :field="help('Images on the bad side of this score are flagged. Scale depends on the model: clipiqa/arniqa ~0–1 (try 0.5), musiq ~0–100 (try 50). Run in report mode first and set it between your good and bad samples.')" />
+                  Minimum quality <FieldHelpIcon :field="help('Normalized quality 1–100, the same scale for every model (higher = better). Images scoring below this are flagged — raise it to be stricter, lower it to keep more. Run report mode first to see the scores.')" />
                   <FieldPathTag path="quality.iqa_threshold" />
                 </template>
-                <el-input-number
+                <el-slider
                   v-model="qualityForm.iqa_threshold"
-                  :min="0"
-                  :step="0.05"
-                  placeholder="0.5"
-                  controls-position="right"
+                  :min="1"
+                  :max="100"
+                  :step="1"
+                  show-input
+                  class="w-full"
                 />
               </el-form-item>
             </template>
@@ -848,7 +849,7 @@ const qualityForm = reactive({
   min_detail: 0,
   aesthetic_min_label: "normal",
   iqa_model: "clipiqa",
-  iqa_threshold: 0.5,
+  iqa_threshold: 50,
   move: false,
   output_dir: "",
 });
