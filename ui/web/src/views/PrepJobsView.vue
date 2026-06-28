@@ -14,6 +14,7 @@
         <el-button :icon="Delete" @click="goNewJob('clean')">New clean job</el-button>
         <el-button :icon="Filter" @click="goNewJob('quality')">New quality job</el-button>
         <el-button :icon="Edit" @click="$router.push('/prep/tags')">Tag editor</el-button>
+        <el-button @click="$router.push('/prep/quality')">Quality index</el-button>
       </el-space>
     </div>
 

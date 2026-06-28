@@ -128,6 +128,10 @@ import type {
   PrepCaptionConfig,
   LocalSettings,
   LocalSettingsPatch,
+  QualityIndexStatsResult,
+  QualityIndexWorstResult,
+  QualityIndexCullPreviewResult,
+  QualityIndexApplyResult,
 } from "./types/api";
 import { withDefaultPagination } from "./types/api";
 
@@ -698,6 +702,40 @@ export const api = {
   /** Estimate total training steps for a run config + dataset (no server-side disk scan by default). */
   estimateSteps: (body: EstimateStepsBody) =>
     request<EstimateStepsResult | EstimateStepsError>("/runs/estimate-steps", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  // --- Dataset prep: quality index ---
+
+  /** Live stats for one quality model in a dataset (reflects current state after culls). */
+  qualityIndexStats: (path: string, model: string) =>
+    request<QualityIndexStatsResult>(
+      `/prep/quality-index/stats?path=${encodeURIComponent(path)}&model=${encodeURIComponent(model)}`
+    ),
+
+  /** Worst-scoring images for one quality model (lowest scores first). */
+  qualityIndexWorst: (params: { path: string; model: string; limit?: number; offset?: number }) => {
+    const q = new URLSearchParams({ path: params.path, model: params.model });
+    if (params.limit != null) q.set("limit", String(params.limit));
+    if (params.offset != null) q.set("offset", String(params.offset));
+    return request<QualityIndexWorstResult>(`/prep/quality-index/worst?${q.toString()}`);
+  },
+
+  /** Preview how many images would be culled for each model at the given percentile thresholds. */
+  qualityIndexCullPreview: (body: { path: string; per_model: Record<string, number> }) =>
+    request<QualityIndexCullPreviewResult>("/prep/quality-index/cull-preview", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  /** Move images flagged by the given per-model percentile thresholds to <path>/low_quality/. */
+  qualityIndexApply: (body: {
+    path: string;
+    per_model: Record<string, number>;
+    output_dir?: string;
+  }) =>
+    request<QualityIndexApplyResult>("/prep/quality-index/apply", {
       method: "POST",
       body: JSON.stringify(body),
     }),

@@ -763,7 +763,7 @@ export interface QuarantineBatchInfo {
 
 // --- Dataset prep: jobs -------------------------------------------------------
 
-export type PrepStage = "tag" | "caption" | "clean" | "quality";
+export type PrepStage = "tag" | "caption" | "clean" | "quality" | "index";
 
 export interface PrepTagConfig {
   models: string[];
@@ -821,14 +821,63 @@ export interface PrepQualityConfig {
   output_dir: string;
 }
 
+export interface PrepIndexConfig {
+  /** Quality model IDs to score images with (e.g. "aesthetic", "clipiqa"). */
+  models: string[];
+}
+
 export interface PrepConfigDto {
   path: string;
-  caption_format: "sidecar" | "json";
-  caption_ext: string;
+  /** Not required for clean / quality / index stages. */
+  caption_format?: "sidecar" | "json";
+  /** Not required for clean / quality / index stages. */
+  caption_ext?: string;
   tag?: PrepTagConfig;
   caption?: PrepCaptionConfig;
   clean?: PrepCleanConfig;
   quality?: PrepQualityConfig;
+  index?: PrepIndexConfig;
+}
+
+// --- Dataset prep: quality index ---------------------------------------------
+
+export interface QualityIndexStatsResult {
+  model: string;
+  /** Total images ever scored by this model, including those moved to low_quality/. */
+  reference: number;
+  /** Images still present in the dataset folder. */
+  present: number;
+  min: number;
+  max: number;
+}
+
+export interface QualityIndexWorstItem {
+  path: string;
+  name: string;
+  quality: number;
+  /** Image token for use with `api.datasetPreviewImageUrl`. */
+  token: string;
+}
+
+export interface QualityIndexWorstResult {
+  items: QualityIndexWorstItem[];
+}
+
+export interface QualityIndexCullPreviewResult {
+  /** Per-model image counts that would be culled at each model's current threshold. */
+  per_model: Record<string, number>;
+  /** Union count: images flagged by ANY selected model. */
+  union: number;
+  /** Images currently present in the folder. */
+  present: number;
+}
+
+export interface QualityIndexApplyResult {
+  /** Total images moved to low_quality/. */
+  moved: number;
+  per_model: Record<string, number>;
+  union: number;
+  output_dir: string;
 }
 
 export interface PrepJobStartBody {
