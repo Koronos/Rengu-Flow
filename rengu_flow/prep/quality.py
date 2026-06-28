@@ -21,9 +21,11 @@ images (and their caption sidecars) into ``<path>/low_quality/`` for review.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -50,6 +52,7 @@ class QualityConfig:
     metric: str = "blur"  # "blur" (Laplacian, dep-free) | "aesthetic" (deepghs booru-quality)
     blur_threshold: float = 80.0  # calibration knob: tune against your own set
     min_side: int = 0  # flag images whose shorter side is below this (0 = off)
+    min_detail: float = 0.0  # flag low effective resolution (pixelated/upscaled); 0 = off
     aesthetic_min_label: str = "normal"  # flag images ranked below this label
     aesthetic_model: str = ""  # imgutils model_name override ("" = its default)
     action: str = "report"  # "report" (non-destructive) | "move"
@@ -66,18 +69,42 @@ def sharpness_score(gray: np.ndarray) -> float:
     return float(lap[1:-1, 1:-1].var())
 
 
-def _score_image(path: Path) -> tuple[float, int]:
-    """Return (sharpness, shorter_side_px) for the image at *path*."""
+def detail_residual(gray: np.ndarray) -> float:
+    """Mean abs residual after halving then restoring resolution (bilinear).
+
+    Low => little real detail for the image's size: blurred OR pixelated/upscaled
+    (the latter reconstructs almost perfectly from half-res). Unlike the Laplacian,
+    this is not fooled by the hard block edges of nearest-neighbour upscaling.
+    """
+    im = Image.fromarray(gray)
+    w, h = im.size
+    small = im.resize((max(1, w // 2), max(1, h // 2)), Image.BILINEAR)
+    back = small.resize((w, h), Image.BILINEAR)
+    return float(np.abs(gray.astype(np.float32) - np.asarray(back, np.float32)).mean())
+
+
+def _score_image(path: Path, *, want_detail: bool = False) -> tuple[float, int, float]:
+    """Return (sharpness, shorter_side_px, detail) for the image at *path*.
+
+    ``detail`` is computed only when *want_detail* (it opens a larger copy);
+    it is 0.0 otherwise.
+    """
     with Image.open(path) as im:
         im.load()
         w, h = im.size
         shorter = min(w, h)
-        # Long-side-512 grayscale copy so blur_threshold is resolution-portable.
+        # detail wants real resolution (long-side 1024) to see pixelation; the
+        # Laplacian uses a long-side-512 copy so blur_threshold stays portable.
+        detail = 0.0
+        if want_detail:
+            dscale = 1024.0 / max(w, h) if max(w, h) > 1024 else 1.0
+            dim = im.resize((max(1, round(w * dscale)), max(1, round(h * dscale)))) if dscale < 1.0 else im
+            detail = detail_residual(np.asarray(dim.convert("L")))
         scale = 512.0 / max(w, h) if max(w, h) > 512 else 1.0
         if scale < 1.0:
             im = im.resize((max(1, round(w * scale)), max(1, round(h * scale))))
         gray = np.asarray(im.convert("L"))
-    return sharpness_score(gray), shorter
+    return sharpness_score(gray), shorter, detail
 
 
 def _iter_aesthetic(src: Path, model_name: str):
@@ -139,6 +166,7 @@ def filter_folder(
     if config.metric == "blur":
         report["blur_threshold"] = config.blur_threshold
         report["min_side"] = config.min_side
+        report["min_detail"] = config.min_detail
     else:
         report["aesthetic_min_label"] = config.aesthetic_min_label
 
@@ -172,31 +200,42 @@ def filter_folder(
                 on_progress(done, total, img_path.name)
         return report
 
-    # metric == "blur"
-    for done, img_path in enumerate(images):
-        if should_stop is not None and should_stop():
-            report["stopped"] = True
-            if on_progress:
-                on_progress(done, total, "stopped")
-            return report
+    # metric == "blur": scoring is pure CPU+IO (PIL/numpy release the GIL), so
+    # score across a thread pool; flag/move + report stay on this thread (no locks).
+    want_detail = config.min_detail > 0
 
+    def _score_one(img_path: Path):
         try:
-            sharp, shorter = _score_image(img_path)
-            report["scored"] += 1
-            reasons = []
-            if sharp < config.blur_threshold:
-                reasons.append("blurry")
-            if config.min_side > 0 and shorter < config.min_side:
-                reasons.append("low_res")
-            if reasons:
-                _flag(img_path, {"sharpness": round(sharp, 1), "min_side": shorter,
-                                 "reasons": reasons})
-        except Exception as exc:
-            logger.warning("quality: failed to process %s: %s", img_path.name, exc)
-            report["failed"].append(img_path.name)
+            return img_path, _score_image(img_path, want_detail=want_detail), None
+        except Exception as exc:  # noqa: BLE001 — reported per-image
+            return img_path, None, exc
 
-        if on_progress:
-            on_progress(done + 1, total, img_path.name)
+    workers = min(32, (os.cpu_count() or 4))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        for done, (img_path, scored, exc) in enumerate(pool.map(_score_one, images)):
+            if should_stop is not None and should_stop():
+                report["stopped"] = True
+                break
+            if exc is not None:
+                logger.warning("quality: failed to process %s: %s", img_path.name, exc)
+                report["failed"].append(img_path.name)
+            else:
+                sharp, shorter, detail = scored
+                report["scored"] += 1
+                reasons = []
+                if sharp < config.blur_threshold:
+                    reasons.append("blurry")
+                if config.min_side > 0 and shorter < config.min_side:
+                    reasons.append("low_res")
+                if want_detail and detail < config.min_detail:
+                    reasons.append("pixelated")
+                if reasons:
+                    info = {"sharpness": round(sharp, 1), "min_side": shorter, "reasons": reasons}
+                    if want_detail:
+                        info["detail"] = round(detail, 2)
+                    _flag(img_path, info)
+            if on_progress:
+                on_progress(done + 1, total, img_path.name)
 
     return report
 
@@ -208,4 +247,9 @@ if __name__ == "__main__":
     assert sharpness_score(rng) > sharpness_score(blurred), "blur detection broken"
     flat = np.zeros((64, 64))
     assert sharpness_score(flat) == 0.0, "flat image must score 0"
+    # detail_residual: real detail >> nearest-neighbour upscale (pixelated) >> flat.
+    noise = np.random.default_rng(0).integers(0, 255, (64, 64)).astype(np.uint8)
+    pixelated = np.repeat(np.repeat(noise[::8, ::8], 8, 0), 8, 1).astype(np.uint8)
+    assert detail_residual(noise) > detail_residual(pixelated) > detail_residual(flat.astype(np.uint8)), \
+        "detail residual must rank detailed > pixelated > flat"
     print("quality self-check OK")

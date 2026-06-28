@@ -61,6 +61,8 @@ def add_parser(sub: argparse._SubParsersAction) -> None:
                    help="blur: Laplacian-variance floor; below it an image is flagged blurry")
     q.add_argument("--min-side", type=int, default=None,
                    help="blur: flag images whose shorter side is below this (0 = off)")
+    q.add_argument("--min-detail", type=float, default=None,
+                   help="blur: flag low effective resolution (pixelated/upscaled); 0 = off")
     q.add_argument("--aesthetic-min-label", default=None,
                    choices=("worst", "low", "normal", "good", "great", "best", "masterpiece"),
                    help="aesthetic: flag images ranked below this booru label (default normal)")
@@ -110,6 +112,8 @@ def _build_config(args: argparse.Namespace) -> PrepConfig:
             config.quality.blur_threshold = args.blur_threshold
         if args.min_side is not None:
             config.quality.min_side = args.min_side
+        if args.min_detail is not None:
+            config.quality.min_detail = args.min_detail
         if args.aesthetic_min_label:
             config.quality.aesthetic_min_label = args.aesthetic_min_label
         if args.move:

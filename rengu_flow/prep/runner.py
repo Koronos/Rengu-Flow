@@ -153,6 +153,7 @@ def _run_quality(config: PrepConfig, on_progress, should_stop) -> dict:
         metric=stage.metric,
         blur_threshold=stage.blur_threshold,
         min_side=stage.min_side,
+        min_detail=stage.min_detail,
         aesthetic_min_label=stage.aesthetic_min_label,
         aesthetic_model=stage.aesthetic_model,
         action=stage.action,
