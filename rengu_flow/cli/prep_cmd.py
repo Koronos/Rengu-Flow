@@ -84,6 +84,16 @@ def add_parser(sub: argparse._SubParsersAction) -> None:
     m.add_argument("--download", default=None, metavar="MODEL_ID",
                    help="Download one model (requires --stage)")
 
+    ix = stage_sub.add_parser("index", help="Persistent quality index (incremental, multi-model)")
+    ix.add_argument("--path", required=True, help="Dataset folder")
+    ix.add_argument("--model", action="append", default=None,
+                    help="Model id (repeatable): aesthetic, or a pyiqa model (clipiqa/niqe/...)")
+    ix.add_argument("--build", action="store_true", help="Score missing (image, model) pairs")
+    ix.add_argument("--worst", type=int, default=None, metavar="N",
+                    help="Print the N lowest-quality images for the first --model")
+    ix.add_argument("--cull", action="append", default=None, metavar="MODEL:PCT",
+                    help="Preview the union cull (repeatable), e.g. --cull niqe:20 --cull clipiqa:10")
+
 
 def _build_config(args: argparse.Namespace) -> PrepConfig:
     config = load_prep_config(args.config) if args.config else PrepConfig()
@@ -157,9 +167,40 @@ def _run_models(args: argparse.Namespace) -> None:
             print(f"  [{mark}] {entry['id']:<22} {entry['repo_id']}")
 
 
+def _run_index(args: argparse.Namespace) -> None:
+    from rengu_flow.prep import quality_index as qi
+
+    models = list(args.model or [])
+    if args.build:
+        if not models:
+            raise SystemExit("--build requires at least one --model")
+        report = qi.build_index(args.path, models)
+        print(f"indexed {report['images']} images: " +
+              ", ".join(f"{m}+{n}" for m, n in report["models"].items()))
+        for m in models:
+            s = qi.model_stats(args.path, m)
+            print(f"  {m}: reference={s['reference']} present={s['present']} "
+                  f"quality {s['min']}..{s['max']}")
+    if args.worst:
+        if not models:
+            raise SystemExit("--worst requires --model")
+        for w in qi.worst(args.path, models[0], args.worst):
+            print(f"  {w['quality']:6.1f}  {w['path']}")
+    if args.cull:
+        per_model = {}
+        for spec in args.cull:
+            model, _, pct = spec.partition(":")
+            per_model[model] = float(pct)
+        cp = qi.cull_preview(args.path, per_model)
+        print(f"cull union={cp['union']} of present={cp['present']}  per-model={cp['per_model']}")
+
+
 def run(args: argparse.Namespace) -> None:
     if args.prep_stage == "models":
         _run_models(args)
+        return
+    if args.prep_stage == "index":
+        _run_index(args)
         return
 
     from rengu_flow.cli.training_extras import ensure_profiles

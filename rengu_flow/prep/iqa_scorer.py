@@ -44,11 +44,21 @@ def _emit(rec: dict) -> None:
     sys.stdout.flush()
 
 
+def _list_images(target: Path) -> list:
+    """Images to score: every image in *target* if it's a folder, else the paths
+    listed one-per-line in *target* (a manifest, for incremental indexing)."""
+    if target.is_dir():
+        return sorted(
+            p for p in target.iterdir() if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS
+        )
+    return [Path(line) for line in target.read_text().splitlines() if line.strip()]
+
+
 def main() -> int:
     if len(sys.argv) < 2:
-        print("usage: iqa_scorer.py <folder> [model_name]", file=sys.stderr)
+        print("usage: iqa_scorer.py <folder|manifest> [model_name]", file=sys.stderr)
         return 2
-    folder = Path(sys.argv[1])
+    target = Path(sys.argv[1])
     model_name = sys.argv[2] if len(sys.argv) > 2 else "clipiqa"
 
     import pyiqa
@@ -91,9 +101,7 @@ def main() -> int:
         except Exception as exc:  # noqa: BLE001 — reported per-image
             return path, exc
 
-    images = sorted(
-        p for p in folder.iterdir() if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS
-    )
+    images = _list_images(target)
 
     # Decode ahead in worker threads (PIL releases the GIL) so disk IO overlaps GPU
     # inference; score sequentially per image so each model's preprocessing runs.

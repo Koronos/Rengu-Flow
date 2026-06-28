@@ -26,18 +26,25 @@ from pathlib import Path
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".jfif", ".avif"}
 
 
+def _list_images(target: Path) -> list:
+    """Images in *target* if a folder, else the paths listed one-per-line (manifest)."""
+    if target.is_dir():
+        return sorted(
+            p for p in target.iterdir() if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS
+        )
+    return [Path(line) for line in target.read_text().splitlines() if line.strip()]
+
+
 def main() -> int:
     if len(sys.argv) < 2:
-        print("usage: aesthetic_scorer.py <folder> [model_name]", file=sys.stderr)
+        print("usage: aesthetic_scorer.py <folder|manifest> [model_name]", file=sys.stderr)
         return 2
-    folder = Path(sys.argv[1])
+    target = Path(sys.argv[1])
     model_name = sys.argv[2] if len(sys.argv) > 2 else None
 
     from imgutils.metrics import anime_dbaesthetic  # isolated env
 
-    images = sorted(
-        p for p in folder.iterdir() if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS
-    )
+    images = _list_images(target)
     kwargs = {"model_name": model_name} if model_name else {}
     for path in images:
         try:
