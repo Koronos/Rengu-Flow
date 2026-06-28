@@ -1,4 +1,4 @@
-"""``rengu prep`` — dataset preparation stages (tag | caption | clean | models).
+"""``rengu prep`` — dataset preparation stages (tag | caption | clean | quality | models).
 
 Each stage runs in this process (the UI launches exactly this command as a
 subprocess). Heavy inference deps live in the ``prep`` extra and are installed
@@ -36,7 +36,8 @@ def add_parser(sub: argparse._SubParsersAction) -> None:
     t = stage_sub.add_parser("tag", help="Danbooru-style tagging (ONNX ensemble)")
     c = stage_sub.add_parser("caption", help="Natural-language captioning (VLM)")
     cl = stage_sub.add_parser("clean", help="Watermark detection + inpainting")
-    for stage_parser in (t, c, cl):
+    q = stage_sub.add_parser("quality", help="Flag/move low-quality images (blur + resolution)")
+    for stage_parser in (t, c, cl, q):
         for args_, kwargs in common:
             stage_parser.add_argument(*args_, **kwargs)
 
@@ -53,6 +54,15 @@ def add_parser(sub: argparse._SubParsersAction) -> None:
                     help="Rewrite sources (originals backed up under the app data dir)")
     cl.add_argument("--output-dir", default=None,
                     help="Destination for cleaned copies (default <path>/cleaned)")
+
+    q.add_argument("--blur-threshold", type=float, default=None,
+                   help="Laplacian-variance floor; below it an image is flagged blurry")
+    q.add_argument("--min-side", type=int, default=None,
+                   help="Flag images whose shorter side is below this (0 = off)")
+    q.add_argument("--move", action="store_true", default=None,
+                   help="Move flagged images into <path>/low_quality (default: report only)")
+    q.add_argument("--output-dir", default=None,
+                   help="Destination for moved files (default <path>/low_quality)")
 
     m = stage_sub.add_parser("models", help="List/download prep models")
     m.add_argument("--stage", default=None, choices=STAGES,
@@ -88,6 +98,15 @@ def _build_config(args: argparse.Namespace) -> PrepConfig:
             config.clean.in_place = args.in_place
         if args.output_dir:
             config.clean.output_dir = args.output_dir
+    elif stage == "quality":
+        if args.blur_threshold is not None:
+            config.quality.blur_threshold = args.blur_threshold
+        if args.min_side is not None:
+            config.quality.min_side = args.min_side
+        if args.move:
+            config.quality.action = "move"
+        if args.output_dir:
+            config.quality.output_dir = args.output_dir
     return config
 
 

@@ -153,6 +153,9 @@ def list_models(stage: str) -> list[dict]:
             )
         return results
 
+    if stage == "quality":
+        return []  # quality filter is pure numpy — no downloadable models
+
     registry = {"caption": CAPTION_MODELS, "clean": CLEANUP_MODELS}.get(stage)
     if registry is not None:
         results = []

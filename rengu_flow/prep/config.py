@@ -14,7 +14,7 @@ from rengu_flow.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
-STAGES = ("tag", "caption", "clean")
+STAGES = ("tag", "caption", "clean", "quality")
 
 
 @dataclass
@@ -67,6 +67,14 @@ class CleanStageConfig:
 
 
 @dataclass
+class QualityStageConfig:
+    blur_threshold: float = 80.0  # Laplacian-variance floor (on a long-side-512 copy); tune per set
+    min_side: int = 0  # flag images whose shorter side is below this (0 = off)
+    action: str = "report"  # "report" (non-destructive) | "move" flagged into <path>/low_quality
+    output_dir: str = ""  # destination for moved files (default <path>/low_quality)
+
+
+@dataclass
 class PrepConfig:
     path: str = ""
     caption_format: str = "sidecar"  # "sidecar" | "json"
@@ -74,6 +82,7 @@ class PrepConfig:
     tag: TagStageConfig = field(default_factory=TagStageConfig)
     caption: CaptionStageConfig = field(default_factory=CaptionStageConfig)
     clean: CleanStageConfig = field(default_factory=CleanStageConfig)
+    quality: QualityStageConfig = field(default_factory=QualityStageConfig)
 
     def validate_for_stage(self, stage: str) -> None:
         if stage not in STAGES:
@@ -108,6 +117,8 @@ def parse_prep_config(data: dict) -> PrepConfig:
         _fill_dataclass(config.caption, data["caption"], context="caption")
     if isinstance(data.get("clean"), dict):
         _fill_dataclass(config.clean, data["clean"], context="clean")
+    if isinstance(data.get("quality"), dict):
+        _fill_dataclass(config.quality, data["quality"], context="quality")
     return config
 
 

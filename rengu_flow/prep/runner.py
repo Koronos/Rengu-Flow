@@ -145,7 +145,31 @@ def _run_clean(config: PrepConfig, on_progress, should_stop) -> dict:
     )
 
 
-_STAGE_RUNNERS = {"tag": _run_tag, "caption": _run_caption, "clean": _run_clean}
+def _run_quality(config: PrepConfig, on_progress, should_stop) -> dict:
+    from rengu_flow.prep.quality import QualityConfig, filter_folder
+
+    stage = config.quality
+    quality_config = QualityConfig(
+        blur_threshold=stage.blur_threshold,
+        min_side=stage.min_side,
+        action=stage.action,
+        output_dir=Path(stage.output_dir) if stage.output_dir else None,
+    )
+    return filter_folder(
+        config.path,
+        quality_config,
+        caption_ext=config.caption_ext,
+        on_progress=on_progress,
+        should_stop=should_stop,
+    )
+
+
+_STAGE_RUNNERS = {
+    "tag": _run_tag,
+    "caption": _run_caption,
+    "clean": _run_clean,
+    "quality": _run_quality,
+}
 
 
 def run_stage(config: PrepConfig, stage: str, job_dir: Path) -> int:
