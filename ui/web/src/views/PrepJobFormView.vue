@@ -717,7 +717,41 @@
         <div class="form-actions">
           <el-button @click="$router.push('/prep')">Cancel</el-button>
           <el-button :loading="submitting" @click="submit(false)">Queue</el-button>
-          <el-button type="primary" :loading="submitting" @click="submit(true)">Start now</el-button>
+          <el-button v-if="canPreview" type="primary" :loading="previewRunning" @click="runPreview">Preview report</el-button>
+          <el-button v-else type="primary" :loading="submitting" @click="submit(true)">Start now</el-button>
+        </div>
+
+        <!-- Inline quality report preview -->
+        <div v-if="previewJobId" class="preview-report-panel mt-8">
+          <div v-if="previewRunning" class="preview-progress">
+            <el-text size="small" class="hint-text">{{ previewProgress?.msg || 'Running…' }}</el-text>
+            <el-progress :percentage="Math.round((previewProgress?.percent ?? 0) * 100)" :show-text="false" class="mt-8" />
+          </div>
+          <el-alert v-if="previewError" type="error" :title="previewError" show-icon :closable="false" class="mt-8" />
+          <template v-if="previewReport">
+            <h3 class="section-title mt-8">Report (nothing was changed — report only)</h3>
+            <el-descriptions :column="3" border size="small">
+              <el-descriptions-item
+                v-for="(val, key) in previewReportFields"
+                :key="key"
+                :label="String(key)"
+              >{{ val }}</el-descriptions-item>
+            </el-descriptions>
+            <el-text
+              v-if="Number(previewReport.flagged) > 0"
+              size="small"
+              class="hint-text preview-flagged mt-8"
+            >
+              {{ previewReport.flagged }} of {{ previewReport.scored }} images would be flagged
+            </el-text>
+            <el-text
+              v-if="previewReasonsSummary"
+              size="small"
+              class="hint-text preview-reasons mt-4"
+            >
+              {{ previewReasonsSummary }}
+            </el-text>
+          </template>
         </div>
       </div>
       </el-card>
@@ -751,6 +785,7 @@ import FieldPathTag from "../components/FieldPathTag.vue";
 import PathFieldControl from "../components/PathFieldControl.vue";
 import PrepJobSummaryPanel from "../components/PrepJobSummaryPanel.vue";
 import { formatError } from "../lib/formatError";
+import { usePrepJobLive } from "../composables/usePrepJobLive";
 import type { PrepModelInfo, PrepPromptOptions, PrepStage } from "../types/api";
 
 function help(text: string) {
@@ -961,6 +996,81 @@ function resetPromptToComposed(): void {
   promptDirty.value = false;
   captionForm.prompt = "";
   promptText.value = composedText.value;
+}
+
+// --- quality inline preview (report-only) ---
+const canPreview = computed(() => stage.value === "quality" && !qualityForm.move);
+const previewJobId = ref<string | null>(null);
+const previewReport = ref<Record<string, unknown> | null>(null);
+const previewRunning = ref(false);
+const previewError = ref("");
+
+const { progress: previewProgress } = usePrepJobLive(
+  () => previewJobId.value ?? undefined,
+  { onRunFinished: onPreviewFinished }
+);
+
+const PREVIEW_EXCLUDED = new Set(["failed", "errors", "low_quality"]);
+const previewReportFields = computed(() => {
+  if (!previewReport.value) return {} as Record<string, unknown>;
+  return Object.fromEntries(
+    Object.entries(previewReport.value).filter(([k]) => !PREVIEW_EXCLUDED.has(k))
+  ) as Record<string, unknown>;
+});
+
+const previewReasonsSummary = computed(() => {
+  const lq = previewReport.value?.low_quality;
+  if (!Array.isArray(lq) || lq.length === 0) return "";
+  const counts: Record<string, number> = {};
+  for (const item of lq) {
+    const reasons = (item as Record<string, unknown>).reasons;
+    if (Array.isArray(reasons)) {
+      for (const r of reasons) {
+        const s = String(r);
+        counts[s] = (counts[s] ?? 0) + 1;
+      }
+    }
+  }
+  return Object.entries(counts)
+    .sort((a, b) => b[1] - a[1])
+    .map(([r, n]) => `${r}: ${n}`)
+    .join(" · ");
+});
+
+async function onPreviewFinished(): Promise<void> {
+  const id = previewJobId.value;
+  if (!id) return;
+  try {
+    const res = await api.prepJobReport(id);
+    previewReport.value = res.report;
+  } catch {
+    // report.json may lag the finish signal
+    await new Promise<void>((r) => setTimeout(r, 600));
+    try {
+      const res = await api.prepJobReport(id);
+      previewReport.value = res.report;
+    } catch (e) {
+      previewError.value = formatError(e);
+    }
+  }
+  previewRunning.value = false;
+}
+
+async function runPreview(): Promise<void> {
+  previewError.value = "";
+  previewReport.value = null;
+  if (!form.path.trim()) {
+    previewError.value = "Dataset folder is required.";
+    return;
+  }
+  previewRunning.value = true;
+  try {
+    const job = await api.createPrepJob({ stage: stage.value, config: buildConfig(), start_now: true });
+    previewJobId.value = String(job.id);
+  } catch (e) {
+    previewError.value = formatError(e);
+    previewRunning.value = false;
+  }
 }
 
 async function loadModels(): Promise<void> {
@@ -1285,6 +1395,20 @@ onMounted(async () => {
   flex-direction: column;
   align-items: flex-start;
   gap: 6px;
+}
+.preview-report-panel {
+  border-top: 1px solid var(--el-border-color-lighter);
+  padding-top: 16px;
+}
+.preview-progress {
+  padding: 4px 0;
+}
+.preview-flagged,
+.preview-reasons {
+  display: block;
+}
+.mt-4 {
+  margin-top: 4px;
 }
 .model-radio {
   height: auto;
