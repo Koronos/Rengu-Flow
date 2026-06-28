@@ -249,7 +249,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { ArrowLeft } from "@element-plus/icons-vue";
 import { api } from "../api";
@@ -462,6 +462,68 @@ async function fetchCullPreview(): Promise<void> {
     // Best-effort; don't surface preview errors
   }
 }
+
+/**
+ * Read an already-built index for the current path + selected models without
+ * triggering a build. Called on mount and whenever path/selectedModels change.
+ * Models that have never been indexed (reference === 0) are simply omitted.
+ */
+async function loadExistingIndex(): Promise<void> {
+  if (building.value || !path.value.trim() || selectedModels.value.length === 0) return;
+
+  try {
+    const results = await Promise.all(
+      selectedModels.value.map((model) =>
+        api.qualityIndexStats(path.value, model).then(
+          (stats) => ({ model, stats }),
+          () => null // network / 404: treat as not indexed
+        )
+      )
+    );
+
+    // Keep selection order; only include models that have been scored before
+    const newModels: string[] = [];
+    for (const r of results) {
+      if (!r || r.stats.reference <= 0) continue;
+      const { model, stats } = r;
+      if (sliderValues[model] == null) sliderValues[model] = 10;
+      if (sampleSizes[model] == null) sampleSizes[model] = 100;
+      worstItemsMap[model] = [];
+      modelStatsMap[model] = stats;
+      newModels.push(model);
+    }
+
+    indexedModels.value = newModels;
+
+    if (newModels.length === 0) return;
+
+    await Promise.all(newModels.map((m) => loadWorst(m)));
+    await fetchCullPreview();
+  } catch (e) {
+    // Non-fatal: index may not exist yet; placeholder stays visible
+    console.warn("[QualityIndex] loadExistingIndex failed:", e);
+  }
+}
+
+// Re-probe index whenever path or model selection changes (debounced)
+let autoLoadTimer: ReturnType<typeof setTimeout> | null = null;
+
+watch(
+  [path, selectedModels],
+  () => {
+    if (building.value) return;
+    if (autoLoadTimer) clearTimeout(autoLoadTimer);
+    autoLoadTimer = setTimeout(() => {
+      void loadExistingIndex();
+    }, 400);
+  },
+  { deep: true }
+);
+
+// Also probe on mount in case the component is navigated to with pre-filled values
+onMounted(() => {
+  void loadExistingIndex();
+});
 
 // ---------------------------------------------------------------------------
 // Events
