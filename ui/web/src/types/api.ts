@@ -763,7 +763,7 @@ export interface QuarantineBatchInfo {
 
 // --- Dataset prep: jobs -------------------------------------------------------
 
-export type PrepStage = "tag" | "caption" | "clean";
+export type PrepStage = "tag" | "caption" | "clean" | "quality";
 
 export interface PrepTagConfig {
   models: string[];
@@ -809,6 +809,15 @@ export interface PrepCleanConfig {
   copy_undetected: boolean;
 }
 
+export interface PrepQualityConfig {
+  metric: "blur" | "aesthetic";
+  blur_threshold: number;
+  min_side: number;
+  aesthetic_min_label: string;
+  action: "report" | "move";
+  output_dir: string;
+}
+
 export interface PrepConfigDto {
   path: string;
   caption_format: "sidecar" | "json";
@@ -816,6 +825,7 @@ export interface PrepConfigDto {
   tag?: PrepTagConfig;
   caption?: PrepCaptionConfig;
   clean?: PrepCleanConfig;
+  quality?: PrepQualityConfig;
 }
 
 export interface PrepJobStartBody {

@@ -2,7 +2,7 @@
   <div class="prep-jobs-page page-shell">
     <div class="page-head">
       <div class="page-head-text">
-        <p class="page-subtitle">Prepare datasets: tagging, captioning, watermark cleanup, tag editing</p>
+        <p class="page-subtitle">Prepare datasets: tagging, captioning, watermark cleanup, quality filtering, tag editing</p>
         <el-text v-if="stats.running || stats.pending" type="info" class="page-head-meta stats-line">
           <span v-if="stats.running" class="stat-running">{{ stats.running }} running</span>
           <span v-if="stats.pending">{{ stats.pending }} in queue</span>
@@ -12,6 +12,7 @@
         <el-button type="primary" :icon="MagicStick" @click="goNewJob('tag')">New tag job</el-button>
         <el-button :icon="ChatLineRound" @click="goNewJob('caption')">New caption job</el-button>
         <el-button :icon="Delete" @click="goNewJob('clean')">New clean job</el-button>
+        <el-button :icon="Filter" @click="goNewJob('quality')">New quality job</el-button>
         <el-button :icon="Edit" @click="$router.push('/prep/tags')">Tag editor</el-button>
       </el-space>
     </div>
@@ -167,6 +168,7 @@ import {
   Delete,
   Edit,
   Files,
+  Filter,
   MagicStick,
   Refresh,
   RefreshRight,

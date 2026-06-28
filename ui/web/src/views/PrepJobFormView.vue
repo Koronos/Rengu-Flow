@@ -26,8 +26,8 @@
             />
           </el-form-item>
 
-          <!-- Cleanup reads and writes images only — caption layout is irrelevant to it. -->
-          <div v-if="stage !== 'clean'" class="form-row-2">
+          <!-- Cleanup and quality filter read images only — caption layout is irrelevant to them. -->
+          <div v-if="stage !== 'clean' && stage !== 'quality'" class="form-row-2">
             <el-form-item>
               <template #label>
                 Caption format <FieldHelpIcon :field="help('Sidecar: one .txt per image, each line a caption variant (line 1 = tags, line 2 = caption). JSON: single captions.json index file per folder.')" />
@@ -576,6 +576,96 @@
           </el-form>
         </template>
 
+        <!-- Quality stage -->
+        <template v-if="stage === 'quality'">
+          <h3 class="section-title">Quality filter options</h3>
+          <el-alert
+            type="info"
+            :closable="false"
+            show-icon
+            class="mt-8 mb-12"
+            title="Scans images for blur or low aesthetic quality and flags (or moves) them. Non-destructive by default — report mode only lists flagged images without moving them."
+          />
+          <el-form label-position="top">
+            <el-form-item>
+              <template #label>
+                Metric <FieldHelpIcon :field="help('Blur/resolution uses Laplacian sharpness and a minimum-side check — fast, no download. Aesthetic runs a booru-quality model (worst→masterpiece) in an isolated environment and downloads a model on first use.')" />
+                <FieldPathTag path="quality.metric" />
+              </template>
+              <el-select v-model="qualityForm.metric" class="w-full">
+                <el-option label="Blur / resolution (fast, no download)" value="blur" />
+                <el-option label="Aesthetic — booru quality (deepghs, downloads a model)" value="aesthetic" />
+              </el-select>
+            </el-form-item>
+
+            <template v-if="qualityForm.metric === 'blur'">
+              <el-form-item>
+                <template #label>
+                  Blur threshold <FieldHelpIcon :field="help('Laplacian-variance floor measured on a long-side-512 copy; images below it are flagged blurry (default 80). Run in report mode first, then set the threshold between your good and bad samples.')" />
+                  <FieldPathTag path="quality.blur_threshold" />
+                </template>
+                <el-input-number
+                  v-model="qualityForm.blur_threshold"
+                  :min="0"
+                  placeholder="80"
+                  controls-position="right"
+                />
+              </el-form-item>
+
+              <el-form-item>
+                <template #label>
+                  Min side (px) <FieldHelpIcon :field="help('Flag images whose shorter side (pixels) is below this value (default 0 = off). Use it to catch undersized images that would degrade training resolution buckets.')" />
+                  <FieldPathTag path="quality.min_side" />
+                </template>
+                <el-input-number
+                  v-model="qualityForm.min_side"
+                  :min="0"
+                  placeholder="0"
+                  controls-position="right"
+                />
+              </el-form-item>
+            </template>
+
+            <el-form-item v-if="qualityForm.metric === 'aesthetic'">
+              <template #label>
+                Minimum label <FieldHelpIcon :field="help('Flags any image the booru-quality model ranks below this tier (default normal). Higher = stricter; moving up to good will flag the worst, low, and normal tiers.')" />
+                <FieldPathTag path="quality.aesthetic_min_label" />
+              </template>
+              <el-select v-model="qualityForm.aesthetic_min_label" class="w-full">
+                <el-option label="worst — flag nothing" value="worst" />
+                <el-option label="low — flag worst" value="low" />
+                <el-option label="normal — flag worst &amp; low" value="normal" />
+                <el-option label="good — flag worst, low &amp; normal" value="good" />
+                <el-option label="great — flag everything below great" value="great" />
+                <el-option label="best — flag everything below best" value="best" />
+                <el-option label="masterpiece — flag everything below masterpiece" value="masterpiece" />
+              </el-select>
+            </el-form-item>
+
+            <el-form-item>
+              <template #label>
+                Move flagged <FieldHelpIcon :field="help('Moves flagged images into &lt;path&gt;/low_quality/ (off = report only, non-destructive). Use report mode first to review what would be flagged before enabling move.')" />
+                <FieldPathTag path="quality.action" />
+              </template>
+              <el-switch v-model="qualityForm.move" />
+              <el-text class="ml-8" size="small">Move flagged images into &lt;path&gt;/low_quality (off = report only)</el-text>
+            </el-form-item>
+
+            <el-form-item v-if="qualityForm.move">
+              <template #label>
+                Output directory <FieldHelpIcon :field="help('Where to move flagged images. Defaults to &lt;path&gt;/low_quality.')" />
+                <FieldPathTag path="quality.output_dir" />
+              </template>
+              <PathFieldControl
+                v-model="qualityForm.output_dir"
+                expect="dir"
+                placeholder="e.g. /data/rejects (default: <path>/low_quality)"
+                input-class="w-full"
+              />
+            </el-form-item>
+          </el-form>
+        </template>
+
         <!-- Submit actions -->
         <div class="form-actions">
           <el-button @click="$router.push('/prep')">Cancel</el-button>
@@ -593,6 +683,7 @@
           :tag-thresholds="tagThresholds"
           :caption-form="captionForm"
           :clean-form="cleanForm"
+          :quality-form="qualityForm"
           :prompt-options="promptOptions"
           :preview-text="previewText"
           :preview-native="previewNative"
@@ -624,7 +715,7 @@ const router = useRouter();
 
 const stage = computed(() => (route.params.stage as PrepStage) || "tag");
 const stageLabel = computed(() => {
-  const map: Record<string, string> = { tag: "tag", caption: "caption", clean: "clean" };
+  const map: Record<string, string> = { tag: "tag", caption: "caption", clean: "clean", quality: "quality" };
   return map[stage.value] ?? stage.value;
 });
 
@@ -701,6 +792,16 @@ const cleanForm = reactive({
   in_place: false,
   output_dir: "",
   copy_undetected: true,
+});
+
+// --- quality form ---
+const qualityForm = reactive({
+  metric: "blur" as "blur" | "aesthetic",
+  blur_threshold: 80,
+  min_side: 0,
+  aesthetic_min_label: "normal",
+  move: false,
+  output_dir: "",
 });
 
 // --- models ---
@@ -904,6 +1005,19 @@ function buildConfig() {
       },
     };
   }
+  if (stage.value === "quality") {
+    return {
+      ...base,
+      quality: {
+        metric: qualityForm.metric,
+        blur_threshold: qualityForm.blur_threshold,
+        min_side: qualityForm.min_side,
+        aesthetic_min_label: qualityForm.aesthetic_min_label,
+        action: (qualityForm.move ? "move" : "report") as "move" | "report",
+        output_dir: qualityForm.output_dir,
+      },
+    };
+  }
   // clean
   return {
     ...base,
@@ -1005,6 +1119,10 @@ function applyConfig(cfg: Record<string, unknown>): void {
   copyKnown(tagForm as unknown as Record<string, unknown>, cfg.tag);
   copyKnown(captionForm as unknown as Record<string, unknown>, cfg.caption);
   copyKnown(cleanForm as unknown as Record<string, unknown>, cfg.clean);
+  copyKnown(qualityForm as unknown as Record<string, unknown>, cfg.quality);
+  // action -> move conversion (copyKnown skips "action" since the form field is "move")
+  const q = cfg.quality as { action?: string } | undefined;
+  if (q?.action !== undefined) qualityForm.move = q.action === "move";
 
   // Rebuild per-model thresholds from the cloned per-model overrides (inverse of
   // buildConfig): include_*=false -> 0 (off); otherwise the stored *_threshold.

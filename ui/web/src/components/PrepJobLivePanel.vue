@@ -90,7 +90,7 @@ const { progress, streamStatus, streamError } = usePrepJobLive(
 const { logText } = useJobLogStream(() => props.jobId);
 
 const stageLabel = computed(() => {
-  const map: Record<string, string> = { tag: "Tag", caption: "Caption", clean: "Clean" };
+  const map: Record<string, string> = { tag: "Tag", caption: "Caption", clean: "Clean", quality: "Quality" };
   return map[props.stage] ?? props.stage;
 });
 

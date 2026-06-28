@@ -76,7 +76,7 @@
       </template>
 
       <!-- Clean -->
-      <template v-else>
+      <template v-else-if="stage === 'clean'">
         <div class="prep-summary__row">
           <dt>Confidence</dt>
           <dd>{{ cleanForm.confidence }}</dd>
@@ -92,6 +92,34 @@
         <div class="prep-summary__row">
           <dt>Undetected</dt>
           <dd>{{ cleanForm.copy_undetected ? 'copied' : 'skipped' }}</dd>
+        </div>
+      </template>
+
+      <!-- Quality -->
+      <template v-else-if="stage === 'quality'">
+        <div class="prep-summary__row">
+          <dt>Metric</dt>
+          <dd>{{ qualityForm.metric }}</dd>
+        </div>
+        <div v-if="qualityForm.metric === 'blur'" class="prep-summary__row">
+          <dt>Blur floor</dt>
+          <dd>{{ qualityForm.blur_threshold }}</dd>
+        </div>
+        <div v-if="qualityForm.metric === 'blur' && qualityForm.min_side > 0" class="prep-summary__row">
+          <dt>Min side</dt>
+          <dd>{{ qualityForm.min_side }} px</dd>
+        </div>
+        <div v-if="qualityForm.metric === 'aesthetic'" class="prep-summary__row">
+          <dt>Min label</dt>
+          <dd>{{ qualityForm.aesthetic_min_label }}</dd>
+        </div>
+        <div class="prep-summary__row">
+          <dt>Action</dt>
+          <dd>{{ qualityForm.move ? 'move to low_quality/' : 'report only' }}</dd>
+        </div>
+        <div v-if="qualityForm.move && qualityForm.output_dir" class="prep-summary__row">
+          <dt>Output dir</dt>
+          <dd>{{ qualityForm.output_dir }}</dd>
         </div>
       </template>
     </dl>
@@ -148,6 +176,14 @@ interface CleanForm {
   output_dir: string;
   copy_undetected: boolean;
 }
+interface QualityForm {
+  metric: "blur" | "aesthetic";
+  blur_threshold: number;
+  min_side: number;
+  aesthetic_min_label: string;
+  move: boolean;
+  output_dir: string;
+}
 
 const props = defineProps({
   stage: { type: String as PropType<PrepStage>, required: true },
@@ -156,6 +192,7 @@ const props = defineProps({
   tagThresholds: { type: Object as PropType<Record<string, ModelThresholds>>, default: () => ({}) },
   captionForm: { type: Object as PropType<CaptionForm>, required: true },
   cleanForm: { type: Object as PropType<CleanForm>, required: true },
+  qualityForm: { type: Object as PropType<QualityForm>, required: true },
   promptOptions: { type: Object as PropType<PrepPromptOptions | null>, default: null },
   previewText: { type: String, default: "" },
   previewNative: { type: Boolean, default: false },
