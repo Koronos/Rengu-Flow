@@ -170,11 +170,25 @@ def _run_quality(config: PrepConfig, on_progress, should_stop) -> dict:
     )
 
 
+def _run_index(config: PrepConfig, on_progress, should_stop) -> dict:
+    from rengu_flow.prep.quality_index import build_index, model_stats
+
+    models = config.index.models
+    if not models:
+        raise ValueError("index stage needs [index].models")
+    report = build_index(
+        config.path, models, on_progress=on_progress, should_stop=should_stop
+    )
+    report["stats"] = {m: model_stats(config.path, m) for m in models}
+    return report
+
+
 _STAGE_RUNNERS = {
     "tag": _run_tag,
     "caption": _run_caption,
     "clean": _run_clean,
     "quality": _run_quality,
+    "index": _run_index,
 }
 
 

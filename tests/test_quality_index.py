@@ -102,6 +102,23 @@ def test_cull_does_not_erode_on_rerun(dataset):
     assert cp2["union"] == 0
 
 
+def test_apply_cull_moves_union_and_is_idempotent(dataset):
+    (dataset / "img00.png").with_suffix(".txt").write_text("caption")  # sidecar moves too
+    qi.build_index(dataset, ["m"], score_fn=make_score_fn({"m": _linear()}))
+
+    res = qi.apply_cull(dataset, {"m": 30})
+    assert res["moved"] == 3
+    low = dataset / "low_quality"
+    assert sorted(p.name for p in low.iterdir()) == [
+        "img00.png", "img00.txt", "img01.png", "img02.png"
+    ]
+
+    # Re-applying the same cull drops nothing: the moved images stay in the
+    # reference (present=0) so the cutoff is unchanged.
+    qi.build_index(dataset, ["m"], score_fn=make_score_fn({"m": _linear()}))
+    assert qi.apply_cull(dataset, {"m": 30})["moved"] == 0
+
+
 def test_new_images_score_only_the_additions(dataset):
     qi.build_index(dataset, ["m"], score_fn=make_score_fn({"m": _linear()}))
     (dataset / "img10.png").write_bytes(b"x")

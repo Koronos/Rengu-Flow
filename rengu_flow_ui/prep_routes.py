@@ -72,6 +72,12 @@ class RequeueBody(BaseModel):
     start_now: bool = False
 
 
+class CullBody(BaseModel):
+    path: str
+    per_model: dict[str, float] = Field(default_factory=dict)  # model id -> percent to drop
+    output_dir: str | None = None
+
+
 class PromptPreviewBody(BaseModel):
     caption: dict = Field(default_factory=dict)
     # Example grounding tags so the preview shows the tags block in place.
@@ -183,6 +189,47 @@ def register_prep_routes(app: FastAPI) -> None:
         with _prep_http_errors():
             path = ensure_model(body.model_id, body.stage)
             return {"ok": True, "path": str(path)}
+
+    # --- quality index: fast, GPU-free queries over the SQLite index ---------
+    @app.get(f"{API_PREFIX}/prep/quality-index/stats")
+    def quality_index_stats(path: str = Query(...), model: str = Query(...)):
+        from rengu_flow.prep import quality_index as qi
+
+        with _prep_http_errors():
+            return qi.model_stats(path, model)
+
+    @app.get(f"{API_PREFIX}/prep/quality-index/worst")
+    def quality_index_worst(
+        path: str = Query(...),
+        model: str = Query(...),
+        limit: int = Query(100, ge=1, le=2000),
+        offset: int = Query(0, ge=0),
+    ):
+        from rengu_flow.prep import quality_index as qi
+
+        with _prep_http_errors():
+            root = Path(path)
+            items = qi.worst(path, model, limit, offset)
+            for it in items:
+                name = Path(it["path"]).name
+                it["name"] = name
+                it["token"] = issue_image_token(0, name, root)
+            return {"items": items}
+
+    @app.post(f"{API_PREFIX}/prep/quality-index/cull-preview")
+    def quality_index_cull_preview(body: CullBody):
+        from rengu_flow.prep import quality_index as qi
+
+        with _prep_http_errors():
+            cp = qi.cull_preview(body.path, body.per_model)
+            return {"per_model": cp["per_model"], "union": cp["union"], "present": cp["present"]}
+
+    @app.post(f"{API_PREFIX}/prep/quality-index/apply")
+    def quality_index_apply(body: CullBody):
+        from rengu_flow.prep import quality_index as qi
+
+        with _prep_http_errors():
+            return qi.apply_cull(body.path, body.per_model, output_dir=body.output_dir)
 
     @app.post(f"{API_PREFIX}/prep/tags/sessions")
     def open_tag_session(body: OpenSessionBody):

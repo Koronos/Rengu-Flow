@@ -153,8 +153,8 @@ def list_models(stage: str) -> list[dict]:
             )
         return results
 
-    if stage == "quality":
-        return []  # quality filter is pure numpy — no downloadable models
+    if stage in ("quality", "index"):
+        return []  # quality/index models are pulled on demand by the uv-overlay scorers
 
     registry = {"caption": CAPTION_MODELS, "clean": CLEANUP_MODELS}.get(stage)
     if registry is not None:

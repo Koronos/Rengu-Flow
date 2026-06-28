@@ -14,7 +14,7 @@ from rengu_flow.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
-STAGES = ("tag", "caption", "clean", "quality")
+STAGES = ("tag", "caption", "clean", "quality", "index")
 
 
 @dataclass
@@ -82,6 +82,11 @@ class QualityStageConfig:
 
 
 @dataclass
+class IndexStageConfig:
+    models: list[str] = field(default_factory=list)  # aesthetic and/or pyiqa model ids to score
+
+
+@dataclass
 class PrepConfig:
     path: str = ""
     caption_format: str = "sidecar"  # "sidecar" | "json"
@@ -90,6 +95,7 @@ class PrepConfig:
     caption: CaptionStageConfig = field(default_factory=CaptionStageConfig)
     clean: CleanStageConfig = field(default_factory=CleanStageConfig)
     quality: QualityStageConfig = field(default_factory=QualityStageConfig)
+    index: IndexStageConfig = field(default_factory=IndexStageConfig)
 
     def validate_for_stage(self, stage: str) -> None:
         if stage not in STAGES:
@@ -100,6 +106,8 @@ class PrepConfig:
             raise FileNotFoundError(f"Dataset folder not found: {self.path}")
         if self.caption_format not in ("sidecar", "json"):
             raise ValueError(f"Unknown caption_format {self.caption_format!r}")
+        if stage == "index" and not self.index.models:
+            raise ValueError("index stage needs at least one model in [index].models")
 
 
 def _fill_dataclass(instance, data: dict, *, context: str):
@@ -126,6 +134,8 @@ def parse_prep_config(data: dict) -> PrepConfig:
         _fill_dataclass(config.clean, data["clean"], context="clean")
     if isinstance(data.get("quality"), dict):
         _fill_dataclass(config.quality, data["quality"], context="quality")
+    if isinstance(data.get("index"), dict):
+        _fill_dataclass(config.index, data["index"], context="index")
     return config
 
 

@@ -20,6 +20,7 @@ higher = better, so a single "drop the lowest N%" works across models.
 
 from __future__ import annotations
 
+import shutil
 import sqlite3
 import tempfile
 from pathlib import Path
@@ -249,3 +250,43 @@ def cull_preview(src: str | Path, per_model: dict[str, float]) -> dict:
         return {"per_model": per, "union": len(union), "present": present, "paths": sorted(union)}
     finally:
         conn.close()
+
+
+LOW_QUALITY_DIR = "low_quality"
+
+
+def apply_cull(
+    src: str | Path,
+    per_model: dict[str, float],
+    *,
+    caption_ext: str = ".txt",
+    output_dir: str | Path | None = None,
+) -> dict:
+    """Move the union cull out of the dataset and mark those images not-present.
+
+    Their scores stay in the index (present=0) as the stable reference, so the
+    same cull is idempotent on a re-run. Caption sidecars move alongside.
+    """
+    src = Path(src).resolve()
+    preview = cull_preview(src, per_model)
+    out_dir = Path(output_dir) if output_dir else src / LOW_QUALITY_DIR
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    conn = _connect(src)
+    moved = 0
+    try:
+        for path_str in preview["paths"]:
+            path = Path(path_str)
+            if not path.exists():
+                continue
+            shutil.move(str(path), str(out_dir / path.name))
+            sidecar = path.with_suffix(caption_ext)
+            if sidecar.exists():
+                shutil.move(str(sidecar), str(out_dir / sidecar.name))
+            conn.execute("UPDATE images SET present = 0 WHERE path = ?", (path_str,))
+            moved += 1
+        conn.commit()
+    finally:
+        conn.close()
+    return {"moved": moved, "per_model": preview["per_model"],
+            "union": preview["union"], "output_dir": str(out_dir)}

@@ -37,7 +37,8 @@ def add_parser(sub: argparse._SubParsersAction) -> None:
     c = stage_sub.add_parser("caption", help="Natural-language captioning (VLM)")
     cl = stage_sub.add_parser("clean", help="Watermark detection + inpainting")
     q = stage_sub.add_parser("quality", help="Flag/move low-quality images (blur + resolution)")
-    for stage_parser in (t, c, cl, q):
+    ix = stage_sub.add_parser("index", help="Persistent quality index (incremental, multi-model)")
+    for stage_parser in (t, c, cl, q, ix):
         for args_, kwargs in common:
             stage_parser.add_argument(*args_, **kwargs)
 
@@ -84,8 +85,6 @@ def add_parser(sub: argparse._SubParsersAction) -> None:
     m.add_argument("--download", default=None, metavar="MODEL_ID",
                    help="Download one model (requires --stage)")
 
-    ix = stage_sub.add_parser("index", help="Persistent quality index (incremental, multi-model)")
-    ix.add_argument("--path", required=True, help="Dataset folder")
     ix.add_argument("--model", action="append", default=None,
                     help="Model id (repeatable): aesthetic, or a pyiqa model (clipiqa/niqe/...)")
     ix.add_argument("--build", action="store_true", help="Score missing (image, model) pairs")
@@ -141,6 +140,9 @@ def _build_config(args: argparse.Namespace) -> PrepConfig:
             config.quality.action = "move"
         if args.output_dir:
             config.quality.output_dir = args.output_dir
+    elif stage == "index":
+        if args.model:
+            config.index.models = list(args.model)
     return config
 
 
@@ -167,20 +169,10 @@ def _run_models(args: argparse.Namespace) -> None:
             print(f"  [{mark}] {entry['id']:<22} {entry['repo_id']}")
 
 
-def _run_index(args: argparse.Namespace) -> None:
+def _run_index_query(args: argparse.Namespace) -> None:
     from rengu_flow.prep import quality_index as qi
 
     models = list(args.model or [])
-    if args.build:
-        if not models:
-            raise SystemExit("--build requires at least one --model")
-        report = qi.build_index(args.path, models)
-        print(f"indexed {report['images']} images: " +
-              ", ".join(f"{m}+{n}" for m, n in report["models"].items()))
-        for m in models:
-            s = qi.model_stats(args.path, m)
-            print(f"  {m}: reference={s['reference']} present={s['present']} "
-                  f"quality {s['min']}..{s['max']}")
     if args.worst:
         if not models:
             raise SystemExit("--worst requires --model")
@@ -199,8 +191,10 @@ def run(args: argparse.Namespace) -> None:
     if args.prep_stage == "models":
         _run_models(args)
         return
-    if args.prep_stage == "index":
-        _run_index(args)
+    # index is dual-mode: --worst/--cull are instant queries; otherwise it builds
+    # (manual --build, or the `--config/--job-dir` a UI job passes) via run_stage.
+    if args.prep_stage == "index" and (args.worst or args.cull):
+        _run_index_query(args)
         return
 
     from rengu_flow.cli.training_extras import ensure_profiles
