@@ -20,6 +20,7 @@ images (and their caption sidecars) into ``<path>/low_quality/`` for review.
 
 from __future__ import annotations
 
+import bisect
 import json
 import os
 import shutil
@@ -59,7 +60,7 @@ class QualityConfig:
     aesthetic_min_label: str = "normal"  # flag images ranked below this label
     aesthetic_model: str = ""  # imgutils model_name override ("" = its default)
     iqa_model: str = "clipiqa"  # pyiqa NR-IQA model (clipiqa/arniqa: any domain; musiq/maniqa: photos)
-    iqa_threshold: float = 50.0  # minimum normalized quality 1..100 (higher=stricter); flag below
+    iqa_threshold: float = 10.0  # percentile cull 0..100: flag the lowest N% by quality in the dataset
     action: str = "report"  # "report" (non-destructive) | "move"
     output_dir: Path | None = None  # destination for moved files (default <path>/low_quality)
 
@@ -231,7 +232,12 @@ def filter_folder(
         return report
 
     if config.metric == "iqa":
+        # Raw IQA scores cluster in a narrow, model-specific band (niqe's "good" images
+        # all sit near one end), so an absolute cutoff is unusable. Rank within the
+        # dataset instead: the threshold is a percentile cull — flag the lowest N% by
+        # quality — which behaves identically and smoothly for every model.
         thr = config.iqa_threshold
+        scored: list[tuple[Path, dict]] = []
         done = 0
         for img_path, rec in _iter_scorer(_IQA_SCORER, "pyiqa", src, config.iqa_model):
             if should_stop is not None and should_stop():
@@ -242,12 +248,19 @@ def filter_folder(
                 report["failed"].append(img_path.name)
             else:
                 report["scored"] += 1
-                quality = rec["quality"]  # normalized 1..100, higher = better
-                if quality < thr:
-                    _flag(img_path, {"quality": quality, "score": rec.get("score"),
-                                     "reasons": [f"iqa:{config.iqa_model}<{thr}"]})
+                scored.append((img_path, rec))
             if on_progress:
                 on_progress(done, total, img_path.name)
+
+        if scored:
+            ranked = sorted(q["quality"] for _, q in scored)  # higher = better
+            n = len(ranked)
+            for img_path, rec in scored:
+                # percentile rank = share of the dataset strictly worse than this image
+                pct = round(100.0 * bisect.bisect_left(ranked, rec["quality"]) / n, 1)
+                if pct < thr:  # in the lowest thr% by quality
+                    _flag(img_path, {"percentile": pct, "score": rec.get("score"),
+                                     "reasons": [f"iqa:{config.iqa_model} bottom {thr}%"]})
         return report
 
     # metric == "blur": scoring is pure CPU+IO (PIL/numpy release the GIL), so

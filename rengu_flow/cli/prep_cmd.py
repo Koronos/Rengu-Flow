@@ -71,8 +71,8 @@ def add_parser(sub: argparse._SubParsersAction) -> None:
                    help="iqa: pyiqa model — clipiqa/arniqa (any domain), musiq/maniqa (photos), "
                         "brisque/niqe (classic). Default clipiqa")
     q.add_argument("--iqa-threshold", type=float, default=None,
-                   help="iqa: minimum quality 1-100 (normalized across models, higher=stricter); "
-                        "images below it are flagged. Calibrate in report mode")
+                   help="iqa: percentile cull 0-100 — flag the lowest N%% by quality in the dataset "
+                        "(same behavior for every model). e.g. 10 = drop the worst 10%%")
     q.add_argument("--move", action="store_true", default=None,
                    help="Move flagged images into <path>/low_quality (default: report only)")
     q.add_argument("--output-dir", default=None,
