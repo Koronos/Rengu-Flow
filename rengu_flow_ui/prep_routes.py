@@ -222,7 +222,8 @@ def register_prep_routes(app: FastAPI) -> None:
 
         with _prep_http_errors():
             cp = qi.cull_preview(body.path, body.per_model)
-            return {"per_model": cp["per_model"], "union": cp["union"], "present": cp["present"]}
+            return {"per_model": cp["per_model"], "union": cp["union"],
+                    "present": cp["present"], "cutoffs": cp["cutoffs"]}
 
     @app.post(f"{API_PREFIX}/prep/quality-index/apply")
     def quality_index_apply(body: CullBody):

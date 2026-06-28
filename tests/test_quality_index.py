@@ -68,6 +68,7 @@ def test_cull_preview_unions_per_model(dataset):
     cp = qi.cull_preview(dataset, {"a": 20, "b": 20})
     assert cp["per_model"] == {"a": 2, "b": 2}
     assert cp["union"] == 4  # disjoint sets -> 2 + 2
+    assert cp["cutoffs"] == {"a": 2.0, "b": 2.0}  # quality below = culled (UI marks thumbnails)
     assert sorted(Path(p).name for p in cp["paths"]) == [
         "img00.png", "img01.png", "img08.png", "img09.png"
     ]

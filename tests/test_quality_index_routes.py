@@ -46,6 +46,7 @@ def test_quality_index_routes(ui_client, indexed):
     ).json()
     assert preview["union"] == 3
     assert preview["present"] == 10
+    assert preview["cutoffs"]["m"] == 3.0  # thumbnails with quality < 3 are marked for removal
 
     applied = ui_client.post(
         f"{P}/apply", json={"path": str(indexed), "per_model": {"m": 30}}

@@ -231,8 +231,10 @@ def cull_preview(src: str | Path, per_model: dict[str, float]) -> dict:
     try:
         union: set[str] = set()
         per: dict[str, int] = {}
+        cutoffs: dict[str, float | None] = {}
         for model, percent in per_model.items():
             cutoff = _cutoff(conn, model, percent)
+            cutoffs[model] = cutoff  # quality below this is culled — lets the UI mark thumbnails
             if cutoff is None:
                 per[model] = 0
                 continue
@@ -247,7 +249,8 @@ def cull_preview(src: str | Path, per_model: dict[str, float]) -> dict:
             per[model] = len(paths)
             union.update(paths)
         present = conn.execute("SELECT COUNT(*) FROM images WHERE present = 1").fetchone()[0]
-        return {"per_model": per, "union": len(union), "present": present, "paths": sorted(union)}
+        return {"per_model": per, "union": len(union), "present": present,
+                "cutoffs": cutoffs, "paths": sorted(union)}
     finally:
         conn.close()
 
