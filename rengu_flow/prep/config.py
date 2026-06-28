@@ -33,6 +33,7 @@ class TagStageConfig:
     rating_threshold: float | None = None  # argmax rating tag kept only if it clears this
     include_character_tags: bool = True  # character + series names (taggers' weak spot)
     include_rating: bool = True  # one argmax rating tag (general/sensitive/...)
+    quality_tags: bool = False  # prepend a deepghs aesthetic quality tag (masterpiece..worst quality)
 
 
 @dataclass

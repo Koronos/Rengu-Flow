@@ -46,6 +46,8 @@ def add_parser(sub: argparse._SubParsersAction) -> None:
                    help="Tagger model id (repeatable; overrides config)")
     t.add_argument("--overwrite", action="store_true", default=None,
                    help="Re-tag images that already have a tag line")
+    t.add_argument("--quality-tags", action="store_true", default=None,
+                   help="Prepend a deepghs aesthetic quality tag (masterpiece..worst quality)")
     c.add_argument("--model", default=None, help="Caption model id (overrides config)")
     c.add_argument("--quant", default=None, choices=("bf16", "int8", "nf4"),
                    help="Quantization (overrides config)")
@@ -109,6 +111,8 @@ def _build_config(args: argparse.Namespace) -> PrepConfig:
             config.tag.models = list(args.model)
         if args.overwrite is not None:
             config.tag.overwrite = args.overwrite
+        if args.quality_tags is not None:
+            config.tag.quality_tags = args.quality_tags
     elif stage == "caption":
         if args.model:
             config.caption.model = args.model

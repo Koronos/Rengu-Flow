@@ -46,6 +46,42 @@ def _progress_callback(emitter: ProgressEmitter, stage: str):
     return on_progress
 
 
+# deepghs aesthetic label -> booru-style quality tag, prepended to the tag line
+# when [tag].quality_tags is on (the anime-training "masterpiece, ..." convention).
+AESTHETIC_QUALITY_TAGS = {
+    "masterpiece": "masterpiece",
+    "best": "best quality",
+    "great": "great quality",
+    "good": "good quality",
+    "normal": "normal quality",
+    "low": "low quality",
+    "worst": "worst quality",
+}
+
+
+def _aesthetic_quality_labels(paths, on_progress, should_stop) -> dict:
+    """path string -> deepghs aesthetic label, via the uv-overlay scorer."""
+    import tempfile
+
+    from rengu_flow.prep.quality import _AESTHETIC_SCORER, _iter_scorer
+
+    manifest = Path(tempfile.mkstemp(suffix=".txt", prefix="qtag_")[1])
+    manifest.write_text("\n".join(str(p) for p in paths), encoding="utf-8")
+    labels: dict[str, str] = {}
+    try:
+        done = 0
+        for img_path, rec in _iter_scorer(_AESTHETIC_SCORER, "dghs-imgutils>=0.15", manifest, ""):
+            if should_stop():
+                break
+            done += 1
+            if "label" in rec:
+                labels[str(img_path)] = rec["label"]
+            on_progress(done, len(paths), f"quality:{img_path.name}")
+    finally:
+        manifest.unlink(missing_ok=True)
+    return labels
+
+
 def _run_tag(config: PrepConfig, on_progress, should_stop) -> dict:
     from rengu_flow.prep.caption_store import CaptionStore
     from rengu_flow.prep.tagger import KNOWN_TAGGERS, run_ensemble
@@ -96,10 +132,18 @@ def _run_tag(config: PrepConfig, on_progress, should_stop) -> dict:
         should_stop=should_stop,
     )
 
+    quality_labels = (
+        _aesthetic_quality_labels(paths, on_progress, should_stop)
+        if stage.quality_tags else {}
+    )
+
     tagged = 0
     for key, path in zip(to_tag, paths):
         line = results.get(str(path))
         if line:
+            qtag = AESTHETIC_QUALITY_TAGS.get(quality_labels.get(str(path), ""))
+            if qtag:  # quality tag leads, per the booru convention
+                line = f"{qtag}, {line}"
             cs.set_line(key, 0, line)
             tagged += 1
     written = cs.save()
@@ -108,6 +152,7 @@ def _run_tag(config: PrepConfig, on_progress, should_stop) -> dict:
         "skipped": skipped,
         "files_written": len(written),
         "models": stage.models,
+        "quality_tags": stage.quality_tags,
         "stopped": should_stop(),
     }
 
