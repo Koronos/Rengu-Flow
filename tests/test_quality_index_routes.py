@@ -30,6 +30,9 @@ def test_quality_index_routes(ui_client, indexed):
     # the build writes is the same one the routes read.
     qi.build_index(indexed, ["m"], score_fn=_score_fn)
 
+    models = ui_client.get(f"{P}/models", params={"path": str(indexed)}).json()
+    assert models["models"] == [{"model": "m", "reference": 10, "present": 10}]
+
     stats = ui_client.get(f"{P}/stats", params={"path": str(indexed), "model": "m"})
     assert stats.status_code == 200, stats.text
     assert stats.json()["reference"] == 10

@@ -191,6 +191,13 @@ def register_prep_routes(app: FastAPI) -> None:
             return {"ok": True, "path": str(path)}
 
     # --- quality index: fast, GPU-free queries over the SQLite index ---------
+    @app.get(f"{API_PREFIX}/prep/quality-index/models")
+    def quality_index_models(path: str = Query(...)):
+        from rengu_flow.prep import quality_index as qi
+
+        with _prep_http_errors():
+            return {"models": qi.indexed_models(path)}
+
     @app.get(f"{API_PREFIX}/prep/quality-index/stats")
     def quality_index_stats(path: str = Query(...), model: str = Query(...)):
         from rengu_flow.prep import quality_index as qi

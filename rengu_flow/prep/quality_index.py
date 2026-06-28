@@ -177,6 +177,23 @@ def build_index(
         conn.close()
 
 
+def indexed_models(src: str | Path) -> list[dict]:
+    """Models that already have scores for this dataset, with their counts.
+
+    Lets the UI show what's registered for a folder without the user re-picking
+    models — and refresh them incrementally.
+    """
+    conn = _connect(src)
+    try:
+        rows = conn.execute(
+            "SELECT s.model, COUNT(*), SUM(CASE WHEN i.present = 1 THEN 1 ELSE 0 END) "
+            "FROM scores s JOIN images i ON i.id = s.image_id GROUP BY s.model ORDER BY s.model"
+        ).fetchall()
+        return [{"model": m, "reference": ref, "present": pres} for m, ref, pres in rows]
+    finally:
+        conn.close()
+
+
 def model_stats(src: str | Path, model: str) -> dict:
     """Reference size, present count, and quality range for one model."""
     conn = _connect(src)

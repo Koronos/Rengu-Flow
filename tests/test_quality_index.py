@@ -74,6 +74,15 @@ def test_cull_preview_unions_per_model(dataset):
     ]
 
 
+def test_indexed_models_lists_registered_models(dataset):
+    quals = {"a": _linear(), "b": _linear()}
+    qi.build_index(dataset, ["a", "b"], score_fn=make_score_fn(quals))
+    assert qi.indexed_models(dataset) == [
+        {"model": "a", "reference": 10, "present": 10},
+        {"model": "b", "reference": 10, "present": 10},
+    ]
+
+
 def test_changed_mtime_triggers_rescore(dataset):
     qi.build_index(dataset, ["m"], score_fn=make_score_fn({"m": _linear()}))
     target = dataset / "img05.png"
