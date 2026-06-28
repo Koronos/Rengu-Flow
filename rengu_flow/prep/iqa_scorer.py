@@ -59,6 +59,25 @@ def main() -> int:
     metric = pyiqa.create_metric(model_name, device=device)
     lower_better = bool(getattr(metric, "lower_better", False))
 
+    # Each pyiqa model has its own scale and direction (clipiqa 0..1 higher-better,
+    # niqe ~0..100 lower-better, brisque ~0..150 lower-better, ...). Normalize every
+    # raw score to a single quality on 1..100 where higher is always better, so one
+    # threshold/slider means the same thing across models. score_range is a string
+    # like "0, 1" or "~0, ~100".
+    sr = str(getattr(metric, "score_range", "0, 1"))
+    try:
+        lo, hi = (float(x.strip().lstrip("~").strip()) for x in sr.split(","))
+    except Exception:  # noqa: BLE001 — unparseable range, assume 0..1
+        lo, hi = 0.0, 1.0
+    span = (hi - lo) or 1.0
+
+    def to_quality(raw: float) -> float:
+        q = (raw - lo) / span
+        if lower_better:
+            q = 1.0 - q
+        q = max(0.0, min(1.0, q))  # clamp outliers (niqe can blow past its range)
+        return round(1.0 + 99.0 * q, 1)  # 1..100, higher = better
+
     def load_rgb(path: Path):
         # First-frame RGB so GIFs/palette/RGBA/CMYK/grayscale all normalize to a
         # clean 3-channel image pyiqa can preprocess. Returns (path, image) or
@@ -87,8 +106,8 @@ def main() -> int:
                 try:
                     with torch.no_grad():
                         score = float(metric(res).item())
-                    _emit({"path": str(path), "score": round(score, 4),
-                           "lower_better": lower_better})
+                    _emit({"path": str(path), "quality": to_quality(score),
+                           "score": round(score, 4)})
                 except Exception as exc:  # noqa: BLE001 — keep going past a bad image
                     if device == "cuda":
                         torch.cuda.empty_cache()

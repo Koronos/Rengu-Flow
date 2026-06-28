@@ -59,7 +59,7 @@ class QualityConfig:
     aesthetic_min_label: str = "normal"  # flag images ranked below this label
     aesthetic_model: str = ""  # imgutils model_name override ("" = its default)
     iqa_model: str = "clipiqa"  # pyiqa NR-IQA model (clipiqa/arniqa: any domain; musiq/maniqa: photos)
-    iqa_threshold: float = 0.5  # flag images on the wrong side of this (model-dependent scale)
+    iqa_threshold: float = 50.0  # minimum normalized quality 1..100 (higher=stricter); flag below
     action: str = "report"  # "report" (non-destructive) | "move"
     output_dir: Path | None = None  # destination for moved files (default <path>/low_quality)
 
@@ -238,15 +238,14 @@ def filter_folder(
                 report["stopped"] = True
                 break
             done += 1
-            if "error" in rec or "score" not in rec:
+            if "error" in rec or "quality" not in rec:
                 report["failed"].append(img_path.name)
             else:
                 report["scored"] += 1
-                score = rec["score"]
-                # lower_better: high score = bad; else low score = bad.
-                bad = score > thr if rec.get("lower_better") else score < thr
-                if bad:
-                    _flag(img_path, {"score": score, "reasons": [f"iqa:{config.iqa_model}"]})
+                quality = rec["quality"]  # normalized 1..100, higher = better
+                if quality < thr:
+                    _flag(img_path, {"quality": quality, "score": rec.get("score"),
+                                     "reasons": [f"iqa:{config.iqa_model}<{thr}"]})
             if on_progress:
                 on_progress(done, total, img_path.name)
         return report

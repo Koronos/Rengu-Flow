@@ -76,7 +76,7 @@ class QualityStageConfig:
     aesthetic_min_label: str = "normal"  # aesthetic: flag images ranked below this booru label
     aesthetic_model: str = ""  # aesthetic: imgutils model_name override ("" = its default)
     iqa_model: str = "clipiqa"  # iqa: pyiqa model (clipiqa/arniqa: any domain; musiq/maniqa: photos)
-    iqa_threshold: float = 0.5  # iqa: flag images on the wrong side of this (scale varies by model)
+    iqa_threshold: float = 50.0  # iqa: minimum quality 1..100 (normalized, higher=stricter); flag below
     action: str = "report"  # "report" (non-destructive) | "move" flagged into <path>/low_quality
     output_dir: str = ""  # destination for moved files (default <path>/low_quality)
 
