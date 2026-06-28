@@ -156,6 +156,8 @@ def _run_quality(config: PrepConfig, on_progress, should_stop) -> dict:
         min_detail=stage.min_detail,
         aesthetic_min_label=stage.aesthetic_min_label,
         aesthetic_model=stage.aesthetic_model,
+        iqa_model=stage.iqa_model,
+        iqa_threshold=stage.iqa_threshold,
         action=stage.action,
         output_dir=Path(stage.output_dir) if stage.output_dir else None,
     )

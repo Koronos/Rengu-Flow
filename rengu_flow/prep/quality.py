@@ -44,17 +44,21 @@ LOW_QUALITY_DIR = "low_quality"
 # flagged when its predicted label ranks below `aesthetic_min_label`.
 AESTHETIC_LABELS = ("worst", "low", "normal", "good", "great", "best", "masterpiece")
 _AESTHETIC_SCORER = Path(__file__).with_name("aesthetic_scorer.py")
+_IQA_SCORER = Path(__file__).with_name("iqa_scorer.py")
 _REPO_ROOT = Path(__file__).resolve().parents[2]  # rengu_flow/prep/ -> repo root
 
 
 @dataclass
 class QualityConfig:
-    metric: str = "blur"  # "blur" (Laplacian, dep-free) | "aesthetic" (deepghs booru-quality)
+    # "blur" (Laplacian, dep-free) | "aesthetic" (deepghs booru appeal) | "iqa" (pyiqa technical)
+    metric: str = "blur"
     blur_threshold: float = 80.0  # calibration knob: tune against your own set
     min_side: int = 0  # flag images whose shorter side is below this (0 = off)
     min_detail: float = 0.0  # flag low effective resolution (pixelated/upscaled); 0 = off
     aesthetic_min_label: str = "normal"  # flag images ranked below this label
     aesthetic_model: str = ""  # imgutils model_name override ("" = its default)
+    iqa_model: str = "clipiqa"  # pyiqa NR-IQA model (clipiqa/arniqa: any domain; musiq/maniqa: photos)
+    iqa_threshold: float = 0.5  # flag images on the wrong side of this (model-dependent scale)
     action: str = "report"  # "report" (non-destructive) | "move"
     output_dir: Path | None = None  # destination for moved files (default <path>/low_quality)
 
@@ -107,16 +111,17 @@ def _score_image(path: Path, *, want_detail: bool = False) -> tuple[float, int, 
     return sharpness_score(gray), shorter, detail
 
 
-def _iter_aesthetic(src: Path, model_name: str):
-    """Yield (path, record) from the aesthetic scorer subprocess, streaming.
+def _iter_scorer(scorer: Path, with_pkg: str, src: Path, model_name: str):
+    """Yield (path, record) from a model scorer subprocess, streaming.
 
-    ``uv run --with`` overlays imgutils on top of the project env (non-isolated),
-    so the installed onnxruntime-gpu is reused for GPU inference and numpy is
-    pinned to 1.26 only inside the ephemeral overlay. Each stdout line is one
-    image's JSON result; we yield them as they arrive so progress stays live.
+    ``uv run --with`` overlays *with_pkg* on top of the project env (non-isolated),
+    so the installed torch/onnxruntime (and GPU) are reused while the heavy deps
+    are pinned only inside the ephemeral overlay; the project .venv is untouched.
+    Each stdout line is one image's JSON result; we yield them as they arrive so
+    progress stays live.
     """
-    cmd = ["uv", "run", "--project", str(_REPO_ROOT), "--with", "dghs-imgutils>=0.15",
-           "python", str(_AESTHETIC_SCORER), str(src)]
+    cmd = ["uv", "run", "--project", str(_REPO_ROOT), "--with", with_pkg,
+           "python", str(scorer), str(src)]
     if model_name:
         cmd.append(model_name)
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=sys.stderr, text=True)
@@ -129,7 +134,7 @@ def _iter_aesthetic(src: Path, model_name: str):
     finally:
         proc.stdout.close()  # type: ignore[union-attr]
         if proc.wait() != 0:
-            raise RuntimeError(f"aesthetic scorer exited with code {proc.returncode}")
+            raise RuntimeError(f"{scorer.name} exited with code {proc.returncode}")
 
 
 def filter_folder(
@@ -167,8 +172,11 @@ def filter_folder(
         report["blur_threshold"] = config.blur_threshold
         report["min_side"] = config.min_side
         report["min_detail"] = config.min_detail
-    else:
+    elif config.metric == "aesthetic":
         report["aesthetic_min_label"] = config.aesthetic_min_label
+    else:  # iqa
+        report["iqa_model"] = config.iqa_model
+        report["iqa_threshold"] = config.iqa_threshold
 
     def _flag(img_path: Path, info: dict) -> None:
         report["flagged"] += 1
@@ -184,7 +192,8 @@ def filter_folder(
     if config.metric == "aesthetic":
         min_rank = AESTHETIC_LABELS.index(config.aesthetic_min_label)
         done = 0
-        for img_path, rec in _iter_aesthetic(src, config.aesthetic_model):
+        for img_path, rec in _iter_scorer(_AESTHETIC_SCORER, "dghs-imgutils>=0.15", src,
+                                          config.aesthetic_model):
             if should_stop is not None and should_stop():
                 report["stopped"] = True
                 break
@@ -196,6 +205,27 @@ def filter_folder(
                 if AESTHETIC_LABELS.index(rec["label"]) < min_rank:
                     _flag(img_path, {"label": rec["label"], "percentile": rec.get("percentile"),
                                      "reasons": [f"aesthetic<{config.aesthetic_min_label}"]})
+            if on_progress:
+                on_progress(done, total, img_path.name)
+        return report
+
+    if config.metric == "iqa":
+        thr = config.iqa_threshold
+        done = 0
+        for img_path, rec in _iter_scorer(_IQA_SCORER, "pyiqa", src, config.iqa_model):
+            if should_stop is not None and should_stop():
+                report["stopped"] = True
+                break
+            done += 1
+            if "error" in rec or "score" not in rec:
+                report["failed"].append(img_path.name)
+            else:
+                report["scored"] += 1
+                score = rec["score"]
+                # lower_better: high score = bad; else low score = bad.
+                bad = score > thr if rec.get("lower_better") else score < thr
+                if bad:
+                    _flag(img_path, {"score": score, "reasons": [f"iqa:{config.iqa_model}"]})
             if on_progress:
                 on_progress(done, total, img_path.name)
         return report

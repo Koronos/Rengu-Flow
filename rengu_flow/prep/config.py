@@ -68,12 +68,15 @@ class CleanStageConfig:
 
 @dataclass
 class QualityStageConfig:
-    metric: str = "blur"  # "blur" (Laplacian, dep-free) | "aesthetic" (deepghs booru-quality, ONNX)
+    # "blur" (Laplacian, dep-free) | "aesthetic" (deepghs booru appeal) | "iqa" (pyiqa technical NR-IQA)
+    metric: str = "blur"
     blur_threshold: float = 80.0  # blur: Laplacian-variance floor (long-side-512 copy); tune per set
     min_side: int = 0  # blur: flag images whose shorter side is below this (0 = off)
     min_detail: float = 0.0  # blur: flag low effective resolution (pixelated/upscaled); 0 = off
     aesthetic_min_label: str = "normal"  # aesthetic: flag images ranked below this booru label
     aesthetic_model: str = ""  # aesthetic: imgutils model_name override ("" = its default)
+    iqa_model: str = "clipiqa"  # iqa: pyiqa model (clipiqa/arniqa: any domain; musiq/maniqa: photos)
+    iqa_threshold: float = 0.5  # iqa: flag images on the wrong side of this (scale varies by model)
     action: str = "report"  # "report" (non-destructive) | "move" flagged into <path>/low_quality
     output_dir: str = ""  # destination for moved files (default <path>/low_quality)
 

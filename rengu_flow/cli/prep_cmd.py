@@ -55,8 +55,9 @@ def add_parser(sub: argparse._SubParsersAction) -> None:
     cl.add_argument("--output-dir", default=None,
                     help="Destination for cleaned copies (default <path>/cleaned)")
 
-    q.add_argument("--metric", default=None, choices=("blur", "aesthetic"),
-                   help="blur: Laplacian (dep-free) | aesthetic: deepghs booru-quality (ONNX)")
+    q.add_argument("--metric", default=None, choices=("blur", "aesthetic", "iqa"),
+                   help="blur: Laplacian (dep-free) | aesthetic: deepghs booru appeal | "
+                        "iqa: pyiqa technical NR-IQA (anime + photo)")
     q.add_argument("--blur-threshold", type=float, default=None,
                    help="blur: Laplacian-variance floor; below it an image is flagged blurry")
     q.add_argument("--min-side", type=int, default=None,
@@ -66,6 +67,12 @@ def add_parser(sub: argparse._SubParsersAction) -> None:
     q.add_argument("--aesthetic-min-label", default=None,
                    choices=("worst", "low", "normal", "good", "great", "best", "masterpiece"),
                    help="aesthetic: flag images ranked below this booru label (default normal)")
+    q.add_argument("--iqa-model", default=None,
+                   help="iqa: pyiqa model — clipiqa/arniqa (any domain), musiq/maniqa (photos), "
+                        "brisque/niqe (classic). Default clipiqa")
+    q.add_argument("--iqa-threshold", type=float, default=None,
+                   help="iqa: flag images on the wrong side of this; scale varies by model "
+                        "(clipiqa/arniqa ~0.5, musiq ~50). Calibrate in report mode")
     q.add_argument("--move", action="store_true", default=None,
                    help="Move flagged images into <path>/low_quality (default: report only)")
     q.add_argument("--output-dir", default=None,
@@ -116,6 +123,10 @@ def _build_config(args: argparse.Namespace) -> PrepConfig:
             config.quality.min_detail = args.min_detail
         if args.aesthetic_min_label:
             config.quality.aesthetic_min_label = args.aesthetic_min_label
+        if args.iqa_model:
+            config.quality.iqa_model = args.iqa_model
+        if args.iqa_threshold is not None:
+            config.quality.iqa_threshold = args.iqa_threshold
         if args.move:
             config.quality.action = "move"
         if args.output_dir:
