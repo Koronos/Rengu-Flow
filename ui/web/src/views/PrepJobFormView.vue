@@ -193,6 +193,14 @@
               </el-form-item>
               <el-form-item>
                 <template #label>
+                  Quality tags <FieldHelpIcon :field="help('Runs the deepghs aesthetic model and prepends a booru quality tag (masterpiece … worst quality) to each caption, the anime-training convention. Adds a GPU pass and downloads the model on first use.')" />
+                  <FieldPathTag path="tag.quality_tags" />
+                </template>
+                <el-switch v-model="tagForm.quality_tags" />
+                <el-text class="ml-8" size="small">Prepend quality tag to each caption</el-text>
+              </el-form-item>
+              <el-form-item>
+                <template #label>
                   Chain a caption job <FieldHelpIcon :field="help('Queues a caption job on the same folder right after this tag job, so tagging then captioning run back-to-back. Leave off and queue the caption job separately when you need custom prompt or model settings.')" />
                 </template>
                 <el-switch v-model="chainCaption" />
@@ -816,6 +824,7 @@ const tagForm = reactive({
   max_tags: 40,
   batch_size: 8,
   overwrite: false,
+  quality_tags: false,
 });
 
 // Per-model confidence floors (general/character/rating), always populated from each
@@ -1136,6 +1145,7 @@ function buildConfig() {
         max_tags: tagForm.max_tags,
         batch_size: tagForm.batch_size,
         overwrite: tagForm.overwrite,
+        quality_tags: tagForm.quality_tags,
         overrides,
       },
     };

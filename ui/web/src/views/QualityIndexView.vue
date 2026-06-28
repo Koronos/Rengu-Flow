@@ -152,6 +152,17 @@
             <strong>{{ cullPreview.present }}</strong> images would be dropped.
           </template>
         </el-text>
+        <el-button
+          type="danger"
+          plain
+          size="small"
+          class="qi-view__per-model-apply"
+          :loading="applying"
+          :disabled="(sliderValues[model] ?? 0) <= 0"
+          @click="applyModel(model)"
+        >
+          Apply this model
+        </el-button>
       </div>
 
       <!-- Sample size + gallery -->
@@ -586,6 +597,31 @@ function onSampleSizeChange(model: string): void {
 // Apply
 // ---------------------------------------------------------------------------
 
+/**
+ * Shared apply core: calls the endpoint with `perModel`, shows a success/error
+ * message, and refreshes stats + worst + cull-preview for all indexed models.
+ * Callers are responsible for showing a confirm dialog before calling this.
+ */
+async function applyPerModel(perModel: Record<string, number>): Promise<void> {
+  applying.value = true;
+  try {
+    const result = await api.qualityIndexApply({ path: path.value, per_model: perModel });
+    ElMessage.success(`Moved ${result.moved} image(s) to low_quality/`);
+
+    // Refresh stats + worst items so moved images drop out of the present set
+    await Promise.all([
+      ...indexedModels.value.map((m) => loadModelStats(m)),
+      ...indexedModels.value.map((m) => loadWorst(m)),
+    ]);
+    await fetchCullPreview();
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : String(e));
+  } finally {
+    applying.value = false;
+  }
+}
+
+/** Combined Apply — unions all models that have a non-zero slider. */
 async function openApplyConfirm(): Promise<void> {
   const modelsWithCull = indexedModels.value.filter((m) => (sliderValues[m] ?? 0) > 0);
   const unionCount = cullPreview.value?.union ?? "?";
@@ -608,27 +644,37 @@ async function openApplyConfirm(): Promise<void> {
     return; // User cancelled
   }
 
-  applying.value = true;
-  try {
-    const perModel: Record<string, number> = {};
-    for (const model of indexedModels.value) {
-      const pct = sliderValues[model] ?? 0;
-      if (pct > 0) perModel[model] = pct;
-    }
-    const result = await api.qualityIndexApply({ path: path.value, per_model: perModel });
-    ElMessage.success(`Moved ${result.moved} image(s) to low_quality/`);
-
-    // Refresh stats + worst items so moved images leave the present set
-    await Promise.all([
-      ...indexedModels.value.map((m) => loadModelStats(m)),
-      ...indexedModels.value.map((m) => loadWorst(m)),
-    ]);
-    await fetchCullPreview();
-  } catch (e) {
-    ElMessage.error(e instanceof Error ? e.message : String(e));
-  } finally {
-    applying.value = false;
+  const perModel: Record<string, number> = {};
+  for (const model of indexedModels.value) {
+    const pct = sliderValues[model] ?? 0;
+    if (pct > 0) perModel[model] = pct;
   }
+  await applyPerModel(perModel);
+}
+
+/** Per-model Apply — uses only the slider for `model`. */
+async function applyModel(model: string): Promise<void> {
+  const pct = sliderValues[model] ?? 0;
+  if (pct <= 0) return;
+  const count = cullPreview.value?.per_model[model] ?? "?";
+  const present = cullPreview.value?.present ?? "?";
+
+  try {
+    await ElMessageBox.confirm(
+      `Move ${count} of ${present} images to ${path.value}/low_quality/ using ${model} (lowest ${pct}%)?\n\n` +
+        `This is non-destructive — restore images by moving them back from low_quality/.`,
+      `Apply ${model}`,
+      {
+        confirmButtonText: "Move images",
+        cancelButtonText: "Cancel",
+        type: "warning",
+      }
+    );
+  } catch {
+    return; // User cancelled
+  }
+
+  await applyPerModel({ [model]: pct });
 }
 </script>
 
@@ -734,6 +780,15 @@ async function openApplyConfirm(): Promise<void> {
   padding: 8px 10px;
   background: var(--el-fill-color-light);
   border-radius: var(--el-border-radius-base);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.qi-view__per-model-apply {
+  margin-left: auto;
+  flex-shrink: 0;
 }
 
 .qi-view__gallery-controls {

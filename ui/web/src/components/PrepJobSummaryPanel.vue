@@ -42,6 +42,10 @@
           <dt>Overwrite</dt>
           <dd>{{ tagForm.overwrite ? 'yes' : 'no' }}</dd>
         </div>
+        <div v-if="tagForm.quality_tags" class="prep-summary__row">
+          <dt>Quality tags</dt>
+          <dd>on</dd>
+        </div>
       </template>
 
       <!-- Caption -->
@@ -166,6 +170,7 @@ interface TagForm {
   prepend_tags: string[];
   max_tags: number;
   overwrite: boolean;
+  quality_tags: boolean;
 }
 interface ModelThresholds {
   general: number;

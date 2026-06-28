@@ -772,6 +772,7 @@ export interface PrepTagConfig {
   max_tags: number;
   batch_size: number;
   overwrite: boolean;
+  quality_tags?: boolean;
   /** Per-model confidence/category overrides, keyed by model id. */
   overrides?: Record<string, Record<string, number | boolean>>;
 }
