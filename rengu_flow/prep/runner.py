@@ -150,8 +150,11 @@ def _run_quality(config: PrepConfig, on_progress, should_stop) -> dict:
 
     stage = config.quality
     quality_config = QualityConfig(
+        metric=stage.metric,
         blur_threshold=stage.blur_threshold,
         min_side=stage.min_side,
+        aesthetic_min_label=stage.aesthetic_min_label,
+        aesthetic_model=stage.aesthetic_model,
         action=stage.action,
         output_dir=Path(stage.output_dir) if stage.output_dir else None,
     )

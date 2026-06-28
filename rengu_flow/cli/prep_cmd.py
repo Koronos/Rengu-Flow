@@ -55,10 +55,15 @@ def add_parser(sub: argparse._SubParsersAction) -> None:
     cl.add_argument("--output-dir", default=None,
                     help="Destination for cleaned copies (default <path>/cleaned)")
 
+    q.add_argument("--metric", default=None, choices=("blur", "aesthetic"),
+                   help="blur: Laplacian (dep-free) | aesthetic: deepghs booru-quality (ONNX)")
     q.add_argument("--blur-threshold", type=float, default=None,
-                   help="Laplacian-variance floor; below it an image is flagged blurry")
+                   help="blur: Laplacian-variance floor; below it an image is flagged blurry")
     q.add_argument("--min-side", type=int, default=None,
-                   help="Flag images whose shorter side is below this (0 = off)")
+                   help="blur: flag images whose shorter side is below this (0 = off)")
+    q.add_argument("--aesthetic-min-label", default=None,
+                   choices=("worst", "low", "normal", "good", "great", "best", "masterpiece"),
+                   help="aesthetic: flag images ranked below this booru label (default normal)")
     q.add_argument("--move", action="store_true", default=None,
                    help="Move flagged images into <path>/low_quality (default: report only)")
     q.add_argument("--output-dir", default=None,
@@ -99,10 +104,14 @@ def _build_config(args: argparse.Namespace) -> PrepConfig:
         if args.output_dir:
             config.clean.output_dir = args.output_dir
     elif stage == "quality":
+        if args.metric:
+            config.quality.metric = args.metric
         if args.blur_threshold is not None:
             config.quality.blur_threshold = args.blur_threshold
         if args.min_side is not None:
             config.quality.min_side = args.min_side
+        if args.aesthetic_min_label:
+            config.quality.aesthetic_min_label = args.aesthetic_min_label
         if args.move:
             config.quality.action = "move"
         if args.output_dir:
