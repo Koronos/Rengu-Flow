@@ -770,3 +770,61 @@ class TestSamplingDefaultsAndExactMode:
         backend = armed(JoyProbe(CaptionerConfig(exact_generation=True)))
         backend.caption_batch([object()] * 3, ["p"] * 3)
         assert calls == [3]
+
+
+# ---------------------------------------------------------------------------
+# Tests: vLLM overlay path (subprocess mocked — no vLLM, no GPU)
+# ---------------------------------------------------------------------------
+
+
+class _FakePopen:
+    """Stand-in for the vLLM overlay: reads the manifest argv and emits one RESULT
+    line per item, exactly as vllm_captioner.py would, with returncode 0."""
+
+    def __init__(self, cmd, stdout=None, stderr=None, text=None, env=None):
+        import io
+        import json as _json
+
+        from rengu_flow.prep.vllm_captioner import RESULT_PREFIX
+
+        manifest = _json.loads(Path(cmd[-1]).read_text(encoding="utf-8"))
+        lines = [
+            RESULT_PREFIX + _json.dumps({"key": it["key"], "caption": f"vllm caption for {it['key']}"}) + "\n"
+            for it in manifest["items"]
+        ]
+        # interleave a noise line the parent must ignore
+        self.stdout = io.StringIO("INFO vllm starting...\n" + "".join(lines))
+        self.returncode = 0
+
+    def wait(self):
+        return 0
+
+    def terminate(self):
+        self.returncode = -15
+
+
+class TestCaptionFolderVLLM:
+    def test_vllm_engine_writes_captions(self, tmp_path, monkeypatch):
+        img_dir = _make_img_dir(tmp_path, ["a.jpg", "b.jpg"])
+        _write_txt(img_dir, "a", "1girl")
+        _write_txt(img_dir, "b", "1boy")
+
+        monkeypatch.setattr("shutil.which", lambda _: "/usr/bin/uv")
+        monkeypatch.setattr("subprocess.Popen", _FakePopen)
+
+        report = caption_folder(
+            img_dir,
+            CaptionerConfig(model="joycaption-beta-one", engine="vllm"),
+        )
+        assert report["captioned"] == 2
+        assert not report["failed"]
+        cs = CaptionStore.open(img_dir, fmt="sidecar", ext=".txt")
+        for key in cs.keys():
+            assert cs.get_lines(key)[1] == f"vllm caption for {key}"
+
+    def test_vllm_rejects_non_joycaption(self, tmp_path, monkeypatch):
+        img_dir = _make_img_dir(tmp_path, ["a.jpg"])
+        _write_txt(img_dir, "a", "1girl")
+        monkeypatch.setattr("shutil.which", lambda _: "/usr/bin/uv")
+        with pytest.raises(ValueError, match="joycaption"):
+            caption_folder(img_dir, CaptionerConfig(model="toriigate-0.5", engine="vllm"))

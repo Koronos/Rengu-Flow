@@ -57,6 +57,11 @@ class CaptionStageConfig:
     overwrite: bool = False
     max_image_side: int = 1536  # downscale long side before the VLM (0 = off)
     min_image_side: int = 0  # skip images smaller than this (0 = off)
+    engine: str = "hf"  # "hf" (transformers, any model) | "vllm" (overlay, JoyCaption only)
+    vllm_quantization: str = "gptq"  # vLLM: gptq | fp8 | awq | none (4-bit gptq fits 16 GB)
+    vllm_model: str = ""  # vLLM repo override ("" = resolve from vllm_quantization)
+    gpu_memory_utilization: float = 0.9  # vLLM VRAM fraction
+    vllm_max_model_len: int = 4096  # vLLM max sequence length
 
 
 @dataclass

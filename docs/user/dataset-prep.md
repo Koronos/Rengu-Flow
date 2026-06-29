@@ -89,7 +89,36 @@ The model loads once per job and generates in true batches; on OOM the batch hal
 and stays halved. Captions save incrementally after every batch, so a stop never
 loses completed work. Oversized originals are downscaled before the VLM
 (`max_image_side`, default 1536 — bucketing does the real resize later) and
-thumbnails can be skipped (`min_image_side`).
+thumbnails can be skipped (`min_image_side`). Image decode/resize for the next batch
+overlaps the current batch's GPU generation (a one-batch prefetch), so preparation
+cost is hidden behind inference.
+
+**Engine — `engine` (`hf` | `vllm`, JoyCaption only).** `hf` (default) is the
+in-process transformers path above and works for every model. `vllm` runs JoyCaption
+through [vLLM](https://docs.vllm.ai) — continuous batching + paged attention over the
+whole folder, much faster on a large dataset. vLLM pins its own (older) torch, so it
+**cannot share** the project env; it runs as an isolated `uv run --with vllm` overlay,
+downloaded on first use (the project `.venv` is untouched). Pick the checkpoint with
+`vllm_quantization`:
+
+| `vllm_quantization` | Repo (default) | VRAM | Notes |
+|---|---|---|---|
+| `gptq` (default) | `NeoChen1024/llama-joycaption-beta-one-hf-llava-GPTQ-4bit-sym-autoround` | ~5 GB | Prebuilt INT4 (AutoRound), Marlin kernels — **fits a 16 GB card**, fastest |
+| `fp8` | `NeoChen1024/llama-joycaption-beta-one-hf-llava-FP8-Dynamic` | ~8.5 GB | Data-free 8-bit, no calibration |
+| `none` | `fancyfeast/llama-joycaption-beta-one-hf-llava` | ~17 GB | Full bf16 (24 GB card) |
+| `awq` | — | ~5 GB | No public AWQ checkpoint; set `vllm_model` to one |
+
+`vllm_model` overrides the repo (required for `awq`); `gpu_memory_utilization`
+(default 0.9) and `vllm_max_model_len` (default 4096) tune the engine. Results stream
+back so captions still save incrementally and progress stays live. Example:
+
+```bash
+rengu prep caption --path /data/set --engine vllm                 # gptq 4-bit
+rengu prep caption --path /data/set --engine vllm --vllm-quant fp8
+```
+
+> The community 4-bit/fp8 repos above are loaded as **weights only** (no
+> `trust_remote_code`); JoyCaption is a standard LLaVA architecture.
 
 **Composable prompts** (a custom `prompt` overrides the whole composition):
 

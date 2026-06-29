@@ -48,6 +48,30 @@ _BACKENDS: dict[str, dict] = {
 }
 
 
+# vLLM-ready JoyCaption checkpoints by quantization. 4-bit (gptq) fits a 16 GB card and is
+# the fast path; fp8 is the data-free option; "none" is full bf16 (needs ~17 GB / a 24 GB
+# card). No public AWQ exists, so "awq" requires an explicit vllm_model.
+_VLLM_JOYCAPTION_REPOS: dict[str, str] = {
+    "gptq": "NeoChen1024/llama-joycaption-beta-one-hf-llava-GPTQ-4bit-sym-autoround",
+    "fp8": "NeoChen1024/llama-joycaption-beta-one-hf-llava-FP8-Dynamic",
+    "none": "fancyfeast/llama-joycaption-beta-one-hf-llava",
+    "awq": "",
+}
+
+
+def resolve_vllm_model(config: "CaptionerConfig") -> str:
+    """Repo id for the vLLM JoyCaption run: explicit override, else by quantization."""
+    if config.vllm_model.strip():
+        return config.vllm_model.strip()
+    repo = _VLLM_JOYCAPTION_REPOS.get(config.vllm_quantization, "")
+    if not repo:
+        raise ValueError(
+            f"No default vLLM repo for quantization {config.vllm_quantization!r}; "
+            "set caption.vllm_model to a checkpoint repo."
+        )
+    return repo
+
+
 def list_caption_models() -> list[str]:
     """Return registered model ids."""
     return list(_BACKENDS.keys())
@@ -78,6 +102,11 @@ def captioner_config_from_stage(stage) -> "CaptionerConfig":
         overwrite=stage.overwrite,
         max_image_side=stage.max_image_side,
         min_image_side=stage.min_image_side,
+        engine=stage.engine,
+        vllm_quantization=stage.vllm_quantization,
+        vllm_model=stage.vllm_model,
+        gpu_memory_utilization=stage.gpu_memory_utilization,
+        vllm_max_model_len=stage.vllm_max_model_len,
     )
 
 
@@ -459,6 +488,18 @@ class CaptionerConfig:
     # optionally skip too-small images entirely (0 disables the filter).
     max_image_side: int = 1536
     min_image_side: int = 0
+    # Inference engine. "hf" = in-process transformers (any model). "vllm" = isolated
+    # overlay running vLLM with continuous batching + paged attention — much faster over a
+    # whole folder, JoyCaption only. vLLM pins an older torch so it can't share the project
+    # env; it runs as a `uv run --with vllm` subprocess (see vllm_captioner.py).
+    engine: str = "hf"               # "hf" | "vllm"
+    # vLLM-only knobs. A pre-quantized 4-bit checkpoint (gptq/awq) fits a 16 GB card and is
+    # the fast path; fp8 is the data-free fallback (no checkpoint, ~8.5 GB). The repo is
+    # resolved from vllm_quantization unless vllm_model overrides it.
+    vllm_quantization: str = "gptq"  # gptq | fp8 | awq | none
+    vllm_model: str = ""             # repo override ("" = resolve from vllm_quantization)
+    gpu_memory_utilization: float = 0.9
+    vllm_max_model_len: int = 4096
 
 
 # ---------------------------------------------------------------------------
@@ -840,6 +881,175 @@ def _default_backend_factory(config: CaptionerConfig) -> CaptionBackend:
 # ---------------------------------------------------------------------------
 
 
+def _prepare_batch(cs, batch_keys: list[str], config: CaptionerConfig):
+    """Load + resize images and build prompts for one batch (CPU-only, no GPU).
+
+    Returns ``(valid_keys, valid_images, valid_prompts, failed, skipped_small)``.
+    Runs on the prefetch worker thread; it only READS from the CaptionStore (image
+    paths, tag lines), while the main thread owns all writes (set_line/save) — safe
+    under the GIL since the images map is fixed for the run and the keys are disjoint.
+    """
+    valid_keys: list[str] = []
+    valid_images: list[Image.Image] = []
+    valid_prompts: list[str] = []
+    failed: list[str] = []
+    skipped_small: list[str] = []
+    for key in batch_keys:
+        try:
+            img = Image.open(cs.images[key]).convert("RGB")
+            if config.min_image_side and min(img.size) < config.min_image_side:
+                logger.info(
+                    "Skipping %s: %dx%d below min_image_side=%d",
+                    key, *img.size, config.min_image_side,
+                )
+                skipped_small.append(key)
+                continue
+            if config.max_image_side and max(img.size) > config.max_image_side:
+                # In-place downscale: caption quality is unchanged (VLM vision towers
+                # see <=1536px anyway) but decode RAM and image-token counts stay bounded.
+                img.thumbnail((config.max_image_side, config.max_image_side), Image.LANCZOS)
+            tags = cs.get_tags(key) if config.use_tags_as_grounding else None
+            prompt = build_prompt(config, tags, image_key=key)
+            valid_keys.append(key)
+            valid_images.append(img)
+            valid_prompts.append(prompt)
+        except Exception as exc:
+            logger.warning("Failed to load image %s: %s", key, exc)
+            failed.append(key)
+    return valid_keys, valid_images, valid_prompts, failed, skipped_small
+
+
+def _caption_via_vllm(
+    cs,
+    to_caption: list[str],
+    target_idx: int,
+    config: CaptionerConfig,
+    *,
+    skipped: int,
+    on_progress: Optional[Callable[[int, int, str], None]] = None,
+    should_stop: Optional[Callable[[], bool]] = None,
+) -> dict:
+    """Caption ``to_caption`` through the vLLM overlay subprocess (JoyCaption only).
+
+    Prompts are composed here (the main process owns the CaptionStore + tags) and handed
+    to ``vllm_captioner.py`` via a manifest. vLLM pins an older torch, so the overlay runs
+    isolated (``uv run --with vllm``, no ``--project``) — see the dependency-isolation rule.
+    Results stream back line by line for incremental save + live progress.
+    """
+    import json
+    import os
+    import shutil
+    import subprocess
+    import tempfile
+
+    if config.model != "joycaption-beta-one":
+        raise ValueError(f"engine='vllm' supports only joycaption-beta-one, not {config.model!r}")
+    if not shutil.which("uv"):
+        raise FileNotFoundError("uv is not on PATH; required to run the vLLM overlay.")
+
+    # Build the manifest: skip too-small images here (PIL .size is header-only/cheap) so the
+    # report's skipped_small matches the in-process path; the overlay does the long-side cap.
+    skipped_small: list[str] = []
+    items: list[dict] = []
+    for key in to_caption:
+        path = cs.images[key]
+        if config.min_image_side:
+            try:
+                with Image.open(path) as probe:
+                    if min(probe.size) < config.min_image_side:
+                        skipped_small.append(key)
+                        continue
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Failed to read %s: %s", key, exc)
+                continue
+        tags = cs.get_tags(key) if config.use_tags_as_grounding else None
+        items.append({"key": key, "image": str(path), "prompt": build_prompt(config, tags, image_key=key)})
+
+    total = len(items)
+    captioned = 0
+    failed: list[str] = []
+    stopped = False
+    if not items:
+        return {"captioned": 0, "skipped": skipped, "skipped_small": skipped_small,
+                "failed": failed, "stopped": False}
+
+    manifest = {
+        "model": resolve_vllm_model(config),
+        "quantization": config.vllm_quantization,
+        "max_model_len": config.vllm_max_model_len,
+        "gpu_memory_utilization": config.gpu_memory_utilization,
+        "max_new_tokens": config.max_new_tokens,
+        "temperature": config.temperature if config.temperature is not None else 0.6,
+        "top_p": config.top_p if config.top_p is not None else 0.9,
+        "max_image_side": config.max_image_side,
+        "items": items,
+    }
+    script = Path(__file__).with_name("vllm_captioner.py")
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as mf:
+        json.dump(manifest, mf)
+        manifest_path = mf.name
+
+    # Isolated overlay (no --project): vLLM brings its own torch. Sanitize the env so the
+    # nested `uv run` doesn't inherit this process's VIRTUAL_ENV/PYTHONPATH/UV_* and try to
+    # import the project's (incompatible) packages.
+    cmd = ["uv", "run", "--with", "vllm", "python", str(script), manifest_path]
+    env = {k: v for k, v in os.environ.items()
+           if k not in ("VIRTUAL_ENV", "PYTHONPATH") and not k.startswith("UV_")}
+
+    from rengu_flow.prep.vllm_captioner import RESULT_PREFIX
+
+    try:
+        with tempfile.TemporaryFile(mode="w+") as errf:
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=errf, text=True, env=env)
+            try:
+                for line in proc.stdout:  # type: ignore[union-attr]
+                    if should_stop is not None and should_stop():
+                        stopped = True
+                        proc.terminate()
+                        logger.info("vLLM captioner: stop signal received after %d images", captioned)
+                        break
+                    if not line.startswith(RESULT_PREFIX):
+                        continue  # vLLM logs / progress bars — ignore
+                    try:
+                        rec = json.loads(line[len(RESULT_PREFIX):])
+                    except json.JSONDecodeError:
+                        continue
+                    key = rec.get("key")
+                    if not key:
+                        continue
+                    if rec.get("error"):
+                        logger.warning("vLLM failed on %s: %s", key, rec["error"])
+                        failed.append(key)
+                        continue
+                    caption = _collapse_to_one_line(rec.get("caption", ""))
+                    if (
+                        config.character_name.strip()
+                        and not config.character_canon.strip()
+                        and not config.prompt
+                    ):
+                        caption = scrub_trait_clauses(caption)
+                    cs.set_line(key, target_idx, caption)
+                    captioned += 1
+                    cs.save()  # incremental: a crash mid-run keeps everything done so far
+                    if on_progress is not None:
+                        on_progress(captioned + len(failed), total, f"captioned {captioned}/{total}")
+            finally:
+                proc.stdout.close()  # type: ignore[union-attr]
+                rc = proc.wait()
+                if rc != 0 and not stopped and captioned == 0:
+                    errf.seek(0)
+                    tail = errf.read()[-2000:]
+                    raise RuntimeError(f"vLLM captioner exited with code {rc} and no output:\n{tail}")
+    finally:
+        try:
+            os.unlink(manifest_path)
+        except OSError:
+            pass
+
+    return {"captioned": captioned, "skipped": skipped, "skipped_small": skipped_small,
+            "failed": failed, "stopped": stopped}
+
+
 def caption_folder(
     folder: str | Path,
     config: CaptionerConfig,
@@ -889,128 +1099,112 @@ def caption_folder(
     skipped_small: list[str] = []
     stopped = False
 
+    # vLLM runs the whole folder in one isolated overlay process (continuous batching),
+    # so it bypasses the in-process per-batch loop entirely.
+    if config.engine == "vllm":
+        return _caption_via_vllm(
+            cs, to_caption, target_idx, config,
+            skipped=skipped, on_progress=on_progress, should_stop=should_stop,
+        )
+
     try:
         backend = factory(config)
         backend.load()
 
         batch_size = config.batch_size
-        i = 0
-        while i < len(to_caption):
-            # Check for early stop between batches
-            if should_stop is not None and should_stop():
-                stopped = True
-                logger.info("caption_folder: stop signal received after %d images", captioned)
-                break
 
-            batch_keys = to_caption[i : i + batch_size]
-            batch_images: list[Image.Image] = []
-            batch_prompts: list[str] = []
+        # Overlap CPU batch preparation (decode + resize + prompt build) with GPU
+        # generation: generation is GPU-bound and preparation is CPU-bound, so a
+        # one-batch-ahead prefetch thread hides the preparation cost almost entirely.
+        from concurrent.futures import ThreadPoolExecutor
 
-            for key in batch_keys:
-                try:
-                    img_path = cs.images[key]
-                    img = Image.open(img_path).convert("RGB")
-                    if config.min_image_side and min(img.size) < config.min_image_side:
-                        logger.info(
-                            "Skipping %s: %dx%d below min_image_side=%d",
-                            key, *img.size, config.min_image_side,
-                        )
-                        skipped_small.append(key)
-                        batch_images.append(None)
-                        batch_prompts.append("")
-                        continue
-                    if config.max_image_side and max(img.size) > config.max_image_side:
-                        # In-place downscale: caption quality is unchanged (VLM vision
-                        # towers see <=1536px anyway) but decode RAM and image-token
-                        # counts (dynamic-resolution models) stay bounded.
-                        img.thumbnail(
-                            (config.max_image_side, config.max_image_side),
-                            Image.LANCZOS,
-                        )
-                    tags = cs.get_tags(key) if config.use_tags_as_grounding else None
-                    prompt = build_prompt(config, tags, image_key=key)
-                    batch_images.append(img)
-                    batch_prompts.append(prompt)
-                except Exception as exc:
-                    logger.warning("Failed to load image %s: %s", key, exc)
-                    failed.append(key)
-                    batch_images.append(None)  # placeholder — filtered below
-                    batch_prompts.append("")
+        def _submit(pool: ThreadPoolExecutor, start: int):
+            keys = to_caption[start : start + batch_size]
+            return pool.submit(_prepare_batch, cs, keys, config), start, len(keys)
 
-            # Filter out load failures
-            valid_indices = [
-                j for j, img in enumerate(batch_images) if img is not None
-            ]
-            valid_images = [batch_images[j] for j in valid_indices]
-            valid_prompts = [batch_prompts[j] for j in valid_indices]
-            valid_keys = [batch_keys[j] for j in valid_indices]
+        with ThreadPoolExecutor(max_workers=1, thread_name_prefix="caption-prefetch") as pool:
+            pending = _submit(pool, 0) if to_caption else None
+            while pending is not None:
+                future, start, n = pending
+                # Check for early stop between batches
+                if should_stop is not None and should_stop():
+                    stopped = True
+                    future.cancel()
+                    logger.info("caption_folder: stop signal received after %d images", captioned)
+                    break
 
-            if not valid_images:
-                i += len(batch_keys)
-                continue
+                valid_keys, valid_images, valid_prompts, batch_failed, batch_small = future.result()
+                failed.extend(batch_failed)
+                skipped_small.extend(batch_small)
 
-            # Run inference — with one OOM retry at halved batch
-            captions: list[str] = []
-            try:
-                captions = backend.caption_batch(valid_images, valid_prompts)
-            except Exception as exc:
-                if "OutOfMemoryError" in type(exc).__name__ or "CUDA out of memory" in str(exc):
-                    logger.warning(
-                        "OOM on batch size %d — halving and retrying once", len(valid_images)
-                    )
-                    empty_cuda_cache()
-                    half = max(1, len(valid_images) // 2)
-                    # Process in two halves
-                    try:
-                        captions = backend.caption_batch(
-                            valid_images[:half], valid_prompts[:half]
-                        )
-                        captions += backend.caption_batch(
-                            valid_images[half:], valid_prompts[half:]
-                        )
-                    except Exception as exc2:
-                        logger.error(
-                            "OOM on retry (halved batch) — raising: %s", exc2
-                        )
-                        raise
-                    # The halved size fits — keep it for the rest of the run instead of
-                    # re-triggering the same OOM on every subsequent batch.
-                    batch_size = max(1, half)
-                    logger.info("Continuing with batch size %d", batch_size)
-                else:
-                    # Non-OOM failure: mark all as failed, continue
-                    logger.error("Batch inference failed: %s", exc)
-                    failed.extend(valid_keys)
-                    i += len(batch_keys)
+                # Queue the NEXT batch's CPU prep before running the GPU on this one.
+                # If the OOM path below shrinks batch_size, this already-queued batch keeps
+                # the old size (it just hits the same halving retry once) — a one-batch lag.
+                next_start = start + n
+                pending = _submit(pool, next_start) if next_start < len(to_caption) else None
+
+                if not valid_images:
                     continue
 
-            # Write captions (collapse multi-line model output to one line as safety net)
-            for key, caption in zip(valid_keys, captions):
-                caption = _collapse_to_one_line(caption)
-                if (
-                    config.character_name.strip()
-                    and not config.character_canon.strip()
-                    and not config.prompt
-                ):
-                    # Guarantee trigger absorption even when the (quantized) VLM
-                    # leaks an inherent trait despite the instruction. Skipped in
-                    # canon mode: deviations from canon MUST survive the caption.
-                    caption = scrub_trait_clauses(caption)
-                cs.set_line(key, target_idx, caption)
-                captioned += 1
+                # Run inference — with one OOM retry at halved batch
+                captions: list[str] = []
+                try:
+                    captions = backend.caption_batch(valid_images, valid_prompts)
+                except Exception as exc:
+                    if "OutOfMemoryError" in type(exc).__name__ or "CUDA out of memory" in str(exc):
+                        logger.warning(
+                            "OOM on batch size %d — halving and retrying once", len(valid_images)
+                        )
+                        empty_cuda_cache()
+                        half = max(1, len(valid_images) // 2)
+                        # Process in two halves
+                        try:
+                            captions = backend.caption_batch(
+                                valid_images[:half], valid_prompts[:half]
+                            )
+                            captions += backend.caption_batch(
+                                valid_images[half:], valid_prompts[half:]
+                            )
+                        except Exception as exc2:
+                            logger.error(
+                                "OOM on retry (halved batch) — raising: %s", exc2
+                            )
+                            raise
+                        # The halved size fits — keep it for the rest of the run instead of
+                        # re-triggering the same OOM on every subsequent batch.
+                        batch_size = max(1, half)
+                        logger.info("Continuing with batch size %d", batch_size)
+                    else:
+                        # Non-OOM failure: mark all as failed, continue
+                        logger.error("Batch inference failed: %s", exc)
+                        failed.extend(valid_keys)
+                        continue
 
-            # Incremental save after every batch
-            cs.save()
+                # Write captions (collapse multi-line model output to one line as safety net)
+                for key, caption in zip(valid_keys, captions):
+                    caption = _collapse_to_one_line(caption)
+                    if (
+                        config.character_name.strip()
+                        and not config.character_canon.strip()
+                        and not config.prompt
+                    ):
+                        # Guarantee trigger absorption even when the (quantized) VLM
+                        # leaks an inherent trait despite the instruction. Skipped in
+                        # canon mode: deviations from canon MUST survive the caption.
+                        caption = scrub_trait_clauses(caption)
+                    cs.set_line(key, target_idx, caption)
+                    captioned += 1
 
-            done_so_far = captioned + len(failed)
-            if on_progress is not None:
-                on_progress(
-                    done_so_far,
-                    total,
-                    f"captioned {captioned}/{total}",
-                )
+                # Incremental save after every batch
+                cs.save()
 
-            i += len(batch_keys)
+                done_so_far = captioned + len(failed)
+                if on_progress is not None:
+                    on_progress(
+                        done_so_far,
+                        total,
+                        f"captioned {captioned}/{total}",
+                    )
 
     finally:
         if backend is not None:

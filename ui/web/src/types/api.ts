@@ -802,6 +802,9 @@ export interface PrepCaptionConfig {
   overwrite: boolean;
   max_image_side: number;
   min_image_side: number;
+  engine?: "hf" | "vllm";
+  vllm_quantization?: "gptq" | "fp8" | "awq" | "none";
+  vllm_model?: string;
 }
 
 export interface PrepCleanConfig {

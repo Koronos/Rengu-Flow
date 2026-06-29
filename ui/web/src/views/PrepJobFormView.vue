@@ -254,7 +254,24 @@
               title="ToriiGate uses fixed internal prompt formats: 'Concise' maps to its short format, all other bases map to long. Custom modifiers are appended as extra requirements. Open the prompt preview below to see exactly what the model receives — if the output captions read oddly, that is the place to look first."
             />
 
-            <el-form-item>
+            <el-form-item v-if="captionForm.model === 'joycaption-beta-one'">
+              <template #label>
+                Engine <FieldHelpIcon :field="help('hf runs in-process with transformers (any model). vllm runs an isolated, much faster engine (continuous batching + paged attention) over the whole folder — JoyCaption only. vLLM pins its own torch, so it runs as a separate uv overlay; the first run downloads it and the quantized checkpoint.')" />
+                <FieldPathTag path="caption.engine" />
+              </template>
+              <el-radio-group v-model="captionForm.engine">
+                <el-radio value="hf">
+                  hf
+                  <el-text size="small" type="info"> (transformers, any model)</el-text>
+                </el-radio>
+                <el-radio value="vllm">
+                  vllm
+                  <el-text size="small" type="info"> (fastest, JoyCaption only)</el-text>
+                </el-radio>
+              </el-radio-group>
+            </el-form-item>
+
+            <el-form-item v-if="captionForm.engine !== 'vllm'">
               <template #label>
                 Quantization <FieldHelpIcon :field="help('Controls how model weights are stored in VRAM. Start with bf16; drop to int8 or nf4 if the job fails with an out-of-memory error.')" />
                 <FieldPathTag path="caption.quantization" />
@@ -274,6 +291,28 @@
                 </el-radio>
               </el-radio-group>
             </el-form-item>
+
+            <template v-if="captionForm.engine === 'vllm'">
+              <el-form-item>
+                <template #label>
+                  vLLM quantization <FieldHelpIcon :field="help('gptq is a prebuilt 4-bit checkpoint (~5 GB, fits a 16 GB card) and is the fast default. fp8 is data-free (~8.5 GB, no checkpoint). none is full bf16 (~17 GB, needs a 24 GB card). awq has no public checkpoint — set the repo below.')" />
+                  <FieldPathTag path="caption.vllm_quantization" />
+                </template>
+                <el-radio-group v-model="captionForm.vllm_quantization" class="quant-radio-group">
+                  <el-radio value="gptq">gptq <el-text size="small" type="info"> (4-bit, fits 16 GB)</el-text></el-radio>
+                  <el-radio value="fp8">fp8 <el-text size="small" type="info"> (~8.5 GB, no checkpoint)</el-text></el-radio>
+                  <el-radio value="none">none <el-text size="small" type="info"> (bf16, 24 GB card)</el-text></el-radio>
+                  <el-radio value="awq">awq <el-text size="small" type="info"> (needs a repo below)</el-text></el-radio>
+                </el-radio-group>
+              </el-form-item>
+              <el-form-item>
+                <template #label>
+                  vLLM checkpoint repo <FieldHelpIcon :field="help('Override the HuggingFace repo for the vLLM run. Leave empty to use the default for the chosen quantization. Required for awq (no public checkpoint exists).')" />
+                  <FieldPathTag path="caption.vllm_model" />
+                </template>
+                <el-input v-model="captionForm.vllm_model" placeholder="e.g. NeoChen1024/llama-joycaption-beta-one-hf-llava-GPTQ-4bit-sym-autoround" class="w-full" />
+              </el-form-item>
+            </template>
 
             <el-form-item>
               <template #label>
@@ -883,6 +922,9 @@ const captionForm = reactive({
   overwrite: false,
   max_image_side: 1536,
   min_image_side: 0,
+  engine: "hf" as "hf" | "vllm",
+  vllm_quantization: "gptq" as "gptq" | "fp8" | "awq" | "none",
+  vllm_model: "",
 });
 
 // --- clean form ---
@@ -950,6 +992,9 @@ function captionConfigSnapshot() {
     overwrite: captionForm.overwrite,
     max_image_side: captionForm.max_image_side,
     min_image_side: captionForm.min_image_side,
+    engine: captionForm.engine,
+    vllm_quantization: captionForm.vllm_quantization,
+    vllm_model: captionForm.vllm_model,
   };
 }
 

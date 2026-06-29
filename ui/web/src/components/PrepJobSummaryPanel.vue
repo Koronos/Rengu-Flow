@@ -57,7 +57,8 @@
         <div class="prep-summary__row">
           <dt>Model</dt>
           <dd>
-            <span v-if="captionForm.model">{{ captionForm.model }} · {{ captionForm.quantization }}</span>
+            <span v-if="captionForm.model && captionForm.engine === 'vllm'">{{ captionForm.model }} · vllm/{{ captionForm.vllm_quantization }}</span>
+            <span v-else-if="captionForm.model">{{ captionForm.model }} · {{ captionForm.quantization }}</span>
             <span v-else class="prep-summary__muted">not selected</span>
           </dd>
         </div>
@@ -190,6 +191,8 @@ interface CaptionForm {
   character_name: string;
   outfit: string;
   target_line: number;
+  engine: "hf" | "vllm";
+  vllm_quantization: "gptq" | "fp8" | "awq" | "none";
 }
 interface CleanForm {
   confidence: number;
