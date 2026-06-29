@@ -9,6 +9,12 @@
         </el-text>
       </div>
       <el-space wrap>
+        <el-button
+          v-if="pendingJobs.length && queueIdle"
+          type="success"
+          :icon="VideoPlay"
+          @click="startQueue"
+        >Start queue ({{ pendingJobs.length }})</el-button>
         <el-button type="primary" :icon="MagicStick" @click="goNewJob('tag')">New tag job</el-button>
         <el-button :icon="ChatLineRound" @click="goNewJob('caption')">New caption job</el-button>
         <el-button :icon="Delete" @click="goNewJob('clean')">New clean job</el-button>
@@ -57,6 +63,16 @@
             <span class="job-row__time">{{ formatTime(job.started_at || job.finished_at) }}</span>
           </div>
           <el-space class="job-row__actions" @click.stop>
+            <el-tooltip v-if="job.state === 'pending'" :content="queueIdle ? 'Start this job now' : 'Move to front of queue'" :show-after="300">
+              <el-button
+                size="small"
+                circle
+                type="success"
+                plain
+                :icon="VideoPlay"
+                @click.stop="startPendingNow(job)"
+              />
+            </el-tooltip>
             <el-tooltip v-if="isActive(job)" content="Stop" :show-after="300">
               <el-button
                 size="small"
@@ -160,7 +176,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import {
@@ -174,6 +190,7 @@ import {
   Refresh,
   RefreshRight,
   VideoPause,
+  VideoPlay,
 } from "@element-plus/icons-vue";
 import { api } from "../api";
 import PrepJobLivePanel from "../components/PrepJobLivePanel.vue";
@@ -191,6 +208,19 @@ const modal = useDatasetFormModalStore();
 
 const jobs = ref<JobRecord[]>([]);
 const stats = ref({ running: 0, pending: 0 });
+
+// Pending jobs in queue (FIFO) order — display is newest-first, but the queue runs by
+// queue_position. Used to kick the waiting queue from its first job.
+const pendingJobs = computed(() =>
+  jobs.value
+    .filter((j) => j.state === "pending")
+    .sort(
+      (a, b) =>
+        (a.queue_position ?? Infinity) - (b.queue_position ?? Infinity) ||
+        Number(a.id) - Number(b.id)
+    )
+);
+const queueIdle = computed(() => stats.value.running === 0);
 const loading = ref(false);
 const error = ref("");
 const expandedId = ref<string | null>(null);
@@ -253,6 +283,30 @@ function isActive(job: JobRecord): boolean {
 
 function isTerminal(job: JobRecord): boolean {
   return job.state === "finished" || job.state === "failed" || job.state === "stopped";
+}
+
+// Start the waiting queue: kick its first pending job. The queue then drains itself
+// (each finish/error starts the next); a manual stop pauses it until started again.
+async function startQueue(): Promise<void> {
+  const first = pendingJobs.value[0];
+  if (!first) return;
+  try {
+    await api.startJobNow(String(first.id));
+    ElMessage.success("Queue started");
+    await refresh();
+  } catch (e) {
+    ElMessage.error(formatError(e));
+  }
+}
+
+async function startPendingNow(job: JobRecord): Promise<void> {
+  try {
+    await api.startJobNow(String(job.id));
+    ElMessage.success("Started");
+    await refresh();
+  } catch (e) {
+    ElMessage.error(formatError(e));
+  }
 }
 
 function formatTime(iso: string | null | undefined): string {
