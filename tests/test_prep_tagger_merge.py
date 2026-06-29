@@ -409,3 +409,34 @@ class TestTagMappingJson:
         p = tmp_path / "tag_mapping.json"
         p.write_text(_json.dumps(mapping))
         assert [name for name, _ in load_tag_list(p)] == ["early", "later"]
+
+
+# ---------------------------------------------------------------------------
+# _predict_decoded: a corrupt/unreadable image (None) is skipped, alignment kept
+# ---------------------------------------------------------------------------
+
+def test_predict_decoded_skips_failed_keeps_alignment():
+    import numpy as np
+
+    from rengu_flow.prep.tagger import _predict_decoded
+
+    # 3 images; index 1 failed to decode (None).
+    decoded = [np.zeros((1, 4)), None, np.zeros((1, 4))]
+    calls = {}
+
+    def fake_predict(batch):
+        calls["rows"] = batch.shape[0]   # only the 2 valid arrays should be concatenated
+        return [{"a": 0.9}, {"b": 0.8}]
+
+    out = _predict_decoded(decoded, fake_predict)
+    assert calls["rows"] == 2
+    assert out == [{"a": 0.9}, {}, {"b": 0.8}]   # bad image -> empty, others aligned
+
+
+def test_predict_decoded_all_failed_no_predict_call():
+    from rengu_flow.prep.tagger import _predict_decoded
+
+    def fake_predict(batch):  # must not be called when nothing decoded
+        raise AssertionError("predict should not run with no valid images")
+
+    assert _predict_decoded([None, None], fake_predict) == [{}, {}]

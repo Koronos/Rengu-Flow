@@ -465,15 +465,34 @@ def _default_infer_factory(spec: TaggerModelSpec) -> Callable[[list[Path]], list
     tagger = OnnxTagger(spec, model_path, tags_path)
     decode_pool = ThreadPoolExecutor(max_workers=4)
 
-    def _decode(path: Path) -> np.ndarray:
-        with Image.open(path) as img:
-            return _preprocess_image(img, spec.input_size, spec.preprocess)
+    def _decode(path: Path):
+        # Return None (not raise) for an unreadable/corrupt image so one bad file can't
+        # abort the whole tag job — the GPU map would otherwise propagate the exception.
+        try:
+            with Image.open(path) as img:
+                return _preprocess_image(img, spec.input_size, spec.preprocess)
+        except Exception as exc:  # noqa: BLE001 — PIL.UnidentifiedImageError, truncated files, etc.
+            logger.warning("Tagger: skipping unreadable image %s: %s", path, exc)
+            return None
 
     def _infer(image_paths: list[Path]) -> list[dict[str, float]]:
-        arrays = list(decode_pool.map(_decode, image_paths))
-        return tagger.predict_arrays(np.concatenate(arrays, axis=0))
+        decoded = list(decode_pool.map(_decode, image_paths))
+        return _predict_decoded(decoded, tagger.predict_arrays)
 
     return _infer
+
+
+def _predict_decoded(decoded, predict_arrays) -> list[dict[str, float]]:
+    """Run prediction over the successfully-decoded arrays, keeping the output aligned to
+    ``decoded`` — entries that failed to decode (``None``) stay an empty ``{}`` so a single
+    unreadable image never shifts or aborts the rest of the batch."""
+    valid = [(i, a) for i, a in enumerate(decoded) if a is not None]
+    out: list[dict[str, float]] = [{} for _ in decoded]
+    if valid:
+        probs = predict_arrays(np.concatenate([a for _, a in valid], axis=0))
+        for (i, _arr), prob in zip(valid, probs):
+            out[i] = prob
+    return out
 
 
 # ---------------------------------------------------------------------------
