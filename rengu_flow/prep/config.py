@@ -60,7 +60,9 @@ class CaptionStageConfig:
     engine: str = "hf"  # "hf" (transformers, any model) | "vllm" (overlay, JoyCaption only)
     vllm_quantization: str = "gptq"  # vLLM: gptq | fp8 | awq | none (4-bit gptq fits 16 GB)
     vllm_model: str = ""  # vLLM repo override ("" = resolve from vllm_quantization)
-    gpu_memory_utilization: float = 0.9  # vLLM VRAM fraction
+    # Fraction of currently-FREE VRAM vLLM may use (measured at launch, not total), so the
+    # UI / other processes aren't squeezed into an OOM. 0.9 = use 90% of free, keep 10% spare.
+    gpu_memory_utilization: float = 0.9
     vllm_max_model_len: int = 4096  # vLLM max sequence length
 
 

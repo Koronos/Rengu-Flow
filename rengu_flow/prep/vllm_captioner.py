@@ -23,6 +23,31 @@ from pathlib import Path
 RESULT_PREFIX = "RESULT\t"
 
 
+def _gpu_mem_free_total():
+    """(free, total) VRAM bytes for device 0, or (0, 0) if unreadable.
+
+    Prefer NVML (pynvml, a vLLM dependency): it queries the driver without creating a CUDA
+    context in this process, which would otherwise interfere with vLLM's own init. Fall back
+    to torch only if NVML is unavailable.
+    """
+    try:
+        import pynvml
+
+        pynvml.nvmlInit()
+        try:
+            mem = pynvml.nvmlDeviceGetMemoryInfo(pynvml.nvmlDeviceGetHandleByIndex(0))
+            return int(mem.free), int(mem.total)
+        finally:
+            pynvml.nvmlShutdown()
+    except Exception:
+        try:
+            import torch
+
+            return tuple(int(x) for x in torch.cuda.mem_get_info())
+        except Exception:
+            return 0, 0
+
+
 def _resize(img, max_side: int):
     if max_side and max(img.size) > max_side:
         img.thumbnail((max_side, max_side), __import__("PIL.Image", fromlist=["Image"]).LANCZOS)
@@ -45,11 +70,25 @@ def main() -> int:
     quant = manifest.get("quantization") or None
     llm_quant = quant if quant in ("fp8",) else None
 
+    # vLLM's gpu_memory_utilization is a fraction of TOTAL VRAM, so a fixed value crashes
+    # when something else (the UI, another process) already holds memory. Translate the
+    # config value — a fraction of currently-FREE VRAM to use — into a total-fraction that
+    # leaves the rest free: ceiling = used_now + frac_free*free  ->  1 - (1-frac_free)*free/total.
+    frac_free = float(manifest.get("gpu_memory_utilization", 0.9))
+    free, total = _gpu_mem_free_total()
+    if free and total:
+        util = 1.0 - (1.0 - frac_free) * (free / total)
+        util = max(0.10, min(util, 0.97))
+        print(f"[vllm_captioner] VRAM free={free / 2**30:.1f}G/{total / 2**30:.1f}G "
+              f"-> using {frac_free:.0%} of free, gpu_memory_utilization={util:.3f}", file=sys.stderr)
+    else:
+        util = max(0.10, min(frac_free, 0.97))  # no NVML reading — fall back to the raw value
+
     llm = LLM(
         model=model,
         quantization=llm_quant,
         max_model_len=manifest.get("max_model_len", 4096),
-        gpu_memory_utilization=manifest.get("gpu_memory_utilization", 0.9),
+        gpu_memory_utilization=util,
         limit_mm_per_prompt={"image": 1},
         enforce_eager=manifest.get("enforce_eager", True),
     )

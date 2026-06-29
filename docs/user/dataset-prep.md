@@ -108,9 +108,12 @@ downloaded on first use (the project `.venv` is untouched). Pick the checkpoint 
 | `none` | `fancyfeast/llama-joycaption-beta-one-hf-llava` | ~17 GB | Full bf16 (24 GB card) |
 | `awq` | — | ~5 GB | No public AWQ checkpoint; set `vllm_model` to one |
 
-`vllm_model` overrides the repo (required for `awq`); `gpu_memory_utilization`
-(default 0.9) and `vllm_max_model_len` (default 4096) tune the engine. Results stream
-back so captions still save incrementally and progress stays live. Example:
+`vllm_model` overrides the repo (required for `awq`). `gpu_memory_utilization`
+(default 0.9) is the fraction of **currently-free** VRAM vLLM may use — measured at
+launch, not of total — so the UI or another process can't get squeezed into an OOM
+(lower it if the GPU isn't exclusive); `vllm_max_model_len` (default 4096) caps the
+sequence length. Results stream back so captions still save incrementally and progress
+stays live. Example:
 
 ```bash
 rengu prep caption --path /data/set --engine vllm                 # gptq 4-bit

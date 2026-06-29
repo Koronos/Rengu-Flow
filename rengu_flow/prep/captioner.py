@@ -498,6 +498,8 @@ class CaptionerConfig:
     # resolved from vllm_quantization unless vllm_model overrides it.
     vllm_quantization: str = "gptq"  # gptq | fp8 | awq | none
     vllm_model: str = ""             # repo override ("" = resolve from vllm_quantization)
+    # Fraction of currently-FREE VRAM vLLM may use (measured at launch, not of total), so a
+    # busy GPU (UI, other procs) doesn't get squeezed into OOM. 0.9 = 90% of free, 10% spare.
     gpu_memory_utilization: float = 0.9
     vllm_max_model_len: int = 4096
 

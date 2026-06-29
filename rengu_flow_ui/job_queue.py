@@ -78,18 +78,20 @@ def _record_config_edit(run_dir: str, old_text: str, new_text: str) -> None:
         pass
 
 
+_STATE_ORDER = {
+    "running": 0,
+    "stopping": 1,
+    "pending": 2,
+    "new": 3,
+    "finished": 4,
+    "stopped": 5,
+    "failed": 6,
+}
+
+
 def _job_sort_key(job: db.JobRecord) -> tuple:
-    state_order = {
-        "running": 0,
-        "stopping": 1,
-        "pending": 2,
-        "new": 3,
-        "finished": 4,
-        "stopped": 5,
-        "failed": 6,
-    }
     pos = job.queue_position if job.queue_position is not None else 999999
-    return (state_order.get(job.state, 9), pos, job.started_at or "")
+    return (_STATE_ORDER.get(job.state, 9), pos, job.started_at or "")
 
 
 def _pending_sort_key(job: db.JobRecord) -> tuple:
@@ -110,7 +112,14 @@ def _pending_sorted(limit: int = 500) -> list[db.JobRecord]:
 def list_jobs_sorted(limit: int = 200) -> list[db.JobRecord]:
     jobs.refresh_all_jobs()
     rows = db.list_jobs(limit=limit * 2)
-    rows.sort(key=_job_sort_key)
+    # Display order: active/pending first (by queue order), then newest-first within each
+    # state group. id is auto-increment, so higher id == newer — a robust recency key even
+    # when started_at is equal/missing. Two stable passes: id DESC, then (state, queue pos).
+    rows.sort(key=lambda j: j.id, reverse=True)
+    rows.sort(key=lambda j: (
+        _STATE_ORDER.get(j.state, 9),
+        j.queue_position if j.queue_position is not None else 999999,
+    ))
     return rows[:limit]
 
 
