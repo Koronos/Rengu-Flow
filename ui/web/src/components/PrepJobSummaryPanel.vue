@@ -248,6 +248,20 @@ function thresholdSummary(modelId: string): string {
 }
 
 const vramHint = computed(() => {
+  if (props.captionForm.engine === "vllm") {
+    // vLLM weights footprint by quantization (KV cache fills the rest of the budget).
+    switch (props.captionForm.vllm_quantization) {
+      case "gptq":
+      case "awq":
+        return "~5 GB (fits 16 GB)";
+      case "fp8":
+        return "~8.5 GB";
+      case "none":
+        return "~17 GB (24 GB card)";
+      default:
+        return "";
+    }
+  }
   const isTorii = props.captionForm.model === "toriigate-0.5";
   switch (props.captionForm.quantization) {
     case "bf16":
