@@ -440,3 +440,78 @@ def test_predict_decoded_all_failed_no_predict_call():
         raise AssertionError("predict should not run with no valid images")
 
     assert _predict_decoded([None, None], fake_predict) == [{}, {}]
+
+
+# ---------------------------------------------------------------------------
+# run_ensemble_chunked: chunk-outer (all models per chunk), close, resumable stop
+# ---------------------------------------------------------------------------
+
+from rengu_flow.prep.tagger import run_ensemble_chunked  # noqa: E402
+
+
+class TestRunEnsembleChunked:
+    def test_all_models_per_chunk_order(self, three_tmp_images):
+        call_log = []
+        chunks = []
+
+        def factory(spec):
+            def infer(batch):
+                call_log.append(spec.id)
+                return [{"cat": 0.9} for _ in batch]
+            return infer  # plain fn, no close
+
+        run_ensemble_chunked(
+            three_tmp_images, [_make_spec("A"), _make_spec("B")],
+            chunk_size=2, on_chunk=lambda paths, merged: chunks.append(list(merged)),
+            infer_factory=factory,
+        )
+        # 3 imgs, chunk 2 -> chunks of [2, 1]; each chunk runs A then B
+        assert call_log == ["A", "B", "A", "B"]
+        assert [len(c) for c in chunks] == [2, 1]
+
+    def test_close_called_per_model_per_chunk(self, three_tmp_images, monkeypatch):
+        monkeypatch.setattr("rengu_flow.utils.common.empty_cuda_cache", lambda: None)
+        closes = []
+
+        class FakeInfer:
+            def __init__(self, sid):
+                self.sid = sid
+            def __call__(self, batch):
+                return [{"t": 0.9} for _ in batch]
+            def close(self):
+                closes.append(self.sid)
+
+        run_ensemble_chunked(
+            three_tmp_images, [_make_spec("A"), _make_spec("B")],
+            chunk_size=2, on_chunk=lambda *a: None,
+            infer_factory=lambda spec: FakeInfer(spec.id),
+        )
+        # 2 chunks x 2 models = 4 loads, each closed → one resident at a time
+        assert closes == ["A", "B", "A", "B"]
+
+    def test_stop_after_chunk_leaves_rest_unpersisted(self, three_tmp_images):
+        done = []  # chunks persisted via on_chunk
+
+        def should_stop():
+            return len(done) >= 1  # stop once the first chunk is saved
+
+        run_ensemble_chunked(
+            three_tmp_images, [_make_spec("A")],
+            chunk_size=2, on_chunk=lambda paths, merged: done.append(merged),
+            should_stop=should_stop,
+            infer_factory=lambda spec: (lambda batch: [{"t": 0.9} for _ in batch]),
+        )
+        assert len(done) == 1  # only first chunk persisted; resume re-does the rest
+
+
+def test_tag_progress_roundtrip_and_model_set(tmp_path, monkeypatch):
+    import rengu_flow.prep.tag_progress as tp
+
+    monkeypatch.setattr(tp, "prep_storage_dir", lambda folder: tmp_path)
+    assert tp.load_done("/ds", ["m1", "m2"]) == set()
+    tp.save_done("/ds", ["m1", "m2"], {"a.jpg", "b.jpg"})
+    assert tp.load_done("/ds", ["m1", "m2"]) == {"a.jpg", "b.jpg"}
+    # different model set -> ignore stale progress (re-tag)
+    assert tp.load_done("/ds", ["m1"]) == set()
+    tp.clear("/ds")
+    assert tp.load_done("/ds", ["m1", "m2"]) == set()

@@ -181,6 +181,13 @@
                 <el-input-number v-model="tagForm.batch_size" :min="1" :max="64" placeholder="8" controls-position="right" class="w-full" />
               </el-form-item>
             </div>
+            <el-form-item>
+              <template #label>
+                Target line <FieldHelpIcon :field="help('1-based caption line the tags are written to (default 1 = the tag line). Raise it to keep tags on a separate line, e.g. alongside a natural-language caption on line 2. The skip-when-not-overwriting check looks at this line.')" />
+                <FieldPathTag path="tag.target_line" />
+              </template>
+              <el-input-number v-model="tagForm.target_line" :min="1" :max="10" placeholder="1" controls-position="right" />
+            </el-form-item>
 
             <div class="form-row-2">
               <el-form-item>
@@ -905,6 +912,7 @@ const tagForm = reactive({
   overwrite: false,
   quality_tags: false,
   underscores: false,
+  target_line: 1,
 });
 
 // Per-model confidence floors (general/character/rating), always populated from each
@@ -1235,6 +1243,7 @@ function buildConfig() {
         overwrite: tagForm.overwrite,
         quality_tags: tagForm.quality_tags,
         underscores: tagForm.underscores,
+        target_line: tagForm.target_line,
         overrides,
       },
     };

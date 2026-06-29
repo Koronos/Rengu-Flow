@@ -35,6 +35,7 @@ class TagStageConfig:
     include_rating: bool = True  # one argmax rating tag (general/sensitive/...)
     quality_tags: bool = False  # prepend a deepghs aesthetic quality tag (masterpiece..worst quality)
     underscores: bool = False  # keep original danbooru form (long_hair) instead of spaces (long hair)
+    target_line: int = 1  # 1-based caption line to write tags to (1 = the tag line / index 0)
 
 
 @dataclass

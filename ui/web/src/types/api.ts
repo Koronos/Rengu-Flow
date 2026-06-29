@@ -775,6 +775,8 @@ export interface PrepTagConfig {
   quality_tags?: boolean;
   /** Keep the original danbooru form (long_hair) instead of spaces (long hair). */
   underscores?: boolean;
+  /** 1-based caption line to write tags to (default 1 = the tag line). */
+  target_line?: number;
   /** Per-model confidence/category overrides, keyed by model id. */
   overrides?: Record<string, Record<string, number | boolean>>;
 }

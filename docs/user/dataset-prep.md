@@ -62,6 +62,20 @@ In the web UI each selected model gets its own General / Character / Rating conf
 inputs, pre-filled with that model's defaults; setting Character or Rating to **0** drops
 that category for that model (it maps to the `include_*` flags above).
 
+**Resumable + incremental.** Tagging processes images in **chunks**, running the whole
+model ensemble over each chunk before moving on (one model resident at a time — it loads,
+tags the chunk, and unloads, so any number of models fit without stacking up in VRAM). Each
+finished chunk is **written to the caption files immediately**, so the tags are usable
+mid-run and a stopped job keeps everything it completed. On re-run (without `--overwrite`)
+already-tagged images are skipped, so a stopped or crashed job **continues where it left
+off**. A small `tag_progress.json` under the managed prep storage (never inside the dataset)
+records which images are done for the current model set; it's deleted when the job finishes.
+A single unreadable/corrupt image is logged and skipped — it no longer aborts the job.
+
+**Target line — `target_line`.** 1-based caption line the tags are written to (default
+**1** = the tag line). Raise it to keep tags on a different line (e.g. tags on line 2
+alongside a caption on line 1). The skip-when-not-overwriting check looks at this line.
+
 ### Captioning — `rengu prep caption`
 
 Writes the natural-language caption as **line 2**, leaving the tag line untouched.

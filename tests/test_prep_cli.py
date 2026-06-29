@@ -79,13 +79,12 @@ def test_run_stage_tag_writes_line1_report_and_markers(img_dir, tmp_path, capsys
     job_dir = tmp_path / "job"
     (img_dir / "a.txt").write_text("existing tags\n")  # skipped (overwrite=False)
 
-    def fake_run_ensemble(paths, specs, **kwargs):
-        on_progress = kwargs.get("on_progress")
+    def fake_chunked(paths, specs, *, on_chunk, on_progress=None, **kwargs):
         if on_progress:
             on_progress(len(paths), len(paths), "model fake")
-        return {str(p): "1girl, solo" for p in paths}
+        on_chunk(paths, {str(p): "1girl, solo" for p in paths})
 
-    monkeypatch.setattr("rengu_flow.prep.tagger.run_ensemble", fake_run_ensemble)
+    monkeypatch.setattr("rengu_flow.prep.tagger.run_ensemble_chunked", fake_chunked)
     config = parse_prep_config({"path": str(img_dir)})
     code = run_stage(config, "tag", job_dir)
     assert code == 0
@@ -104,7 +103,7 @@ def test_run_stage_failure_writes_error_report(img_dir, tmp_path, capsys, monkey
     def boom(*a, **k):
         raise RuntimeError("model exploded")
 
-    monkeypatch.setattr("rengu_flow.prep.tagger.run_ensemble", boom)
+    monkeypatch.setattr("rengu_flow.prep.tagger.run_ensemble_chunked", boom)
     config = parse_prep_config({"path": str(img_dir)})
     code = run_stage(config, "tag", tmp_path / "job")
     assert code == 1
@@ -122,13 +121,11 @@ def test_run_stage_signal_file_stops_gracefully(img_dir, tmp_path, monkeypatch):
 
     calls = []
 
-    def fake_run_ensemble(paths, specs, **kwargs):
-        should_stop = kwargs.get("should_stop")
+    def fake_chunked(paths, specs, *, on_chunk, should_stop=None, **kwargs):
         assert should_stop is not None and should_stop()
-        calls.append(len(paths))
-        return {}
+        calls.append(len(paths))  # stopped before any chunk → on_chunk not called
 
-    monkeypatch.setattr("rengu_flow.prep.tagger.run_ensemble", fake_run_ensemble)
+    monkeypatch.setattr("rengu_flow.prep.tagger.run_ensemble_chunked", fake_chunked)
     config = parse_prep_config({"path": str(img_dir)})
     code = run_stage(config, "tag", job_dir)
     assert code == 0
@@ -161,17 +158,17 @@ def test_tagger_should_stop_breaks_between_batches(img_dir):
         infer_factory=factory,
     )
     assert len(seen_batches) == 1  # stopped before the second batch
-    assert len(result) == 1
+    # chunk-outer is atomic per chunk: a chunk stopped mid-way is discarded (resume re-does it)
+    assert len(result) == 0
 
 
 def test_global_confidence_controls_fold_into_overrides(img_dir, tmp_path, monkeypatch):
     captured = {}
 
-    def fake_run_ensemble(paths, specs, **kwargs):
+    def fake_chunked(paths, specs, *, on_chunk, **kwargs):
         captured["overrides"] = kwargs.get("overrides")
-        return {}
 
-    monkeypatch.setattr("rengu_flow.prep.tagger.run_ensemble", fake_run_ensemble)
+    monkeypatch.setattr("rengu_flow.prep.tagger.run_ensemble_chunked", fake_chunked)
     config = parse_prep_config(
         {
             "path": str(img_dir),

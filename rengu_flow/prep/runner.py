@@ -84,7 +84,7 @@ def _aesthetic_quality_labels(paths, on_progress, should_stop) -> dict:
 
 def _run_tag(config: PrepConfig, on_progress, should_stop) -> dict:
     from rengu_flow.prep.caption_store import CaptionStore
-    from rengu_flow.prep.tagger import KNOWN_TAGGERS, run_ensemble
+    from rengu_flow.prep.tagger import KNOWN_TAGGERS
 
     cs = CaptionStore.open(config.path, fmt=config.caption_format, ext=config.caption_ext)
     stage = config.tag
@@ -112,51 +112,79 @@ def _run_tag(config: PrepConfig, on_progress, should_stop) -> dict:
         for spec in specs
     } if (global_overrides or stage.overrides) else None
 
+    from rengu_flow.prep import tag_progress
+    from rengu_flow.prep.tagger import run_ensemble_chunked
+
+    # 1-based target line -> 0-based index. Tags conventionally live on line 1 (index 0); a
+    # higher target lets tags ride a different line (e.g. alongside a caption).
+    target_idx = max(0, stage.target_line - 1)
+
+    # Resume: keys this model set already finished in a prior (stopped) run are skipped, on top
+    # of the overwrite rule (skip images that already have tags on the target line).
+    done_prev = tag_progress.load_done(config.path, stage.models)
     to_tag = [
         key
         for key in cs.keys()
-        if stage.overwrite or not cs.get_tags(key)
+        if key not in done_prev and (stage.overwrite or not cs.get_tags(key, target_idx))
     ]
     skipped = len(cs.keys()) - len(to_tag)
     paths = [cs.images[key] for key in to_tag]
+    key_by_path = {str(cs.images[key]): key for key in to_tag}
 
-    results = run_ensemble(
+    # Optional aesthetic quality tag (one upfront pass; prepended to each tag line below).
+    quality_labels = (
+        _aesthetic_quality_labels(paths, on_progress, should_stop)
+        if stage.quality_tags else {}
+    )
+
+    done_keys = set(done_prev)
+    written: set[str] = set()
+    counters = {"tagged": 0}
+
+    def _on_chunk(_chunk_paths, merged: dict) -> None:
+        # Each chunk arrives complete (all models). Write its tags to the caption files and
+        # save immediately, then record the keys as done — so the work is usable and resumable.
+        for path_str, line in merged.items():
+            key = key_by_path.get(path_str)
+            if key is None:
+                continue
+            if line:
+                qtag = AESTHETIC_QUALITY_TAGS.get(quality_labels.get(path_str, ""))
+                if qtag:  # quality tag leads, per the booru convention
+                    if stage.underscores:  # match the tag line's form (best quality -> best_quality)
+                        qtag = qtag.replace(" ", "_")
+                    line = f"{qtag}, {line}"
+                cs.set_line(key, target_idx, line)
+                counters["tagged"] += 1
+            done_keys.add(key)
+        written.update(cs.save())
+        tag_progress.save_done(config.path, stage.models, done_keys)
+
+    run_ensemble_chunked(
         paths,
         specs,
+        chunk_size=512,
         overrides=overrides,
         exclude_tags=stage.exclude_tags,
         prepend_tags=stage.prepend_tags,
         max_tags=stage.max_tags,
         batch_size=stage.batch_size,
         underscores=stage.underscores,
+        on_chunk=_on_chunk,
         on_progress=on_progress,
         should_stop=should_stop,
     )
 
-    quality_labels = (
-        _aesthetic_quality_labels(paths, on_progress, should_stop)
-        if stage.quality_tags else {}
-    )
-
-    tagged = 0
-    for key, path in zip(to_tag, paths):
-        line = results.get(str(path))
-        if line:
-            qtag = AESTHETIC_QUALITY_TAGS.get(quality_labels.get(str(path), ""))
-            if qtag:  # quality tag leads, per the booru convention
-                if stage.underscores:  # match the tag line's form (best quality -> best_quality)
-                    qtag = qtag.replace(" ", "_")
-                line = f"{qtag}, {line}"
-            cs.set_line(key, 0, line)
-            tagged += 1
-    written = cs.save()
+    stopped = should_stop()
+    if not stopped:
+        tag_progress.clear(config.path)  # finished — nothing to resume
     return {
-        "tagged": tagged,
+        "tagged": counters["tagged"],
         "skipped": skipped,
         "files_written": len(written),
         "models": stage.models,
         "quality_tags": stage.quality_tags,
-        "stopped": should_stop(),
+        "stopped": stopped,
     }
 
 

@@ -440,46 +440,47 @@ class OnnxTagger:
 # Default infer factory (builds OnnxTagger instances)
 # ---------------------------------------------------------------------------
 
-def _default_infer_factory(spec: TaggerModelSpec) -> Callable[[list[Path]], list[dict[str, float]]]:
-    """Build a real inference callable for ``spec``.
+class _ModelInfer:
+    """Real per-model inference callable with a ``close()`` so chunk-outer tagging can
+    load one model, run a chunk, then free its ONNX session before loading the next —
+    keeping only one model resident at a time (no co-residence OOM with many models)."""
 
-    Downloads model files via huggingface_hub if not cached. Returns a
-    callable that accepts a batch of image paths and returns per-image
-    ``{tag: prob}`` dicts already filtered to threshold. Decode + preprocessing
-    run in a small persistent thread pool so the GPU isn't stalled on JPEG
-    decode for the whole batch.
-    """
-    from huggingface_hub import hf_hub_download  # lazy
+    def __init__(self, spec: TaggerModelSpec, model_path: Path, tags_path: Path):
+        self.spec = spec
+        self.tagger = OnnxTagger(spec, model_path, tags_path)
+        self.pool = ThreadPoolExecutor(max_workers=4)
 
-    subdir = spec.subdir
-
-    def _resolve(filename: str) -> Path:
-        kwargs: dict = dict(repo_id=spec.repo_id, filename=filename)
-        if subdir:
-            kwargs["subfolder"] = subdir
-        return Path(hf_hub_download(**kwargs))
-
-    model_path = _resolve(spec.filename)
-    tags_path = _resolve(spec.tags_filename)
-
-    tagger = OnnxTagger(spec, model_path, tags_path)
-    decode_pool = ThreadPoolExecutor(max_workers=4)
-
-    def _decode(path: Path):
+    def _decode(self, path: Path):
         # Return None (not raise) for an unreadable/corrupt image so one bad file can't
         # abort the whole tag job — the GPU map would otherwise propagate the exception.
         try:
             with Image.open(path) as img:
-                return _preprocess_image(img, spec.input_size, spec.preprocess)
+                return _preprocess_image(img, self.spec.input_size, self.spec.preprocess)
         except Exception as exc:  # noqa: BLE001 — PIL.UnidentifiedImageError, truncated files, etc.
             logger.warning("Tagger: skipping unreadable image %s: %s", path, exc)
             return None
 
-    def _infer(image_paths: list[Path]) -> list[dict[str, float]]:
-        decoded = list(decode_pool.map(_decode, image_paths))
-        return _predict_decoded(decoded, tagger.predict_arrays)
+    def __call__(self, image_paths: list[Path]) -> list[dict[str, float]]:
+        decoded = list(self.pool.map(self._decode, image_paths))
+        return _predict_decoded(decoded, self.tagger.predict_arrays)
 
-    return _infer
+    def close(self) -> None:
+        self.pool.shutdown(wait=False)
+        self.tagger._session = None  # drop the ONNX session; VRAM is reclaimed by the caller
+
+
+def _default_infer_factory(spec: TaggerModelSpec) -> "_ModelInfer":
+    """Build a real, closeable inference callable for ``spec`` (downloads model files via
+    huggingface_hub if not cached)."""
+    from huggingface_hub import hf_hub_download  # lazy
+
+    def _resolve(filename: str) -> Path:
+        kwargs: dict = dict(repo_id=spec.repo_id, filename=filename)
+        if spec.subdir:
+            kwargs["subfolder"] = spec.subdir
+        return Path(hf_hub_download(**kwargs))
+
+    return _ModelInfer(spec, _resolve(spec.filename), _resolve(spec.tags_filename))
 
 
 def _predict_decoded(decoded, predict_arrays) -> list[dict[str, float]]:
@@ -603,50 +604,94 @@ def run_ensemble(
     Returns:
         ``{image_path_str: comma_joined_tag_line}`` for every input path.
     """
+    # Single chunk = model-outer: each model loaded once, runs every batch, merged at the end.
+    result: dict[str, str] = {}
+    run_ensemble_chunked(
+        image_paths, specs,
+        chunk_size=max(1, len(image_paths)),
+        overrides=overrides, exclude_tags=exclude_tags, prepend_tags=prepend_tags,
+        max_tags=max_tags, batch_size=batch_size, underscores=underscores,
+        on_chunk=lambda _paths, merged: result.update(merged),
+        on_progress=on_progress, should_stop=should_stop, infer_factory=infer_factory,
+    )
+    return result
+
+
+def run_ensemble_chunked(
+    image_paths: list[Path],
+    specs: list[TaggerModelSpec],
+    *,
+    chunk_size: int = 512,
+    overrides: dict | None = None,
+    exclude_tags: Iterable[str] = (),
+    prepend_tags: Iterable[str] = (),
+    max_tags: int = 255,
+    batch_size: int = 16,
+    underscores: bool = False,
+    on_chunk: Callable[[list[Path], dict[str, str]], None],
+    on_progress: Callable[[int, int, str], None] | None = None,
+    should_stop: Callable[[], bool] | None = None,
+    infer_factory: Callable[[TaggerModelSpec], Callable] | None = None,
+) -> None:
+    """Chunk-outer ensemble for resumable tagging.
+
+    Each chunk of ``chunk_size`` images is run through ALL models — one resident at a time
+    (loaded, inferred over the chunk in ``batch_size`` forwards, then closed and its VRAM
+    reclaimed) — then merged. The fully-complete ``{path: tag_line}`` for that chunk is handed
+    to ``on_chunk`` so the caller can write + save it immediately and resume per chunk. A chunk
+    interrupted mid-way is NOT handed to ``on_chunk`` (it would be missing models), so resume
+    re-does only that chunk. Keeping one model resident scales to many models without OOM; the
+    per-chunk reload is cheap (~0.5 s/model) versus the early-completion + resumability it buys.
+    """
+    from dataclasses import replace
+
     if infer_factory is None:
         infer_factory = _default_infer_factory
 
     total = len(image_paths)
-    # per_model_dicts[m][key] = {tag: prob}
-    per_model_dicts: list[dict[str, dict[str, float]]] = []
-
-    for spec in specs:
-        if overrides and spec.id in overrides:
-            from dataclasses import replace
-
-            spec = replace(spec, **overrides[spec.id])
-        phase = f"model {spec.id}"
-        if on_progress is not None:
-            on_progress(0, total, phase)
-
-        infer = infer_factory(spec)
-        model_result: dict[str, dict[str, float]] = {}
-
-        done = 0
-        stopped = False
-        for batch_start in range(0, total, batch_size):
+    done = 0
+    stopped = False
+    for chunk_start in range(0, total, chunk_size):
+        if should_stop is not None and should_stop():
+            break
+        chunk = image_paths[chunk_start : chunk_start + chunk_size]
+        per_model: list[dict[str, dict[str, float]]] = []
+        for spec in specs:
             if should_stop is not None and should_stop():
-                logger.info("run_ensemble: stop requested during %s", phase)
                 stopped = True
                 break
-            batch_paths = image_paths[batch_start : batch_start + batch_size]
-            tag_dicts = infer(batch_paths)
-            for path, tag_dict in zip(batch_paths, tag_dicts):
-                model_result[str(path)] = tag_dict
-            done += len(batch_paths)
+            spec_eff = (
+                replace(spec, **overrides[spec.id])
+                if (overrides and spec.id in overrides)
+                else spec
+            )
+            infer = infer_factory(spec_eff)
+            tag_dicts: list[dict[str, float]] = []
+            try:
+                for b in range(0, len(chunk), batch_size):
+                    if should_stop is not None and should_stop():
+                        stopped = True
+                        break
+                    tag_dicts.extend(infer(chunk[b : b + batch_size]))
+            finally:
+                close = getattr(infer, "close", None)
+                if close is not None:
+                    close()
+                    from rengu_flow.utils.common import empty_cuda_cache
+
+                    empty_cuda_cache()  # free this model before loading the next (one resident)
+            if stopped:
+                break
+            per_model.append({str(p): d for p, d in zip(chunk, tag_dicts)})
             if on_progress is not None:
-                on_progress(done, total, phase)
-
-        per_model_dicts.append(model_result)
+                on_progress(done, total, f"model {spec_eff.id}")
         if stopped:
-            # Merge what we have: max-prob merging tolerates a model that only covered a
-            # prefix of the images (those images just get fewer votes).
-            break
-
-    return merge_model_results(
-        per_model_dicts,
-        exclude_tags=exclude_tags,
-        prepend_tags=prepend_tags,
-        max_tags=max_tags,
-        underscores=underscores,
-    )
+            break  # discard this partial chunk (not persisted); resume re-does only it
+        merged = merge_model_results(
+            per_model, exclude_tags=exclude_tags, prepend_tags=prepend_tags,
+            max_tags=max_tags, underscores=underscores,
+        )
+        on_chunk(chunk, merged)
+        done += len(chunk)
+        if on_progress is not None:
+            on_progress(done, total, f"tagged {done}/{total}")
