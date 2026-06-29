@@ -308,7 +308,9 @@ async function refresh(): Promise<void> {
   error.value = "";
   try {
     const data = await api.prepJobs();
-    jobs.value = data.jobs || [];
+    // Prep window: order purely by recency (newest first), not by status — id is
+    // auto-increment, so higher id == newer. (The Runs view keeps its status grouping.)
+    jobs.value = (data.jobs || []).slice().sort((a, b) => Number(b.id) - Number(a.id));
     stats.value = data.stats || { running: 0, pending: 0 };
     activeJob.value = jobs.value.find(isActive) ?? null;
     // refresh report for expanded terminal job

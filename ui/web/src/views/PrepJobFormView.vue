@@ -1227,6 +1227,9 @@ function buildConfig() {
         overwrite: captionForm.overwrite,
         max_image_side: captionForm.max_image_side,
         min_image_side: captionForm.min_image_side,
+        engine: captionForm.engine,
+        vllm_quantization: captionForm.vllm_quantization,
+        vllm_model: captionForm.vllm_model,
       },
     };
   }
@@ -1307,6 +1310,9 @@ async function submit(startNow: boolean): Promise<void> {
             overwrite: captionForm.overwrite,
             max_image_side: captionForm.max_image_side,
             min_image_side: captionForm.min_image_side,
+            engine: captionForm.engine,
+            vllm_quantization: captionForm.vllm_quantization,
+            vllm_model: captionForm.vllm_model,
           },
         },
         start_now: false,
