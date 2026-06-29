@@ -58,6 +58,7 @@
           <dt>Model</dt>
           <dd>
             <span v-if="captionForm.model && captionForm.engine === 'vllm'">{{ captionForm.model }} · vllm/{{ captionForm.vllm_quantization }}</span>
+            <span v-else-if="captionForm.model && captionForm.engine === 'gguf'">{{ captionForm.model }} · gguf/{{ captionForm.gguf_quantization }}</span>
             <span v-else-if="captionForm.model">{{ captionForm.model }} · {{ captionForm.quantization }}</span>
             <span v-else class="prep-summary__muted">not selected</span>
           </dd>
@@ -191,8 +192,9 @@ interface CaptionForm {
   character_name: string;
   outfit: string;
   target_line: number;
-  engine: "hf" | "vllm";
+  engine: "hf" | "vllm" | "gguf";
   vllm_quantization: "gptq" | "fp8" | "awq" | "none";
+  gguf_quantization: "Q8_0" | "Q6_K" | "Q5_K_M" | "Q4_K_M";
 }
 interface CleanForm {
   confidence: number;
@@ -258,6 +260,20 @@ const vramHint = computed(() => {
         return "~8.5 GB";
       case "none":
         return "~17 GB (24 GB card)";
+      default:
+        return "";
+    }
+  }
+  if (props.captionForm.engine === "gguf") {
+    switch (props.captionForm.gguf_quantization) {
+      case "Q8_0":
+        return "~8 GB";
+      case "Q6_K":
+        return "~7 GB";
+      case "Q5_K_M":
+        return "~5 GB";
+      case "Q4_K_M":
+        return "~4 GB";
       default:
         return "";
     }

@@ -55,12 +55,14 @@ def add_parser(sub: argparse._SubParsersAction) -> None:
                    help="Quantization (overrides config)")
     c.add_argument("--overwrite", action="store_true", default=None,
                    help="Re-caption images that already have a caption line")
-    c.add_argument("--engine", default=None, choices=("hf", "vllm"),
-                   help="hf: in-process transformers (any model) | vllm: faster overlay, JoyCaption only")
+    c.add_argument("--engine", default=None, choices=("hf", "vllm", "gguf"),
+                   help="hf: transformers (any) | vllm: JoyCaption (faster) | gguf: ToriiGate via llama.cpp (faster)")
     c.add_argument("--vllm-quant", default=None, choices=("gptq", "fp8", "awq", "none"),
                    help="vLLM quantization (gptq 4-bit fits 16 GB; fp8 ~8.5 GB; awq needs --vllm-model)")
     c.add_argument("--vllm-model", default=None,
                    help="vLLM checkpoint repo override (default resolves from --vllm-quant)")
+    c.add_argument("--gguf-quant", default=None, choices=("Q8_0", "Q6_K", "Q5_K_M", "Q4_K_M"),
+                   help="GGUF (ToriiGate) weight quant: Q8_0 ~lossless .. Q4_K_M smallest/fastest")
     cl.add_argument("--in-place", action="store_true", default=None,
                     help="Rewrite sources (originals backed up under the app data dir)")
     cl.add_argument("--output-dir", default=None,
@@ -136,6 +138,8 @@ def _build_config(args: argparse.Namespace) -> PrepConfig:
             config.caption.vllm_quantization = args.vllm_quant
         if args.vllm_model:
             config.caption.vllm_model = args.vllm_model
+        if args.gguf_quant:
+            config.caption.gguf_quantization = args.gguf_quant
     elif stage == "clean":
         if args.in_place is not None:
             config.clean.in_place = args.in_place

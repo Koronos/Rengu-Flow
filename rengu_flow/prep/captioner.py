@@ -107,6 +107,7 @@ def captioner_config_from_stage(stage) -> "CaptionerConfig":
         vllm_model=stage.vllm_model,
         gpu_memory_utilization=stage.gpu_memory_utilization,
         vllm_max_model_len=stage.vllm_max_model_len,
+        gguf_quantization=stage.gguf_quantization,
     )
 
 
@@ -492,7 +493,8 @@ class CaptionerConfig:
     # overlay running vLLM with continuous batching + paged attention — much faster over a
     # whole folder, JoyCaption only. vLLM pins an older torch so it can't share the project
     # env; it runs as a `uv run --with vllm` subprocess (see vllm_captioner.py).
-    engine: str = "hf"               # "hf" | "vllm"
+    # "hf" (any model) | "vllm" (JoyCaption only) | "gguf" (ToriiGate only, via llama.cpp).
+    engine: str = "hf"
     # vLLM-only knobs. A pre-quantized 4-bit checkpoint (gptq/awq) fits a 16 GB card and is
     # the fast path; fp8 is the data-free fallback (no checkpoint, ~8.5 GB). The repo is
     # resolved from vllm_quantization unless vllm_model overrides it.
@@ -502,6 +504,9 @@ class CaptionerConfig:
     # busy GPU (UI, other procs) doesn't get squeezed into OOM. 0.9 = 90% of free, 10% spare.
     gpu_memory_utilization: float = 0.9
     vllm_max_model_len: int = 4096
+    # GGUF (llama.cpp) weight quantization for ToriiGate. Q8_0 ≈ lossless; drop to Q6_K/Q5_K_M/
+    # Q4_K_M for less VRAM and more speed at some quality cost. See GGUF_QUANTS.
+    gguf_quantization: str = "Q8_0"
 
 
 # ---------------------------------------------------------------------------
@@ -1052,6 +1057,128 @@ def _caption_via_vllm(
             "failed": failed, "stopped": stopped}
 
 
+def _caption_via_gguf(
+    cs,
+    to_caption: list[str],
+    target_idx: int,
+    config: CaptionerConfig,
+    *,
+    skipped: int,
+    on_progress: Optional[Callable[[int, int, str], None]] = None,
+    should_stop: Optional[Callable[[], bool]] = None,
+) -> dict:
+    """Caption ``to_caption`` through a llama.cpp ``llama-server`` (ToriiGate GGUF).
+
+    Loads the model once and continuous-batches concurrent requests over its OpenAI
+    endpoint. The binary (Vulkan) and GGUF are fetched on first use. ToriiGate only —
+    the GGUF repo and prompt format are specific to it.
+    """
+    import socket
+    import subprocess
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    from rengu_flow.prep import gguf_captioner as gg
+
+    if config.model != "toriigate-0.5":
+        raise ValueError(f"engine='gguf' supports only toriigate-0.5, not {config.model!r}")
+
+    # Skip too-small images here (cheap header read) so skipped_small matches the other paths.
+    skipped_small: list[str] = []
+    work: list[str] = []
+    for key in to_caption:
+        if config.min_image_side:
+            try:
+                with Image.open(cs.images[key]) as probe:
+                    if min(probe.size) < config.min_image_side:
+                        skipped_small.append(key)
+                        continue
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Failed to read %s: %s", key, exc)
+                continue
+        work.append(key)
+
+    total = len(work)
+    captioned = 0
+    failed: list[str] = []
+    stopped = False
+    if not work:
+        return {"captioned": 0, "skipped": skipped, "skipped_small": skipped_small,
+                "failed": failed, "stopped": False}
+
+    binary_dir = gg.ensure_binary()
+    gguf, mmproj = gg.ensure_gguf(config.gguf_quantization)
+
+    def _free_port() -> int:
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))  # 0 = OS assigns a free ephemeral port (never hard-code 8080)
+            return s.getsockname()[1]
+
+    # Start on a free port; if it loses the race for that port (closed before the server binds),
+    # retry on a fresh one. Avoids a hard-coded port that a dev server might already hold.
+    proc = port = None
+    for attempt in range(3):
+        port = _free_port()
+        proc = gg._start_server(binary_dir, gguf, mmproj, port)
+        try:
+            gg._wait_health(port, proc, timeout=180.0 if attempt == 0 else 30.0)
+            break
+        except Exception as exc:  # noqa: BLE001
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+            if attempt == 2:
+                raise
+            logger.warning("llama-server start failed on port %d (%s); retrying", port, exc)
+    try:
+
+        def _one(key: str) -> tuple[str, Optional[str]]:
+            tags = cs.get_tags(key) if config.use_tags_as_grounding else None
+            prompt = build_prompt(config, tags, image_key=key)
+            try:
+                b64 = gg._encode_image(cs.images[key])
+                return key, gg._request_caption(port, b64, prompt, config)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("gguf caption failed on %s: %s", key, exc)
+                return key, None
+
+        with ThreadPoolExecutor(max_workers=gg.N_PARALLEL) as pool:
+            futures = [pool.submit(_one, k) for k in work]
+            for fut in as_completed(futures):
+                if should_stop is not None and should_stop():
+                    stopped = True
+                    for f in futures:
+                        f.cancel()
+                    logger.info("gguf captioner: stop signal after %d images", captioned)
+                    break
+                key, text = fut.result()
+                if text is None:
+                    failed.append(key)
+                    continue
+                caption = _collapse_to_one_line(text)
+                if (
+                    config.character_name.strip()
+                    and not config.character_canon.strip()
+                    and not config.prompt
+                ):
+                    caption = scrub_trait_clauses(caption)
+                cs.set_line(key, target_idx, caption)
+                captioned += 1
+                cs.save()  # incremental: a crash keeps everything done so far
+                if on_progress is not None:
+                    on_progress(captioned + len(failed), total, f"captioned {captioned}/{total}")
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+
+    return {"captioned": captioned, "skipped": skipped, "skipped_small": skipped_small,
+            "failed": failed, "stopped": stopped}
+
+
 def caption_folder(
     folder: str | Path,
     config: CaptionerConfig,
@@ -1101,10 +1228,15 @@ def caption_folder(
     skipped_small: list[str] = []
     stopped = False
 
-    # vLLM runs the whole folder in one isolated overlay process (continuous batching),
-    # so it bypasses the in-process per-batch loop entirely.
+    # vLLM / GGUF run the whole folder through one persistent server (continuous batching),
+    # so they bypass the in-process per-batch loop entirely.
     if config.engine == "vllm":
         return _caption_via_vllm(
+            cs, to_caption, target_idx, config,
+            skipped=skipped, on_progress=on_progress, should_stop=should_stop,
+        )
+    if config.engine == "gguf":
+        return _caption_via_gguf(
             cs, to_caption, target_idx, config,
             skipped=skipped, on_progress=on_progress, should_stop=should_stop,
         )

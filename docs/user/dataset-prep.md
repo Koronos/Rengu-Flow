@@ -123,6 +123,41 @@ rengu prep caption --path /data/set --engine vllm --vllm-quant fp8
 > The community 4-bit/fp8 repos above are loaded as **weights only** (no
 > `trust_remote_code`); JoyCaption is a standard LLaVA architecture.
 
+**Engine — `engine` (`hf` | `gguf`, ToriiGate only).** `hf` is the standard
+transformers path, but ToriiGate's hybrid linear-attention architecture is what
+the model card describes as "extremely slow" under transformers. `gguf` runs
+ToriiGate through [llama.cpp](https://github.com/ggerganov/llama.cpp) — GPU
+acceleration via Vulkan, no CUDA toolchain required. The llama.cpp binary and a
+community GGUF file download on first use (~58 img/min validated on a 16 GB
+card with Q8_0). The vision projector runs fp16 regardless of `gguf_quantization`.
+Pick the quantization level with `gguf_quantization`:
+
+| `gguf_quantization` | VRAM | Notes |
+|---|---|---|
+| `Q8_0` (default) | ~8 GB | ≈ lossless — recommended for ToriiGate's quality |
+| `Q6_K` | ~7 GB | smaller |
+| `Q5_K_M` | ~5 GB | good balance |
+| `Q4_K_M` | ~4 GB | smallest/fastest |
+
+```bash
+rengu prep caption --path /data/set --model toriigate-0.5 --engine gguf
+rengu prep caption --path /data/set --model toriigate-0.5 --engine gguf --gguf-quant Q5_K_M
+```
+
+**Auto-install (no manual setup, no extra Python deps).** The `gguf` engine adds
+**nothing** to the `prep` profile — it reuses `huggingface_hub` and Pillow, already
+installed there. Its two artifacts are fetched on demand the first time you run it and
+cached for reuse, exactly like rengu's other models:
+
+- the pinned **llama.cpp Vulkan release binary** (~30 MB) → `~/.cache/rengu-flow/llamacpp/<release>/`,
+- the **GGUF weights + fp16 mmproj** for the chosen `gguf_quantization` → the Hugging
+  Face cache (`hf_hub_download`).
+
+The Vulkan build is deliberate: it gives **GPU acceleration on any vendor without a CUDA
+match** (unlike a CUDA wheel that must track your driver), so there is no toolchain to
+install. Subsequent jobs start instantly from the cache; the project `.venv` is never
+touched. (Linux/Windows x64 only — on macOS use `engine = hf`.)
+
 **Composable prompts** (a custom `prompt` overrides the whole composition):
 
 - **Base** (`prompt_base`, one of): `descriptive-long` (default), `concise`,

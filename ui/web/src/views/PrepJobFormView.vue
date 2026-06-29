@@ -271,7 +271,24 @@
               </el-radio-group>
             </el-form-item>
 
-            <el-form-item v-if="captionForm.engine !== 'vllm'">
+            <el-form-item v-if="captionForm.model === 'toriigate-0.5'">
+              <template #label>
+                Engine <FieldHelpIcon :field="help('gguf runs ToriiGate through llama.cpp (GPU via Vulkan, no CUDA needed) — much faster than transformers, which the model author calls \'extremely slow\'. The binary and quantized GGUF download on first use.')" />
+                <FieldPathTag path="caption.engine" />
+              </template>
+              <el-radio-group v-model="captionForm.engine">
+                <el-radio value="hf">
+                  hf
+                  <el-text size="small" type="info"> (transformers, any model)</el-text>
+                </el-radio>
+                <el-radio value="gguf">
+                  gguf
+                  <el-text size="small" type="info"> (fastest, via llama.cpp)</el-text>
+                </el-radio>
+              </el-radio-group>
+            </el-form-item>
+
+            <el-form-item v-if="captionForm.engine !== 'vllm' && captionForm.engine !== 'gguf'">
               <template #label>
                 Quantization <FieldHelpIcon :field="help('Controls how model weights are stored in VRAM. Start with bf16; drop to int8 or nf4 if the job fails with an out-of-memory error.')" />
                 <FieldPathTag path="caption.quantization" />
@@ -311,6 +328,21 @@
                   <FieldPathTag path="caption.vllm_model" />
                 </template>
                 <el-input v-model="captionForm.vllm_model" placeholder="e.g. NeoChen1024/llama-joycaption-beta-one-hf-llava-GPTQ-4bit-sym-autoround" class="w-full" />
+              </el-form-item>
+            </template>
+
+            <template v-if="captionForm.engine === 'gguf'">
+              <el-form-item>
+                <template #label>
+                  GGUF quantization <FieldHelpIcon :field="help('Weight quantization for the llama.cpp run. Q8_0 is effectively lossless (recommended for ToriiGate\'s quality); drop to Q6_K/Q5_K_M/Q4_K_M to trade a little quality for speed and VRAM. The vision projector stays fp16 regardless.')" />
+                  <FieldPathTag path="caption.gguf_quantization" />
+                </template>
+                <el-radio-group v-model="captionForm.gguf_quantization" class="quant-radio-group">
+                  <el-radio value="Q8_0">Q8_0 <el-text size="small" type="info"> (≈ lossless, ~8 GB)</el-text></el-radio>
+                  <el-radio value="Q6_K">Q6_K <el-text size="small" type="info"> (smaller)</el-text></el-radio>
+                  <el-radio value="Q5_K_M">Q5_K_M <el-text size="small" type="info"> (~5 GB)</el-text></el-radio>
+                  <el-radio value="Q4_K_M">Q4_K_M <el-text size="small" type="info"> (smallest/fastest)</el-text></el-radio>
+                </el-radio-group>
               </el-form-item>
             </template>
 
@@ -922,9 +954,10 @@ const captionForm = reactive({
   overwrite: false,
   max_image_side: 1536,
   min_image_side: 0,
-  engine: "hf" as "hf" | "vllm",
+  engine: "hf" as "hf" | "vllm" | "gguf",
   vllm_quantization: "gptq" as "gptq" | "fp8" | "awq" | "none",
   vllm_model: "",
+  gguf_quantization: "Q8_0" as "Q8_0" | "Q6_K" | "Q5_K_M" | "Q4_K_M",
 });
 
 // --- clean form ---
@@ -995,6 +1028,7 @@ function captionConfigSnapshot() {
     engine: captionForm.engine,
     vllm_quantization: captionForm.vllm_quantization,
     vllm_model: captionForm.vllm_model,
+    gguf_quantization: captionForm.gguf_quantization,
   };
 }
 
@@ -1230,6 +1264,7 @@ function buildConfig() {
         engine: captionForm.engine,
         vllm_quantization: captionForm.vllm_quantization,
         vllm_model: captionForm.vllm_model,
+        gguf_quantization: captionForm.gguf_quantization,
       },
     };
   }
@@ -1313,6 +1348,7 @@ async function submit(startNow: boolean): Promise<void> {
             engine: captionForm.engine,
             vllm_quantization: captionForm.vllm_quantization,
             vllm_model: captionForm.vllm_model,
+            gguf_quantization: captionForm.gguf_quantization,
           },
         },
         start_now: false,

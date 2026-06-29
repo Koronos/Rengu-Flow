@@ -828,3 +828,70 @@ class TestCaptionFolderVLLM:
         monkeypatch.setattr("shutil.which", lambda _: "/usr/bin/uv")
         with pytest.raises(ValueError, match="joycaption"):
             caption_folder(img_dir, CaptionerConfig(model="toriigate-0.5", engine="vllm"))
+
+
+# ---------------------------------------------------------------------------
+# Tests: GGUF (llama.cpp) engine — server + downloads mocked, no GPU/binary/net
+# ---------------------------------------------------------------------------
+
+
+class _FakeServerProc:
+    def __init__(self):
+        self.returncode = None
+
+    def poll(self):
+        return None
+
+    def terminate(self):
+        self.returncode = -15
+
+    def wait(self, timeout=None):
+        return 0
+
+    def kill(self):
+        self.returncode = -9
+
+
+class TestCaptionFolderGGUF:
+    def _mock_gg(self, monkeypatch, tmp_path, caption_fn):
+        import rengu_flow.prep.gguf_captioner as gg
+
+        monkeypatch.setattr(gg, "ensure_binary", lambda: tmp_path)
+        monkeypatch.setattr(gg, "ensure_gguf", lambda q: (tmp_path / "m.gguf", tmp_path / "mm.gguf"))
+        monkeypatch.setattr(gg, "_start_server", lambda *a, **k: _FakeServerProc())
+        monkeypatch.setattr(gg, "_wait_health", lambda *a, **k: None)
+        monkeypatch.setattr(gg, "_encode_image", lambda p: "b64")
+        monkeypatch.setattr(gg, "_request_caption", caption_fn)
+
+    def test_gguf_engine_writes_captions(self, tmp_path, monkeypatch):
+        img_dir = _make_img_dir(tmp_path, ["a.jpg", "b.jpg"])
+        _write_txt(img_dir, "a", "1girl")
+        _write_txt(img_dir, "b", "1boy")
+        self._mock_gg(monkeypatch, tmp_path, lambda port, b64, prompt, cfg: "gguf caption here")
+
+        report = caption_folder(
+            img_dir, CaptionerConfig(model="toriigate-0.5", engine="gguf", gguf_quantization="Q5_K_M")
+        )
+        assert report["captioned"] == 2
+        assert not report["failed"]
+        cs = CaptionStore.open(img_dir, fmt="sidecar", ext=".txt")
+        for key in cs.keys():
+            assert cs.get_lines(key)[1] == "gguf caption here"
+
+    def test_gguf_request_failure_marks_failed_not_crash(self, tmp_path, monkeypatch):
+        img_dir = _make_img_dir(tmp_path, ["a.jpg"])
+        _write_txt(img_dir, "a", "1girl")
+
+        def boom(port, b64, prompt, cfg):
+            raise RuntimeError("server 500")
+
+        self._mock_gg(monkeypatch, tmp_path, boom)
+        report = caption_folder(img_dir, CaptionerConfig(model="toriigate-0.5", engine="gguf"))
+        assert report["captioned"] == 0
+        assert report["failed"] == ["a.jpg"]
+
+    def test_gguf_rejects_non_toriigate(self, tmp_path):
+        img_dir = _make_img_dir(tmp_path, ["a.jpg"])
+        _write_txt(img_dir, "a", "1girl")
+        with pytest.raises(ValueError, match="toriigate"):
+            caption_folder(img_dir, CaptionerConfig(model="joycaption-beta-one", engine="gguf"))
