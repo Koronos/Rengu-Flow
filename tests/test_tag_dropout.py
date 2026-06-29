@@ -54,6 +54,32 @@ def test_full_mode_keeps_zero_probability_tags():
     assert out == "anchor"
 
 
+def test_matching_is_underscore_insensitive():
+    """A control list in the original underscore form drops BOTH forms in captions."""
+    # Rule keeps the underscore form; default drops everything else.
+    config = TagDropoutConfig(
+        enabled=True,
+        default_probability=1.0,
+        rules=[TagDropoutRule(tags=frozenset(["jpeg_artifacts", "long_hair"]), drop_probability=0.0)],
+    )
+    # Caption written with SPACES still matches the underscore-form control list.
+    out = apply_tag_dropout("jpeg artifacts, long hair, smile", config, random.Random(0), delimiter=", ")
+    kept = {t.strip() for t in out.split(", ")}
+    assert kept == {"jpeg artifacts", "long hair"}  # both protected survive, "smile" dropped
+
+    # And the underscore-form caption matches too.
+    out2 = apply_tag_dropout("jpeg_artifacts, long_hair, smile", config, random.Random(0), delimiter=", ")
+    kept2 = {t.strip() for t in out2.split(", ")}
+    assert kept2 == {"jpeg_artifacts", "long_hair"}
+
+
+def test_resolve_probability_matches_across_underscore_space():
+    rules = [TagDropoutRule(tags=frozenset(["jpeg_artifacts"]), drop_probability=0.0)]
+    # list has underscore form; caption tag has space form -> still resolves to the rule
+    assert resolve_tag_probability("jpeg artifacts", rules, 1.0, case_sensitive=False) == 0.0
+    assert resolve_tag_probability("jpeg_artifacts", rules, 1.0, case_sensitive=False) == 0.0
+
+
 def test_build_tag_dropout_config_from_toml_dict(tmp_path: Path):
     tags_file = tmp_path / "drop.txt"
     tags_file.write_text("bad_tag\n", encoding="utf-8")

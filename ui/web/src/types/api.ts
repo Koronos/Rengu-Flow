@@ -773,6 +773,8 @@ export interface PrepTagConfig {
   batch_size: number;
   overwrite: boolean;
   quality_tags?: boolean;
+  /** Keep the original danbooru form (long_hair) instead of spaces (long hair). */
+  underscores?: boolean;
   /** Per-model confidence/category overrides, keyed by model id. */
   overrides?: Record<string, Record<string, number | boolean>>;
 }

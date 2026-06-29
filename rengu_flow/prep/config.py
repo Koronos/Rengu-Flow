@@ -34,6 +34,7 @@ class TagStageConfig:
     include_character_tags: bool = True  # character + series names (taggers' weak spot)
     include_rating: bool = True  # one argmax rating tag (general/sensitive/...)
     quality_tags: bool = False  # prepend a deepghs aesthetic quality tag (masterpiece..worst quality)
+    underscores: bool = False  # keep original danbooru form (long_hair) instead of spaces (long hair)
 
 
 @dataclass

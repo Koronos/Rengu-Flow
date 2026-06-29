@@ -128,6 +128,7 @@ def _run_tag(config: PrepConfig, on_progress, should_stop) -> dict:
         prepend_tags=stage.prepend_tags,
         max_tags=stage.max_tags,
         batch_size=stage.batch_size,
+        underscores=stage.underscores,
         on_progress=on_progress,
         should_stop=should_stop,
     )
@@ -143,6 +144,8 @@ def _run_tag(config: PrepConfig, on_progress, should_stop) -> dict:
         if line:
             qtag = AESTHETIC_QUALITY_TAGS.get(quality_labels.get(str(path), ""))
             if qtag:  # quality tag leads, per the booru convention
+                if stage.underscores:  # match the tag line's form (best quality -> best_quality)
+                    qtag = qtag.replace(" ", "_")
                 line = f"{qtag}, {line}"
             cs.set_line(key, 0, line)
             tagged += 1

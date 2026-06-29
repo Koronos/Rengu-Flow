@@ -186,6 +186,26 @@ Notes:
 > lines) still works and is equivalent, but the `cached_caption_variants` config above is the
 > recommended path — no manual script run, no `.txt` rewrites.
 
+**Undroppable tags (control lists).** A rule with `drop_probability = 0.0` pins tags so they
+are *never* dropped — useful for quality/meta tags you want the model to associate with the
+artifact rather than bake in (`watermark`, `signature`, `censored`, `jpeg_artifacts`, quality
+tags, …). Keep these control lists in the **original Danbooru form (underscores)**, e.g.
+`jpeg_artifacts`, one tag per line in a `tags_file`. Matching is underscore- and
+case-insensitive, so the same list drops **both** forms (`jpeg_artifacts` and `jpeg artifacts`)
+regardless of the tagger's [underscore setting](dataset-prep.md#tagging--rengu-prep-tag) — you
+never need two copies.
+
+```toml
+tag_dropout_enabled = true
+tag_dropout_probability = 0.3
+tag_dropout_rules = [
+  { tags_file = "undroppable_tags/quality.txt", drop_probability = 0.0 },
+  { tags_file = "undroppable_tags/text_signature_watermark.txt", drop_probability = 0.0 },
+]
+```
+
+`tags_file` is resolved relative to the dataset folder (or give an absolute path).
+
 Example:
 
 ```toml
@@ -221,11 +241,11 @@ These apply to all directories unless overridden per-directory.
 | **`tag_dropout_enabled`** | Enable random tag dropout. Defines the drop distribution; how it is applied depends on the cache: live per sample when `cache_text_embeddings = false`, or pre-baked into the cache when `cache_text_embeddings = true` with `cached_caption_variants >= 2`. See [caption variants](#caption-variants-cached-tag-dropout). | `true` / `false` | `false` |
 | **`tag_dropout_probability`** | Default drop probability for tags not in a rule. | Float in [0, 1]. | — |
 | **`tag_dropout_mode`** | `per_tag` or `full`. | String | `per_tag` |
-| **`tag_dropout_rules`** | List of `{ tags, drop_probability }` and/or `tags_file`. | Tables / JSON in UI | — |
+| **`tag_dropout_rules`** | List of `{ tags, drop_probability }` and/or `tags_file` (one tag per line). Use `drop_probability = 0.0` for undroppable control lists; keep tags in the original underscore form (matches both `long_hair` and `long hair`). | Tables / JSON in UI | — |
 | **`cached_caption_variants`** | With `cache_text_embeddings = true`, bake this many tag-dropout/shuffle variants per caption into the embedding cache. `1` = identity if no dropout/shuffle, or one fixed baked variant with them (diffusion-pipe-style); `>= 2` rotates variants across epochs without lengthening them. Dataset-level and must be uniform across folders. See [caption variants](#caption-variants-cached-tag-dropout). | Integer ≥ 1. | `1` |
 | **`cached_caption_shuffle`** | Also shuffle tag order in each baked cached-caption variant. | `true` / `false` | `false` |
 | **`uncond_fraction`** | Fraction of samples with empty caption (CFG). | Float in [0, 1]. | `0` |
-| **`tag_match_case_sensitive`** | Case-sensitive tag matching in rules. | `true` / `false` | `false` |
+| **`tag_match_case_sensitive`** | Case-sensitive tag matching in rules. Underscores and spaces always match interchangeably (`long_hair` == `long hair`), independent of this flag. | `true` / `false` | `false` |
 
 ### Staged multi-resolution: `resolution_schedule`
 

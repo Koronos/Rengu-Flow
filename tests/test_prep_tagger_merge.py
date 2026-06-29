@@ -115,6 +115,28 @@ class TestMergeModelResults:
         assert "0_0" in tags
         assert "long hair" in tags
 
+    def test_underscores_false_converts_to_spaces(self):
+        """Default output form collapses underscores to spaces, keeping kaomojis."""
+        model = {"img.jpg": {"long_hair": 0.9, "jpeg_artifacts": 0.7, "0_0": 0.5}}
+        result = merge_model_results([model])  # underscores defaults to False
+        tags = [t.strip() for t in result["img.jpg"].split(",")]
+        assert tags == ["long hair", "jpeg artifacts", "0_0"]
+
+    def test_underscores_true_keeps_original_form(self):
+        """underscores=True preserves the original danbooru form."""
+        model = {"img.jpg": {"long_hair": 0.9, "jpeg_artifacts": 0.7}}
+        result = merge_model_results([model], underscores=True)
+        tags = [t.strip() for t in result["img.jpg"].split(",")]
+        assert tags == ["long_hair", "jpeg_artifacts"]
+
+    def test_exclude_underscore_insensitive(self):
+        """An exclude entry matches regardless of underscore vs space form."""
+        model = {"img.jpg": {"long_hair": 0.9, "blue_eyes": 0.7}}
+        # exclude written with a space still drops the underscore-form tag
+        result = merge_model_results([model], exclude_tags=["long hair"], underscores=True)
+        tags = [t.strip() for t in result["img.jpg"].split(",")]
+        assert tags == ["blue_eyes"]
+
     def test_single_model_passthrough(self):
         model = {"a.jpg": {"solo": 0.9}, "b.jpg": {"duo": 0.7}}
         result = merge_model_results([model])

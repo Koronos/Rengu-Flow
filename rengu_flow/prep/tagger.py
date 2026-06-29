@@ -321,7 +321,7 @@ class OnnxTagger:
         self.model_path = model_path
         self.tags_path = tags_path
         self._session = None
-        self._names: np.ndarray | None = None  # display names (underscores resolved)
+        self._names: np.ndarray | None = None  # original tag names (underscores kept)
         self._categories: np.ndarray | None = None
         self._output_name: str | None = None
         self._sigmoid_warned = False
@@ -354,7 +354,11 @@ class OnnxTagger:
         logger.info("Loading ONNX model %s from %s", self.spec.id, self.model_path)
         self._session = ort.InferenceSession(str(self.model_path), providers=providers)
         tags = load_tag_list(self.tags_path)
-        self._names = np.array([replace_underscores(name) for name, _ in tags])
+        # Keep the ORIGINAL danbooru form (underscores) internally; underscores are
+        # collapsed to spaces only at output time, and only when the caller asks for it
+        # (see merge_model_results' ``underscores`` flag). This keeps one canonical form
+        # for matching against control lists regardless of the chosen output style.
+        self._names = np.array([name for name, _ in tags])
         self._categories = np.array([cat for _, cat in tags], dtype=np.int64)
         self._output_name = self._pick_output_name()
 
@@ -482,6 +486,7 @@ def merge_model_results(
     exclude_tags: Iterable[str] = (),
     prepend_tags: Iterable[str] = (),
     max_tags: int = 255,
+    underscores: bool = False,
 ) -> dict[str, str]:
     """Merge per-model per-image tag dicts into one tag line per image.
 
@@ -491,13 +496,22 @@ def merge_model_results(
     Returns ``{image_key: comma_joined_tag_line}`` sorted by probability descending,
     with ``prepend_tags`` leading (deduplicated), ``exclude_tags`` removed, capped at
     ``max_tags``.
+
+    ``underscores`` controls the output form: ``False`` (default) emits the
+    natural-language ``long hair`` form, ``True`` keeps the original danbooru
+    ``long_hair`` form. Matching for exclude/prepend is underscore-insensitive
+    either way, so the same exclude list works regardless of the chosen form.
     """
+    # underscore-insensitive, case-insensitive match key (jpeg_artifacts == "jpeg artifacts")
+    def _key(t: str) -> str:
+        return t.lower().replace("_", " ")
+
     # Build image key universe
     all_keys: set[str] = set()
     for model_dict in per_model_dicts:
         all_keys.update(model_dict.keys())
 
-    excluded_lower = {t.lower() for t in exclude_tags}
+    excluded = {_key(t) for t in exclude_tags}
     prepend = list(prepend_tags)  # preserve order
 
     result: dict[str, str] = {}
@@ -511,18 +525,20 @@ def merge_model_results(
                 else:
                     merged[tag] = prob
 
-        # Remove excluded (case-insensitive)
-        merged = {t: p for t, p in merged.items() if t.lower() not in excluded_lower}
+        # Remove excluded (case- and underscore-insensitive)
+        merged = {t: p for t, p in merged.items() if _key(t) not in excluded}
 
         # Sort by probability descending
         sorted_tags = sorted(merged, key=lambda t: merged[t], reverse=True)
 
         # Prepend custom tags (dedup: remove from body if already in prepend)
-        prepend_lower = {t.lower() for t in prepend}
-        body = [t for t in sorted_tags if t.lower() not in prepend_lower]
+        prepend_keys = {_key(t) for t in prepend}
+        body = [t for t in sorted_tags if _key(t) not in prepend_keys]
 
         final = prepend + body
         final = final[:max_tags]
+        if not underscores:  # taggers/control lists hold the underscore form; spaces only at output
+            final = [replace_underscores(t) for t in final]
         result[key] = ", ".join(final)
 
     return result
@@ -541,6 +557,7 @@ def run_ensemble(
     prepend_tags: Iterable[str] = (),
     max_tags: int = 255,
     batch_size: int = 16,
+    underscores: bool = False,
     on_progress: Callable[[int, int, str], None] | None = None,
     should_stop: Callable[[], bool] | None = None,
     infer_factory: Callable[[TaggerModelSpec], Callable] | None = None,
@@ -559,6 +576,7 @@ def run_ensemble(
         prepend_tags: Tags to insert at the front of every tag line (deduped).
         max_tags: Hard cap on tags per image (default 255).
         batch_size: Images per ONNX forward pass (default 16).
+        underscores: Keep the original ``long_hair`` form (True) or emit ``long hair`` (False, default).
         on_progress: ``fn(done, total, phase_msg)`` called after each batch.
         infer_factory: ``fn(spec) -> fn(batch_paths) -> list[{tag: prob}]``.
             Default builds a real ``OnnxTagger`` and downloads from HuggingFace.
@@ -611,4 +629,5 @@ def run_ensemble(
         exclude_tags=exclude_tags,
         prepend_tags=prepend_tags,
         max_tags=max_tags,
+        underscores=underscores,
     )

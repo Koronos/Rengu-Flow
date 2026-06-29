@@ -201,6 +201,14 @@
               </el-form-item>
               <el-form-item>
                 <template #label>
+                  Underscores <FieldHelpIcon :field="help('Tag form: on keeps the original danbooru form (long_hair), off writes spaces (long hair). SDXL is usually trained with underscores; Cosmos is spaces-only. Tag-dropout control lists (undroppable tags) match both forms either way, so the choice only affects the written captions.')" />
+                  <FieldPathTag path="tag.underscores" />
+                </template>
+                <el-switch v-model="tagForm.underscores" />
+                <el-text class="ml-8" size="small">Keep original danbooru form (long_hair)</el-text>
+              </el-form-item>
+              <el-form-item>
+                <template #label>
                   Chain a caption job <FieldHelpIcon :field="help('Queues a caption job on the same folder right after this tag job, so tagging then captioning run back-to-back. Leave off and queue the caption job separately when you need custom prompt or model settings.')" />
                 </template>
                 <el-switch v-model="chainCaption" />
@@ -825,6 +833,7 @@ const tagForm = reactive({
   batch_size: 8,
   overwrite: false,
   quality_tags: false,
+  underscores: false,
 });
 
 // Per-model confidence floors (general/character/rating), always populated from each
@@ -1146,6 +1155,7 @@ function buildConfig() {
         batch_size: tagForm.batch_size,
         overwrite: tagForm.overwrite,
         quality_tags: tagForm.quality_tags,
+        underscores: tagForm.underscores,
         overrides,
       },
     };

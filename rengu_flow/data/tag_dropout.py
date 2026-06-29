@@ -42,7 +42,13 @@ def join_tags(tags: list[str], delimiter: str) -> str:
 
 
 def _tag_key(tag: str, case_sensitive: bool) -> str:
-    return tag if case_sensitive else tag.lower()
+    # Underscore and space forms are equivalent (long_hair == "long hair"), so a control
+    # list kept in the original danbooru (underscore) form drops both forms regardless of
+    # how the tagger emitted them. Applied on both sides, so the match is symmetric (this
+    # also collapses kaomoji underscores like ^_^ -> "^ ^", but consistently, so they still
+    # match each other). Case folding still honours case_sensitive.
+    key = tag.replace("_", " ")
+    return key if case_sensitive else key.lower()
 
 
 def resolve_tag_probability(

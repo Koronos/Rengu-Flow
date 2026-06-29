@@ -46,6 +46,10 @@
           <dt>Quality tags</dt>
           <dd>on</dd>
         </div>
+        <div class="prep-summary__row">
+          <dt>Tag form</dt>
+          <dd>{{ tagForm.underscores ? 'underscores (long_hair)' : 'spaces (long hair)' }}</dd>
+        </div>
       </template>
 
       <!-- Caption -->
@@ -171,6 +175,7 @@ interface TagForm {
   max_tags: number;
   overwrite: boolean;
   quality_tags: boolean;
+  underscores: boolean;
 }
 interface ModelThresholds {
   general: number;

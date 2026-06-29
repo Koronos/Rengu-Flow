@@ -32,15 +32,23 @@ ONNX tagger ensemble. Default: **PixAI v0.9 + cl_tagger 1.02** (2025-26 generati
 fresher Danbooru data and far better character recall than the WD v3 line, which
 remains available: `wd-eva02-large-v3`, `wd-vit-large-v3`, `wd-swinv2-v3`). Models run
 one at a time (one ONNX session in VRAM); per-image probabilities merge across models
-by max probability. Ratings resolve by argmax (one rating tag). Underscores become
-spaces except kaomojis (`^_^`, `0_0`, …).
+by max probability. Ratings resolve by argmax (one rating tag).
 
 ```bash
 rengu prep tag --path /data/my_dataset                 # defaults
 rengu prep tag --config prep.toml --model wd-eva02-large-v3 --overwrite
+rengu prep tag --path /data/my_dataset --underscores   # long_hair instead of long hair
 ```
 
 Images that already have a tag line are skipped unless `--overwrite`.
+
+**Tag form — `underscores`.** Off (default) writes the natural-language form
+(`long hair`); on keeps the original Danbooru form (`long_hair`). Kaomojis (`^_^`,
+`0_0`, …) are never touched. SDXL anime models are usually trained with underscores;
+Cosmos Predict2 is spaces-only, so leave this off for Cosmos. This only changes the
+written captions — tag-dropout control lists match both forms regardless (see the
+"undroppable tags" note under [tag dropout](dataset-config.md#caption-variants-cached-tag-dropout)),
+so you don't keep two copies of a list.
 
 Output tags are **ordered by confidence** (most certain first). Confidence controls:
 `general_threshold` / `character_threshold` / `rating_threshold` set a global floor for
