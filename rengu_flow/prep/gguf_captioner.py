@@ -61,11 +61,13 @@ def _cache_root() -> Path:
 
 def _release_asset() -> str:
     """Pick the Vulkan release asset for this platform (GPU without a CUDA match)."""
+    import sys
+
     from rengu_flow.platform_compat import PLATFORM
 
     if PLATFORM.is_windows:
         return f"llama-{LLAMACPP_RELEASE}-bin-win-vulkan-x64.zip"
-    if PLATFORM.is_macos:
+    if sys.platform == "darwin":  # Platform has no is_macos flag; detect macOS directly
         raise RuntimeError(
             "The GGUF caption engine ships a Vulkan build for Linux/Windows; macOS isn't "
             "supported here. Use engine='hf' for ToriiGate on macOS."

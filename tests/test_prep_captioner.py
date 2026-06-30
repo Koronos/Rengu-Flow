@@ -895,3 +895,26 @@ class TestCaptionFolderGGUF:
         _write_txt(img_dir, "a", "1girl")
         with pytest.raises(ValueError, match="toriigate"):
             caption_folder(img_dir, CaptionerConfig(model="joycaption-beta-one", engine="gguf"))
+
+
+def test_gguf_release_asset_per_platform(monkeypatch):
+    """_release_asset must not touch a non-existent Platform.is_macos (regression)."""
+    import rengu_flow.prep.gguf_captioner as gg
+
+    class _Win:
+        is_windows = True
+
+    class _Posix:
+        is_windows = False
+
+    monkeypatch.setattr("rengu_flow.platform_compat.PLATFORM", _Posix())
+    monkeypatch.setattr("sys.platform", "linux")
+    assert gg._release_asset().endswith("ubuntu-vulkan-x64.tar.gz")
+
+    monkeypatch.setattr("rengu_flow.platform_compat.PLATFORM", _Win())
+    assert gg._release_asset().endswith("win-vulkan-x64.zip")
+
+    monkeypatch.setattr("rengu_flow.platform_compat.PLATFORM", _Posix())
+    monkeypatch.setattr("sys.platform", "darwin")
+    with pytest.raises(RuntimeError, match="macOS"):
+        gg._release_asset()
