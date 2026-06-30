@@ -23,3 +23,28 @@ def test_preprocess_frames_round_down_minus_one_pattern():
     rounded = round_down_to_multiple(target - 1, 4) + 1
     assert rounded == 5
     assert round_down_to_multiple(6 - 1, 4) + 1 == 5
+
+
+def test_animated_webp_decoded_as_video(tmp_path):
+    """An animated WebP is treated as a native-frame video (not rejected)."""
+    import imageio  # noqa: F401  (ensures the plugin is available)
+    import numpy as np
+    from PIL import Image
+
+    from rengu_flow.data.preprocess_media import PreprocessMediaFile
+
+    p = tmp_path / "clip.webp"
+    frames = [
+        Image.fromarray(np.random.default_rng(i).integers(0, 255, (48, 64, 3), dtype="uint8"))
+        for i in range(6)
+    ]
+    frames[0].save(p, save_all=True, append_images=frames[1:], duration=100, loop=0, format="WEBP")
+
+    fn = PreprocessMediaFile(
+        {"video_clip_mode": "single_beginning"}, support_video=True, framerate=8
+    )
+    # size_bucket = (width, height, frames); 5 -> frames_rounded 5 (the 4k+1 convention)
+    out = fn((None, str(p)), None, size_bucket=(64, 48, 5))
+    assert len(out) == 1
+    video, _mask = out[0]
+    assert tuple(video.shape) == (3, 5, 48, 64)  # (C, T, H, W), 5 native frames kept

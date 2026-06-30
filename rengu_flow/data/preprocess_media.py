@@ -111,7 +111,7 @@ class PreprocessMediaFile:
     def __call__(self, spec, mask_filepath, size_bucket=None):
         from torchvision.transforms import functional as tv_functional
 
-        is_video = Path(spec[1]).suffix in VIDEO_EXTENSIONS
+        suffix = Path(spec[1]).suffix
 
         if spec[0] is None:
             tar_f = None
@@ -123,12 +123,23 @@ class PreprocessMediaFile:
             tar_f = self.tarfile_map[tar_filename]
             filepath_or_file = tar_f.extractfile(str(spec[1]))
 
+        # Animated WebP is decoded as a video by its native frames (the pillow webp
+        # reader can't resample to the model framerate). Path-based only.
+        is_webp_video = (
+            self.support_video
+            and spec[0] is None
+            and suffix == ".webp"
+            and imageio.get_reader(filepath_or_file).get_length() > 1
+        )
+        is_video = suffix in VIDEO_EXTENSIONS or is_webp_video
+
         if is_video:
             assert self.support_video
+            iter_kwargs = {} if is_webp_video else {"fps": self.framerate}
             num_frames = 0
-            for _frame in imageio.v3.imiter(filepath_or_file, fps=self.framerate):
+            for _frame in imageio.v3.imiter(filepath_or_file, **iter_kwargs):
                 num_frames += 1
-            video = imageio.v3.imiter(filepath_or_file, fps=self.framerate)
+            video = imageio.v3.imiter(filepath_or_file, **iter_kwargs)
         else:
             num_frames = 1
             pil_img = Image.open(filepath_or_file)

@@ -1511,13 +1511,12 @@ class DirectoryDataset:
                 tar_f = tarfile_map[tar_filename]
                 filepath_or_file = tar_f.extractfile(str(image_file))
 
-            if image_file.suffix == ".webp":
-                reader = imageio.get_reader(filepath_or_file)
-                if reader.get_length() > 1:
-                    raise NotImplementedError(
-                        "WebP videos are not supported."
-                    )
             try:
+                # Animated WebP frame count (0 for non-webp); >1 marks a webp video.
+                webp_frames = (
+                    imageio.get_reader(filepath_or_file).get_length()
+                    if image_file.suffix == ".webp" else 0
+                )
                 if image_file.suffix in VIDEO_EXTENSIONS:
                     meta = imageio.v3.immeta(filepath_or_file)
                     first_frame = next(imageio.v3.imiter(filepath_or_file))
@@ -1527,6 +1526,13 @@ class DirectoryDataset:
                             "Model framerate required for video."
                         )
                     frames = int(self.framerate * meta["duration"])
+                elif self.framerate is not None and webp_frames > 1:
+                    # Animated WebP: imageio's pillow reader can't resample to the
+                    # model framerate, so use the native frames and let frame_buckets
+                    # bucket them like any other video.
+                    first_frame = next(imageio.v3.imiter(filepath_or_file))
+                    height, width = first_frame.shape[:2]
+                    frames = webp_frames
                 else:
                     pil_img = Image.open(filepath_or_file)
                     width, height = pil_img.size
