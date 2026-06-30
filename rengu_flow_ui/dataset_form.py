@@ -31,6 +31,7 @@ DIRECTORY_OPTIONAL_KEYS = (
     "ar_buckets",
     "size_buckets",
     "no_upscale",
+    "drop_undersized",
     "shuffle_metadata",
     "online_captions",
     "subsample_ratio",

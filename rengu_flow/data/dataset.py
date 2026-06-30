@@ -67,10 +67,28 @@ if not VIDEO_EXTENSIONS:
     VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".webm", ".mkv"}
 
 
-def _too_small_for_bucket(width, height, size_bucket) -> bool:
-    """True when (width, height) is smaller than the size bucket's target in either
-    dimension — cover-cropping it into the bucket (ImageOps.fit) would upscale it."""
-    return width < size_bucket[0] or height < size_bucket[1]
+def _select_size_bucket(candidates, frames, is_video, width, height,
+                        no_upscale, drop_undersized):
+    """Pick a (w, h, frames) size bucket from AR-sorted *candidates*.
+
+    Returns the chosen bucket tuple, or None to drop the image. ``drop_undersized``
+    only applies when ``no_upscale`` is on (it is ignored otherwise). Cover-crop via
+    ImageOps.fit upscales when w<bw or h<bh, so:
+      * no_upscale: never enlarge — pick the closest-AR bucket the image fills;
+        if it fits none, keep it at the smallest bucket (least upscaling), unless
+      * drop_undersized: then discard images that fit no bucket without upscaling.
+    """
+    valid = [b for b in candidates if not (is_video and b[-1] == 1) and frames >= b[-1]]
+    if not valid:
+        return None
+    if no_upscale and width is not None:
+        fitting = [b for b in valid if width >= b[0] and height >= b[1]]
+        if fitting:
+            return tuple(fitting[0])  # closest-AR bucket that needs no upscaling
+        if drop_undersized:
+            return None  # smaller than every bucket -> discard
+        return tuple(min(valid, key=lambda b: b[0] * b[1]))  # least upscaling
+    return tuple(valid[0])  # default (or no_upscale off): closest AR, may upscale
 
 
 def shuffle_with_seed(lst: list, seed=None) -> None:
@@ -1035,10 +1053,16 @@ class DirectoryDataset:
             )
             self.ar_bucket_datasets = []
 
-        # no_upscale: drop images smaller than their size bucket instead of enlarging
-        # them. Only meaningful with size_buckets (AR buckets already keep native size).
+        # no_upscale: never enlarge — re-bucket each image down to the closest-AR
+        # size bucket it fills (only meaningful with size_buckets; AR buckets already
+        # keep native size). drop_undersized (a sub-option, ignored unless no_upscale)
+        # discards images that fit no bucket without upscaling instead of using the
+        # smallest one.
         self.no_upscale = directory_config.get(
             "no_upscale", dataset_config.get("no_upscale", False)
+        )
+        self.drop_undersized = directory_config.get(
+            "drop_undersized", dataset_config.get("drop_undersized", False)
         )
 
         # Cache-time tag shuffling was retired: caption multiplication is governed
@@ -1563,12 +1587,10 @@ class DirectoryDataset:
 
             if self.use_size_buckets:
                 size_bucket = self._find_closest_size_bucket(
-                    log_ar, frames, is_video
+                    log_ar, frames, is_video, width, height
                 )
-                if size_bucket is None:
+                if size_bucket is None:  # no_upscale + drop_undersized: too small for any bucket
                     return empty_return
-                if self.no_upscale and _too_small_for_bucket(width, height, size_bucket):
-                    return empty_return  # smaller than its bucket -> would upscale; discard
                 ar_bucket = None
             else:
                 ar_bucket = self._find_closest_ar_bucket(
@@ -1619,17 +1641,15 @@ class DirectoryDataset:
             return None
         return (self.ars[i], self.frame_buckets[j])
 
-    def _find_closest_size_bucket(self, log_ar, frames, is_video):
+    def _find_closest_size_bucket(self, log_ar, frames, is_video, width=None, height=None):
         ar_diffs = np.abs(log_ar - self.log_ars)
         candidate = self.size_buckets_config[
             np.argsort(ar_diffs, kind="stable")
         ]
-        for size_bucket in candidate:
-            if is_video and size_bucket[-1] == 1:
-                continue
-            if frames >= size_bucket[-1]:
-                return tuple(size_bucket)
-        return None
+        return _select_size_bucket(
+            candidate, frames, is_video, width, height,
+            self.no_upscale, self.drop_undersized,
+        )
 
     def _process_user_provided_ars(self, ars) -> np.ndarray:
         out = []

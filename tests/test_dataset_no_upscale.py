@@ -1,14 +1,39 @@
-"""no_upscale discard rule: an image too small for its size bucket would upscale."""
+"""Size-bucket selection under no_upscale / drop_undersized.
 
-from rengu_flow.data.dataset import _too_small_for_bucket
+drop_undersized is a sub-option of no_upscale (ignored when no_upscale is off).
+Candidates are passed already sorted by AR closeness (here all square, so order
+is preserved): largest first.
+"""
+
+from rengu_flow.data.dataset import _select_size_bucket
+
+BUCKETS = [(1024, 1024, 1), (768, 768, 1), (512, 512, 1)]  # AR-sorted (all square)
 
 
-def test_image_at_or_above_bucket_is_kept():
-    bucket = (1024, 1024, 1)  # (width, height, frames)
-    assert _too_small_for_bucket(1024, 1024, bucket) is False  # exact fit
-    assert _too_small_for_bucket(1200, 1100, bucket) is False  # larger -> downscale
+def _pick(width, height, no_upscale, drop):
+    return _select_size_bucket(BUCKETS, 1, False, width, height, no_upscale, drop)
 
 
-def test_image_below_bucket_in_either_dimension_is_dropped():
-    assert _too_small_for_bucket(1024, 768, (1024, 1024, 1)) is True   # height short
-    assert _too_small_for_bucket(800, 1300, (832, 1216, 1)) is True    # width short
+def test_default_upscales_to_closest_bucket():
+    assert _pick(900, 900, no_upscale=False, drop=False) == (1024, 1024, 1)
+
+
+def test_drop_undersized_ignored_without_no_upscale():
+    # no_upscale off -> drop_undersized has no effect: still the default bucket.
+    assert _pick(900, 900, no_upscale=False, drop=True) == (1024, 1024, 1)
+
+
+def test_no_upscale_rebuckets_down_to_largest_fitting():
+    assert _pick(900, 900, no_upscale=True, drop=False) == (768, 768, 1)
+    assert _pick(1200, 1200, no_upscale=True, drop=False) == (1024, 1024, 1)
+
+
+def test_no_upscale_too_small_keeps_smallest_when_not_dropping():
+    # 400 fits no bucket; without drop it lands in the smallest (least upscaling).
+    assert _pick(400, 400, no_upscale=True, drop=False) == (512, 512, 1)
+
+
+def test_no_upscale_plus_drop_discards_when_nothing_fits():
+    assert _pick(400, 400, no_upscale=True, drop=True) is None
+    # but an image that fits a smaller bucket is still kept
+    assert _pick(900, 900, no_upscale=True, drop=True) == (768, 768, 1)

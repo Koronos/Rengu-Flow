@@ -130,13 +130,24 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "doc": "docs/user/dataset-config.md",
     },
     "no_upscale": {
-        "summary": "With size_buckets, discard images smaller than their bucket instead of upscaling them.",
+        "summary": "With size_buckets, never enlarge: re-bucket an image down to the largest bucket it fills.",
         "detail": (
             "Off (default): an image smaller than its target bucket is enlarged to fill it. "
-            "On: such images are dropped entirely, so only images that already meet the bucket "
-            "resolution are kept (and downscaled to fit). Use it to keep training on genuine "
-            "detail and avoid blurry upscaled samples. Only affects size_buckets; AR bucketing "
-            "already keeps each image's native resolution."
+            "On: it is instead assigned to the closest-AR bucket it already meets (downscaled to "
+            "fit), so training stays on genuine detail. Needs multiple resolution tiers in "
+            "size_buckets to have somewhere to drop to; an image too small for every bucket lands "
+            "in the smallest one unless drop_undersized is also on. Only affects size_buckets — AR "
+            "bucketing already keeps native resolution."
+        ),
+        "doc": "docs/user/dataset-config.md",
+    },
+    "drop_undersized": {
+        "summary": "Sub-option of no_upscale: discard images too small for any bucket instead of upscaling them.",
+        "detail": (
+            "Only takes effect when no_upscale is on (ignored otherwise). With no_upscale, an "
+            "image smaller than every bucket would otherwise land in the smallest one (still "
+            "upscaled); turn this on to drop those images entirely, keeping only ones that fill "
+            "a bucket without enlarging."
         ),
         "doc": "docs/user/dataset-config.md",
     },
