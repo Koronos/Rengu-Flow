@@ -727,6 +727,9 @@ export interface TagQueryResult {
   captions: Record<string, string[]>;
   previews: Record<string, string>;
   sizes?: Record<string, [number, number]>;
+  total: number;
+  offset: number;
+  limit: number;
 }
 
 export interface TagDiffEntry {

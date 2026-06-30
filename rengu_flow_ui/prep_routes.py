@@ -40,11 +40,15 @@ class StageOpsBody(BaseModel):
 class QueryBody(BaseModel):
     filter: dict = Field(default_factory=dict)
     scope: str = "tag_lines"
+    limit: int = 60  # page size — keep payloads bounded on very large datasets
+    offset: int = 0
 
 
 class SizeQueryBody(BaseModel):
     below: int | None = None  # short side < below
     above: int | None = None  # long side > above
+    limit: int = 60
+    offset: int = 0
 
 
 class RestoreBackupBody(BaseModel):
@@ -258,7 +262,9 @@ def register_prep_routes(app: FastAPI) -> None:
     @app.post(f"{API_PREFIX}/prep/tags/sessions/{{session_id}}/query")
     def tag_session_query(session_id: str, body: QueryBody):
         with _prep_http_errors():
-            result = tag_sessions.query(session_id, body.filter, scope=body.scope)
+            result = tag_sessions.query(
+                session_id, body.filter, scope=body.scope, limit=body.limit, offset=body.offset
+            )
             folder = Path(tag_sessions.get(session_id).captions.folder).resolve()
             result["previews"] = {
                 key: issue_image_token(0, key, folder) for key in result["keys"]
@@ -271,7 +277,8 @@ def register_prep_routes(app: FastAPI) -> None:
             if body.below is None and body.above is None:
                 raise ValueError("Provide 'below' and/or 'above'")
             result = tag_sessions.size_query(
-                session_id, below=body.below, above=body.above
+                session_id, below=body.below, above=body.above,
+                limit=body.limit, offset=body.offset,
             )
             folder = Path(tag_sessions.get(session_id).captions.folder).resolve()
             result["previews"] = {

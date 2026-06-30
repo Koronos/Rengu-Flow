@@ -142,11 +142,25 @@ class TagSessionStore:
             "image_count": len(session.current()),
         }
 
-    def query(self, session_id: str, tag_filter: dict, scope: str = "tag_lines") -> dict:
+    def query(
+        self,
+        session_id: str,
+        tag_filter: dict,
+        scope: str = "tag_lines",
+        *,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> dict:
         session = self.get(session_id)
         current = session.current()
-        keys = select_images(current, TagFilter.from_dict(tag_filter), scope=scope)
+        all_keys = select_images(current, TagFilter.from_dict(tag_filter), scope=scope)
+        # Paginate: a filter can match hundreds of thousands of images — only the requested
+        # page's keys/captions (and the route's previews) are returned. ``total`` is the count.
+        keys = all_keys[offset : offset + limit] if limit is not None else all_keys
         return {
+            "total": len(all_keys),
+            "offset": offset,
+            "limit": limit if limit is not None else len(all_keys),
             "keys": keys,
             "captions": {key: current[key] for key in keys},
         }
@@ -157,16 +171,19 @@ class TagSessionStore:
         *,
         below: int | None = None,
         above: int | None = None,
+        limit: int | None = None,
+        offset: int = 0,
     ) -> dict:
         """Images whose SHORT side is < ``below`` and/or whose LONG side is > ``above``.
 
         The trainer's bucketing resizes later, so this is the prep-time filter for
-        thumbnails that caption/train badly and oversized originals worth flagging.
+        thumbnails that caption/train badly and oversized originals worth flagging. Paginated
+        like ``query`` so it scales to very large datasets.
         """
         session = self.get(session_id)
         current = session.current()
         sizes = session.sizes()
-        keys = []
+        all_keys = []
         for key in current:
             w, h = sizes.get(key, (0, 0))
             if below is not None and min(w, h) >= below:
@@ -175,9 +192,13 @@ class TagSessionStore:
                 continue
             if below is None and above is None:
                 continue
-            keys.append(key)
-        keys.sort(key=lambda k: min(sizes.get(k, (0, 0))))
+            all_keys.append(key)
+        all_keys.sort(key=lambda k: min(sizes.get(k, (0, 0))))
+        keys = all_keys[offset : offset + limit] if limit is not None else all_keys
         return {
+            "total": len(all_keys),
+            "offset": offset,
+            "limit": limit if limit is not None else len(all_keys),
             "keys": keys,
             "captions": {key: current[key] for key in keys},
             "sizes": {key: list(sizes.get(key, (0, 0))) for key in keys},

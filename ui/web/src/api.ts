@@ -566,16 +566,39 @@ export const api = {
       `/prep/tags/sessions/${encodeURIComponent(sessionId)}/stats?scope=${encodeURIComponent(scope)}`
     ),
 
-  prepTagQuery: (sessionId: string, filter: TagEditOpDto["filter"], scope: string) =>
+  prepTagQuery: (
+    sessionId: string,
+    filter: TagEditOpDto["filter"],
+    scope: string,
+    limit?: number,
+    offset?: number
+  ) =>
     request<TagQueryResult>(`/prep/tags/sessions/${encodeURIComponent(sessionId)}/query`, {
       method: "POST",
-      body: JSON.stringify({ filter, scope }),
+      body: JSON.stringify({
+        filter,
+        scope,
+        ...(limit != null ? { limit } : {}),
+        ...(offset != null ? { offset } : {}),
+      }),
     }),
 
-  prepTagSizeQuery: (sessionId: string, body: { below?: number; above?: number }) =>
+  prepTagSizeQuery: (
+    sessionId: string,
+    body: { below?: number; above?: number },
+    limit?: number,
+    offset?: number
+  ) =>
     request<TagQueryResult>(
       `/prep/tags/sessions/${encodeURIComponent(sessionId)}/size-query`,
-      { method: "POST", body: JSON.stringify(body) }
+      {
+        method: "POST",
+        body: JSON.stringify({
+          ...body,
+          ...(limit != null ? { limit } : {}),
+          ...(offset != null ? { offset } : {}),
+        }),
+      }
     ),
 
   prepStageTagOps: (sessionId: string, ops: TagEditOpDto[]) =>

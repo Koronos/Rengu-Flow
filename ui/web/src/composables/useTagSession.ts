@@ -21,6 +21,8 @@ export function useTagSession() {
   const lastSizeQuery = ref<{ below?: number; above?: number } | null>(null);
   const loading = ref(false);
   const error = ref("");
+  const queryOffset = ref(0);
+  const QUERY_PAGE_SIZE = 60;
 
   const sessionId = computed(() => session.value?.session_id ?? "");
   const stagedOps = computed(() => session.value?.staged_ops ?? []);
@@ -47,14 +49,21 @@ export function useTagSession() {
   async function refreshQuery(): Promise<void> {
     if (!sessionId.value) return;
     if (lastSizeQuery.value) {
-      query.value = await api.prepTagSizeQuery(sessionId.value, lastSizeQuery.value);
+      query.value = await api.prepTagSizeQuery(
+        sessionId.value,
+        lastSizeQuery.value,
+        QUERY_PAGE_SIZE,
+        queryOffset.value
+      );
       return;
     }
     if (!lastFilter.value) return;
     query.value = await api.prepTagQuery(
       sessionId.value,
       lastFilter.value,
-      lastFilterScope.value
+      lastFilterScope.value,
+      QUERY_PAGE_SIZE,
+      queryOffset.value
     );
   }
 
@@ -81,6 +90,7 @@ export function useTagSession() {
       lastSizeQuery.value = null;
       lastFilter.value = filter;
       lastFilterScope.value = scope;
+      queryOffset.value = 0;
       await refreshQuery();
     });
   }
@@ -89,8 +99,14 @@ export function useTagSession() {
     await withLoading(async () => {
       lastFilter.value = null;
       lastSizeQuery.value = params;
+      queryOffset.value = 0;
       await refreshQuery();
     });
+  }
+
+  async function goToQueryPage(page: number): Promise<void> {
+    queryOffset.value = (page - 1) * QUERY_PAGE_SIZE;
+    await withLoading(refreshQuery);
   }
 
   async function stageOps(ops: TagEditOpDto[]): Promise<boolean> {
@@ -140,5 +156,8 @@ export function useTagSession() {
     undo,
     setStatsScope,
     commit,
+    queryOffset,
+    QUERY_PAGE_SIZE,
+    goToQueryPage,
   };
 }

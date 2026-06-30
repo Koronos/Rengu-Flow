@@ -148,7 +148,7 @@
           <template #header>
             <span>
               Matching images
-              <el-tag v-if="query" size="small" effect="plain">{{ query.keys.length }}</el-tag>
+              <el-tag v-if="query" size="small" effect="plain">{{ query.total }}</el-tag>
             </span>
           </template>
           <el-empty
@@ -163,37 +163,37 @@
           />
           <div v-else class="tag-editor__grid">
             <div
-              v-for="item in pagedMatches"
-              :key="item.key"
+              v-for="(key, i) in query.keys"
+              :key="key"
               class="tag-editor__cell"
             >
               <PreviewImage
-                :src="api.datasetPreviewImageUrl(query.previews[item.key])"
+                :src="api.datasetPreviewImageUrl(query.previews[key])"
                 class="tag-editor__thumb"
-                @click="openViewer(item.index)"
+                @click="openViewer(i)"
               />
-              <div class="tag-editor__cell-name" :title="item.key">
-                {{ item.key }}
-                <span v-if="query.sizes?.[item.key]" class="tag-editor__cell-size">
-                  {{ query.sizes[item.key][0] }}×{{ query.sizes[item.key][1] }}
+              <div class="tag-editor__cell-name" :title="key">
+                {{ key }}
+                <span v-if="query.sizes?.[key]" class="tag-editor__cell-size">
+                  {{ query.sizes[key][0] }}×{{ query.sizes[key][1] }}
                 </span>
               </div>
               <div
                 class="tag-editor__cell-caption"
-                :title="(query.captions[item.key] ?? []).join('\n')"
+                :title="(query.captions[key] ?? []).join('\n')"
               >
-                {{ (query.captions[item.key] ?? [])[0] || "(no caption)" }}
+                {{ (query.captions[key] ?? [])[0] || "(no caption)" }}
               </div>
             </div>
           </div>
           <el-pagination
-            v-if="query && query.keys.length > MATCH_PAGE_SIZE"
-            v-model:current-page="matchPage"
-            :page-size="MATCH_PAGE_SIZE"
-            :total="query.keys.length"
+            v-if="query && query.total > query.limit"
+            :current-page="Math.floor(query.offset / query.limit) + 1"
+            :page-size="query.limit"
+            :total="query.total"
             layout="prev, pager, next, total"
             class="tag-editor__pagination"
-            @current-change="scrollResultsTop"
+            @current-change="goToQueryPage"
           />
         </el-card>
 
@@ -260,7 +260,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, ref } from "vue";
 import { ElMessage } from "element-plus";
 import { ArrowLeft } from "@element-plus/icons-vue";
 import { api } from "../api";
@@ -291,6 +291,9 @@ const {
   undo,
   setStatsScope,
   commit,
+  queryOffset,
+  QUERY_PAGE_SIZE,
+  goToQueryPage,
 } = useTagSession();
 
 const path = ref("");
@@ -405,27 +408,6 @@ function pruneTags(minCount: number): void {
     { op: "prune", min_count: minCount, scope: opScope.value },
     `Staged: prune tags seen < ${minCount} times`
   );
-}
-
-// Client-side pagination of the matching-images grid: a large filter can match thousands
-// of images; rendering every thumbnail at once is slow and unscrollable.
-const MATCH_PAGE_SIZE = 60;
-const matchPage = ref(1);
-// Reset to page 1 whenever a new query runs (keys identity changes).
-watch(
-  () => query.value?.keys,
-  () => { matchPage.value = 1; }
-);
-const pagedMatches = computed(() => {
-  if (!query.value) return [];
-  const start = (matchPage.value - 1) * MATCH_PAGE_SIZE;
-  return query.value.keys
-    .slice(start, start + MATCH_PAGE_SIZE)
-    .map((key, i) => ({ key, index: start + i }));  // index is the GLOBAL position (for the viewer)
-});
-
-function scrollResultsTop(): void {
-  document.querySelector(".tag-editor__results")?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function openViewer(index: number): void {

@@ -95,6 +95,25 @@ def test_query_returns_previews(ui_client, img_dir):
     assert img.headers["content-type"].startswith("image/")
 
 
+def test_query_pagination(ui_client, img_dir):
+    sid = _open_session(ui_client, img_dir)
+
+    def page(limit, offset):
+        return ui_client.post(
+            f"/api/v1/prep/tags/sessions/{sid}/query",
+            json={"filter": {"any": ["watermark"]}, "limit": limit, "offset": offset},
+        ).json()
+
+    p0 = page(1, 0)
+    assert p0["total"] == 2 and len(p0["keys"]) == 1  # 2 match, one per page
+    # previews + captions only for the page's keys, not all matches
+    assert set(p0["previews"]) == set(p0["keys"])
+    assert set(p0["captions"]) == set(p0["keys"])
+    p1 = page(1, 1)
+    assert p1["total"] == 2 and len(p1["keys"]) == 1
+    assert set(p0["keys"]) | set(p1["keys"]) == {"a.jpg", "c.jpg"}  # pages cover all matches
+
+
 def test_quarantine_commit_and_restore(ui_client, img_dir):
     sid = _open_session(ui_client, img_dir)
     ui_client.post(
