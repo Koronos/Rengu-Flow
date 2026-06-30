@@ -129,6 +129,17 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "summary": "Fixed [width, height, frames] buckets instead of AR bucketing.",
         "doc": "docs/user/dataset-config.md",
     },
+    "no_upscale": {
+        "summary": "With size_buckets, discard images smaller than their bucket instead of upscaling them.",
+        "detail": (
+            "Off (default): an image smaller than its target bucket is enlarged to fill it. "
+            "On: such images are dropped entirely, so only images that already meet the bucket "
+            "resolution are kept (and downscaled to fit). Use it to keep training on genuine "
+            "detail and avoid blurry upscaled samples. Only affects size_buckets; AR bucketing "
+            "already keeps each image's native resolution."
+        ),
+        "doc": "docs/user/dataset-config.md",
+    },
     "shuffle_metadata": {
         "summary": "Randomize image order when building metadata across all folders (deterministic per-folder seed, default on).",
         "detail": "Turn off only if you need predictable, filename-sorted metadata order for debugging or reproducing an exact cache layout.",

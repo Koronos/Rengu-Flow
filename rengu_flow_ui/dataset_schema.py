@@ -150,6 +150,13 @@ def get_directory_fields() -> list[dict[str, Any]]:
             show_if_set=True,
         ),
         _field(
+            "no_upscale",
+            "No upscale (drop too-small)",
+            "boolean",
+            default=False,
+            description="With size buckets, discard images smaller than their bucket instead of upscaling them.",
+        ),
+        _field(
             "subsample_ratio",
             "Subsample ratio",
             "number",
@@ -277,6 +284,13 @@ def get_dataset_schema() -> dict[str, Any]:
                     "json",
                     description="[[width, height, frames], …] — fixed sizes instead of AR bucketing.",
                     show_if_set=True,
+                ),
+                _field(
+                    "no_upscale",
+                    "No upscale (drop too-small)",
+                    "boolean",
+                    default=False,
+                    description="With size buckets, discard images smaller than their bucket instead of upscaling them.",
                 ),
             ],
         },

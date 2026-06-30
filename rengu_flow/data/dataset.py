@@ -67,6 +67,12 @@ if not VIDEO_EXTENSIONS:
     VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".webm", ".mkv"}
 
 
+def _too_small_for_bucket(width, height, size_bucket) -> bool:
+    """True when (width, height) is smaller than the size bucket's target in either
+    dimension — cover-cropping it into the bucket (ImageOps.fit) would upscale it."""
+    return width < size_bucket[0] or height < size_bucket[1]
+
+
 def shuffle_with_seed(lst: list, seed=None) -> None:
     """Shuffle list in place with optional seed (restores RNG state after)."""
     rng_state = random.getstate()
@@ -1029,6 +1035,12 @@ class DirectoryDataset:
             )
             self.ar_bucket_datasets = []
 
+        # no_upscale: drop images smaller than their size bucket instead of enlarging
+        # them. Only meaningful with size_buckets (AR buckets already keep native size).
+        self.no_upscale = directory_config.get(
+            "no_upscale", dataset_config.get("no_upscale", False)
+        )
+
         # Cache-time tag shuffling was retired: caption multiplication is governed
         # only by .txt lines (caption variants). Bake shuffled/dropped variants with
         # scripts/generate_caption_variants.py (--shuffle-tags) instead.
@@ -1555,6 +1567,8 @@ class DirectoryDataset:
                 )
                 if size_bucket is None:
                     return empty_return
+                if self.no_upscale and _too_small_for_bucket(width, height, size_bucket):
+                    return empty_return  # smaller than its bucket -> would upscale; discard
                 ar_bucket = None
             else:
                 ar_bucket = self._find_closest_ar_bucket(
