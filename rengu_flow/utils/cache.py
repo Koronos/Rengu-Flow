@@ -18,6 +18,7 @@ FORMAT_VERSION = 2
 MANIFEST_NAME = "manifest.json"
 META_DB_NAME = "meta.db"
 TENSORS_DIR = "tensors"
+CHECKPOINT_EVERY = 128  # items between resume checkpoints (flush + commit + manifest)
 
 
 def _dtype_to_str(dtype: torch.dtype) -> str:
@@ -412,7 +413,7 @@ class Cache:
         self.count += 1
         # Checkpoint periodically (not just at finalize): flush + commit + manifest so
         # an interrupted run resumes from here instead of redoing everything.
-        if self.count % 512 == 0:
+        if self.count % CHECKPOINT_EVERY == 0:
             self._checkpoint()
 
     def finalize_current_shard(self) -> None:
