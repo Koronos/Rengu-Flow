@@ -21,6 +21,31 @@ NUM_PROC = min(8, os.cpu_count() or 1)
 ROUND_DECIMAL_DIGITS = 3
 
 
+def _make_malloc_trim():
+    """Best-effort glibc malloc_trim(0): the multi-threaded CPU preprocessing churns
+    differently-sized PIL/tensor buffers, fragmenting per-thread arenas that glibc
+    never returns to the OS — so RSS creeps up the whole run. Trimming periodically
+    hands the freed top-of-heap back. No-op off glibc/Linux."""
+    import ctypes
+
+    try:
+        libc = ctypes.CDLL("libc.so.6", use_errno=False)
+        libc.malloc_trim(0)
+
+        def trim() -> None:
+            try:
+                libc.malloc_trim(0)
+            except Exception:  # noqa: BLE001
+                pass
+
+        return trim
+    except Exception:  # noqa: BLE001 — non-glibc platform
+        return lambda: None
+
+
+_malloc_trim = _make_malloc_trim()
+
+
 def resolve_cache_num_proc(value: int | None) -> int:
     """Return a positive worker count for the cache map/pool (default capped at 8).
 
@@ -217,6 +242,8 @@ def _map_and_cache(
         for example in unbatch_iter(batch):
             cache.add(example)
         done += 1
+        if done % 64 == 0:
+            _malloc_trim()  # return fragmented arena memory to the OS during the run
         if cache_emitter is not None:
             is_last = total_batches and done >= total_batches
             percent = (

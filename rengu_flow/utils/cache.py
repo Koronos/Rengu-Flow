@@ -125,6 +125,10 @@ class Cache:
             )
         else:
             self._meta_con = sqlite3.connect(db_path, check_same_thread=False)
+            # WAL + NORMAL: cheap durable commits so add() can checkpoint mid-bucket
+            # (bounds the open transaction; an OOM/crash no longer loses the whole bucket).
+            self._meta_con.execute("PRAGMA journal_mode=WAL")
+            self._meta_con.execute("PRAGMA synchronous=NORMAL")
             self._meta_con.execute(
                 "CREATE TABLE IF NOT EXISTS item_meta(idx INTEGER PRIMARY KEY, payload TEXT)"
             )
@@ -376,6 +380,10 @@ class Cache:
             (self.count, json.dumps(meta)),
         )
         self.count += 1
+        # Commit periodically instead of once at finalize: keeps the transaction (and
+        # WAL) bounded and makes a partially-cached bucket durable if the run dies.
+        if self.count % 512 == 0:
+            self._meta_con.commit()
 
     def finalize_current_shard(self) -> None:
         for f in self._tensor_files.values():

@@ -15,7 +15,7 @@ from rengu_flow.data.augmentation import (
     image_spec_base,
     image_spec_variant_key,
 )
-from rengu_flow.data.dataset import VIDEO_EXTENSIONS
+from rengu_flow.data.dataset import VIDEO_EXTENSIONS, _webp_frame_count
 from rengu_flow.utils.common import round_down_to_multiple, round_to_nearest_multiple
 
 
@@ -129,7 +129,7 @@ class PreprocessMediaFile:
             self.support_video
             and spec[0] is None
             and suffix == ".webp"
-            and imageio.get_reader(filepath_or_file).get_length() > 1
+            and _webp_frame_count(filepath_or_file) > 1
         )
         is_video = suffix in VIDEO_EXTENSIONS or is_webp_video
 

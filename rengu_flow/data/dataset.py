@@ -67,6 +67,16 @@ if not VIDEO_EXTENSIONS:
     VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".webm", ".mkv"}
 
 
+def _webp_frame_count(path_or_file) -> int:
+    """Frame count of a (maybe animated) WebP, closing the reader so each webp in a
+    dataset doesn't leak a native imageio handle across the whole caching run."""
+    reader = imageio.get_reader(path_or_file)
+    try:
+        return reader.get_length()
+    finally:
+        reader.close()
+
+
 def _select_size_bucket(candidates, frames, is_video, width, height,
                         no_upscale, drop_undersized):
     """Pick a (w, h, frames) size bucket from AR-sorted *candidates*.
@@ -1550,7 +1560,7 @@ class DirectoryDataset:
             try:
                 # Animated WebP frame count (0 for non-webp); >1 marks a webp video.
                 webp_frames = (
-                    imageio.get_reader(filepath_or_file).get_length()
+                    _webp_frame_count(filepath_or_file)
                     if image_file.suffix == ".webp" else 0
                 )
                 if image_file.suffix in VIDEO_EXTENSIONS:
@@ -1571,6 +1581,8 @@ class DirectoryDataset:
                     frames = webp_frames
                 else:
                     pil_img = Image.open(filepath_or_file)
+                    pil_img.load()  # full decode here so truncated/corrupt images are
+                    # dropped at metadata build (not crashing the later latent encode)
                     width, height = pil_img.size
                     frames = 1
             except Exception as e:
