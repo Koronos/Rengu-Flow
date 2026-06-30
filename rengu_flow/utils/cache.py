@@ -102,9 +102,27 @@ class Cache:
             "count": self.count,
             "tensors": self.tensor_specs,
         }
-        (self.path / MANIFEST_NAME).write_text(
-            json.dumps(payload, indent=2), encoding="utf-8"
-        )
+        # Atomic: a checkpoint manifest must never be left half-written (init() would
+        # then clear the whole cache). Write to a temp file and rename into place.
+        final = self.path / MANIFEST_NAME
+        tmp = final.with_suffix(final.suffix + ".tmp")
+        tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        os.replace(tmp, final)
+
+    def _row_size(self, key: str) -> int:
+        spec = self.tensor_specs[key]
+        storage_dtype = _dtype_from_str(spec["storage_dtype"])
+        return len(self._row_bytes(torch.zeros(spec["shape"], dtype=storage_dtype), storage_dtype))
+
+    def _checkpoint(self) -> None:
+        """Persist a consistent resume point: flush tensor bytes, commit the meta,
+        then record the count in the manifest (in that order, so the manifest count
+        never exceeds what's durably on disk). A crash after this resumes from here."""
+        for f in self._tensor_files.values():
+            f.flush()
+        if self._meta_con is not None:
+            self._meta_con.commit()
+        self._write_manifest()
 
     def _open_meta(self, read_only: bool = False) -> None:
         if self._meta_con is not None:
@@ -335,14 +353,26 @@ class Cache:
             self._register_tensor_key(key, tensor)
 
     def _ensure_writable(self) -> None:
-        if self._meta_con is None or self._meta_read_only:
+        resuming = self._meta_con is None or self._meta_read_only
+        if resuming:
             self._open_meta(read_only=False)
+            # Resume: a crash may have left tensor rows / meta rows written past the
+            # last manifest checkpoint. Drop that tail so manifest count, tensor files,
+            # and meta all agree on exactly self.count rows.
+            self._meta_con.execute("DELETE FROM item_meta WHERE idx >= ?", (self.count,))
+            self._meta_con.commit()
         self._mmaps.clear()
         for key in self.tensor_specs:
             if key in self._tensor_files:
                 continue
             path = self.path / TENSORS_DIR / f"{key}.bin"
-            self._tensor_files[key] = open(path, "ab")  # noqa: SIM115
+            if resuming and path.exists():
+                f = open(path, "r+b")  # noqa: SIM115
+                f.truncate(self.count * self._row_size(key))
+                f.seek(0, os.SEEK_END)
+                self._tensor_files[key] = f
+            else:
+                self._tensor_files[key] = open(path, "ab")  # noqa: SIM115
 
     def add(self, item: dict) -> None:
         tensors, meta = self._split_item(item)
@@ -380,10 +410,10 @@ class Cache:
             (self.count, json.dumps(meta)),
         )
         self.count += 1
-        # Commit periodically instead of once at finalize: keeps the transaction (and
-        # WAL) bounded and makes a partially-cached bucket durable if the run dies.
+        # Checkpoint periodically (not just at finalize): flush + commit + manifest so
+        # an interrupted run resumes from here instead of redoing everything.
         if self.count % 512 == 0:
-            self._meta_con.commit()
+            self._checkpoint()
 
     def finalize_current_shard(self) -> None:
         for f in self._tensor_files.values():

@@ -234,3 +234,40 @@ def test_reject_legacy_v1_and_open(tmp_path):
 
     with pytest.raises(ValueError, match="Legacy cache v1"):
         open_disk_cache(v1_dir, "fp1")
+
+
+def test_cache_resume_after_checkpoint(tmp_path):
+    """An interrupted run resumes from the last checkpoint, dropping any tensor/meta
+    rows written past it, and finishes consistently."""
+    from rengu_flow.utils.cache import TENSORS_DIR
+
+    fp = "fp-resume"
+    first = [_latents_item(scale=float(i + 1)) for i in range(5)]
+    cache = Cache(tmp_path / "latents", fp)
+    for it in first:
+        cache.add(it)
+    cache._checkpoint()  # durable resume point at 5
+    assert cache.count == 5
+
+    # Simulate a crash mid-bucket: a tensor row + a committed meta row written past
+    # the checkpoint that the manifest never recorded.
+    key = next(iter(cache.tensor_specs))
+    tbin = tmp_path / "latents" / TENSORS_DIR / f"{key}.bin"
+    with open(tbin, "ab") as f:
+        f.write(b"\x00" * cache._row_size(key))  # junk row at idx 5
+    cache._meta_con.execute("INSERT INTO item_meta(idx, payload) VALUES(5, '{}')")
+    cache._meta_con.commit()
+    del cache  # drop the writer without finalizing
+
+    # Reopen: count is the manifest's (5), not the stray tail.
+    cache2 = open_disk_cache(tmp_path / "latents", fp)
+    assert len(cache2) == 5
+    rest = [_latents_item(scale=float(i + 10)) for i in range(5)]  # idx 5..9
+    for it in rest:
+        cache2.add(it)
+    cache2.finalize_current_shard()
+
+    assert len(cache2) == 10
+    expected = first + rest
+    for i, exp in enumerate(expected):
+        assert torch.allclose(cache2[i]["latents"].float(), exp["latents"].float()), i
