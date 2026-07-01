@@ -69,7 +69,9 @@ purge_smoke_data() {
   rm -rf "${REPO_ROOT}/output"/* 2>/dev/null || true
   mkdir -p "${REPO_ROOT}/output"
   local cache_dir="${REPO_ROOT}/tests/fixtures/smoke_cc0/images/cache"
-  [[ -d "${cache_dir}" ]] && rm -rf "${cache_dir}"
+  # Unconditional (set -e safe): the guarded form `[[ -d x ]] && rm` returns 1 when the
+  # dir is already gone (e.g. a prior run died mid-way), killing the script under set -e.
+  rm -rf "${cache_dir}" 2>/dev/null || true
 }
 
 preset_toml_lines() {
