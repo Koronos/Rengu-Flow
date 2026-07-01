@@ -441,6 +441,20 @@ class Cache:
             t = t.to(original_dtype)
         return t
 
+    def valid_flags(self) -> list[bool]:
+        """Per-row 'valid' flag from the JSON meta only (no tensor mmap reads).
+
+        Rows default to valid; a False marks a tombstone (e.g. a corrupt image's
+        zero-placeholder latent) that callers should exclude. Cheap O(N) scan."""
+        self._ensure_meta_for_read()
+        out = [True] * self.count
+        for idx, payload in self._meta_con.execute(
+            "SELECT idx, payload FROM item_meta ORDER BY idx"
+        ):
+            if 0 <= idx < self.count:
+                out[idx] = bool(json.loads(payload).get("valid", True))
+        return out
+
     def _build_item(self, idx: int) -> dict:
         self._ensure_meta_for_read()
         row = self._meta_con.execute(

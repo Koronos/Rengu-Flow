@@ -17,6 +17,9 @@ from rengu_flow.data.augmentation import (
 )
 from rengu_flow.data.dataset import VIDEO_EXTENSIONS, _webp_frame_count
 from rengu_flow.utils.common import round_down_to_multiple, round_to_nearest_multiple
+from rengu_flow.utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 def _ensure_mask_matches_image(
@@ -133,6 +136,7 @@ class PreprocessMediaFile:
         )
         is_video = suffix in VIDEO_EXTENSIONS or is_webp_video
 
+        valid = True  # False = corrupt/truncated -> tombstone (zero placeholder, skipped at train)
         if is_video:
             assert self.support_video
             iter_kwargs = {} if is_webp_video else {"fps": self.framerate}
@@ -142,24 +146,31 @@ class PreprocessMediaFile:
             video = imageio.v3.imiter(filepath_or_file, **iter_kwargs)
         else:
             num_frames = 1
-            pil_img = Image.open(filepath_or_file)
-            height, width = pil_img.height, pil_img.width
             mask_pil = None
-            if mask_filepath:
-                mask_pil = Image.open(mask_filepath).convert("RGB")
-                _ensure_mask_matches_image(
-                    mask_pil,
-                    height,
-                    width,
-                    image_path=spec[1],
-                    mask_path=mask_filepath,
-                )
-            if self.augmentation_resolver is not None:
-                pil_img, mask_pil = self._apply_augmentation_if_needed(
-                    pil_img, mask_pil, spec
-                )
+            try:
+                pil_img = Image.open(filepath_or_file)
                 height, width = pil_img.height, pil_img.width
-            video = [pil_img]
+                if mask_filepath:
+                    mask_pil = Image.open(mask_filepath).convert("RGB")
+                    _ensure_mask_matches_image(
+                        mask_pil, height, width, image_path=spec[1], mask_path=mask_filepath,
+                    )
+                if self.augmentation_resolver is not None:
+                    pil_img, mask_pil = self._apply_augmentation_if_needed(
+                        pil_img, mask_pil, spec
+                    )
+                    height, width = pil_img.height, pil_img.width
+                pil_img.load()  # force full decode HERE so truncation surfaces in this try
+                video = [pil_img]
+            except (OSError, SyntaxError) as e:  # UnidentifiedImageError is an OSError subclass
+                if size_bucket is None:
+                    raise  # no bucket geometry to size a placeholder from
+                logger.warning("Corrupt/truncated image tombstoned at latent encode: %s (%s)",
+                               spec[1], e)
+                valid = False
+                video = None
+                width = height = 0
+                mask_pil = None
 
         if size_bucket is not None:
             size_bucket_width, size_bucket_height, size_bucket_frames = size_bucket
@@ -172,7 +183,7 @@ class PreprocessMediaFile:
         resize_wh = (width_rounded, height_rounded)
 
         mask = None
-        if not is_video and mask_filepath:
+        if valid and not is_video and mask_filepath:
             mask_img = mask_pil if mask_pil is not None else Image.open(mask_filepath).convert("RGB")
             mask_img = ImageOps.fit(mask_img, resize_wh)
             mask = tv_functional.to_tensor(mask_img)[0].to(torch.float16)
@@ -188,21 +199,24 @@ class PreprocessMediaFile:
             mask_img = ImageOps.fit(mask_img, resize_wh)
             mask = tv_functional.to_tensor(mask_img)[0].to(torch.float16)
 
-        resized_video = torch.empty((num_frames, 3, height_rounded, width_rounded))
-        for i, frame in enumerate(video):
-            if not isinstance(frame, Image.Image):
-                frame = tv_functional.to_pil_image(frame)
-            cropped_image = convert_crop_and_resize(frame, resize_wh)
-            resized_video[i, ...] = self.pil_to_tensor(cropped_image)
+        if valid:
+            resized_video = torch.empty((num_frames, 3, height_rounded, width_rounded))
+            for i, frame in enumerate(video):
+                if not isinstance(frame, Image.Image):
+                    frame = tv_functional.to_pil_image(frame)
+                cropped_image = convert_crop_and_resize(frame, resize_wh)
+                resized_video[i, ...] = self.pil_to_tensor(cropped_image)
+        else:  # tombstone: correctly-shaped zeros; marked invalid, never sampled at train
+            resized_video = torch.zeros((num_frames, 3, height_rounded, width_rounded))
 
         if hasattr(filepath_or_file, "close"):
             filepath_or_file.close()
 
         if not self.support_video:
-            return [(resized_video.squeeze(0), mask)]
+            return [(resized_video.squeeze(0), mask, valid)]
 
         resized_video = torch.permute(resized_video, (1, 0, 2, 3))
         if not is_video:
-            return [(resized_video, mask)]
+            return [(resized_video, mask, valid)]
         videos = extract_clips(resized_video, frames_rounded, self.video_clip_mode)
-        return [(video, mask) for video in videos]
+        return [(video, mask, valid) for video in videos]

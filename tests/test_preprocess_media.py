@@ -46,5 +46,23 @@ def test_animated_webp_decoded_as_video(tmp_path):
     # size_bucket = (width, height, frames); 5 -> frames_rounded 5 (the 4k+1 convention)
     out = fn((None, str(p)), None, size_bucket=(64, 48, 5))
     assert len(out) == 1
-    video, _mask = out[0]
+    video, _mask, _valid = out[0]
     assert tuple(video.shape) == (3, 5, 48, 64)  # (C, T, H, W), 5 native frames kept
+
+
+def test_corrupt_image_is_tombstoned(tmp_path):
+    """A corrupt still yields a zero-placeholder marked invalid instead of raising."""
+    import torch
+    from rengu_flow.data.preprocess_media import PreprocessMediaFile
+
+    bad = tmp_path / "bad.jpg"
+    bad.write_bytes(b"\xff\xd8\xff\xe0not-a-real-jpeg")  # JPEG SOI then garbage -> decode fails
+    fn = PreprocessMediaFile({"video_clip_mode": "single_beginning"}, support_video=False)
+    out = fn((None, str(bad)), None, size_bucket=(64, 48, 1))
+
+    assert len(out) == 1  # exactly one row (keeps the cache 1:1), not skipped
+    tensor, mask, valid = out[0]
+    assert valid is False
+    assert mask is None
+    assert tuple(tensor.shape) == (3, 48, 64)  # bucket-shaped zero placeholder
+    assert int(torch.count_nonzero(tensor)) == 0

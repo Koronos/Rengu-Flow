@@ -578,6 +578,10 @@ class SizeBucketDataset:
                 tuple(self.metadata_dataset[i]["image_spec"]): i
                 for i in range(len(self.metadata_dataset))
             }
+            # Tombstoned rows (corrupt images cached as zero placeholders) are excluded
+            # here, so they're never sampled at train time — the cache stays 1:1 with
+            # metadata (positional index above holds), they just don't enter the order.
+            valid_flags = self.latent_dataset.valid_flags()
 
             equal_num_captions = True
             num_captions = None
@@ -598,6 +602,8 @@ class SizeBucketDataset:
                     shuffle_with_seed(captions, seed)
                     seed += 1
                     latents_idx = image_spec_to_latents_idx[tuple(image_spec)]
+                    if not valid_flags[latents_idx]:
+                        continue
                     for i, caption in enumerate(captions):
                         by_caption_num[i].append(
                             (image_spec, latents_idx, caption, i)
@@ -612,6 +618,8 @@ class SizeBucketDataset:
                     image_spec = example["image_spec"]
                     captions = example["caption"]
                     latents_idx = image_spec_to_latents_idx[tuple(image_spec)]
+                    if not valid_flags[latents_idx]:
+                        continue
                     for i, caption in enumerate(captions):
                         iteration_order_list.append(
                             (image_spec, latents_idx, caption, i)
@@ -1580,9 +1588,9 @@ class DirectoryDataset:
                     height, width = first_frame.shape[:2]
                     frames = webp_frames
                 else:
+                    # Lazy: just the header (fast). Truncated/corrupt pixel data is
+                    # tolerated later, at latent encode time, where the image is skipped.
                     pil_img = Image.open(filepath_or_file)
-                    pil_img.load()  # full decode here so truncated/corrupt images are
-                    # dropped at metadata build (not crashing the later latent encode)
                     width, height = pil_img.size
                     frames = 1
             except Exception as e:

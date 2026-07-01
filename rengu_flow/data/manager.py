@@ -81,6 +81,7 @@ def _cache_fn(
                 "latents": [],
                 "mask": [],
                 "image_spec": [],
+                "valid": [],
             }
 
         batch_size = len(example["image_spec"])
@@ -108,6 +109,16 @@ def _cache_fn(
             results[k] = torch.cat(results[k])
         results["image_spec"] = image_specs
         results["mask"] = [t[1] for t in tensors_and_masks]
+        # Tombstone flag: a corrupt/truncated image yields a zero-placeholder latent
+        # marked invalid here; it's filtered out when the iteration order is built, so
+        # it's never sampled at train time — while the cache stays strictly 1:1.
+        if is_edit:
+            results["valid"] = [
+                bool(t[2]) and bool(c[2])
+                for t, c in zip(tensors_and_masks, control_tensors_and_masks)
+            ]
+        else:
+            results["valid"] = [bool(t[2]) for t in tensors_and_masks]
         return results
 
     for ds in datasets_list:

@@ -271,3 +271,12 @@ def test_cache_resume_after_checkpoint(tmp_path):
     expected = first + rest
     for i, exp in enumerate(expected):
         assert torch.allclose(cache2[i]["latents"].float(), exp["latents"].float()), i
+
+
+def test_cache_valid_flags(tmp_path):
+    cache = Cache(tmp_path / "latents", "fp-valid")
+    cache.add({**_latents_item(), "valid": True})
+    cache.add({**_latents_item(), "valid": False})   # tombstone
+    cache.add(_latents_item())                        # no key -> defaults valid
+    cache.finalize_current_shard()
+    assert cache.valid_flags() == [True, False, True]
