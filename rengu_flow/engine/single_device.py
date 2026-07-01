@@ -151,11 +151,15 @@ class TorchEngine:
     def train_batch(self, iterator) -> torch.Tensor:
         """Run ``micro_batches`` forward/backward, then one optimizer step. Returns mean loss."""
         self.module.train()
-        total = 0.0
+        # Accumulate the loss on-GPU (loss.detach(), not .item()) so we don't force a
+        # cudaStreamSynchronize every micro-batch. That per-micro-batch sync stalls the CPU
+        # behind the GPU and defeats the CPU-runs-ahead overlap torch.compile relies on; the
+        # single sync happens later when the caller reads the returned scalar.
+        total = None
         for micro_batch in iterator:
             loss = self._forward_loss(micro_batch) / self.micro_batches
             loss.backward()
-            total += loss.item()
+            total = loss.detach() if total is None else total + loss.detach()
         if self._grad_clip:
             self._last_grad_norm = float(
                 torch.nn.utils.clip_grad_norm_(self._trainable, self._grad_clip)
@@ -164,16 +168,17 @@ class TorchEngine:
         if self.lr_scheduler is not None:
             self.lr_scheduler.step()
         self.optimizer.zero_grad(set_to_none=True)
-        return torch.tensor(total)
+        return total if total is not None else torch.tensor(0.0)
 
     def eval_batch(self, iterator, num_micro_batches: int | None = None) -> torch.Tensor:
         self.module.eval()
-        total, n = 0.0, 0
+        total, n = None, 0
         with torch.no_grad():
             for micro_batch in iterator:
-                total += self._forward_loss(micro_batch).item()
+                loss = self._forward_loss(micro_batch).detach()
+                total = loss if total is None else total + loss
                 n += 1
-        return torch.tensor(total / max(n, 1))
+        return (total / n) if total is not None else torch.tensor(0.0)
 
     # -- checkpoint (resume state): trainable params + optimizer + scheduler + client_state --
     def save_checkpoint(
