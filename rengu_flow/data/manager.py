@@ -134,6 +134,35 @@ def _count_te_units(datasets_list) -> int:
     return total
 
 
+class _QueueChannel:
+    """Same-process result channel: a plain in-memory handoff with no pickling and no torch
+    shared-memory (memfd) reduction — ~36x cheaper per call than mp.Pipe for the CPU latent/
+    embedding dict. Used only when the cache worker is a thread (single device). The multi-GPU
+    worker is a real process, so it keeps mp.Pipe (genuine cross-process IPC)."""
+
+    __slots__ = ("_q",)
+
+    def __init__(self) -> None:
+        import queue as _queue
+
+        self._q = _queue.Queue(maxsize=1)
+
+    def send(self, obj) -> None:
+        self._q.put(obj)
+
+    def recv(self):
+        return self._q.get()
+
+
+def _make_channel(single_process: bool):
+    """(reader, writer) both exposing .recv()/.send(). Single-GPU thread -> one shared in-memory
+    Queue channel (same object at both ends); multi-GPU process worker -> a real mp.Pipe."""
+    if single_process:
+        ch = _QueueChannel()
+        return ch, ch
+    return mp.Pipe(duplex=False)
+
+
 def _cache_fn(
     datasets_list,
     queue,
@@ -145,6 +174,7 @@ def _cache_fn(
     cache_num_proc: int | None,
     cache_keep_in_memory: bool,
     cache_dedup_text_embeddings: bool,
+    single_process_channel: bool = False,
 ) -> None:
     """Worker process: run cache_metadata, cache_latents, cache_text_embeddings; send GPU work via queue."""
     torch.set_num_threads(1)
@@ -247,7 +277,7 @@ def _cache_fn(
                     ]
                 )
             if rank not in pipes:
-                pipes[rank] = mp.Pipe(duplex=False)
+                pipes[rank] = _make_channel(single_process_channel)
             parent_conn, child_conn = pipes[rank]
             queue.put((0, _to_pipe(tensor), _to_pipe(c_tensor), child_conn))
             result = _from_pipe(parent_conn.recv())
@@ -295,7 +325,7 @@ def _cache_fn(
                 if cached is not None:
                     return {**cached, "image_spec": example["image_spec"]}
             if rank not in pipes:
-                pipes[rank] = mp.Pipe(duplex=False)
+                pipes[rank] = _make_channel(single_process_channel)
             parent_conn, child_conn = pipes[rank]
             control_file = example.get("control_file")
             queue.put(
@@ -421,6 +451,9 @@ class DatasetManager:
                 self.cache_num_proc,
                 self.cache_keep_in_memory,
                 self.cache_dedup_text_embeddings,
+                # Single-device worker is a thread: use the in-memory Queue channel (no pickling).
+                # Multi-GPU worker is a real process: keep mp.Pipe (cross-process IPC).
+                not self.backend.is_distributed,
             ]
             worker, queue = self.backend.make_cache_worker(_run_cache_worker, cache_args)
             cache_args[1] = queue  # inject the real queue so _cache_fn can enqueue GPU tasks
