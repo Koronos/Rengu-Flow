@@ -280,3 +280,23 @@ def test_cache_valid_flags(tmp_path):
     cache.add(_latents_item())                        # no key -> defaults valid
     cache.finalize_current_shard()
     assert cache.valid_flags() == [True, False, True]
+
+
+def test_cache_variable_dim0_3d_and_1d(tmp_path):
+    """krea2-shaped rows: (L, layers, D) stacks and (L,) bool masks grow on dim 0 too."""
+    cache = Cache(tmp_path / "te3d", "fp-var3d")
+    lengths = [50, 55, 48]
+    for i, n in enumerate(lengths):
+        cache.add(
+            {
+                "prompt_embeds": torch.randn(n, 12, 32, dtype=torch.bfloat16),
+                "text_mask": torch.ones(n, dtype=torch.bool),
+                "caption": f"c{i}",
+            }
+        )
+    cache.finalize_current_shard()
+    for i, n in enumerate(lengths):
+        assert tuple(cache[i]["prompt_embeds"].shape) == (n, 12, 32)
+        assert tuple(cache[i]["text_mask"].shape) == (n,)
+        assert cache[i]["text_mask"].all()
+    assert cache.tensor_specs["prompt_embeds"]["shape"] == [55, 12, 32]

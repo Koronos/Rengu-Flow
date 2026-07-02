@@ -20,6 +20,10 @@ META_DB_NAME = "meta.db"
 TENSORS_DIR = "tensors"
 CHECKPOINT_EVERY = 128  # items between resume checkpoints (flush + commit + manifest)
 
+# Keys whose dim 0 is a token-sequence length and may grow/pad per item at any rank
+# (see _align_tensor_to_spec). 2-D tensors are always treated as sequences.
+_SEQUENCE_TENSOR_KEYS = frozenset({"prompt_embeds", "text_mask"})
+
 
 def _dtype_to_str(dtype: torch.dtype) -> str:
     return str(dtype).removeprefix("torch.")
@@ -292,7 +296,12 @@ class Cache:
                 f"Cache tensor {key} shape {actual} incompatible with bucket {spec_shape}"
             )
         if actual[0] > spec_shape[0]:
-            if len(spec_shape) != 2:
+            # Dim-0 growth is for token sequences only: any 2-D tensor (cosmos TE rows are
+            # (L, D)) plus the known sequence keys at other ranks (krea2's compacted stacks
+            # are (L, layers, D), masks (L,)). Everything else — e.g. latents, where dim 0
+            # is channels — keeps raising: a dim-0 mismatch there is a data bug that padding
+            # would silently corrupt.
+            if len(spec_shape) != 2 and key not in _SEQUENCE_TENSOR_KEYS:
                 raise ValueError(
                     f"Cache tensor {key} shape {actual} incompatible with bucket {spec_shape}"
                 )
@@ -397,7 +406,7 @@ class Cache:
                 buf = torch.zeros(spec["shape"], dtype=storage_dtype)
             else:
                 buf, actual_shape = self._align_tensor_to_spec(key, tensor)
-                if len(actual_shape) == 2:
+                if len(actual_shape) == 2 or key in _SEQUENCE_TENSOR_KEYS:
                     meta.setdefault("_tensor_shapes", {})[key] = actual_shape
             if key not in self._tensor_files:
                 self._ensure_writable()
