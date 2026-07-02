@@ -230,6 +230,19 @@ class Cache:
             t = torch.from_numpy(np.frombuffer(data, dtype=np_dtype).copy())
         return t.reshape(shape)
 
+    def refresh_reads(self) -> None:
+        """Make rows added since the last refresh visible to reads.
+
+        Reads mmap each tensor stack sized at open time and writers are buffered, so a
+        cache used as a live read-back store (add, then read older rows, then add more —
+        e.g. the text-embedding dedup spill) must flush and drop stale mmaps between
+        writes and reads."""
+        for f in self._tensor_files.values():
+            f.flush()
+        if self._meta_con is not None and not self._meta_read_only:
+            self._meta_con.commit()
+        self._close_mmaps()
+
     def _grow_tensor_dim0(self, key: str, new_d0: int) -> None:
         spec = self.tensor_specs[key]
         old_shape = tuple(int(x) for x in spec["shape"])
