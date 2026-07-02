@@ -74,9 +74,8 @@ def set_config_defaults(config: dict[str, Any]) -> None:
 
     if str(model_config.get("type", "")).lower() == "krea2":
         # The 4B Qwen3-VL dominates caching and each caption otherwise re-encodes once per
-        # resolution bucket. The dedup memo holds ~4-6 MB of RAM per unique caption for the
-        # duration of caching — fine for typical datasets; set false for huge caption sets
-        # on low-RAM machines.
+        # resolution bucket. Dedup is disk-backed (mmap spill, ~zero RAM; see
+        # data/manager.py), so it is safe at any dataset size.
         config.setdefault("cache_dedup_text_embeddings", True)
 
     if str(model_config.get("type", "")).lower() in ("cosmos_predict2", "anima", "krea2"):

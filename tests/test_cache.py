@@ -300,3 +300,21 @@ def test_cache_variable_dim0_3d_and_1d(tmp_path):
         assert tuple(cache[i]["text_mask"].shape) == (n,)
         assert cache[i]["text_mask"].all()
     assert cache.tensor_specs["prompt_embeds"]["shape"] == [55, 12, 32]
+
+
+def test_cache_refresh_reads_interleaved_add_read(tmp_path):
+    """Live read-back store pattern (TE dedup spill): rows added after a read become
+    visible after refresh_reads(), including across a dim-0 growth."""
+    cache = Cache(tmp_path / "spill", "fp-spill")
+    cache.add({"prompt_embeds": torch.randn(5, 12, 8, dtype=torch.bfloat16), "caption": "a"})
+    cache.refresh_reads()
+    first = cache[0]["prompt_embeds"]
+    assert tuple(first.shape) == (5, 12, 8)
+
+    cache.add({"prompt_embeds": torch.randn(9, 12, 8, dtype=torch.bfloat16), "caption": "b"})  # grows bucket
+    cache.add({"prompt_embeds": torch.randn(3, 12, 8, dtype=torch.bfloat16), "caption": "c"})
+    cache.refresh_reads()
+    assert tuple(cache[0]["prompt_embeds"].shape) == (5, 12, 8)
+    assert torch.equal(cache[0]["prompt_embeds"], first)
+    assert tuple(cache[1]["prompt_embeds"].shape) == (9, 12, 8)
+    assert tuple(cache[2]["prompt_embeds"].shape) == (3, 12, 8)
