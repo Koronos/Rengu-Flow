@@ -174,8 +174,11 @@ class HookBlockSwapOffloader:
     def _register_hooks(self) -> None:
         for idx, block in enumerate(self.blocks):
             for module in block.modules():
-                if module is block:
-                    continue
+                # The block root is hooked too when it directly owns parameters: krea2's
+                # blocks keep their modulation table as a raw Parameter on the block and use
+                # it BEFORE any leaf submodule runs, so a leaf-only hook set leaves it on
+                # CPU at first use. Roots without direct params (cosmos, SDXL) are skipped
+                # by the ownership check below, as before.
                 if next(module.parameters(recurse=False), None) is None:
                     continue  # only modules that directly own parameters actually run/transfer
                 self._block_of_module[id(module)] = idx
