@@ -72,6 +72,13 @@ def set_config_defaults(config: dict[str, Any]) -> None:
         if config.get("activation_checkpointing") and not config.get("blocks_to_swap"):
             config.setdefault("reentrant_activation_checkpointing", True)
 
+    if str(model_config.get("type", "")).lower() == "krea2":
+        # The 4B Qwen3-VL dominates caching and each caption otherwise re-encodes once per
+        # resolution bucket. The dedup memo holds ~4-6 MB of RAM per unique caption for the
+        # duration of caching — fine for typical datasets; set false for huge caption sets
+        # on low-RAM machines.
+        config.setdefault("cache_dedup_text_embeddings", True)
+
     if str(model_config.get("type", "")).lower() in ("cosmos_predict2", "anima", "krea2"):
         # Frozen-base quantization knobs (A/B; default-off, mutually exclusive).
         model_config.setdefault("transformer_fp8_matmul", False)
