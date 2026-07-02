@@ -19,6 +19,9 @@ def scheduler_runtime_tokens_help_detail(*, intro: str) -> str:
 
 
 # path -> {summary, detail?, doc?}
+# Keys are field paths. A "path@model_type" key overrides the bare path for fields the
+# schema emits per model capability (their `when` pins model.type), so models that share
+# a path (e.g. model.checkpoint_path on sdxl and krea2) get accurate help each.
 FIELD_HELP: dict[str, dict[str, str]] = {
     "dataset": {
         "summary": "Training data: one dataset TOML or several merged at run time.",
@@ -81,6 +84,47 @@ FIELD_HELP: dict[str, dict[str, str]] = {
             "(e.g. training a new concept with a novel trigger token)."
         ),
         "doc": "docs/user/full-model-training-sdxl.md",
+    },
+    "model.checkpoint_path@krea2": {
+        "summary": "Krea 2 Raw checkpoint — the diffusers-layout folder, not a single file.",
+        "detail": (
+            "Folder downloaded from krea/Krea-2-Raw containing transformer/, vae/, text_encoder/ "
+            "and tokenizer/ subfolders. Each component resolves as <checkpoint_path>/<subfolder> "
+            "unless its override field is set. Train on Raw; the Turbo checkpoint is inference-only."
+        ),
+        "doc": "docs/user/training-krea2.md",
+    },
+    "model.transformer_path@krea2": {
+        "summary": "Override for the Krea 2 DiT folder only.",
+        "detail": (
+            "A diffusers transformer folder (config.json + safetensors shards). Leave empty to use "
+            "<checkpoint_path>/transformer."
+        ),
+        "doc": "docs/user/training-krea2.md",
+    },
+    "model.vae_path@krea2": {
+        "summary": "Override for the Qwen-Image VAE folder only.",
+        "detail": (
+            "A diffusers AutoencoderKLQwenImage folder. Leave empty to use <checkpoint_path>/vae."
+        ),
+        "doc": "docs/user/training-krea2.md",
+    },
+    "model.text_encoder_path": {
+        "summary": "Override for the Qwen3-VL text encoder folder only.",
+        "detail": (
+            "A transformers Qwen3-VL folder. Leave empty to use <checkpoint_path>/text_encoder. "
+            "Captions are encoded once into the cache; the encoder never runs during training steps."
+        ),
+        "doc": "docs/user/training-krea2.md",
+    },
+    "model.max_sequence_length": {
+        "summary": "Caption token budget (default 512); longer captions lose their tail.",
+        "detail": (
+            "Also caps the text-embedding cache entry size — Krea 2 caches a 12-layer hidden-state "
+            "stack per token, so halving this halves the cache for long captions. Compaction already "
+            "trims unused padding, so lowering it only matters when captions actually reach the limit."
+        ),
+        "doc": "docs/user/training-krea2.md",
     },
     "model.transformer_path": {
         "summary": "Main image model — one .safetensors file (the big checkpoint you train).",
@@ -1003,7 +1047,12 @@ def enrich_schema(schema: dict[str, Any]) -> dict[str, Any]:
             path = field.get("path")
             if not path:
                 continue
-            meta = FIELD_HELP.get(path)
+            meta = None
+            when = field.get("when") or {}
+            if when.get("field") == "model.type" and len(when.get("in") or []) == 1:
+                meta = FIELD_HELP.get(f"{path}@{when['in'][0]}")
+            if meta is None:
+                meta = FIELD_HELP.get(path)
             if meta:
                 _apply_field_help(field, meta)
             if not field.get("help"):
