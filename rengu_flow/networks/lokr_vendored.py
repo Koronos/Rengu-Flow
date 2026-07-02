@@ -172,6 +172,17 @@ def _apply_lokr_vendored(module, containers, adapter_config, state_dict_key_pref
         trainable = sum(p.numel() for p in module.parameters() if p.requires_grad)
         print(f"LoKr (vendored): injected into {count} Linear modules")
         print(f"  trainable params: {trainable:,d} || all params: {total:,d} || trainable%: {100 * trainable / total:.4f}")
+        if full_matrix and trainable > 50_000_000:
+            # full_matrix stores W2 WHOLE — rank is ignored for it, and a small `factor`
+            # makes each W2 nearly the full layer. Users reading "rank 6" expect a tiny
+            # adapter, then the optimizer states OOM the GPU.
+            print(
+                f"  WARNING: adapter.full_matrix with factor={factor} produced a "
+                f"{trainable / 1e6:.0f}M-parameter adapter (rank is ignored for the full W2). "
+                "For a small LoKr set full_matrix = false, or use factor = -1 (balanced, "
+                "tiny full matrices).",
+                flush=True,
+            )
 
 
 # ---------------------------------------------------------------------------

@@ -52,7 +52,15 @@ def set_config_defaults(config: dict[str, Any]) -> None:
             flush=True,
         )
         config["activation_checkpointing"] = True
-    config.setdefault("reentrant_activation_checkpointing", False)
+    # Reentrant AC defaults ON when a quantized base is block-swapped: bnb's autograd ctx
+    # keeps every packed 4-bit weight referenced from forward until backward, so with
+    # non-reentrant AC swap eviction frees nothing (all blocks co-resident). Reentrant runs
+    # the first forward under no_grad — eviction works; measured 12.75 -> 6.3 GiB peak on
+    # the krea2 repro. Explicit user values are always respected.
+    config.setdefault(
+        "reentrant_activation_checkpointing",
+        bool(config.get("blocks_to_swap") and (config.get("model") or {}).get("transformer_4bit")),
+    )
     config.setdefault("warmup_steps", 0)
     if "save_dtype" in config:
         config["save_dtype"] = DTYPE_MAP[config["save_dtype"]]
