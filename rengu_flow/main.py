@@ -1184,6 +1184,16 @@ def _run_training(args, config):
         )
 
         budget_backoff = BudgetBackoff(resolve_auto_ac_budget(config))
+        if config["model"].get("transformer_4bit") and config.get("blocks_to_swap") and is_main_process():
+            print(
+                "[checkpoint] NOTE: activation_checkpointing='auto' + compile with a "
+                "block-swapped 4-bit base tends to overshoot and back off repeatedly — "
+                "bitsandbytes keeps every packed weight referenced across fwd->bwd, which "
+                "the partitioner's budget cannot see. The measured-lean path for this "
+                "combination is activation_checkpointing = true with compile = false "
+                "(reentrant recompute defaults on; ~half the peak VRAM).",
+                flush=True,
+            )
 
     def _apply_budget_backoff(new_budget: float) -> None:
         """Zero grads, drop every compiled graph, re-arm the (lower) budget."""
