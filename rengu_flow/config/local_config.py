@@ -187,7 +187,7 @@ def ensure_local_config_loaded() -> LocalConfig:
 
 
 def apply_local_config_to_environ(cfg: LocalConfig | None = None) -> None:
-    """Apply UI and maintenance settings to ``os.environ`` (setdefault)."""
+    """Apply UI, maintenance, and ``[training.env]`` settings to ``os.environ`` (setdefault)."""
     c = cfg if cfg is not None else ensure_local_config_loaded()
     os.environ["RENGU_FLOW_UI_HOST"] = c.ui_bind_host()
     os.environ["RENGU_FLOW_UI_PORT"] = str(c.ui.port)
@@ -199,6 +199,16 @@ def apply_local_config_to_environ(cfg: LocalConfig | None = None) -> None:
         "RENGUFLOW_MAINTENANCE_ALLOW_PIP",
         "1" if c.maintenance.allow_pip else "0",
     )
+    # [training.env] — same respect-existing semantics as the rengu/UI launchers, so a
+    # direct `python -m rengu_flow.main` run honors it too. PYTORCH_CUDA_ALLOC_CONF and
+    # NCCL_* are read lazily at first CUDA/dist init, after main() has run this.
+    applied = []
+    for key, value in c.training.env.items():
+        if key not in os.environ:
+            os.environ[key] = value
+            applied.append(f"{key}={value}")
+    if applied:
+        print(f"rengu_flow: applied [training.env]: {'; '.join(applied)}", flush=True)
 
 
 def init_local_config_file(*, root: Path | None = None, force: bool = False) -> Path:
