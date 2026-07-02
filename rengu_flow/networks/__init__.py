@@ -10,6 +10,6 @@ import lazy_loader as lazy
 
 __getattr__, __dir__, __all__ = lazy.attach(
     __name__,
-    submodules=["adapter_dit", "lokr_sdxl", "lora_sdxl", "lycoris_attach", "lycoris_dit", "lycoris_meta", "lycoris_sdxl"],
+    submodules=["adapter_dit", "lokr_vendored", "lora_sdxl", "lycoris_attach", "lycoris_dit", "lycoris_meta", "lycoris_sdxl"],
     submod_attrs={"factorization": ["factorization"]},
 )

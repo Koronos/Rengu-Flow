@@ -6,7 +6,7 @@ rengu-flow does **not** depend on diffusion-pipe at runtime. A local clone of [d
 
 | Upstream piece | Used by `cosmos_predict2.py` train path? | rengu-flow |
 |--------------|------------------------------------------|------------|
-| `submodules/ComfyUI` | No direct import in train script | **Not** added (GPL, heavy). LoKr math from `rengu_flow/networks/lokr_sdxl.py`. |
+| `submodules/ComfyUI` | No direct import in train script | **Not** added (GPL, heavy). LoKr math from `rengu_flow/networks/lokr_vendored.py`. |
 | `submodules/Cosmos` (NVIDIA) | Only `models/cosmos.py` (other product) | **Not** added |
 | `models/cosmos_predict2_modeling.py` | Yes | **In-repo** → `rengu_flow/model/cosmos_predict2/dit.py` |
 | `models/llm_adapter.py` | Yes | **In-repo** → `rengu_flow/model/cosmos_predict2/llm_adapter.py` |
@@ -17,7 +17,7 @@ rengu-flow does **not** depend on diffusion-pipe at runtime. A local clone of [d
 
 ## Local diffusion-pipe diffs to mirror (already ported)
 
-1. **LoKr on DiT** — `base.py` inject/apply LoKr; rengu-flow: `adapter_dit` + `lokr_sdxl`.
+1. **LoKr on DiT** — `base.py` inject/apply LoKr; rengu-flow: `adapter_dit` + `lokr_vendored`.
 2. **`save_adapter` LoKr** — `.alpha` per module + `diffusion_model.` prefix; rengu-flow: `adapter_dit.save`.
 3. **LoKr TOML** — `alpha` from `rank`; explicit `alpha` rejected in defaults (same as SDXL).
 

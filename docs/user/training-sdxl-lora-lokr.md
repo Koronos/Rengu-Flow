@@ -48,7 +48,7 @@ rank = 16
 - **full_matrix**: Use full matrices instead of low-rank for the second factor. Optional; default false.
 - **dtype**: Optional; defaults to the model dtype.
 
-Example minimal LoKr config: see `examples/minimal_config_lokr_sdxl.toml`.
+Example minimal LoKr config: see `examples/minimal_config_lokr_vendored.toml`.
 
 ## LyCORIS networks
 

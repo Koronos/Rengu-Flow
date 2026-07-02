@@ -4,7 +4,7 @@ DeepSpeed places and trains them)."""
 import torch
 from torch import nn
 
-from rengu_flow.networks import lokr_sdxl
+from rengu_flow.networks import lokr_vendored
 
 
 def test_vendored_lokr_injects_into_modulelist_linears():
@@ -13,7 +13,7 @@ def test_vendored_lokr_injects_into_modulelist_linears():
     root.blocks = nn.ModuleList([nn.Linear(8, 8), nn.Linear(8, 8)])
     cfg = {"rank": 4, "alpha": 4, "factor": -1, "dtype": torch.float32}
 
-    lokr_sdxl._apply_lokr_vendored(root, [root.blocks], cfg, "unet.")
+    lokr_vendored._apply_lokr_vendored(root, [root.blocks], cfg, "unet.")
 
     # LoKr params are registered ON the linears (children of the module tree), not on a
     # separate side object — this is what lets DeepSpeed move/train them.
@@ -34,8 +34,8 @@ def test_vendored_lokr_skips_double_injection():
     root = nn.Module()
     root.blocks = nn.ModuleList([nn.Linear(8, 8)])
     cfg = {"rank": 4, "alpha": 4, "factor": -1, "dtype": torch.float32}
-    lokr_sdxl._apply_lokr_vendored(root, [root.blocks], cfg, "unet.")
+    lokr_vendored._apply_lokr_vendored(root, [root.blocks], cfg, "unet.")
     before = sum(1 for n, _ in root.named_parameters() if "lokr_" in n)
-    lokr_sdxl._apply_lokr_vendored(root, [root.blocks], cfg, "unet.")
+    lokr_vendored._apply_lokr_vendored(root, [root.blocks], cfg, "unet.")
     after = sum(1 for n, _ in root.named_parameters() if "lokr_" in n)
     assert before == after  # guard against re-injecting on an already-adapted linear

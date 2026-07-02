@@ -34,7 +34,7 @@
   - [Model pipeline contract (implementation status)](developer/model-pipeline-contract.md) — `ModelPipelineProtocol` methods for SDXL and Cosmos Predict2.
   - [Cosmos Predict2 pipeline](developer/cosmos-predict2-pipeline.md) — Layout, cache hooks, adapters, param groups.
   - [Dependencies and upstream](developer/dependencies-and-upstream.md) — diffusion-pipe submodules vs in-repo incorporation.
-  - [Networks](developer/networks.md) — Adapter modules (lora_sdxl, lokr_sdxl), contract, and how to add new networks or models.
+  - [Networks](developer/networks.md) — Adapter modules (lora_sdxl, lokr_vendored), contract, and how to add new networks or models.
   - [Adding optimizers and schedulers](developer/adding-optimizers-and-schedulers.md) — Registry locations, resolution order, how to register custom optimizer or scheduler.
   - [CLI (`rengu`)](developer/cli.md) — Dispatcher, local config, train launcher, install profiles.
   - [Dependency installer](developer/dependency-installer.md) — Additive, on-demand `rengu_flow/install/` package; profiles, runners, self-heal, git packages.

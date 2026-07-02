@@ -12,7 +12,7 @@ from rengu_flow.config import load_config, load_dataset_config, set_config_defau
 EXAMPLE_CONFIGS = [
     "minimal_config.toml",
     "minimal_config_lora_sdxl.toml",
-    "minimal_config_lokr_sdxl.toml",
+    "minimal_config_lokr_vendored.toml",
     "full_model_sdxl.toml",
     "full_model_sdxl_unet_only.toml",
     "minimal_config_cosmos_predict2_lora.toml",

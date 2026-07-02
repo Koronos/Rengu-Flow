@@ -2,7 +2,7 @@
 *names* (from _collect_target_linears) into nn.Module containers before handing them to the
 vendored LoKr helper. Regression test for the str-vs-module crash:
 
-    File "rengu_flow/networks/lokr_sdxl.py", line 131, in _apply_lokr_vendored
+    File "rengu_flow/networks/lokr_vendored.py", line 131, in _apply_lokr_vendored
         for sub in container.modules():
     AttributeError: 'str' object has no attribute 'modules'
 """
@@ -82,7 +82,7 @@ def test_lokr_uses_logical_dims_not_weight_shape():
     import torch
     from torch import nn
 
-    from rengu_flow.networks.lokr_sdxl import _inject_lokr_into_linear
+    from rengu_flow.networks.lokr_vendored import _inject_lokr_into_linear
 
     lin = nn.Linear(64, 64, bias=False)
     # Simulate a post-quantization packed weight without needing bitsandbytes.

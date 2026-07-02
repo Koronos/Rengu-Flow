@@ -17,7 +17,7 @@ from rengu_flow.utils.logging import logger
 from rengu_flow.utils.save_io import atomic_save_safetensors
 from rengu_flow.utils.diffusers_tf5_compat import apply_diffusers_transformers_v5_single_file_patch
 
-# Optional: import network adapters (lora_sdxl always; lokr_sdxl may use LyCORIS or vendored)
+# Optional: import network adapters (lora_sdxl always; lokr_vendored may use LyCORIS or vendored)
 from rengu_flow import networks as networks_module
 
 
@@ -434,7 +434,7 @@ class SDXLPipeline(BasePipeline):
             self._pipeline.text_encoder = te
             self._pipeline.text_encoder_2 = te2
         elif self.adapter_type == "lokr":
-            networks_module.lokr_sdxl.configure(
+            networks_module.lokr_vendored.configure(
                 self.unet,
                 self.text_encoder,
                 self.text_encoder_2,
@@ -456,7 +456,7 @@ class SDXLPipeline(BasePipeline):
         if adapter_type == "lora":
             networks_module.lora_sdxl.save(save_dir, state_dict, self.adapter_config)
         elif adapter_type == "lokr":
-            networks_module.lokr_sdxl.save(save_dir, state_dict, self.adapter_config)
+            networks_module.lokr_vendored.save(save_dir, state_dict, self.adapter_config)
         elif adapter_type.startswith("lycoris_"):
             networks_module.lycoris_sdxl.save(save_dir, state_dict, self.adapter_config)
         else:
@@ -477,7 +477,7 @@ class SDXLPipeline(BasePipeline):
             adapter_type is None and any("lokr_" in k for k in state.keys())
             and not networks_module.lycoris_sdxl.looks_like_lycoris_state(state)
         ):
-            networks_module.lokr_sdxl.load(self, adapter_path)
+            networks_module.lokr_vendored.load(self, adapter_path)
         else:
             networks_module.lora_sdxl.load(self.diffusers_pipeline, adapter_path)
         self._set_param_original_name()
@@ -517,7 +517,7 @@ class SDXLPipeline(BasePipeline):
         """Configure LoKr if needed, load weights, then fuse into base weights."""
         adapter_type = getattr(self, "adapter_type", None) or (self.config.get("adapter") or {}).get("type")
         if adapter_type != "lokr":
-            adapter_config = networks_module.lokr_sdxl.infer_lokr_config_from_state(state)
+            adapter_config = networks_module.lokr_vendored.infer_lokr_config_from_state(state)
             adapter_config["type"] = "lokr"
             existing = self.config.get("adapter") or {}
             if "rank" not in adapter_config and "dim" in existing:
@@ -527,7 +527,7 @@ class SDXLPipeline(BasePipeline):
                 adapter_config["dtype"] = model_dtype if isinstance(model_dtype, torch.dtype) else torch.float32
             self.configure_adapter(adapter_config)
         self.load_adapter_weights(path)
-        networks_module.lokr_sdxl.fuse(self)
+        networks_module.lokr_vendored.fuse(self)
         self._set_param_original_name()
 
     def save_model(self, save_dir, diffusers_sd):

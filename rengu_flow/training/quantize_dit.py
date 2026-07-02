@@ -16,7 +16,7 @@ the **adapter (LoKr / LoRA)** trainable on top of the (now quantized) frozen bas
 
 Both replacements **subclass / mimic** ``nn.Linear`` so the lycoris/vendored LoKr targeting
 (``isinstance(module, nn.Linear)``) still matches them. The vendored LoKr forward
-(:mod:`rengu_flow.networks.lokr_sdxl`) is quantization-aware: when a target module exposes a
+(:mod:`rengu_flow.networks.lokr_vendored`) is quantization-aware: when a target module exposes a
 ``base_linear`` callable it routes the base matmul through that (the quantized path) and only
 adds the trainable Kronecker delta on top -- so LoKr trains on top of the quantized base.
 

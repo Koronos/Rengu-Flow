@@ -1,6 +1,6 @@
 """LyCORIS library networks for SDXL — thin root-mapping over ``lycoris_attach``.
 
-Same public surface as ``lokr_sdxl`` (configure/save/load/fuse). Exports use
+Same public surface as ``lokr_vendored`` (configure/save/load/fuse). Exports use
 kohya-flat names (``lora_unet_*`` / ``lora_te1_*`` / ``lora_te2_*``) so the files
 load in ComfyUI/a1111 lycoris loaders.
 """
