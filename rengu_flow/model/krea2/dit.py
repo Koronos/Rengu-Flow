@@ -95,10 +95,19 @@ class Krea2Attention(nn.Module):
             query = apply_rotary_emb(query, image_rotary_emb, sequence_dim=1)
             key = apply_rotary_emb(key, image_rotary_emb, sequence_dim=1)
 
-        # (B, S, H, D) -> (B, H, S, D) for SDPA; GQA expansion handled by enable_gqa.
+        # (B, S, H, D) -> (B, H, S, D) for SDPA.
         query, key, value = (t.transpose(1, 2) for t in (query, key, value))
+        enable_gqa = self.num_heads != self.num_kv_heads
+        if attention_mask is not None and enable_gqa:
+            # enable_gqa + an arbitrary mask has no fused SDPA backend and decomposes to
+            # the math path, materializing fp32 (S, S) score buffers (hundreds of MB per
+            # block at 1024px). Expanding KV heads keeps the mem-efficient kernel eligible.
+            repeat = self.num_heads // self.num_kv_heads
+            key = key.repeat_interleave(repeat, dim=1)
+            value = value.repeat_interleave(repeat, dim=1)
+            enable_gqa = False
         hidden_states = F.scaled_dot_product_attention(
-            query, key, value, attn_mask=attention_mask, enable_gqa=self.num_heads != self.num_kv_heads
+            query, key, value, attn_mask=attention_mask, enable_gqa=enable_gqa
         )
         hidden_states = hidden_states.transpose(1, 2).flatten(2, 3)
         hidden_states = hidden_states * torch.sigmoid(gate)
@@ -385,6 +394,11 @@ class Krea2Transformer2DModel(ModelMixin, ConfigMixin):
         keys everywhere; their own (garbage) lanes are never read back and are dropped at the
         output slice. Returns ``(text_attention_mask, combined_attention_mask)``."""
         if encoder_attention_mask is None:
+            return None, None
+        if encoder_attention_mask.all():
+            # No padding anywhere (common: compacted caches make same-length batches, and
+            # previews/batch-1 always land here): masked SDPA would only cost — with GQA it
+            # even decomposes to the math backend. One sync here buys the flash path.
             return None, None
         batch_size = encoder_attention_mask.shape[0]
         text_attention_mask = encoder_attention_mask[:, None, None, :]
