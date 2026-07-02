@@ -8,6 +8,7 @@ __all__ = [
     "make_contiguous",
     "SDXLPipeline",
     "CosmosPredict2Pipeline",
+    "Krea2Pipeline",
 ]
 
 
@@ -20,4 +21,8 @@ def __getattr__(name: str):
         from rengu_flow.model.cosmos_predict2 import CosmosPredict2Pipeline
 
         return CosmosPredict2Pipeline
+    if name == "Krea2Pipeline":
+        from rengu_flow.model.krea2 import Krea2Pipeline
+
+        return Krea2Pipeline
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

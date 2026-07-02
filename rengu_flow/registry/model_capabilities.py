@@ -343,6 +343,69 @@ def _register_builtin_capabilities() -> None:
             ],
         )
     )
+    # Krea 2 (open-weights 12B DiT). Same LyCORIS caveats as cosmos apply (DyLoRA vs
+    # activation checkpointing, OFT VRAM). At 12B the DiT does not fit consumer VRAM in
+    # bf16 — pair adapters with model.transformer_4bit/fp8 and blocks_to_swap.
+    register_model_capability(
+        ModelCapability(
+            type_id="krea2",
+            display_name="Krea 2",
+            adapters=["lora", "lokr", *LYCORIS_ADAPTER_TYPES],
+            full_finetune=True,
+            preview=True,
+            features={"preview": True, "block_swap": True},
+            branding_note=(
+                "Use the Krea 2 Raw open-weights checkpoint (diffusers layout with "
+                "transformer/vae/text_encoder/tokenizer subfolders). Train on Raw; the "
+                "distilled Turbo checkpoint is for inference."
+            ),
+            model_fields=[
+                {
+                    "path": "model.checkpoint_path",
+                    "label": "Checkpoint folder",
+                    "type": "path",
+                    "required": True,
+                    "placeholder": "path/to/Krea-2-Raw",
+                    "description": "Diffusers-layout folder (transformer/, vae/, text_encoder/, tokenizer/).",
+                },
+                {
+                    "path": "model.transformer_path",
+                    "label": "Transformer override",
+                    "type": "path",
+                    "show_if_set": True,
+                    "description": "Alternative DiT folder (config.json + safetensors); defaults to <checkpoint>/transformer.",
+                },
+                {
+                    "path": "model.text_encoder_path",
+                    "label": "Text encoder override",
+                    "type": "path",
+                    "show_if_set": True,
+                    "description": "Alternative Qwen3-VL folder; defaults to <checkpoint>/text_encoder.",
+                },
+                {
+                    "path": "model.vae_path",
+                    "label": "VAE override",
+                    "type": "path",
+                    "show_if_set": True,
+                    "description": "Alternative Qwen-Image VAE folder; defaults to <checkpoint>/vae.",
+                },
+                {
+                    "path": "model.max_sequence_length",
+                    "label": "Max caption tokens",
+                    "type": "integer",
+                    "default": 512,
+                    "description": "Prompt token budget before truncation (default 512). Lower it to shrink the text-embedding cache; captions longer than this lose their tail.",
+                },
+                {
+                    "path": "model.transformer_dtype",
+                    "label": "Main model load dtype",
+                    "type": "select",
+                    "options_key": "dtypes",
+                    "description": "DiT checkpoint load only; defaults to Model dtype. VAE/text unchanged.",
+                },
+            ],
+        )
+    )
 
 
 _register_builtin_capabilities()

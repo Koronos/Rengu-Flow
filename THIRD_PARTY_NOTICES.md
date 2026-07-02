@@ -15,6 +15,12 @@ Rengu Flow combines original code with material adapted from other projects. **T
 - **License:** Apache License 2.0  
 - **Notice:** [rengu_flow/model/cosmos_predict2/NOTICE.md](rengu_flow/model/cosmos_predict2/NOTICE.md)
 
+## Krea 2 modeling (Hugging Face diffusers)
+
+- **File:** `rengu_flow/model/krea2/dit.py`  
+- **License:** Apache License 2.0 — Copyright 2026 Krea AI and The HuggingFace Team  
+- **Notice:** [rengu_flow/model/krea2/NOTICE.md](rengu_flow/model/krea2/NOTICE.md)
+
 ## Alibaba Wan VAE
 
 - **File:** `rengu_flow/model/cosmos_predict2/wan_vae.py`  

@@ -1,0 +1,12 @@
+# Minimal dataset for Krea 2 image training (frame_buckets = [1]).
+
+resolutions = [1024]
+enable_ar_bucket = true
+min_ar = 0.5
+max_ar = 2.0
+num_ar_buckets = 4
+frame_buckets = [1]
+
+[[directory]]
+path = 'path/to/images'
+num_repeats = 1
