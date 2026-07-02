@@ -74,3 +74,22 @@ def test_configure_lokr_on_dit_does_not_crash_and_injects():
     # Forward through an adapted block still works.
     y = model.blocks[0].attn(torch.randn(2, 8))
     assert y.shape == (2, 8)
+
+
+def test_lokr_uses_logical_dims_not_weight_shape():
+    """Regression: a quantized (bnb-style) linear stores its weight packed as
+    (out*in/2, 1); LoKr must factorize in/out_features, not weight.shape."""
+    import torch
+    from torch import nn
+
+    from rengu_flow.networks.lokr_sdxl import _inject_lokr_into_linear
+
+    lin = nn.Linear(64, 64, bias=False)
+    # Simulate a post-quantization packed weight without needing bitsandbytes.
+    lin.weight = nn.Parameter(torch.zeros(64 * 64 // 2, 1, dtype=torch.uint8), requires_grad=False)
+    assert lin.weight.shape != (64, 64) and lin.out_features == 64
+    _inject_lokr_into_linear(lin, rank=4, alpha=4, dtype=torch.float32)
+    total = 1
+    for d in lin.lokr_w1.shape:
+        total *= d
+    assert max(lin.lokr_w1.shape) <= 64, lin.lokr_w1.shape  # factorized from 64, not 2048
