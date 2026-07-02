@@ -86,34 +86,38 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "doc": "docs/user/full-model-training-sdxl.md",
     },
     "model.checkpoint_path@krea2": {
-        "summary": "Krea 2 Raw checkpoint — the diffusers-layout folder, not a single file.",
+        "summary": "Alternative to the per-file fields: a full Krea-2-Raw diffusers folder.",
         "detail": (
-            "Folder downloaded from krea/Krea-2-Raw containing transformer/, vae/, text_encoder/ "
-            "and tokenizer/ subfolders. Each component resolves as <checkpoint_path>/<subfolder> "
-            "unless its override field is set. Train on Raw; the Turbo checkpoint is inference-only."
+            "Optional. If you downloaded the whole krea/Krea-2-Raw folder (transformer/, vae/, "
+            "text_encoder/, tokenizer/ subfolders), point here and leave the per-component fields "
+            "empty — each one resolves as <checkpoint_path>/<subfolder>. Files you set explicitly "
+            "always win. Never a repo id; nothing is downloaded."
         ),
         "doc": "docs/user/training-krea2.md",
     },
     "model.transformer_path@krea2": {
-        "summary": "Override for the Krea 2 DiT folder only.",
+        "summary": "Main DiT — one .safetensors file (the big checkpoint you train).",
         "detail": (
-            "A diffusers transformer folder (config.json + safetensors shards). Leave empty to use "
-            "<checkpoint_path>/transformer."
+            "The official raw.safetensors or ComfyUI's krea2_raw_bf16.safetensors — original key "
+            "layout is converted automatically. A diffusers transformer folder also works. "
+            "Pre-quantized fp8/nvfp4 'scaled' files cannot be trained; use the bf16 file."
         ),
         "doc": "docs/user/training-krea2.md",
     },
     "model.vae_path@krea2": {
-        "summary": "Override for the Qwen-Image VAE folder only.",
+        "summary": "Image VAE — the same qwen_image_vae.safetensors used for Cosmos/Anima.",
         "detail": (
-            "A diffusers AutoencoderKLQwenImage folder. Leave empty to use <checkpoint_path>/vae."
+            "One .safetensors (ComfyUI layout, converted automatically) or a diffusers VAE folder. "
+            "Training reads your images through this file to build latent caches."
         ),
         "doc": "docs/user/training-krea2.md",
     },
     "model.text_encoder_path": {
-        "summary": "Override for the Qwen3-VL text encoder folder only.",
+        "summary": "Text encoder (Qwen3-VL) — one .safetensors file or a transformers folder.",
         "detail": (
-            "A transformers Qwen3-VL folder. Leave empty to use <checkpoint_path>/text_encoder. "
-            "Captions are encoded once into the cache; the encoder never runs during training steps."
+            "ComfyUI's qwen3vl_4b_bf16.safetensors works as-is (vision weights are ignored; the "
+            "tokenizer is bundled with rengu). Captions are encoded once into the cache; the "
+            "encoder never runs during training steps."
         ),
         "doc": "docs/user/training-krea2.md",
     },

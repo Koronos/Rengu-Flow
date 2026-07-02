@@ -355,39 +355,56 @@ def _register_builtin_capabilities() -> None:
             preview=True,
             features={"preview": True, "block_swap": True},
             branding_note=(
-                "Use the Krea 2 Raw open-weights checkpoint (diffusers layout with "
-                "transformer/vae/text_encoder/tokenizer subfolders). Train on Raw; the "
-                "distilled Turbo checkpoint is for inference."
+                "Use the Krea 2 Raw open-weights files (raw.safetensors or ComfyUI's "
+                "krea2_raw_bf16.safetensors, plus the Qwen3-VL text encoder and Qwen-Image "
+                "VAE files). Train on Raw; the distilled Turbo checkpoint is for inference."
             ),
+            model_validation={
+                "one_of": [
+                    ["transformer_path", "checkpoint_path"],
+                    ["vae_path", "checkpoint_path"],
+                    ["text_encoder_path", "checkpoint_path"],
+                ],
+            },
             model_fields=[
                 {
-                    "path": "model.checkpoint_path",
-                    "label": "Checkpoint folder",
+                    "path": "model.transformer_path",
+                    "label": "Main model (.safetensors)",
                     "type": "path",
                     "required": True,
-                    "placeholder": "path/to/Krea-2-Raw",
-                    "description": "Diffusers-layout folder (transformer/, vae/, text_encoder/, tokenizer/).",
-                },
-                {
-                    "path": "model.transformer_path",
-                    "label": "Transformer override",
-                    "type": "path",
-                    "show_if_set": True,
-                    "description": "Alternative DiT folder (config.json + safetensors); defaults to <checkpoint>/transformer.",
-                },
-                {
-                    "path": "model.text_encoder_path",
-                    "label": "Text encoder override",
-                    "type": "path",
-                    "show_if_set": True,
-                    "description": "Alternative Qwen3-VL folder; defaults to <checkpoint>/text_encoder.",
+                    "placeholder": "path/to/krea2_raw_bf16.safetensors",
+                    "description": "The big DiT checkpoint you train (official raw.safetensors or ComfyUI file). A diffusers transformer folder also works.",
                 },
                 {
                     "path": "model.vae_path",
-                    "label": "VAE override",
+                    "label": "Image VAE (.safetensors)",
+                    "type": "path",
+                    "required": True,
+                    "placeholder": "path/to/qwen_image_vae.safetensors",
+                    "description": "Qwen-Image VAE — the same file Cosmos/Anima setups use. Encodes images to latents for training.",
+                },
+                {
+                    "path": "model.text_encoder_path",
+                    "label": "Text encoder — Qwen3-VL (.safetensors)",
+                    "type": "path",
+                    "required": True,
+                    "placeholder": "path/to/qwen3vl_4b_bf16.safetensors",
+                    "description": "Turns captions into conditioning (ComfyUI file or transformers folder). Tokenizer is bundled.",
+                },
+                {
+                    "path": "model.checkpoint_path",
+                    "label": "Diffusers folder (alternative)",
                     "type": "path",
                     "show_if_set": True,
-                    "description": "Alternative Qwen-Image VAE folder; defaults to <checkpoint>/vae.",
+                    "description": "Full Krea-2-Raw diffusers folder; fills any component path left empty.",
+                },
+                {
+                    "path": "model.tokenizer_path",
+                    "label": "Tokenizer override",
+                    "type": "path",
+                    "show_if_set": True,
+                    "ui": False,
+                    "description": "Folder with tokenizer files; defaults to the bundled Qwen3-VL tokenizer.",
                 },
                 {
                     "path": "model.max_sequence_length",

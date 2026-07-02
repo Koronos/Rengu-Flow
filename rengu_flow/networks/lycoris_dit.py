@@ -65,12 +65,13 @@ def configure(transformer, adapter_config, targets=ADAPTER_TARGET_MODULES):
     lycoris_attach.configure_roots([(transformer, containers, "")], adapter_config)
 
 
-def save(save_dir, state_dict, adapter_config):
-    """Save the adapter snapshot in the cosmos convention (dotted diffusion_model.* keys)."""
+def save(save_dir, state_dict, adapter_config, export_prefix=EXPORT_PREFIX):
+    """Save the adapter snapshot with dotted module keys under *export_prefix*
+    (cosmos convention ``diffusion_model.``; krea2 uses the official ``transformer.``)."""
     save_dir = Path(save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
     exported = lycoris_attach.save_transform(
-        state_dict, adapter_config, {"": EXPORT_PREFIX}, flat=False
+        state_dict, adapter_config, {"": export_prefix}, flat=False
     )
     algo, _ = create_lycoris_kwargs(adapter_config)
     metadata = {

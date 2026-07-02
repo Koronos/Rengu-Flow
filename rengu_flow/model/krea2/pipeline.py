@@ -19,7 +19,6 @@ from torch import nn
 from rengu_flow.config.validation import ConfigValidationError
 from rengu_flow.data.preprocess_media import PreprocessMediaFile
 from rengu_flow.model.base import BasePipeline
-from rengu_flow.model.krea2.dit import Krea2Transformer2DModel
 from rengu_flow.model.krea2.layers import FinalLayer, InitialLayer, TransformerLayer
 from rengu_flow.model.krea2.text import (
     DEFAULT_SELECT_LAYERS,
@@ -27,12 +26,34 @@ from rengu_flow.model.krea2.text import (
     encode_prompts,
     pad_text_embeddings,
 )
+from rengu_flow.model.krea2 import loading
 from rengu_flow.networks import adapter_dit
 from rengu_flow.registry.models import register_model
 from rengu_flow.utils.common import is_main_process
 from rengu_flow.utils.save_io import atomic_save_safetensors
 
-ADAPTER_TARGET_MODULES = ("Krea2TransformerBlock",)
+# The model authors' recommended LoRA scope is every Linear in the DiT (per-block
+# attention/MLP, text fusion, img_in/txt_in/time projections, final linear) — targeting
+# the root class makes the adapter walkers collect them all. Narrow with
+# adapter.target_include/exclude when needed.
+ADAPTER_TARGET_MODULES = ("Krea2Transformer2DModel",)
+
+# Adapter/full-model exports use the official Krea 2 LoRA convention ("transformer." +
+# diffusers module names), which ComfyUI and diffusers both load.
+EXPORT_PREFIX = "transformer."
+
+# Quantization scope for the frozen base: the per-block attention/SwiGLU linears only.
+# The text-fusion stack is small and delicate and the shared projections are tiny —
+# keep them in compute dtype (same split musubi-tuner uses for its fp8 path).
+QUANT_LEAF_NAMES = frozenset({"to_q", "to_k", "to_v", "to_gate", "0", "gate", "up", "down"})
+QUANT_SKIP_SUBSTRINGS = (
+    "text_fusion",
+    "txt_in",
+    "time_embed",
+    "time_mod_proj",
+    "img_in",
+    "final_layer",
+)
 
 # Krea 2 resolution-aware timestep shift (matches the reference scheduler config:
 # base_image_seq_len=256, max_image_seq_len=6400, base_shift=0.5, max_shift=1.15).
@@ -74,28 +95,26 @@ class Krea2Pipeline(BasePipeline):
         self.max_sequence_length = int(self.model_config.get("max_sequence_length", 512))
         self.select_layers = tuple(self._pipeline_index().get("text_encoder_select_layers", DEFAULT_SELECT_LAYERS))
 
-        from diffusers import AutoencoderKLQwenImage
-        from transformers import AutoTokenizer, Qwen3VLModel
-
-        self.vae = AutoencoderKLQwenImage.from_pretrained(self._component_path("vae"), torch_dtype=dtype)
-        self.vae.eval().requires_grad_(False)
-        self.tokenizer = AutoTokenizer.from_pretrained(self._component_path("tokenizer"))
-        self.text_encoder = Qwen3VLModel.from_pretrained(
-            self._component_path("text_encoder"), torch_dtype=dtype
-        )
-        self.text_encoder.eval().requires_grad_(False)
+        self.vae = loading.load_vae(self._component_path("vae"), dtype)
+        self.tokenizer = loading.load_tokenizer(self.model_config.get("tokenizer_path"))
+        self.text_encoder = loading.load_text_encoder(self._component_path("text_encoder"), dtype)
         self.transformer = None
 
-    def _component_path(self, subfolder: str) -> str:
-        override = self.model_config.get(f"{subfolder}_path")
+    def _component_path(self, component: str) -> str:
+        """Resolve a component to what the user assigned: ``model.<component>_path`` (a local
+        .safetensors file or folder), or the ``<component>`` subfolder of an optional
+        ``model.checkpoint_path`` diffusers folder. Never a repo id, never downloaded."""
+        override = self.model_config.get(f"{component}_path")
         if override:
             return str(override)
         checkpoint = self.model_config.get("checkpoint_path")
         if not checkpoint:
             raise ConfigValidationError(
-                f"model.checkpoint_path (or model.{subfolder}_path) is required for krea2."
+                f"model.{component}_path is required for krea2: point it at the .safetensors "
+                f"file (or folder) you downloaded for the {component}. Alternatively set "
+                "model.checkpoint_path to a full diffusers-layout folder."
             )
-        return str(Path(checkpoint) / subfolder)
+        return str(Path(checkpoint) / component)
 
     def _pipeline_index(self) -> dict:
         checkpoint = self.model_config.get("checkpoint_path")
@@ -114,8 +133,8 @@ class Krea2Pipeline(BasePipeline):
             return
         dtype = self.model_config["dtype"]
         transformer_dtype = self.model_config.get("transformer_dtype", dtype)
-        self.transformer = Krea2Transformer2DModel.from_pretrained(
-            self._component_path("transformer"), torch_dtype=transformer_dtype
+        self.transformer = loading.load_transformer(
+            self._component_path("transformer"), transformer_dtype
         )
         self._maybe_quantize_frozen_dit()
         self.transformer.train()
@@ -135,13 +154,18 @@ class Krea2Pipeline(BasePipeline):
 
         from rengu_flow.training import quantize_dit
 
+        scope = {"leaf_names": QUANT_LEAF_NAMES, "skip_substrings": QUANT_SKIP_SUBSTRINGS}
         if four_bit:
-            n = quantize_dit.convert_dit_to_4bit(self.transformer, compute_dtype=torch.bfloat16)
+            n = quantize_dit.convert_dit_to_4bit(
+                self.transformer, compute_dtype=torch.bfloat16, **scope
+            )
             if is_main_process():
                 print(f"rengu_flow: quantized {n} frozen Krea2 DiT linears to 4-bit NF4 (bnb).")
         else:
             fp8_dtype = quantize_dit.resolve_fp8_dtype(self.model_config.get("fp8_matmul_dtype", "e5m2"))
-            n = quantize_dit.convert_dit_to_fp8_matmul(self.transformer, fp8_dtype=fp8_dtype)
+            n = quantize_dit.convert_dit_to_fp8_matmul(
+                self.transformer, fp8_dtype=fp8_dtype, **scope
+            )
             if is_main_process():
                 print(f"rengu_flow: converted {n} frozen Krea2 DiT linears to fp8 scaled matmul.")
 
@@ -287,7 +311,11 @@ class Krea2Pipeline(BasePipeline):
 
     def save_adapter(self, save_dir, state_dict):
         adapter_dit.save(
-            save_dir, state_dict, self.adapter_config, getattr(self, "peft_config", None)
+            save_dir,
+            state_dict,
+            self.adapter_config,
+            getattr(self, "peft_config", None),
+            export_prefix=EXPORT_PREFIX,
         )
 
     def load_adapter_weights(self, adapter_path):
@@ -325,12 +353,7 @@ class Krea2Pipeline(BasePipeline):
             return
         if is_main_process():
             print("rengu_flow: loading VAE weights for preview...", flush=True)
-        from diffusers import AutoencoderKLQwenImage
-
-        self.vae = AutoencoderKLQwenImage.from_pretrained(
-            self._component_path("vae"), torch_dtype=self.model_config["dtype"]
-        )
-        self.vae.eval().requires_grad_(False)
+        self.vae = loading.load_vae(self._component_path("vae"), self.model_config["dtype"])
         state = getattr(self, "_preview_restore_state", None)
         if state is None:
             self._preview_restore_state = {}
@@ -347,12 +370,9 @@ class Krea2Pipeline(BasePipeline):
         if param.device.type == "meta":
             if is_main_process():
                 print("rengu_flow: loading text encoder weights for preview...", flush=True)
-            from transformers import Qwen3VLModel
-
-            self.text_encoder = Qwen3VLModel.from_pretrained(
-                self._component_path("text_encoder"), torch_dtype=self.model_config["dtype"]
+            self.text_encoder = loading.load_text_encoder(
+                self._component_path("text_encoder"), self.model_config["dtype"]
             )
-            self.text_encoder.eval().requires_grad_(False)
             self._preview_te_rest_device = torch.device("cpu")
         elif getattr(self, "_preview_te_rest_device", None) is None:
             self._preview_te_rest_device = param.device

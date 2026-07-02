@@ -14,8 +14,10 @@ caching_batch_size = 1
 [model]
 type = 'krea2'
 dtype = 'bfloat16'
-# Diffusers-layout folder (transformer/, vae/, text_encoder/, tokenizer/)
-checkpoint_path = 'path/to/Krea-2-Raw'
+# Main model | image VAE (same file as Cosmos) | text encoder (Qwen3-VL)
+transformer_path = 'path/to/krea2_raw_bf16.safetensors'
+vae_path = 'path/to/qwen_image_vae.safetensors'
+text_encoder_path = 'path/to/qwen3vl_4b_bf16.safetensors'
 
 [optimizer]
 type = 'adamw'

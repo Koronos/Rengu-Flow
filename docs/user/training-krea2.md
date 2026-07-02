@@ -15,24 +15,39 @@ Two checkpoints exist and are **not interchangeable**:
 
 ## Getting the checkpoint
 
-Download the diffusers-layout folder from Hugging Face:
+Krea 2 trains from **per-component local files**, the same pattern as Cosmos/Anima — no full
+diffusers folder required. Recommended route: download the three files from
+[Comfy-Org/Krea-2](https://huggingface.co/Comfy-Org/Krea-2) on Hugging Face (or use the
+official `raw.safetensors` for the DiT):
+
+| Component | Config key | File |
+|-----------|------------|------|
+| DiT | `model.transformer_path` | `diffusion_models/krea2_raw_bf16.safetensors` (or the official `raw.safetensors`) |
+| Text encoder | `model.text_encoder_path` | `text_encoders/qwen3vl_4b_bf16.safetensors` |
+| Image VAE | `model.vae_path` | `vae/qwen_image_vae.safetensors` — **the same file Cosmos/Anima setups use**; point at your existing copy instead of downloading a second one |
+
+The tokenizer is bundled with rengu — no download or path needed unless you want to override it
+with `model.tokenizer_path`. These are the same files ComfyUI loads and the same layout
+kohya/musubi-tuner accept, so one download serves every trainer.
+
+Single-file DiT checkpoints in the original Krea key layout (`blocks.N.attn.wq`, `mod.lin`,
+`txtfusion...`, used by both the official `raw.safetensors` and ComfyUI's file) are
+key-converted automatically — no manual conversion step. Pre-quantized fp8/nvfp4 "scaled"
+single files are rejected with a clear error: train from the bf16 file; use
+`model.transformer_4bit` / `model.transformer_fp8_matmul` for VRAM instead.
+
+**Full diffusers folder (alternative):** if you already have the diffusers-layout release
+(`transformer/`, `vae/`, `text_encoder/`, `tokenizer/` subfolders), point `model.checkpoint_path`
+at it instead:
 
 ```bash
 huggingface-cli download krea/Krea-2-Raw --local-dir /path/to/Krea-2-Raw
 ```
 
-The folder must contain these subfolders:
-
-```
-Krea-2-Raw/
-├── transformer/       # Krea2Transformer2DModel (config.json + safetensors)
-├── vae/                # Qwen-Image VAE (AutoencoderKLQwenImage)
-├── text_encoder/       # Qwen3-VL
-└── tokenizer/
-```
-
-Point `model.checkpoint_path` at this folder — rengu resolves each component as
-`<checkpoint_path>/<subfolder>` unless you override it (see below).
+`checkpoint_path` fills in any component whose `*_path` is left empty
+(`<checkpoint_path>/<transformer|vae|text_encoder>`); a `transformer_path` / `vae_path` /
+`text_encoder_path` set alongside it always overrides that one component. Either route works —
+nothing is ever downloaded automatically, rengu never resolves repo ids.
 
 ## `[model]` fields
 
@@ -40,10 +55,11 @@ Point `model.checkpoint_path` at this folder — rengu resolves each component a
 |------------|------------|----------|---------|
 | **`type`** | Model type. | Yes | — |
 | **`dtype`** | Load/compute dtype for the VAE, text encoder, adapters, and (unless overridden) the DiT. | Yes | — |
-| **`checkpoint_path`** | Diffusers-layout folder (`transformer/`, `vae/`, `text_encoder/`, `tokenizer/`). | Yes | — |
-| **`transformer_path`** | Override for the DiT folder only. | No | `<checkpoint_path>/transformer` |
-| **`text_encoder_path`** | Override for the Qwen3-VL folder only. | No | `<checkpoint_path>/text_encoder` |
-| **`vae_path`** | Override for the VAE folder only. | No | `<checkpoint_path>/vae` |
+| **`transformer_path`** | DiT: the official `raw.safetensors` / ComfyUI's `krea2_raw_bf16.safetensors`, or a diffusers `transformer/` folder. Rejects pre-quantized fp8/nvfp4 "scaled" files. | One of `transformer_path` / `checkpoint_path` | — |
+| **`vae_path`** | Qwen-Image VAE: `qwen_image_vae.safetensors` (same file Cosmos uses) or a diffusers `vae/` folder. | One of `vae_path` / `checkpoint_path` | — |
+| **`text_encoder_path`** | Qwen3-VL: `qwen3vl_4b_bf16.safetensors` or a transformers `text_encoder/` folder. | One of `text_encoder_path` / `checkpoint_path` | — |
+| **`checkpoint_path`** | Full diffusers-layout folder (`transformer/`, `vae/`, `text_encoder/`); fills any of the three component paths left empty. | No | Unset |
+| **`tokenizer_path`** | Folder with tokenizer files. | No | Bundled Qwen3-VL tokenizer (`rengu_flow/model/krea2/assets/qwen3vl_4b`) |
 | **`max_sequence_length`** | Prompt token budget before truncation. Lower it to shrink the text-embedding cache; captions longer than this lose their tail. | No | `512` |
 | **`transformer_dtype`** | DiT checkpoint load dtype only (VAE/text unaffected). | No | `dtype` |
 | **`transformer_4bit`** | Quantize the frozen DiT's linears to 4-bit NF4 (bitsandbytes). Mutually exclusive with `transformer_fp8_matmul`. | No | `false` |
@@ -60,7 +76,9 @@ Point `model.checkpoint_path` at this folder — rengu resolves each component a
 [model]
 type = "krea2"
 dtype = "bfloat16"
-checkpoint_path = "path/to/Krea-2-Raw"
+transformer_path = "path/to/krea2_raw_bf16.safetensors"
+vae_path = "path/to/qwen_image_vae.safetensors"
+text_encoder_path = "path/to/qwen3vl_4b_bf16.safetensors"
 ```
 
 ### Timestep shift (training objective)
@@ -94,8 +112,9 @@ rank = 6
 factor = -1
 ```
 
-`alpha` is derived from `rank` (do not set `alpha` in TOML). Saves use Comfy-style keys:
-`diffusion_model.*` and per-module `.alpha` — the same export convention as Cosmos Predict2.
+`alpha` is derived from `rank` (do not set `alpha` in TOML). Saves use the `transformer.` key
+prefix (matching the official Krea 2 LoRA convention) with per-module `.alpha` — different from
+Cosmos Predict2's `diffusion_model.*` prefix.
 
 Example: `examples/minimal_config_krea2_lokr.toml`.
 
@@ -145,10 +164,21 @@ Example: `examples/minimal_config_krea2_finetune.toml`.
 
 ### Adapter targets
 
-Adapters and LyCORIS networks attach to the **28** `Krea2TransformerBlock` DiT blocks only.
-The text-fusion stage (`Krea2TextFusionBlock`, the small transformer that collapses the
-12 tapped Qwen3-VL layers into one text-conditioning sequence) is never targeted — it stays
-frozen regardless of adapter type.
+By default adapters and LyCORIS networks attach to **every `Linear` in the DiT**: the per-block
+attention/MLP layers, the text-fusion stack (`Krea2TextFusionBlock`, which collapses the 12
+tapped Qwen3-VL layers into one text-conditioning sequence), and the shared `img_in` / `txt_in`
+/ time projections and final output linear. This is the model authors' recommended LoRA scope
+(their reference configuration is rank 32 / alpha 32).
+
+For any `lycoris_*` adapter, narrow that scope with `adapter.target_include` /
+`adapter.target_exclude` (glob patterns against the dotted module path, e.g.
+`target_include = ["*attn*"]` to train attention only). These filters are lycoris-only — the
+built-in `lora` / `lokr` types always train the full default scope above.
+
+All adapter exports use the official Krea 2 `transformer.` key prefix over diffusers module
+names (`lora` also matches the official `lora_A`/`lora_B` weight names), so official Krea 2
+LoRAs can be loaded as a starting point via `adapter.init_from_existing`, and rengu's own
+exports load in ComfyUI and diffusers.
 
 ## VRAM guidance
 
@@ -232,8 +262,10 @@ per-prompt tables, signal files).
 ## Export formats
 
 - **Adapter training** (`lora` / `lokr` / any `lycoris_*`) writes `adapter_model.safetensors`
-  with Comfy-style `diffusion_model.*` keys (plus per-module `.alpha` for `lokr` /
-  `lycoris_*`) — the same convention as Cosmos Predict2.
+  with the official Krea 2 `transformer.*` key prefix over diffusers module names (plus
+  per-module `.alpha` for `lokr` / `lycoris_*`) — `lora` also uses the official `lora_A`/
+  `lora_B` weight names, so it is loadable by ComfyUI and diffusers as-is. This differs from
+  Cosmos Predict2's `diffusion_model.*` prefix.
 - **Full finetune** writes a diffusers-layout transformer folder — `config.json` (from
   `Krea2Transformer2DModel.save_config`) plus `diffusion_pytorch_model.safetensors` — loadable
   by `Krea2Transformer2DModel.from_pretrained` and by diffusers' `Krea2Pipeline` as the
