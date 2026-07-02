@@ -81,6 +81,20 @@ def test_krea2_defaults_after_set_config_defaults():
     assert cfg["model"]["transformer_4bit"] is False
 
 
+def test_krea2_4bit_with_block_swap_defaults_to_reentrant_ac():
+    """bnb autograd pins packed weights under non-reentrant AC, defeating swap eviction
+    (measured 12.75 vs 6.3 GiB peak); the combo defaults to reentrant checkpointing."""
+    cfg = _krea2_config(transformer_4bit=True)
+    cfg["blocks_to_swap"] = 16
+    cfg["activation_checkpointing"] = True
+    set_config_defaults(cfg)
+    assert cfg["reentrant_activation_checkpointing"] is True
+
+    cfg = _krea2_config(transformer_4bit=True)  # no swap: default untouched (False)
+    set_config_defaults(cfg)
+    assert cfg["reentrant_activation_checkpointing"] is False
+
+
 def test_krea2_transformer_4bit_and_fp8_matmul_are_mutually_exclusive():
     cfg = _krea2_config(transformer_4bit=True, transformer_fp8_matmul=True)
     with pytest.raises(ConfigValidationError, match="mutually"):
