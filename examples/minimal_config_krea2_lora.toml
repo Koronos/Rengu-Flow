@@ -1,0 +1,26 @@
+# Minimal Krea 2 LoRA training (Qwen3-VL text encoder + Qwen-Image VAE).
+
+output_dir = 'output'
+dataset = 'examples/minimal_krea2_dataset.toml'
+
+epochs = 1
+micro_batch_size_per_gpu = 1
+pipeline_stages = 1
+gradient_accumulation_steps = 1
+activation_checkpointing = true
+save_every_n_epochs = 1
+caching_batch_size = 1
+
+[model]
+type = 'krea2'
+dtype = 'bfloat16'
+# Diffusers-layout folder (transformer/, vae/, text_encoder/, tokenizer/)
+checkpoint_path = 'path/to/Krea-2-Raw'
+
+[adapter]
+type = 'lora'
+rank = 16
+
+[optimizer]
+type = 'adamw'
+lr = 1e-4

@@ -36,6 +36,7 @@ _BUILTIN_MODEL_MODULES: dict[str, str] = {
     "sdxl": "rengu_flow.model.sdxl",
     "cosmos_predict2": "rengu_flow.model.cosmos_predict2",
     "anima": "rengu_flow.model.cosmos_predict2",  # alias registered inside the cosmos module
+    "krea2": "rengu_flow.model.krea2",
 }
 
 

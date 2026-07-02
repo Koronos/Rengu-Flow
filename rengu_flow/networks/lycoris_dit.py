@@ -20,7 +20,7 @@ from rengu_flow.utils.save_io import atomic_save_safetensors
 EXPORT_PREFIX = "diffusion_model."
 
 
-def _block_containers(transformer):
+def _block_containers(transformer, targets=ADAPTER_TARGET_MODULES):
     # The LLM adapter (Qwen3 conditioning) also holds TransformerBlock modules, but
     # it is frozen by default (llm_adapter_lr = 0) and degrades easily, so it is not
     # an adapter target — only the diffusion blocks are. Skipping it also avoids a
@@ -28,7 +28,7 @@ def _block_containers(transformer):
     # dict trips exclude_frozen_parameters on those frozen submodules.
     out, seen = [], set()
     for name, module in transformer.named_modules():
-        if module.__class__.__name__ not in ADAPTER_TARGET_MODULES:
+        if module.__class__.__name__ not in targets:
             continue
         if "llm_adapter" in name:
             continue
@@ -40,12 +40,12 @@ def _block_containers(transformer):
     return out
 
 
-def configure(transformer, adapter_config):
+def configure(transformer, adapter_config, targets=ADAPTER_TARGET_MODULES):
     """Attach the configured lycoris algorithm to every Linear in the DiT blocks."""
-    containers = _block_containers(transformer)
+    containers = _block_containers(transformer, targets)
     if not containers:
         raise RuntimeError(
-            f"No adapter target blocks ({'/'.join(ADAPTER_TARGET_MODULES)}) found in transformer"
+            f"No adapter target blocks ({'/'.join(targets)}) found in transformer"
         )
     # The lycoris backend matches by exact class name "Linear", so quantized linears
     # (Fp8MatmulLinear / bnb Linear4bit) are silently skipped — only the built-in

@@ -2,7 +2,7 @@
 
 During training you can generate **sample images** from fixed prompts and view them in **TensorBoard** (similar to OneTrainer). This helps you judge quality without waiting for a full `save_every_n_*` export. Kohya-style “sample every N steps” is covered by the schedule options below; on-demand runs use a **signal file**.
 
-Previews are supported for **SDXL** (`model.type = "sdxl"`) and **Cosmos Predict2** (`model.type = "cosmos_predict2"` or `anima`). Cosmos requires **`pipeline_stages = 1`** (single-GPU DiT path).
+Previews are supported for **SDXL** (`model.type = "sdxl"`), **Cosmos Predict2** (`model.type = "cosmos_predict2"` or `anima`), and **Krea 2** (`model.type = "krea2"`, defaults 28 steps / CFG 4.5 — see [Training Krea 2](training-krea2.md)). Cosmos and Krea 2 require **`pipeline_stages = 1`** (single-GPU DiT path).
 
 > **Previews are off by default** (`preview.enabled = false`). Generating samples during training costs extra VRAM and time — a 1024×1024 SDXL preview can OOM on small GPUs (e.g. 8 GB). Enable it only when you want in-training samples, and lower `width`/`height` if you are tight on VRAM.
 

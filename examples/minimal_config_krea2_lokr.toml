@@ -1,0 +1,28 @@
+output_dir = 'output'
+dataset = 'examples/minimal_krea2_dataset.toml'
+
+epochs = 1
+micro_batch_size_per_gpu = 1
+pipeline_stages = 1
+gradient_accumulation_steps = 1
+activation_checkpointing = true
+save_every_n_epochs = 1
+caching_batch_size = 1
+
+[model]
+type = 'krea2'
+dtype = 'bfloat16'
+# Diffusers-layout folder (transformer/, vae/, text_encoder/, tokenizer/)
+checkpoint_path = 'path/to/Krea-2-Raw'
+# Fit the 12B DiT on a 16 GB card: quantize the frozen base + stream blocks from CPU.
+# transformer_4bit = true
+# blocks_to_swap = 20
+
+[adapter]
+type = 'lokr'
+rank = 6
+factor = -1
+
+[optimizer]
+type = 'adamw'
+lr = 3e-5

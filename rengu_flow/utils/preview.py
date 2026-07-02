@@ -188,11 +188,11 @@ def run_previews(
     if model.name == "sdxl":
         preview_runner = _run_sdxl_previews
         use_block_swap_hooks = True
-    elif model.name in ("cosmos_predict2", "anima"):
+    elif model.name in ("cosmos_predict2", "anima", "krea2"):
         if config.get("pipeline_stages", 1) != 1:
             if is_main_process():
                 print(
-                    "Preview skipped: cosmos_predict2 previews require pipeline_stages = 1."
+                    f"Preview skipped: {model.name} previews require pipeline_stages = 1."
                 )
             return
         preview_runner = _run_cosmos_previews

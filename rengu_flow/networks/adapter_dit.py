@@ -1,4 +1,8 @@
-"""LoRA / LoKr adapters for DiT models (Cosmos Predict2)."""
+"""LoRA / LoKr adapters for DiT models (Cosmos Predict2, Krea 2).
+
+``targets`` selects the block classes whose Linears get adapters; the default matches
+the cosmos DiT, other models pass their own tuple (e.g. ``("Krea2TransformerBlock",)``).
+"""
 
 from __future__ import annotations
 
@@ -28,14 +32,14 @@ def _collect_target_linears(transformer, target_module_names):
     return list(names)
 
 
-def configure(transformer, adapter_config):
+def configure(transformer, adapter_config, targets=ADAPTER_TARGET_MODULES):
     adapter_type = adapter_config["type"]
     if adapter_type.startswith("lycoris_"):
         from rengu_flow.networks import lycoris_dit
 
-        lycoris_dit.configure(transformer, adapter_config)
+        lycoris_dit.configure(transformer, adapter_config, targets=targets)
         return None, adapter_type
-    target_linear_modules = _collect_target_linears(transformer, ADAPTER_TARGET_MODULES)
+    target_linear_modules = _collect_target_linears(transformer, targets)
     if adapter_type == "lora":
         peft_config = peft.LoraConfig(
             r=adapter_config["rank"],

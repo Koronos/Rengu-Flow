@@ -5,6 +5,7 @@
     - [Train your first Anima LoRA — A→Z with Poet](user/tutorials/training-an-anima-lora-with-poet.md) — Tagger → dataset → LoKr run → previews → compare, in one epoch.
   - [Training SDXL LoRA and LoKr](user/training-sdxl-lora-lokr.md) — Config, saving, and running adapter training.
   - [Training Cosmos Predict2 / Anima](user/training-cosmos-predict2-lora-lokr-finetune.md) — LoRA, LoKr, and full finetune for Cosmos Predict2 DiT checkpoints.
+  - [Training Krea 2](user/training-krea2.md) — Adapters and full finetune for the open-weights Krea 2 12B DiT.
   - [Full-model finetuning (SDXL)](user/full-model-training-sdxl.md) — Training the full model (no adapter), optional UNet-only with `freeze_text_encoders`.
   - [Dataset configuration](user/dataset-config.md) — Dataset TOML, resolutions, directories, and eval datasets.
   - [Dataset augmentation](user/dataset-augmentation.md) — Diversity presets (MVP), cache interaction, references (Kohya, OneTrainer).
