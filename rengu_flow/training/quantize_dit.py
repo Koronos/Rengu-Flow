@@ -280,6 +280,16 @@ def convert_dit_to_4bit(
         if has_bias:
             new.bias = nn.Parameter(linear.bias.detach().clone(), requires_grad=False)
         new.weight.requires_grad_(False)
+        if torch.cuda.is_available():
+            # bnb quantizes inside Params4bit.to('cuda'). Block swap moves raw `p.data`
+            # (bypassing bnb's override), so a deferred-quantization param would reach the
+            # kernel unquantized and without quant_state (bitsandbytes AssertionError at
+            # step 1). Quantize eagerly — one weight on the GPU at a time — then park the
+            # packed uint8 data back on CPU; the (tiny) quant_state tensors stay on the
+            # GPU where the forward kernel needs them. The no-swap path is unaffected: a
+            # later model.to('cuda') just moves the already-quantized data.
+            new.weight = new.weight.to(torch.device("cuda", torch.cuda.current_device()))
+            new.weight.data = new.weight.data.cpu()
         setattr(parent, child_attr, new)
         count += 1
     return count
