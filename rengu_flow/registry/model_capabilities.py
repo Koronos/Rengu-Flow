@@ -326,6 +326,14 @@ def _register_builtin_capabilities() -> None:
                     "description": "Finetune only. The embedded Qwen3 LLM adapter is frozen by default (0); set a value to train it.",
                 },
                 {
+                    "path": "model.transformer_4bit",
+                    "label": "Quantize base to 4-bit (NF4)",
+                    "type": "boolean",
+                    "default": False,
+                    "when_model_has_adapter": True,
+                    "description": "Stores the frozen DiT linears as 4-bit NF4 (~1/4 the VRAM of bf16); the adapter trains on top at full precision. Turn on when the base model does not fit — pair with adapter type LoKr (LyCORIS kinds refuse a quantized base).",
+                },
+                {
                     "path": "model.transformer_dtype",
                     "label": "Main model load dtype",
                     "type": "select",
@@ -412,6 +420,14 @@ def _register_builtin_capabilities() -> None:
                     "type": "integer",
                     "default": 512,
                     "description": "Prompt token budget before truncation (default 512). Lower it to shrink the text-embedding cache; captions longer than this lose their tail.",
+                },
+                {
+                    "path": "model.transformer_4bit",
+                    "label": "Quantize base to 4-bit (NF4)",
+                    "type": "boolean",
+                    "default": False,
+                    "when_model_has_adapter": True,
+                    "description": "Stores the frozen DiT block linears as 4-bit NF4 (~7 GB instead of ~26 GB bf16); the adapter trains on top at full precision. Required on 16 GB cards — pair with adapter type LoKr (LyCORIS kinds refuse a quantized base).",
                 },
                 {
                     "path": "model.transformer_dtype",

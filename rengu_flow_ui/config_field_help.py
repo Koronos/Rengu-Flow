@@ -130,6 +130,26 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         ),
         "doc": "docs/user/training-krea2.md",
     },
+    "model.transformer_4bit": {
+        "summary": "QLoRA-style 4-bit base: frozen DiT linears stored as NF4 (bitsandbytes).",
+        "detail": (
+            "Adapter training only — the quantized base stays frozen while the adapter trains in "
+            "full precision on top. Roughly quarters the DiT's VRAM. Mutually exclusive with "
+            "model.transformer_fp8_matmul. Use adapter type LoKr: it is quantization-aware, "
+            "while the LyCORIS kinds reject a quantized base."
+        ),
+        "doc": "docs/user/training-cosmos-predict2-lora-lokr-finetune.md",
+    },
+    "model.transformer_4bit@krea2": {
+        "summary": "QLoRA-style 4-bit base: frozen DiT linears stored as NF4 (bitsandbytes).",
+        "detail": (
+            "Adapter training only — the quantized base stays frozen while the adapter trains in "
+            "full precision on top. Krea 2's DiT drops from ~26 GB bf16 to ~7 GB (text fusion "
+            "stays bf16). Mutually exclusive with model.transformer_fp8_matmul. Use adapter type "
+            "LoKr: it is quantization-aware, while the LyCORIS kinds reject a quantized base."
+        ),
+        "doc": "docs/user/training-krea2.md",
+    },
     "model.transformer_path": {
         "summary": "Main image model — one .safetensors file (the big checkpoint you train).",
         "detail": (
