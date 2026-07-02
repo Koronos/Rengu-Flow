@@ -100,3 +100,27 @@ def test_teardown_removes_hooks() -> None:
     # after teardown, running a forward must not touch the (cleared) LRU set
     blocks[0](torch.randn(2, 4))
     assert off._resident == {} or len(off._resident) == 0
+
+
+class _Krea2StyleBlock(nn.Module):
+    """Block that owns a raw Parameter directly and uses it BEFORE any leaf module runs
+    (krea2's scale_shift_table). A leaf-only hook set never pulls it resident in time."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.table = nn.Parameter(torch.zeros(4))
+        self.linear = nn.Linear(4, 4)
+
+    def forward(self, x):
+        return self.linear(x + self.table)
+
+
+def test_block_root_with_direct_params_is_hooked() -> None:
+    blocks = nn.ModuleList(_Krea2StyleBlock() for _ in range(3))
+    off = HookBlockSwapOffloader(blocks, blocks_to_swap=2, device="cpu")
+    # The block ROOT owns params directly, so it must be hooked alongside its leaves —
+    # its forward-pre fires before `x + self.table`, the first use of the direct param.
+    assert all(id(b) in off._block_of_module for b in blocks)
+    x = torch.randn(2, 4)
+    blocks[1](x)
+    assert 1 in off._resident
