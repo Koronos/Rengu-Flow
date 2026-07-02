@@ -69,12 +69,12 @@ def configure(transformer, adapter_config, targets=ADAPTER_TARGET_MODULES):
     raise NotImplementedError(f"Adapter type {adapter_type} is not implemented")
 
 
-def save(save_dir, state_dict, adapter_config, peft_config=None):
+def save(save_dir, state_dict, adapter_config, peft_config=None, export_prefix="diffusion_model."):
     save_dir = Path(save_dir)
     if adapter_config["type"].startswith("lycoris_"):
         from rengu_flow.networks import lycoris_dit
 
-        lycoris_dit.save(save_dir, state_dict, adapter_config)
+        lycoris_dit.save(save_dir, state_dict, adapter_config, export_prefix=export_prefix)
         return
     if adapter_config["type"] == "lokr":
         lokr_modules = set()
@@ -85,11 +85,11 @@ def save(save_dir, state_dict, adapter_config, peft_config=None):
         alpha_value = adapter_config["alpha"]
         for module_name in lokr_modules:
             state_dict[f"{module_name}.alpha"] = torch.tensor(float(alpha_value))
-        state_dict = {"diffusion_model." + k: v for k, v in state_dict.items()}
+        state_dict = {export_prefix + k: v for k, v in state_dict.items()}
     else:
         if peft_config is not None:
             peft_config.save_pretrained(save_dir)
-        state_dict = {"diffusion_model." + k: v for k, v in state_dict.items()}
+        state_dict = {export_prefix + k: v for k, v in state_dict.items()}
     atomic_save_safetensors(save_dir / "adapter_model.safetensors", state_dict)
 
 

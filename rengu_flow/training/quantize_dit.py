@@ -65,24 +65,30 @@ _SKIP_NAME_SUBSTRINGS = (
 )
 
 
-def _is_quantizable_block_linear(full_name: str, module: nn.Module) -> bool:
+def _is_quantizable_block_linear(
+    full_name: str, module: nn.Module, leaf_names=None, skip_substrings=None
+) -> bool:
     """True iff *module* is a big frozen block linear we should quantize."""
     if not isinstance(module, nn.Linear):
         return False
-    if any(sub in full_name for sub in _SKIP_NAME_SUBSTRINGS):
+    if any(sub in full_name for sub in (skip_substrings or _SKIP_NAME_SUBSTRINGS)):
         return False
     leaf = full_name.rsplit(".", 1)[-1]
-    if leaf not in _QUANT_LEAF_NAMES:
+    if leaf not in (leaf_names or _QUANT_LEAF_NAMES):
         return False
     # Defensive: only 2-D weights (a Linear always has one, but be explicit).
     return getattr(module, "weight", None) is not None and module.weight.ndim == 2
 
 
-def _iter_quant_targets(transformer: nn.Module):
-    """Yield ``(parent_module, child_attr_name, full_name, linear)`` for each target."""
+def _iter_quant_targets(transformer: nn.Module, leaf_names=None, skip_substrings=None):
+    """Yield ``(parent_module, child_attr_name, full_name, linear)`` for each target.
+
+    ``leaf_names`` / ``skip_substrings`` override the cosmos-tuned defaults so other
+    DiT families (e.g. krea2) can pass their own scope instead of silently matching
+    nothing."""
     modules = dict(transformer.named_modules())
     for full_name, module in list(transformer.named_modules()):
-        if not _is_quantizable_block_linear(full_name, module):
+        if not _is_quantizable_block_linear(full_name, module, leaf_names, skip_substrings):
             continue
         parent_name, _, child_attr = full_name.rpartition(".")
         parent = modules[parent_name] if parent_name else transformer
@@ -211,14 +217,16 @@ class Fp8MatmulLinear(nn.Linear):
 
 
 def convert_dit_to_fp8_matmul(
-    transformer: nn.Module, *, fp8_dtype: torch.dtype
+    transformer: nn.Module, *, fp8_dtype: torch.dtype, leaf_names=None, skip_substrings=None
 ) -> int:
     """Replace the frozen DiT's big block linears with :class:`Fp8MatmulLinear` (in place).
 
     Returns the number of linears converted. The frozen base gains no trainable params.
     """
     count = 0
-    for parent, child_attr, _full_name, linear in _iter_quant_targets(transformer):
+    for parent, child_attr, _full_name, linear in _iter_quant_targets(
+        transformer, leaf_names, skip_substrings
+    ):
         new = Fp8MatmulLinear(linear, weight_fp8_dtype=fp8_dtype)
         setattr(parent, child_attr, new)
         count += 1
@@ -230,7 +238,11 @@ def convert_dit_to_fp8_matmul(
 # ---------------------------------------------------------------------------
 
 def convert_dit_to_4bit(
-    transformer: nn.Module, *, compute_dtype: Optional[torch.dtype] = None
+    transformer: nn.Module,
+    *,
+    compute_dtype: Optional[torch.dtype] = None,
+    leaf_names=None,
+    skip_substrings=None,
 ) -> int:
     """Replace the frozen DiT's big block linears with ``bnb.nn.Linear4bit`` (in place).
 
@@ -244,7 +256,9 @@ def convert_dit_to_4bit(
     if compute_dtype is None:
         compute_dtype = torch.bfloat16
     count = 0
-    for parent, child_attr, _full_name, linear in _iter_quant_targets(transformer):
+    for parent, child_attr, _full_name, linear in _iter_quant_targets(
+        transformer, leaf_names, skip_substrings
+    ):
         has_bias = linear.bias is not None
         new = bnb.nn.Linear4bit(
             linear.in_features,
