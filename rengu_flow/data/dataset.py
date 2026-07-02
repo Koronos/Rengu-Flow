@@ -380,6 +380,20 @@ def maybe_expand_caption_variants(metadata_dataset, directory_dataset, *, warn: 
             flush=True,
         )
 
+    # The expansion is deterministic (seeded by content), but it runs once per size bucket
+    # AND once per AR bucket's te cache — up to ~16 identical passes over the same rows for
+    # a 3-resolution schedule. Memoize per source-dataset fingerprint on the directory.
+    memo = getattr(directory_dataset, "_caption_expansion_memo", None)
+    if memo is None:
+        memo = {}
+        try:
+            directory_dataset._caption_expansion_memo = memo
+        except AttributeError:
+            pass
+    fingerprint = getattr(metadata_dataset, "_fingerprint", None)
+    if fingerprint is not None and fingerprint in memo:
+        return memo[fingerprint], True
+
     def _expand(example):
         return {
             "caption": expand_caption_variants(
@@ -391,15 +405,15 @@ def maybe_expand_caption_variants(metadata_dataset, directory_dataset, *, warn: 
             )
         }
 
-    return (
-        metadata_dataset.map(
-            _expand,
-            keep_in_memory=True,
-            load_from_cache_file=False,
-            desc="Expanding caption variants",
-        ),
-        True,
+    expanded = metadata_dataset.map(
+        _expand,
+        keep_in_memory=True,
+        load_from_cache_file=False,
+        desc="Expanding caption variants",
     )
+    if fingerprint is not None:
+        memo[fingerprint] = expanded
+    return expanded, True
 
 
 class SizeBucketDataset:

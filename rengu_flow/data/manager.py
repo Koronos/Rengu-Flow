@@ -21,6 +21,56 @@ from rengu_flow.distributed import is_main_process
 from rengu_flow import distributed as dist
 
 
+class _TextEmbeddingDedup:
+    """Per-sample disk-backed memo for text-embedding caching.
+
+    Embeddings spill to a temporary mmap Cache; RAM holds only
+    ``(text_encoder_idx, caption_hash) -> row index``. The TE map runs on *batches*
+    whose tensors are padded to the batch max, so rows are stored and looked up per
+    sample — a full-batch hit returns per-sample lists (``unbatch_iter`` indexes lists
+    and tensors alike, and the bucket cache pads per item). Thread-safe (the TE map
+    runs on a thread pool)."""
+
+    def __init__(self, spill_dir: Path) -> None:
+        from rengu_flow.utils.cache import Cache
+
+        self.dir = Path(spill_dir)
+        shutil.rmtree(self.dir, ignore_errors=True)
+        self.cache = Cache(self.dir, "te-dedup-spill")
+        self.index: dict[tuple[int, str], int] = {}
+        self.lock = threading.Lock()
+        self.dirty = False
+
+    def lookup(self, keys: list[tuple[int, str]]) -> dict | None:
+        """Return the batch as per-sample lists when EVERY key is cached, else None."""
+        with self.lock:
+            idxs = [self.index.get(k) for k in keys]
+            if any(i is None for i in idxs):
+                return None
+            if self.dirty:
+                self.cache.refresh_reads()
+                self.dirty = False
+            rows = [self.cache[i] for i in idxs]
+        return {
+            key: [r[key] for r in rows] for key in rows[0] if rows[0][key] is not None
+        }
+
+    def store(self, keys: list[tuple[int, str]], result: dict) -> None:
+        """Split a batched TE result into per-sample rows and cache the new ones."""
+        with self.lock:
+            for i, key in enumerate(keys):
+                if key not in self.index:
+                    self.cache.add(
+                        {k: v[i] for k, v in result.items() if k != "image_spec"}
+                    )
+                    self.index[key] = self.cache.count - 1
+                    self.dirty = True
+
+    def close(self) -> None:
+        self.cache.close()
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+
 def _cache_fn(
     datasets_list,
     queue,
@@ -35,21 +85,11 @@ def _cache_fn(
 ) -> None:
     """Worker process: run cache_metadata, cache_latents, cache_text_embeddings; send GPU work via queue."""
     torch.set_num_threads(1)
-    # Caption dedup is disk-backed: embeddings spill to a temporary mmap Cache and the
-    # in-RAM index holds only (text_encoder_idx, caption_hash) -> row. RAM stays ~zero no
-    # matter how many unique captions (a krea2 embedding is ~4-6 MB; a RAM memo would eat
-    # GBs), and a spill read is microseconds against the text encoder's forward.
-    spill_cache = None
-    spill_index: dict[tuple[int, str], int] = {}
-    spill_lock = threading.Lock()
-    spill_dirty = False
-    spill_dir = None
+    dedup = None
     if cache_dedup_text_embeddings:
-        from rengu_flow.utils.cache import Cache
-
-        spill_dir = Path(datasets_list[0].directory_datasets[0].cache_dir) / "te_dedup_spill"
-        shutil.rmtree(spill_dir, ignore_errors=True)
-        spill_cache = Cache(spill_dir, "te-dedup-spill")
+        dedup = _TextEmbeddingDedup(
+            Path(datasets_list[0].directory_datasets[0].cache_dir) / "te_dedup_spill"
+        )
 
     for ds in datasets_list:
         ds.cache_metadata(
@@ -150,25 +190,18 @@ def _cache_fn(
 
     for text_encoder_idx in range(num_text_encoders):
         def text_embedding_map_fn(example, rank):
-            nonlocal spill_dirty
-            caption = example["caption"]
+            captions = example["caption"]
             # Key includes the encoder index: multi-encoder models (SDXL) produce a
             # different embedding per encoder for the same caption.
-            cap_key = (
-                (text_encoder_idx, caption_cache_key(caption))
-                if cache_dedup_text_embeddings
+            keys = (
+                [(text_encoder_idx, caption_cache_key(c)) for c in captions]
+                if dedup is not None
                 else None
             )
-            if cap_key is not None:
-                with spill_lock:
-                    idx = spill_index.get(cap_key)
-                    if idx is not None:
-                        if spill_dirty:
-                            spill_cache.refresh_reads()
-                            spill_dirty = False
-                        row = spill_cache[idx]
-                        cached = {k: v for k, v in row.items() if v is not None}
-                        return {**cached, "image_spec": example["image_spec"]}
+            if keys is not None:
+                cached = dedup.lookup(keys)
+                if cached is not None:
+                    return {**cached, "image_spec": example["image_spec"]}
             if rank not in pipes:
                 pipes[rank] = mp.Pipe(duplex=False)
             parent_conn, child_conn = pipes[rank]
@@ -176,7 +209,7 @@ def _cache_fn(
             queue.put(
                 (
                     text_encoder_idx + 1,
-                    caption,
+                    captions,
                     example["is_video"],
                     control_file,
                     child_conn,
@@ -184,14 +217,8 @@ def _cache_fn(
             )
             result = parent_conn.recv()
             result["image_spec"] = example["image_spec"]
-            if cap_key is not None:
-                with spill_lock:
-                    if cap_key not in spill_index:
-                        spill_cache.add(
-                            {k: v for k, v in result.items() if k != "image_spec"}
-                        )
-                        spill_index[cap_key] = spill_cache.count - 1
-                        spill_dirty = True
+            if keys is not None:
+                dedup.store(keys, result)
             return result
 
         for ds in datasets_list:
@@ -204,11 +231,10 @@ def _cache_fn(
                 cache_keep_in_memory=cache_keep_in_memory,
             )
 
-    if spill_cache is not None:
+    if dedup is not None:
         # The spill only serves this run's caching: every embedding now lives in the
         # per-bucket caches, so drop the duplicate bytes.
-        spill_cache.close()
-        shutil.rmtree(spill_dir, ignore_errors=True)
+        dedup.close()
 
     queue.put(None)
 
