@@ -43,6 +43,10 @@ class InitialLayer(nn.Module):
             position_ids = prepare_position_ids(text_mask.shape[1], grid_h, grid_w, hidden.device)
             freqs_cos, freqs_sin = self.rotary_emb(position_ids)
 
+            # All-valid masks come back as None (fused-SDPA fast path); the inter-layer tuple
+            # must stay tensors-only (DeepSpeed pipe comm), so ship a 0-size sentinel instead.
+            if attn_mask is None:
+                attn_mask = text_mask.new_empty(0)
             grid = torch.tensor([grid_h, grid_w], device=hidden.device)
             outputs = make_contiguous(hidden, temb, temb_mod, freqs_cos, freqs_sin, attn_mask, text_mask, grid)
             for tensor in outputs:
@@ -63,7 +67,8 @@ class TransformerLayer(nn.Module):
             hidden, temb, temb_mod, freqs_cos, freqs_sin, attn_mask, text_mask, grid = inputs
 
             self.offloader.wait_for_block(self.block_idx)
-            hidden = self.block(hidden, temb_mod, (freqs_cos, freqs_sin), attn_mask)
+            mask = attn_mask if attn_mask.numel() else None  # 0-size sentinel = no padding
+            hidden = self.block(hidden, temb_mod, (freqs_cos, freqs_sin), mask)
             self.offloader.submit_move_blocks_forward(self.block_idx)
 
             return make_contiguous(hidden, temb, temb_mod, freqs_cos, freqs_sin, attn_mask, text_mask, grid)

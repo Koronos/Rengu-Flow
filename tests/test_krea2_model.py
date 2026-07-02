@@ -404,3 +404,29 @@ def test_te_fp8_scaled_dequant_scheme():
     assert torch.allclose(
         remapped["layers.0.mlp.down_proj.weight"].float(), w * 2.0, atol=0.1
     )
+
+
+def test_pipeline_layers_all_valid_mask(tiny_model):
+    """All-valid masks take the fused-SDPA fast path (attn mask None -> 0-size sentinel
+    through the layer tuple) and must still match the monolithic forward."""
+    from rengu_flow.model.krea2.dit import pack_latents, prepare_position_ids, unpack_latents
+    from rengu_flow.model.krea2.layers import FinalLayer, InitialLayer, TransformerLayer
+    from rengu_flow.training.block_swap import NoopOffloader
+
+    torch.manual_seed(0)
+    lat = torch.randn(2, 4, 8, 12)
+    embeds = torch.randn(2, 7, 3, 24)
+    mask = torch.ones(2, 7, dtype=torch.bool)
+    t = torch.rand(2)
+
+    layers = (
+        [InitialLayer(tiny_model)]
+        + [TransformerLayer(b, i, NoopOffloader()) for i, b in enumerate(tiny_model.transformer_blocks)]
+        + [FinalLayer(tiny_model)]
+    )
+    x = (lat, t.view(-1, 1), embeds, mask)
+    for layer in layers:
+        x = layer(x)
+    with torch.no_grad():
+        ref = tiny_model(pack_latents(lat), embeds, t, prepare_position_ids(7, 4, 6, "cpu"), encoder_attention_mask=mask)
+    assert torch.allclose(x.detach(), unpack_latents(ref, 4, 6), atol=1e-5)
