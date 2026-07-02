@@ -11,7 +11,7 @@ try:
     from torch import nn
 
     from rengu_flow.training import quantize_dit as q
-    from rengu_flow.networks.lokr_sdxl import _apply_lokr_vendored
+    from rengu_flow.networks.lokr_vendored import _apply_lokr_vendored
 except ImportError as e:  # heavy deps missing
     pytest.skip(f"Cannot import torch/networks: {e}", allow_module_level=True)
 

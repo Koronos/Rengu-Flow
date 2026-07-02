@@ -4,7 +4,7 @@ import pytest
 
 # Networks may import torch/lycoris; skip if heavy deps fail.
 try:
-    from rengu_flow.networks import lokr_sdxl
+    from rengu_flow.networks import lokr_vendored
     import torch
 except ImportError as e:
     pytest.skip(f"Cannot import networks/torch: {e}", allow_module_level=True)
@@ -15,7 +15,7 @@ def test_infer_lokr_config_from_state():
     state = {
         "unet.down_blocks.0.attentions.0.to_q.lokr_w1_b": torch.zeros(8, 64),
     }
-    cfg = lokr_sdxl.infer_lokr_config_from_state(state)
+    cfg = lokr_vendored.infer_lokr_config_from_state(state)
     assert cfg["type"] == "lokr"
     assert cfg["rank"] == 8
     assert cfg["alpha"] == 8
@@ -30,7 +30,7 @@ def test_infer_lokr_config_from_state_uses_w2_a_if_no_w1_b():
     state = {
         "text_encoder.encoder.layers.0.self_attn.lokr_w2_a": torch.zeros(32, 4),
     }
-    cfg = lokr_sdxl.infer_lokr_config_from_state(state)
+    cfg = lokr_vendored.infer_lokr_config_from_state(state)
     assert cfg["rank"] == 4
 
 
@@ -39,7 +39,7 @@ def test_infer_lokr_config_from_state_default_rank_when_no_decomposed():
     state = {
         "unet.down_blocks.0.attentions.0.to_q.lokr_w1": torch.zeros(10, 20),
     }
-    cfg = lokr_sdxl.infer_lokr_config_from_state(state)
+    cfg = lokr_vendored.infer_lokr_config_from_state(state)
     assert cfg["rank"] == 4
 
 

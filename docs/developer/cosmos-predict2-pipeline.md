@@ -28,7 +28,7 @@ Implemented (not `[TODO]`):
 
 ## Adapters
 
-`configure_adapter` delegates to `adapter_dit.configure`. LoKr uses `lokr_sdxl._apply_lokr_vendored` (no ComfyUI). `save_adapter` writes `diffusion_model.*` keys; LoKr injects `.alpha` tensors per module.
+`configure_adapter` delegates to `adapter_dit.configure`. LoKr uses `lokr_vendored._apply_lokr_vendored` (no ComfyUI). `save_adapter` writes `diffusion_model.*` keys; LoKr injects `.alpha` tensors per module.
 
 `load_and_fuse_adapter` intentionally raises `NotImplementedError` (adapter weights stay separate; use `load_adapter_weights` for training). Covered by `tests/test_cosmos_load_and_fuse.py`.
 
