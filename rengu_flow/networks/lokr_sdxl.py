@@ -26,7 +26,13 @@ except ImportError:
 def _inject_lokr_into_linear(module, rank, alpha, factor=-1, decompose_both=False, full_matrix=False, dtype=torch.float32):
     """Inject LoKr parameters into an nn.Linear and replace its forward. ComfyUI/LyCORIS convention."""
     weight = module.weight
-    out_dim, in_dim = weight.shape
+    # Logical dims, not weight.shape: a bnb Linear4bit's weight is already packed
+    # (out*in/2, 1) once quantized (eager since the block-swap fix), and factorizing
+    # those dims builds a garbage delta. in/out_features are correct on both.
+    if hasattr(module, "out_features") and hasattr(module, "in_features"):
+        out_dim, in_dim = module.out_features, module.in_features
+    else:
+        out_dim, in_dim = weight.shape
     out1, out2 = factorization(out_dim, factor)
     in1, in2 = factorization(in_dim, factor)
 
