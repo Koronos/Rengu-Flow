@@ -124,3 +124,15 @@ def test_block_root_with_direct_params_is_hooked() -> None:
     x = torch.randn(2, 4)
     blocks[1](x)
     assert 1 in off._resident
+
+
+def test_hooks_compose_with_torch_compile() -> None:
+    """Regression: the hooks do device moves that dynamo cannot trace (fake-tensor device
+    mismatch under blocks_to_swap + compile). compiler.disable runs them eagerly with a
+    graph break; the compiled forward must still fire them (residency marked)."""
+    blocks = nn.ModuleList(_Krea2StyleBlock() for _ in range(3))
+    off = HookBlockSwapOffloader(blocks, blocks_to_swap=2, device="cpu")
+    compiled = torch.compile(blocks[1], backend="eager")
+    out = compiled(torch.randn(2, 4))
+    assert out.shape == (2, 4)
+    assert 1 in off._resident

@@ -172,6 +172,12 @@ class HookBlockSwapOffloader:
         return self._enabled
 
     def _register_hooks(self) -> None:
+        # The hooks move parameters between CPU and GPU — pure side effects that dynamo
+        # cannot trace (fake tensors see two devices on the same op). compiler.disable makes
+        # a compiled forward run them eagerly with a graph break at the block boundary; the
+        # block interiors still compile, so blocks_to_swap composes with compile = true.
+        fwd_hook = torch.compiler.disable(self._forward_pre_hook)
+        bwd_hook = torch.compiler.disable(self._backward_pre_hook)
         for idx, block in enumerate(self.blocks):
             for module in block.modules():
                 # The block root is hooked too when it directly owns parameters: krea2's
@@ -182,8 +188,8 @@ class HookBlockSwapOffloader:
                 if next(module.parameters(recurse=False), None) is None:
                     continue  # only modules that directly own parameters actually run/transfer
                 self._block_of_module[id(module)] = idx
-                self._handles.append(module.register_forward_pre_hook(self._forward_pre_hook))
-                self._handles.append(module.register_full_backward_pre_hook(self._backward_pre_hook))
+                self._handles.append(module.register_forward_pre_hook(fwd_hook))
+                self._handles.append(module.register_full_backward_pre_hook(bwd_hook))
 
     def _swap_params(self, idx: int) -> list:
         """Params that physically move CPU<->GPU for this block. Full-model mode swaps everything;
