@@ -125,3 +125,48 @@ def test_explicit_16bit_adapter_dtype_prints_note(capsys):
     }
     set_config_defaults(cfg2)
     assert "adapter.dtype is 16-bit" not in capsys.readouterr().out  # fp32 default: silent
+
+
+@pytest.mark.parametrize("use_reentrant", [False, True])
+def test_reentrant_checkpoint_reaches_adapter_grad(use_reentrant):
+    """Regression guard for the silent adapter stall on the quantized + block-swapped
+    path: reentrant activation checkpointing (auto-enabled for blocks_to_swap +
+    transformer_4bit) must still deliver gradient to trainable params inside a
+    checkpointed window. It only inspects top-level tensor args for requires_grad, so
+    the inter-layer tuple must be passed unpacked (SequentialPipe.forward) or the
+    boundary tensors' requires_grad is hidden and the segment is severed from autograd."""
+    from functools import partial
+    from torch.utils.checkpoint import checkpoint
+
+    from rengu_flow.engine.single_device import SequentialPipe
+
+    class Layer(torch.nn.Module):
+        """Tuple-in/tuple-out like krea2's TransformerLayer: frozen base + trainable adapter."""
+
+        def __init__(self):
+            super().__init__()
+            self.base = torch.nn.Linear(8, 8, bias=False)
+            self.base.weight.requires_grad_(False)  # frozen base (like a 4bit-quantized DiT block)
+            self.adapter = torch.nn.Linear(8, 8, bias=False)  # only trainable param ("LoKr")
+
+        def forward(self, inputs):
+            hidden, extra = inputs
+            return (self.base(hidden) + self.adapter(hidden), extra)
+
+    layer = Layer()
+    pipe = SequentialPipe(
+        [layer],
+        loss_fn=lambda out, label: (out[0] - label).pow(2).sum(),
+        activation_checkpoint_interval=1,
+        checkpointable_layers=None,  # empty filter => everything is checkpointed
+        activation_checkpoint_func=partial(checkpoint, use_reentrant=use_reentrant),
+    )
+
+    # InitialLayer forces requires_grad on the floating boundary tensor before the window.
+    hidden = torch.randn(2, 8, requires_grad=True)
+    extra = torch.zeros(1)
+    out = pipe((hidden, extra))
+    pipe.loss_fn(out, torch.zeros(2, 8)).backward()
+
+    assert layer.adapter.weight.grad is not None, "checkpointed adapter got no gradient"
+    assert layer.adapter.weight.grad.abs().sum() > 0

@@ -72,12 +72,21 @@ class SequentialPipe(torch.nn.Module):
         for start in range(0, len(layers), self._ac_interval):
             group = layers[start:start + self._ac_interval]
             if self._group_checkpointable(group):
-                def run(inp, _group=group):
+                def run(*inp, _group=group):
+                    state = inp[0] if len(inp) == 1 else inp
                     for layer in _group:
-                        inp = layer(inp)
-                    return inp
+                        state = layer(state)
+                    return state
 
-                x = self._ac_func(run, x)
+                # Unpack the inter-layer tuple into positional tensor args. Under
+                # use_reentrant=True (auto-enabled for block-swap + quantized base),
+                # checkpoint only inspects top-level tensor args for requires_grad; a
+                # tuple hides InitialLayer's requires_grad_(True) boundary tensors, so the
+                # recomputed segment is severed from autograd and every adapter param
+                # inside gets no gradient (silent training stall). The inter-layer state is
+                # tensors-only by design, so *x is safe for both reentrant modes.
+                args = x if isinstance(x, tuple) else (x,)
+                x = self._ac_func(run, *args)
             else:
                 for layer in group:
                     x = layer(x)
