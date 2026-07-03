@@ -3,7 +3,7 @@
 Two selection levels, composable and shared by every adapter family (PEFT LoRA,
 vendored LoKr, LyCORIS catalog):
 
-  * ``adapter.layer_groups`` — model-defined names ("text_adapter", "attention", ...)
+  * ``adapter.layer_groups`` — model-defined names ("text_fusion", "attention", ...)
     that expand to glob patterns over dotted module paths. Each pipeline publishes its
     map (e.g. ``Krea2Pipeline.ADAPTER_LAYER_GROUPS``); the UI offers the names as
     presets per model.
