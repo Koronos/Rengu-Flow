@@ -236,7 +236,7 @@ def _adapter_section_fields() -> list[dict[str, Any]]:
 
 
 def _preview_section() -> dict[str, Any]:
-    from rengu_flow_ui.preview_form import WHEN_COSMOS_PREVIEW
+    from rengu_flow_ui.preview_form import WHEN_COSMOS_PREVIEW, WHEN_DIT_PREVIEW
 
     preview_models = [c.type_id for c in model_capability_registry.values() if c.preview]
     when_preview = _when_model(*preview_models) if preview_models else {"field": "model.type", "in": []}
@@ -315,7 +315,7 @@ def _preview_section() -> dict[str, Any]:
                 "Offload text encoder during preview",
                 "boolean",
                 default=True,
-                when=WHEN_COSMOS_PREVIEW,
+                when=WHEN_DIT_PREVIEW,
             ),
             _field(
                 "preview.preview_blocks_to_swap",
@@ -323,7 +323,7 @@ def _preview_section() -> dict[str, Any]:
                 "integer",
                 default=0,
                 min_value=0,
-                when=WHEN_COSMOS_PREVIEW,
+                when=WHEN_DIT_PREVIEW,
             ),
             _field(
                 "preview.preview_offload_dit_for_decode",
@@ -337,7 +337,6 @@ def _preview_section() -> dict[str, Any]:
                 "Save preview PNGs",
                 "boolean",
                 default=False,
-                when=WHEN_COSMOS_PREVIEW,
             ),
         ],
     }
