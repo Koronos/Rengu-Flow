@@ -617,12 +617,12 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "doc": "docs/user/previews.md",
     },
     "preview.preview_offload_text_encoder": {
-        "summary": "Move the text encoder to CPU during Cosmos preview sampling to free VRAM.",
+        "summary": "Move the text encoder to CPU during preview sampling to free VRAM (Cosmos, Krea 2).",
         "detail": "Enable if preview sampling OOMs; the transfer adds latency but lets the DiT use more VRAM during generation.",
         "doc": "docs/user/previews.md",
     },
     "preview.preview_blocks_to_swap": {
-        "summary": "Number of DiT blocks to keep on CPU during Cosmos preview sampling.",
+        "summary": "Number of DiT blocks to keep on CPU during preview sampling (Cosmos, Krea 2).",
         "detail": "Reduces preview VRAM at the cost of slower sampling. Raise if preview sampling OOMs after enabling preview_offload_text_encoder.",
         "doc": "docs/user/previews.md",
     },

@@ -226,6 +226,16 @@ def run_previews(
                 f"{type(e).__name__}: {e}",
                 flush=True,
             )
+            if isinstance(e, torch.cuda.OutOfMemoryError) and not int(
+                preview_cfg.get("preview_blocks_to_swap", 0)
+            ):
+                print(
+                    "rengu_flow: preview OOM without preview block swap — the resident DiT plus "
+                    "the preview text encoder/VAE don't fit together. Set preview_blocks_to_swap "
+                    "under [preview] (e.g. 20) to stream DiT blocks from CPU during previews; "
+                    "training memory is unaffected.",
+                    flush=True,
+                )
             traceback.print_exc()
     finally:
         if use_block_swap_hooks:
