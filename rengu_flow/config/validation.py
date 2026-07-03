@@ -178,6 +178,26 @@ def collect_validation_errors(
                 )
             elif "rank" not in adapter and "dim" not in adapter:
                 issues.append("adapter.rank (or adapter.dim) is required for adapter training.")
+            if isinstance(adapter, dict) and adapter.get("layer_groups") is not None:
+                groups = adapter["layer_groups"]
+                if isinstance(groups, str):
+                    groups = [groups]
+                if not isinstance(groups, list) or not all(isinstance(g, str) for g in groups):
+                    issues.append("adapter.layer_groups must be a list of group names.")
+                else:
+                    model_cfg = config.get("model")
+                    model_type = model_cfg.get("type") if isinstance(model_cfg, dict) else None
+                    from rengu_flow.registry.model_capabilities import get_capability
+
+                    cap = get_capability(model_type)
+                    known = list(getattr(cap, "adapter_layer_groups", []) or [])
+                    unknown = [g for g in groups if g not in known]
+                    if unknown:
+                        available = ", ".join(known) or "none for this model"
+                        issues.append(
+                            f"adapter.layer_groups {unknown} not available for model "
+                            f"{model_type!r}. Available: {available}."
+                        )
 
     max_exports = config.get("max_model_exports_to_keep")
     if max_exports is not None:

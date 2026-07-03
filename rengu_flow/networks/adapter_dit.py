@@ -14,6 +14,7 @@ import safetensors
 import torch
 from torch import nn
 
+from rengu_flow.networks.adapter_targets import apply_layer_groups, filter_target_names
 from rengu_flow.networks.lokr_vendored import _apply_lokr_vendored
 from rengu_flow.utils.common import is_main_process
 from rengu_flow.utils.save_io import atomic_save_safetensors
@@ -32,14 +33,36 @@ def _collect_target_linears(transformer, target_module_names):
     return list(names)
 
 
-def configure(transformer, adapter_config, targets=ADAPTER_TARGET_MODULES):
+def configure(transformer, adapter_config, targets=ADAPTER_TARGET_MODULES, layer_groups=None):
     adapter_type = adapter_config["type"]
+    # Named layer groups expand into target_include globs first, so every family
+    # (PEFT lora, vendored lokr, lycoris) sees one selection mechanism.
+    apply_layer_groups(adapter_config, layer_groups)
     if adapter_type.startswith("lycoris_"):
         from rengu_flow.networks import lycoris_dit
 
+        # lycoris_attach applies target_include/exclude itself (dotted-path globs).
         lycoris_dit.configure(transformer, adapter_config, targets=targets)
         return None, adapter_type
     target_linear_modules = _collect_target_linears(transformer, targets)
+    include = adapter_config.get("target_include")
+    exclude = adapter_config.get("target_exclude")
+    if include or exclude:
+        kept = filter_target_names(target_linear_modules, include, exclude)
+        if not kept:
+            from rengu_flow.config.validation import ConfigValidationError
+
+            sample = ", ".join(sorted(target_linear_modules)[:8])
+            raise ConfigValidationError(
+                "adapter.target_include/layer_groups matched no modules. "
+                f"Example module paths: {sample} ..."
+            )
+        if is_main_process():
+            print(
+                f"adapter: targeting {len(kept)}/{len(target_linear_modules)} linears "
+                "(layer_groups / target_include / target_exclude)"
+            )
+        target_linear_modules = kept
     if adapter_type == "lora":
         peft_config = peft.LoraConfig(
             r=adapter_config["rank"],

@@ -42,6 +42,17 @@ ADAPTER_TARGET_MODULES = ("Krea2Transformer2DModel",)
 # diffusers module names), which ComfyUI and diffusers both load.
 EXPORT_PREFIX = "transformer."
 
+# Named layer groups for adapter.layer_groups: globs over the DiT's dotted module
+# paths (see networks/adapter_targets.py). "text_adapter" is the conditioning stack —
+# the 12-layer Krea2TextFusion refiner plus the txt_in projection.
+ADAPTER_LAYER_GROUPS = {
+    "text_adapter": ("text_fusion.*", "txt_in.*"),
+    "attention": ("transformer_blocks.*.attn.*",),
+    "feedforward": ("transformer_blocks.*.ff.*",),
+    "time_modulation": ("time_mod_proj",),
+    "image_in_out": ("img_in", "final_layer.*"),
+}
+
 # Quantization scope for the frozen base: the per-block attention/SwiGLU linears only.
 # The text-fusion stack is small and delicate and the shared projections are tiny —
 # keep them in compute dtype (same split musubi-tuner uses for its fp8 path).
@@ -301,7 +312,10 @@ class Krea2Pipeline(BasePipeline):
 
     def configure_adapter(self, adapter_config):
         self.peft_config, self.adapter_type = adapter_dit.configure(
-            self.transformer, adapter_config, targets=ADAPTER_TARGET_MODULES
+            self.transformer,
+            adapter_config,
+            targets=ADAPTER_TARGET_MODULES,
+            layer_groups=ADAPTER_LAYER_GROUPS,
         )
         self.adapter_config = adapter_config
         for name, p in self.transformer.named_parameters():

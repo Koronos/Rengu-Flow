@@ -170,10 +170,28 @@ tapped Qwen3-VL layers into one text-conditioning sequence), and the shared `img
 / time projections and final output linear. This is the model authors' recommended LoRA scope
 (their reference configuration is rank 32 / alpha 32).
 
-For any `lycoris_*` adapter, narrow that scope with `adapter.target_include` /
-`adapter.target_exclude` (glob patterns against the dotted module path, e.g.
-`target_include = ["*attn*"]` to train attention only). These filters are lycoris-only — the
-built-in `lora` / `lokr` types always train the full default scope above.
+Narrow that scope with **layer groups** — named, model-defined selections you can combine —
+or with raw glob patterns. Both work for `lora`, `lokr`, and every `lycoris_*` type:
+
+```toml
+[adapter]
+type = "lora"
+rank = 32
+# Train only the text-conditioning stack (Krea2TextFusion + txt_in projection):
+layer_groups = ["text_adapter"]
+# or combine several:
+# layer_groups = ["text_adapter", "attention"]
+```
+
+Krea 2 groups: `text_adapter` (text_fusion + txt_in), `attention`
+(per-block attention projections), `feedforward` (per-block SwiGLU), `time_modulation`
+(`time_mod_proj`), `image_in_out` (`img_in` + final layer). Cosmos Predict2 defines
+`self_attention`, `cross_attention`, and `mlp`.
+
+For anything a named group doesn't cover, `adapter.target_include` / `adapter.target_exclude`
+take fnmatch globs against the dotted module path (e.g. `target_include = ["*attn*"]`,
+`target_exclude = ["*.to_gate"]`). Groups expand into `target_include`, so the two compose;
+patterns that match nothing fail at startup with example module paths.
 
 All adapter exports use the official Krea 2 `transformer.` key prefix over diffusers module
 names (`lora` also matches the official `lora_A`/`lora_B` weight names), so official Krea 2

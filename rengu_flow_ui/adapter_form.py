@@ -16,7 +16,13 @@ from rengu_flow.registry.model_capabilities import ADAPTER_FIELD_TEMPLATES
 
 def allowed_adapter_paths(adapter_type: Any) -> frozenset[str]:
     """The ``adapter.*`` paths valid for this network type (common + per-kind)."""
-    keep: set[str] = {"adapter.type"}
+    keep: set[str] = {
+        "adapter.type",
+        # Layer selection applies to every family (groups expand into include globs).
+        "adapter.layer_groups",
+        "adapter.target_include",
+        "adapter.target_exclude",
+    }
     for spec in ADAPTER_FIELD_TEMPLATES["common"]:
         keep.add(spec["path"])
     for spec in ADAPTER_FIELD_TEMPLATES.get(adapter_type, []):

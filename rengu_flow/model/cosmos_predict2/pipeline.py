@@ -44,6 +44,14 @@ def get_lin_function(x1: float = 256, y1: float = 0.5, x2: float = 4096, y2: flo
     return lambda x: m * x + b
 
 
+# Named layer groups for adapter.layer_groups (globs over Block module paths).
+ADAPTER_LAYER_GROUPS = {
+    "self_attention": ("blocks.*.self_attn.*",),
+    "cross_attention": ("blocks.*.cross_attn.*",),
+    "mlp": ("blocks.*.mlp.*",),
+}
+
+
 @register_model("cosmos_predict2")
 class CosmosPredict2Pipeline(BasePipeline):
     name = "cosmos_predict2"
@@ -202,7 +210,7 @@ class CosmosPredict2Pipeline(BasePipeline):
 
     def configure_adapter(self, adapter_config):
         self.peft_config, self.adapter_type = adapter_dit.configure(
-            self.transformer, adapter_config
+            self.transformer, adapter_config, layer_groups=ADAPTER_LAYER_GROUPS
         )
         self.adapter_config = adapter_config
         for name, p in self.transformer.named_parameters():

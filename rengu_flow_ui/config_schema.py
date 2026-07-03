@@ -232,6 +232,59 @@ def _adapter_section_fields() -> list[dict[str, Any]]:
             f = _field_from_template(path_to_spec[p], None)
             f["when"] = when_kind
             fields.append(f)
+
+    # Layer selection (which modules the adapter trains). layer_groups is emitted per
+    # model so its options are that model's named groups; the raw glob fields appear for
+    # lora/lokr only on models whose configure path honors them (lycoris kinds already
+    # get them from LYCORIS_FIELD_GROUPS on every model).
+    group_models = [c for c in model_capability_registry.values() if c.adapter_layer_groups]
+    for cap in group_models:
+        fields.append(
+            _field(
+                "adapter.layer_groups",
+                "Layer groups",
+                "string_list",
+                options=list(cap.adapter_layer_groups),
+                when={"all": [HAS_ADAPTER, {"field": "model.type", "in": [cap.type_id]}]},
+                placeholder="empty = all layers",
+                description=(
+                    "Train the adapter only on these layer groups (pick one or several). "
+                    "Empty trains every targeted linear. Combines with the include/exclude "
+                    "glob patterns below."
+                ),
+            )
+        )
+    if group_models:
+        glob_when = {
+            "all": [
+                HAS_ADAPTER,
+                {"field": "adapter.type", "in": ["lora", "lokr"]},
+                {"field": "model.type", "in": [c.type_id for c in group_models]},
+            ]
+        }
+        fields.append(
+            _field(
+                "adapter.target_include",
+                "Target include patterns",
+                "string_list",
+                when=glob_when,
+                placeholder="e.g. text_fusion.*",
+                description=(
+                    "fnmatch globs over dotted module paths; only matching linears get the "
+                    "adapter. Empty = all. Layer groups above expand into these patterns."
+                ),
+            )
+        )
+        fields.append(
+            _field(
+                "adapter.target_exclude",
+                "Target exclude patterns",
+                "string_list",
+                when=glob_when,
+                placeholder="e.g. *.to_gate",
+                description="fnmatch globs removed from the include set (applied after includes).",
+            )
+        )
     return fields
 
 
