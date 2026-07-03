@@ -361,7 +361,12 @@ def _run_training(args, config):
     # numerics. Logged once on rank 0 so a saved log is self-describing (which version produced these
     # numbers? which torch?) — invaluable when debugging a perf/behaviour change across updates.
     from rengu_flow.utils import is_main_process as _is_main
+    from rengu_flow.utils.logging import tag_third_party_console_logs
     from rengu_flow.version import installed_version as _iv, version_string as _vs
+
+    # Third-party logging (lycoris, datasets, transformers, ...) stays in the log file
+    # (auditable) but tagged [dep:<pkg>] so the trainer's own narrative stays readable.
+    tag_third_party_console_logs()
     if _is_main():
         import sys as _sys
         _deps = " ".join(f"{_n}={_iv(_n) or '?'}" for _n in ("torch", "kaon", "deepspeed", "triton"))

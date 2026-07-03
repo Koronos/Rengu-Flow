@@ -2,7 +2,8 @@
   <div v-if="progress" class="run-progress">
     <template v-if="caching">
       <div class="run-progress__readout">
-        Caching<template v-if="progress.total"> {{ progress.current ?? 0 }} / {{ progress.total }}</template><template v-else>…</template>
+        <template v-if="progress.stage">Caching {{ progress.stage }}/{{ progress.stages }}: {{ progress.stage_name }}<template v-if="progress.detail"> · {{ progress.detail }}</template><template v-if="progress.total"> ({{ progress.current ?? 0 }}/{{ progress.total }})</template></template>
+        <template v-else>Caching<template v-if="progress.total"> {{ progress.current ?? 0 }} / {{ progress.total }}</template><template v-else>…</template></template>
       </div>
       <el-progress
         v-if="progress.percent != null"

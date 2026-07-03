@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import logging
@@ -32,6 +33,7 @@ from rengu_flow.data.augmentation.spec_utils import image_spec_base
 from rengu_flow.data.cache_paths import resolve_directory_cache_dir
 from rengu_flow.data.sampling import RoundRobinCursor
 from rengu_flow.platform_compat import PLATFORM
+from rengu_flow.data import caching_progress
 from rengu_flow.data.cache_utils import (
     _map_and_cache,
     bucket_suffix,
@@ -516,7 +518,6 @@ class SizeBucketDataset:
             )
             return
 
-        print(f"caching latents: {self.size_bucket}")
         self.latent_dataset = _map_and_cache(
             self.metadata_dataset,
             map_fn,
@@ -553,7 +554,7 @@ class SizeBucketDataset:
             or not trust_cache
             or caption_fp_stale
         ):
-            print("Building iteration order")
+            caching_progress.note("building iteration order")
             image_spec_to_latents_idx = {
                 tuple(self.metadata_dataset[i]["image_spec"]): i
                 for i in range(len(self.metadata_dataset))
@@ -623,7 +624,6 @@ class SizeBucketDataset:
         cache_num_proc: int | None = None,
         cache_keep_in_memory: bool = False,
     ) -> None:
-        print(f"caching text embeddings: {self.size_bucket}")
         te_dataset = _cache_text_embeddings(
             self.metadata_dataset,
             map_fn,
@@ -907,7 +907,6 @@ class ARBucketDataset:
         cache_num_proc: int | None = None,
         cache_keep_in_memory: bool = False,
     ) -> None:
-        print(f"caching latents: {self.ar_frames}")
         for res in self.resolutions:
             area = res**2
             w = math.sqrt(area * self.ar_frames[0])
@@ -936,14 +935,15 @@ class ARBucketDataset:
                 )
             )
         for ds in self.size_buckets:
-            ds.cache_latents(
-                map_fn,
-                regenerate_cache=regenerate_cache,
-                trust_cache=trust_cache,
-                caching_batch_size=caching_batch_size,
-                cache_num_proc=cache_num_proc,
-                cache_keep_in_memory=cache_keep_in_memory,
-            )
+            with caching_progress.unit(f"latents {bucket_suffix(ds.size_bucket)}"):
+                ds.cache_latents(
+                    map_fn,
+                    regenerate_cache=regenerate_cache,
+                    trust_cache=trust_cache,
+                    caching_batch_size=caching_batch_size,
+                    cache_num_proc=cache_num_proc,
+                    cache_keep_in_memory=cache_keep_in_memory,
+                )
 
     def cache_text_embeddings(
         self,
@@ -954,7 +954,6 @@ class ARBucketDataset:
         cache_num_proc: int | None = None,
         cache_keep_in_memory: bool = False,
     ) -> None:
-        print(f"caching text embeddings: {self.ar_frames}")
         # Expand caption variants to match each size bucket's iteration order, which expands
         # them too (maybe_expand_caption_variants in SizeBucketDataset). Without this the te
         # cache holds only the base captions while caption_number runs 0..K-1 -> IndexError.
@@ -1249,23 +1248,21 @@ class DirectoryDataset:
 
         all_exist, unique_keys = check_grouped()
         if regenerate_cache or not all_exist or not trust_cache:
-            print(
-                "Grouped metadata is not cached. Computing ungrouped metadata and grouping."
-            )
+            caching_progress.note("grouped metadata not cached — computing and grouping")
             unique_keys = self._group_metadata_and_save_to_disk(
                 regenerate_cache=regenerate_cache,
                 trust_cache=trust_cache,
                 cache_num_proc=cache_num_proc,
             )
         else:
-            print("Found grouped metadata cache. Directly loading it.")
+            caching_progress.note("grouped metadata cache found — loading")
 
         for key in unique_keys:
             grouped_dir = (
                 self.cache_dir
                 / f"metadata/grouped_metadata_{bucket_suffix(key)}"
             )
-            print(f"Loading grouped metadata with grouping key {key}")
+            caching_progress.note(f"loading grouped metadata {key}")
             # keep_in_memory on Windows: avoid mmap so a sibling dataset / later run can overwrite
             # this grouped-metadata cache (Windows can't save_to_disk over an mmap'd Arrow file).
             metadata = datasets.load_from_disk(str(grouped_dir), keep_in_memory=PLATFORM.metadata_keep_in_memory)
@@ -1340,7 +1337,7 @@ class DirectoryDataset:
             or not metadata_cache_1.exists()
             or not trust_cache
         ):
-            print("Intermediate metadata is not cached. Enumerating all files.")
+            caching_progress.note("intermediate metadata not cached — enumerating files")
             files = sorted(self.path.glob("*"))
 
             mask_stems = {}
@@ -1421,7 +1418,7 @@ class DirectoryDataset:
             metadata_dataset = datasets.Dataset.from_dict(d)
 
             if captions_json.exists():
-                print("Loading captions JSON")
+                caching_progress.note("loading captions.json")
                 with open(captions_json) as f:
                     caption_data = json.load(f)
 
@@ -1454,16 +1451,16 @@ class DirectoryDataset:
             seed = seed_from_hash(self.path)
             if self.shuffle_metadata:
                 metadata_dataset = metadata_dataset.shuffle(seed=seed)
-            print("Saving intermediate metadata dataset.")
+            caching_progress.note("saving intermediate metadata")
             metadata_dataset.save_to_disk(str(metadata_cache_1))
             del metadata_dataset
 
-        print("Loading intermediate metadata dataset.")
+        caching_progress.note("loading intermediate metadata")
         metadata_dataset = datasets.load_from_disk(
             str(metadata_cache_1), keep_in_memory=PLATFORM.metadata_keep_in_memory
         )
         metadata_map_fn, tarfile_map = self._metadata_map_fn()
-        print("Caching ungrouped metadata.")
+        caching_progress.note("caching ungrouped metadata")
         try:
             metadata_dataset = metadata_dataset.map(
                 metadata_map_fn,
@@ -1686,21 +1683,29 @@ class DirectoryDataset:
         cache_num_proc: int | None = None,
         cache_keep_in_memory: bool = False,
     ) -> None:
-        print(f"caching latents: {self.path}")
+        caching_progress.note(f"directory {self.path}")
         datasets_list = (
             self.size_bucket_datasets
             if self.use_size_buckets
             else self.ar_bucket_datasets
         )
         for ds in datasets_list:
-            ds.cache_latents(
-                map_fn,
-                regenerate_cache=regenerate_cache,
-                trust_cache=trust_cache,
-                caching_batch_size=caching_batch_size,
-                cache_num_proc=cache_num_proc,
-                cache_keep_in_memory=cache_keep_in_memory,
+            # Size-bucket mode: each entry IS one bucket (one progress unit). AR mode:
+            # ARBucketDataset opens one unit per (ar, resolution) bucket itself.
+            ctx = (
+                caching_progress.unit(f"latents {bucket_suffix(ds.size_bucket)}")
+                if self.use_size_buckets
+                else contextlib.nullcontext()
             )
+            with ctx:
+                ds.cache_latents(
+                    map_fn,
+                    regenerate_cache=regenerate_cache,
+                    trust_cache=trust_cache,
+                    caching_batch_size=caching_batch_size,
+                    cache_num_proc=cache_num_proc,
+                    cache_keep_in_memory=cache_keep_in_memory,
+                )
 
     def cache_text_embeddings(
         self,
@@ -1711,20 +1716,26 @@ class DirectoryDataset:
         cache_num_proc: int | None = None,
         cache_keep_in_memory: bool = False,
     ) -> None:
-        print(f"caching text embeddings: {self.path}")
+        caching_progress.note(f"directory {self.path}")
         datasets_list = (
             self.size_bucket_datasets
             if self.use_size_buckets
             else self.ar_bucket_datasets
         )
         for ds in datasets_list:
-            ds.cache_text_embeddings(
-                map_fn, i,
-                regenerate_cache=regenerate_cache,
-                caching_batch_size=caching_batch_size,
-                cache_num_proc=cache_num_proc,
-                cache_keep_in_memory=cache_keep_in_memory,
+            detail = (
+                f"text embeddings {bucket_suffix(ds.size_bucket)}"
+                if self.use_size_buckets
+                else f"text embeddings ar {ds.ar_frames}"
             )
+            with caching_progress.unit(detail):
+                ds.cache_text_embeddings(
+                    map_fn, i,
+                    regenerate_cache=regenerate_cache,
+                    caching_batch_size=caching_batch_size,
+                    cache_num_proc=cache_num_proc,
+                    cache_keep_in_memory=cache_keep_in_memory,
+                )
         empty_ds = datasets.Dataset.from_dict(
             {
                 "caption": [""],
@@ -2184,11 +2195,12 @@ class Dataset:
         cache_num_proc: int | None = None,
     ) -> None:
         for ds in self.directory_datasets:
-            ds.cache_metadata(
-                regenerate_cache=regenerate_cache,
-                trust_cache=trust_cache,
-                cache_num_proc=cache_num_proc,
-            )
+            with caching_progress.unit(f"metadata {Path(ds.path).name}"):
+                ds.cache_metadata(
+                    regenerate_cache=regenerate_cache,
+                    trust_cache=trust_cache,
+                    cache_num_proc=cache_num_proc,
+                )
 
     def cache_latents(
         self,

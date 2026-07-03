@@ -135,8 +135,16 @@ def _map_and_cache(
 
     cache = open_disk_cache(cache_dir, new_fingerprint)
 
+    from rengu_flow.data import caching_progress
+
+    progress = caching_progress.get_active()
+    label = cache_file_prefix.strip("_") or "items"
+
     if map_fn is None:
         assert new_fingerprint == cache.fingerprint
+        if progress is not None:
+            progress.add_reused(len(cache))
+            progress.note(f"{label}: {len(cache)} loaded from cache (trusted)")
         return cache
 
     if regenerate_cache:
@@ -145,6 +153,11 @@ def _map_and_cache(
     cache_size = len(cache)
     dataset_size = len(dataset)
     assert cache_size <= dataset_size
+    if progress is not None:
+        # The audit line: how much of this cache is actually being reused vs re-encoded.
+        progress.add_reused(cache_size)
+        progress.add_encoded(dataset_size - cache_size)
+        progress.note(f"{label}: {dataset_size - cache_size} to encode, {cache_size} cached")
     if cache_size == dataset_size:
         return cache
     dataset = dataset.select(
@@ -193,13 +206,6 @@ def _map_and_cache(
     completed_batches = cache_size // caching_batch_size
     total_batches = dataset_size // caching_batch_size
 
-    # Throttled "caching" progress marker for the web UI (rank 0 only). The per-update
-    # tqdm bar is disabled when stdout is not a TTY so the UI-captured log isn't spammed.
-    from rengu_flow.control.progress_stream import ProgressEmitter
-    from rengu_flow.utils import is_main_process
-
-    cache_emitter = ProgressEmitter() if is_main_process() else None
-
     batch_iter = dataset.iter(batch_size=caching_batch_size)
     map_iter = (
         _ordered_parallel_map(executor, wrapper, batch_iter, max_inflight=pool_workers * 2)
@@ -217,22 +223,8 @@ def _map_and_cache(
         for example in unbatch_iter(batch):
             cache.add(example)
         done += 1
-        if cache_emitter is not None:
-            is_last = total_batches and done >= total_batches
-            percent = (
-                round(min(100.0, 100.0 * done / total_batches), 1)
-                if total_batches
-                else None
-            )
-            cache_emitter.emit(
-                {
-                    "phase": "caching",
-                    "current": done,
-                    "total": total_batches,
-                    "percent": percent,
-                },
-                force=bool(is_last),
-            )
+        if progress is not None:
+            progress.unit_progress(done, total_batches)
 
     if executor is not None:
         executor.shutdown(wait=True)

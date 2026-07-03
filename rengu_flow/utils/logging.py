@@ -63,3 +63,43 @@ def get_logger(name: str = _LOGGER_NAME) -> logging.Logger:
 
 
 logger = get_logger()
+
+
+class _DepPrefixFormatter(logging.Formatter):
+    """Prefix root-propagated records from third-party loggers with ``[dep:<pkg>]``.
+
+    Dependencies (lycoris, datasets, transformers, ...) log lines we must keep — muting
+    would break log-file auditability — but that drown the trainer's own narrative in a
+    captured log. Tagging instead of muting keeps every line in the file while making
+    the source obvious at a glance (and trivially filterable in the UI).
+    """
+
+    def __init__(self, inner: logging.Formatter | None):
+        super().__init__()
+        self._inner = inner
+
+    def format(self, record: logging.LogRecord) -> str:
+        text = self._inner.format(record) if self._inner else super().format(record)
+        name = record.name or "root"
+        if name != "root" and not name.startswith("rengu_flow"):
+            return f"[dep:{name.split('.')[0]}] {text}"
+        return text
+
+
+def tag_third_party_console_logs() -> None:
+    """Wrap the root logger's handlers so third-party records get a ``[dep:...]`` prefix.
+
+    Idempotent. Covers loggers that propagate to root (the logging-module default);
+    libraries that attach their own private handlers keep their own format — those
+    lines still land in the captured log, just untagged.
+    """
+    root = logging.getLogger()
+    if not root.handlers:
+        handler = logging.StreamHandler(stream=sys.stdout)
+        root.addHandler(handler)
+        if root.level == logging.NOTSET:
+            root.setLevel(logging.WARNING)
+    for handler in root.handlers:
+        if isinstance(handler.formatter, _DepPrefixFormatter):
+            continue
+        handler.setFormatter(_DepPrefixFormatter(handler.formatter))
