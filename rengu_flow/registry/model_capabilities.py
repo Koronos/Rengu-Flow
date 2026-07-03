@@ -578,7 +578,7 @@ def _register_builtin_capabilities() -> None:
                 ],
             },
             adapter_layer_groups=[
-                "text_adapter",
+                "text_fusion",
                 "attention",
                 "feedforward",
                 "time_modulation",

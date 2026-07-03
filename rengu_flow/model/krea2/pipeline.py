@@ -43,10 +43,11 @@ ADAPTER_TARGET_MODULES = ("Krea2Transformer2DModel",)
 EXPORT_PREFIX = "transformer."
 
 # Named layer groups for adapter.layer_groups: globs over the DiT's dotted module
-# paths (see networks/adapter_targets.py). "text_adapter" is the conditioning stack —
-# the 12-layer Krea2TextFusion refiner plus the txt_in projection.
+# paths (see networks/adapter_targets.py). "text_fusion" is the conditioning stack —
+# the 12-layer Krea2TextFusion refiner plus the txt_in projection (canonical
+# checkpoint/diffusers name).
 ADAPTER_LAYER_GROUPS = {
-    "text_adapter": ("text_fusion.*", "txt_in.*"),
+    "text_fusion": ("text_fusion.*", "txt_in.*"),
     "attention": ("transformer_blocks.*.attn.*",),
     "feedforward": ("transformer_blocks.*.ff.*",),
     "time_modulation": ("time_mod_proj",),

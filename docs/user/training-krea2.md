@@ -178,12 +178,12 @@ or with raw glob patterns. Both work for `lora`, `lokr`, and every `lycoris_*` t
 type = "lora"
 rank = 32
 # Train only the text-conditioning stack (Krea2TextFusion + txt_in projection):
-layer_groups = ["text_adapter"]
+layer_groups = ["text_fusion"]
 # or combine several:
-# layer_groups = ["text_adapter", "attention"]
+# layer_groups = ["text_fusion", "attention"]
 ```
 
-Krea 2 groups: `text_adapter` (text_fusion + txt_in), `attention`
+Krea 2 groups: `text_fusion` (the Krea2TextFusion stack + txt_in projection), `attention`
 (per-block attention projections), `feedforward` (per-block SwiGLU), `time_modulation`
 (`time_mod_proj`), `image_in_out` (`img_in` + final layer). Cosmos Predict2 defines
 `self_attention`, `cross_attention`, and `mlp`.

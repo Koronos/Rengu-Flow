@@ -66,7 +66,7 @@ def test_filter_target_names_globs():
 
 
 def test_apply_layer_groups_expands_and_merges():
-    cfg = {"layer_groups": ["text_adapter"], "target_include": ["img_in"]}
+    cfg = {"layer_groups": ["text_fusion"], "target_include": ["img_in"]}
     apply_layer_groups(cfg, KREA2_GROUPS)
     assert "img_in" in cfg["target_include"]
     assert "text_fusion.*" in cfg["target_include"]
@@ -74,8 +74,8 @@ def test_apply_layer_groups_expands_and_merges():
 
 
 def test_apply_layer_groups_unknown_name_raises():
-    with pytest.raises(ConfigValidationError, match="text_adaptr"):
-        apply_layer_groups({"layer_groups": ["text_adaptr"]}, KREA2_GROUPS)
+    with pytest.raises(ConfigValidationError, match="text_fusio"):
+        apply_layer_groups({"layer_groups": ["text_fusio"]}, KREA2_GROUPS)
     with pytest.raises(ConfigValidationError, match="none for this model"):
         apply_layer_groups({"layer_groups": ["anything"]}, None)
 
@@ -92,11 +92,11 @@ def test_krea2_groups_match_real_modules():
         assert matched, f"layer group {group!r} matched no module (patterns {patterns})"
 
 
-def test_krea2_lokr_text_adapter_only():
+def test_krea2_lokr_text_fusion_only():
     model = _tiny_krea2()
     adapter_dit.configure(
         model,
-        _lokr_config(layer_groups=["text_adapter"]),
+        _lokr_config(layer_groups=["text_fusion"]),
         targets=KREA2_TARGETS,
         layer_groups=KREA2_GROUPS,
     )
@@ -117,7 +117,7 @@ def test_krea2_lokr_multiple_groups():
     model = _tiny_krea2()
     adapter_dit.configure(
         model,
-        _lokr_config(layer_groups=["text_adapter", "attention"]),
+        _lokr_config(layer_groups=["text_fusion", "attention"]),
         targets=KREA2_TARGETS,
         layer_groups=KREA2_GROUPS,
     )
@@ -135,7 +135,7 @@ def test_krea2_lora_peft_respects_groups():
         "alpha": 4,
         "dropout": 0.0,
         "dtype": torch.float32,
-        "layer_groups": ["text_adapter"],
+        "layer_groups": ["text_fusion"],
     }
     adapter_dit.configure(model, cfg, targets=KREA2_TARGETS, layer_groups=KREA2_GROUPS)
     lora_modules = {
@@ -251,4 +251,4 @@ def test_schema_offers_layer_groups_for_krea2():
             for cond in (f.get("when") or {}).get("all", [])
         )
     )
-    assert "text_adapter" in krea2_variant["options"]
+    assert "text_fusion" in krea2_variant["options"]
