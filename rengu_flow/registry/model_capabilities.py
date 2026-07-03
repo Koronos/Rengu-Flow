@@ -140,6 +140,9 @@ class ModelCapability:
     features: dict[str, bool] = field(default_factory=dict)
     # Optional validation overrides — see model_config_rules.py (one_of, …).
     model_validation: dict[str, Any] = field(default_factory=dict)
+    # Named adapter layer groups (adapter.layer_groups options). Names must match the
+    # pipeline's ADAPTER_LAYER_GROUPS keys (guarded by tests/test_adapter_layer_groups.py).
+    adapter_layer_groups: list[str] = field(default_factory=list)
 
     def training_modes(self) -> list[str]:
         modes: list[str] = []
@@ -166,6 +169,7 @@ class ModelCapability:
             "model_fields": list(self.model_fields),
             "features": dict(self.features),
             "model_validation": dict(self.model_validation),
+            "adapter_layer_groups": list(self.adapter_layer_groups),
         }
 
 
@@ -357,6 +361,7 @@ def _register_builtin_capabilities() -> None:
             model_validation={
                 "one_of": [["llm_path", "t5_path"]],
             },
+            adapter_layer_groups=["self_attention", "cross_attention", "mlp"],
             model_fields=[
                 {
                     "path": "model.transformer_path",
@@ -572,6 +577,13 @@ def _register_builtin_capabilities() -> None:
                     ["text_encoder_path", "checkpoint_path"],
                 ],
             },
+            adapter_layer_groups=[
+                "text_adapter",
+                "attention",
+                "feedforward",
+                "time_modulation",
+                "image_in_out",
+            ],
             model_fields=[
                 {
                     "path": "model.transformer_path",
