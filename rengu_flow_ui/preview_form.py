@@ -5,6 +5,10 @@ from __future__ import annotations
 from typing import Any
 
 WHEN_COSMOS_PREVIEW = {"field": "model.type", "in": ["cosmos_predict2"]}
+# Preview memory knobs honored by every DiT preview runner (prepare_preview_memory /
+# offload_text_encoder_after_encode exist on both pipelines); dit-for-decode stays
+# cosmos-only — krea2's preview never reads it.
+WHEN_DIT_PREVIEW = {"field": "model.type", "in": ["cosmos_predict2", "krea2"]}
 
 
 def _entry_field(
@@ -78,7 +82,7 @@ def get_preview_entry_fields() -> list[dict[str, Any]]:
             "Offload text encoder",
             "boolean",
             default=True,
-            when=WHEN_COSMOS_PREVIEW,
+            when=WHEN_DIT_PREVIEW,
         ),
         _entry_field(
             "preview_blocks_to_swap",
@@ -86,7 +90,7 @@ def get_preview_entry_fields() -> list[dict[str, Any]]:
             "integer",
             default=0,
             min_value=0,
-            when=WHEN_COSMOS_PREVIEW,
+            when=WHEN_DIT_PREVIEW,
         ),
         _entry_field(
             "preview_offload_dit_for_decode",
@@ -100,7 +104,6 @@ def get_preview_entry_fields() -> list[dict[str, Any]]:
             "Save PNG to run folder",
             "boolean",
             default=False,
-            when=WHEN_COSMOS_PREVIEW,
         ),
     ]
 
