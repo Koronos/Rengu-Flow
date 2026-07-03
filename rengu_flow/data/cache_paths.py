@@ -60,6 +60,28 @@ def resolve_cache_root(
 
 
 def dataset_cache_id(dataset_config: dict) -> str:
+    """Namespace id for a dataset config's caches, keyed on the data it points AT.
+
+    Keyed on the sorted [[directory]] paths — the dataset's stable identity — never on
+    where the TOML file happens to live: the UI stages a copy of the dataset TOML into a
+    per-job folder, so a path-keyed id changed every run and silently regenerated every
+    cache. Settings changes (resolutions, captions, augmentation) don't need to move the
+    namespace: bucket dirs and content fingerprints already invalidate exactly what they
+    affect.
+    """
+    dirs = dataset_config.get("directory") or []
+    paths = sorted(
+        str(Path(d["path"]).resolve())
+        for d in dirs
+        if isinstance(d, dict) and d.get("path")
+    )
+    if paths:
+        return _stable_id("\x00".join(paths))
+    return _legacy_dataset_cache_id(dataset_config)
+
+
+def _legacy_dataset_cache_id(dataset_config: dict) -> str:
+    """Pre-directory-keyed id (TOML path hash); kept only to relocate old caches once."""
     path = dataset_config.get("_dataset_toml_path")
     if path:
         return _stable_id(str(Path(path).resolve()))
@@ -79,9 +101,16 @@ def resolve_directory_cache_dir(
 ) -> Path:
     cfg = training_config if training_config is not None else {}
     root = resolve_cache_root(cfg, dataset_config=dataset_config)
-    return (
-        root
-        / dataset_cache_id(dataset_config)
-        / directory_cache_id(directory_path)
-        / model_name
-    )
+    dataset_dir = root / dataset_cache_id(dataset_config)
+    if not dataset_dir.exists():
+        # One-time relocation of caches built under the pre-directory-keyed id (TOML
+        # path hash). Best-effort: a concurrent worker may win the rename; both end up
+        # at the same destination.
+        legacy = root / _legacy_dataset_cache_id(dataset_config)
+        if legacy != dataset_dir and legacy.is_dir():
+            try:
+                legacy.rename(dataset_dir)
+                logger.info("Relocated dataset cache %s -> %s", legacy.name, dataset_dir.name)
+            except OSError:
+                pass
+    return dataset_dir / directory_cache_id(directory_path) / model_name
