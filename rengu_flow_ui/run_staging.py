@@ -68,6 +68,11 @@ def validate_toml_text(content: str) -> dict[str, Any]:
 
     resolution = probe_resolution(config)
     probe_issues = resolution_errors(resolution)
+    # Host-side preflight (path existence, writability, impossible combos): the same
+    # first barrier the CLI trainer runs, so a bad path costs a click, not a caching pass.
+    from rengu_flow.config.preflight import collect_preflight_issues
+
+    probe_issues.extend(collect_preflight_issues(config))
     if probe_issues:
         return _validation_failure(
             probe_issues,

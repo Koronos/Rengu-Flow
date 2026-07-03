@@ -143,6 +143,9 @@ class ModelCapability:
     # Named adapter layer groups (adapter.layer_groups options). Names must match the
     # pipeline's ADAPTER_LAYER_GROUPS keys (guarded by tests/test_adapter_layer_groups.py).
     adapter_layer_groups: list[str] = field(default_factory=list)
+    # Top-level module names of the adapter-targeted model, for torch-free preflight of
+    # target_include/exclude typos (guarded against the real DiT by the same test file).
+    adapter_module_roots: list[str] = field(default_factory=list)
 
     def training_modes(self) -> list[str]:
         modes: list[str] = []
@@ -170,6 +173,7 @@ class ModelCapability:
             "features": dict(self.features),
             "model_validation": dict(self.model_validation),
             "adapter_layer_groups": list(self.adapter_layer_groups),
+            "adapter_module_roots": list(self.adapter_module_roots),
         }
 
 
@@ -362,6 +366,7 @@ def _register_builtin_capabilities() -> None:
                 "one_of": [["llm_path", "t5_path"]],
             },
             adapter_layer_groups=["self_attention", "cross_attention", "mlp"],
+            adapter_module_roots=["blocks"],
             model_fields=[
                 {
                     "path": "model.transformer_path",
@@ -583,6 +588,16 @@ def _register_builtin_capabilities() -> None:
                 "feedforward",
                 "time_modulation",
                 "image_in_out",
+            ],
+            adapter_module_roots=[
+                "transformer_blocks",
+                "text_fusion",
+                "txt_in",
+                "img_in",
+                "time_embed",
+                "time_mod_proj",
+                "rotary_emb",
+                "final_layer",
             ],
             model_fields=[
                 {
