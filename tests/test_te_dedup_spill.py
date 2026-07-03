@@ -57,3 +57,44 @@ def test_spill_dir_removed_on_close(tmp_path):
     dedup.store([(1, "a")], _batch_result([10]))
     dedup.close()
     assert not spill_dir.exists()
+
+
+def test_pipe_transport_roundtrips_tensors_as_numpy():
+    """Regression for the 60GB caching RAM leak: unpickling a torch tensor leaks its
+    full storage on torch 2.12, so pipe payloads must travel as numpy (bf16 tagged as a
+    uint16 view) and rebuild identically on the other side."""
+    import pickle
+
+    import numpy as np
+    import torch
+
+    from rengu_flow.data.manager import _from_pipe, _to_pipe
+
+    payload = {
+        "prompt_embeds": torch.randn(7, 12, 16, dtype=torch.bfloat16),
+        "text_mask": torch.ones(7, dtype=torch.bool),
+        "latents": torch.randn(4, 8),
+        "image_spec": [(None, "img.jpg")],
+        "nested": [torch.randn(3, dtype=torch.bfloat16)],
+    }
+    packed = _to_pipe(payload)
+
+    def assert_no_tensors(obj):
+        assert not torch.is_tensor(obj), "a torch tensor reached the pipe"
+        if isinstance(obj, dict):
+            for v in obj.values():
+                assert_no_tensors(v)
+        elif isinstance(obj, (list, tuple)) and not (
+            len(obj) == 2 and obj[0] == "__pipe_bf16__"
+        ):
+            for v in obj:
+                assert_no_tensors(v)
+
+    assert_no_tensors(packed)
+    restored = _from_pipe(pickle.loads(pickle.dumps(packed)))
+    assert torch.equal(restored["prompt_embeds"], payload["prompt_embeds"])
+    assert restored["prompt_embeds"].dtype == torch.bfloat16
+    assert torch.equal(restored["text_mask"], payload["text_mask"])
+    assert torch.equal(restored["latents"], payload["latents"])
+    assert torch.equal(restored["nested"][0], payload["nested"][0])
+    assert restored["image_spec"] == [(None, "img.jpg")]

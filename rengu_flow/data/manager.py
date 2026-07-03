@@ -25,6 +25,42 @@ from rengu_flow.distributed import is_main_process
 from rengu_flow import distributed as dist
 
 
+
+def _to_pipe(obj):
+    """torch -> numpy for pipe transport.
+
+    Unpickling a torch tensor LEAKS its full storage on torch 2.12 (pickle.loads
+    retains ~tensor-size RSS per call; measured 200 loads -> +5.4 GB, never freed).
+    Every cached text embedding crossing the GPU<->worker pipes leaked ~20 MB, eating
+    ~60 GB of RAM over one caching pass. numpy arrays round-trip clean, so tensors
+    travel as numpy (bf16 as a tagged uint16 view) and rebuild on the other side.
+    """
+    if torch.is_tensor(obj):
+        t = obj.detach().to("cpu").contiguous()
+        if t.dtype == torch.bfloat16:
+            return ("__pipe_bf16__", t.view(torch.uint16).numpy())
+        return t.numpy()
+    if isinstance(obj, dict):
+        return {k: _to_pipe(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_to_pipe(v) for v in obj]
+    return obj
+
+
+def _from_pipe(obj):
+    import numpy as np
+
+    if isinstance(obj, tuple) and len(obj) == 2 and obj[0] == "__pipe_bf16__":
+        return torch.from_numpy(obj[1]).view(torch.bfloat16)
+    if isinstance(obj, np.ndarray):
+        return torch.from_numpy(obj)
+    if isinstance(obj, dict):
+        return {k: _from_pipe(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_from_pipe(v) for v in obj]
+    return obj
+
+
 class _TextEmbeddingDedup:
     """Per-sample disk-backed memo for text-embedding caching.
 
@@ -213,8 +249,8 @@ def _cache_fn(
             if rank not in pipes:
                 pipes[rank] = mp.Pipe(duplex=False)
             parent_conn, child_conn = pipes[rank]
-            queue.put((0, tensor, c_tensor, child_conn))
-            result = parent_conn.recv()
+            queue.put((0, _to_pipe(tensor), _to_pipe(c_tensor), child_conn))
+            result = _from_pipe(parent_conn.recv())
             for k, v in result.items():
                 results[k].append(v)
         for k in results:
@@ -271,7 +307,7 @@ def _cache_fn(
                     child_conn,
                 )
             )
-            result = parent_conn.recv()
+            result = _from_pipe(parent_conn.recv())
             result["image_spec"] = example["image_spec"]
             if keys is not None:
                 dedup.store(keys, result)
@@ -442,6 +478,8 @@ class DatasetManager:
 
         if task_id == 0:
             tensor, control_tensor, pipe = task[1:]
+            tensor = _from_pipe(tensor)
+            control_tensor = _from_pipe(control_tensor)
             if control_tensor is not None:
                 results = self.call_vae_fn(tensor, control_tensor)
             else:
@@ -462,4 +500,4 @@ class DatasetManager:
                 cpu_results[k] = [x.to("cpu") for x in v]
             else:
                 cpu_results[k] = v.to("cpu")
-        pipe.send(cpu_results)
+        pipe.send(_to_pipe(cpu_results))  # numpy transport: torch unpickling leaks (see _to_pipe)
