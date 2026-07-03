@@ -128,14 +128,10 @@ def set_config_defaults(config: dict[str, Any]) -> None:
             adapter_config["alpha"] = adapter_config["rank"]
         if adapter_type == "lora":
             adapter_config.setdefault("dropout", 0.0)
-            adapter_config.setdefault("dtype", model_dtype_str)
-            adapter_config["dtype"] = DTYPE_MAP[adapter_config["dtype"]]
         elif adapter_type == "lokr":
             adapter_config.setdefault("factor", -1)
             adapter_config.setdefault("decompose_both", False)
             adapter_config.setdefault("full_matrix", False)
-            adapter_config.setdefault("dtype", model_dtype_str)
-            adapter_config["dtype"] = DTYPE_MAP[adapter_config["dtype"]]
         elif adapter_type.startswith("lycoris_"):
             # Torch-free catalog module; per-algo tunables mirror lycoris 3.4.0.
             from rengu_flow.networks.lycoris_meta import LYCORIS_ADAPTER_TYPES, apply_lycoris_defaults
@@ -146,10 +142,23 @@ def set_config_defaults(config: dict[str, Any]) -> None:
                     f"adapter.type {adapter_type!r} is not a known LyCORIS type. Available: {known}."
                 )
             apply_lycoris_defaults(adapter_config)
-            adapter_config.setdefault("dtype", model_dtype_str)
-            adapter_config["dtype"] = DTYPE_MAP[adapter_config["dtype"]]
         else:
             raise NotImplementedError(f"Adapter type {adapter_type} is not implemented")
+        # Adapter weights default to float32 regardless of model dtype (kohya / ai-toolkit /
+        # PEFT convention): plain optimizers keep their state in the param dtype, and in
+        # bf16 an AdamW update below ~0.2% of a weight's magnitude rounds to zero — training
+        # silently stalls (flat loss with a healthy grad norm). Autocast still runs the
+        # forward matmuls in the model dtype, so speed is unaffected.
+        adapter_config.setdefault("dtype", "float32")
+        adapter_config["dtype"] = DTYPE_MAP[adapter_config["dtype"]]
+        if adapter_config["dtype"] in (DTYPE_MAP["bfloat16"], DTYPE_MAP["float16"]):
+            print(
+                "NOTE: adapter.dtype is 16-bit; plain optimizers (adamw, adam, sgd) lose "
+                "updates below ~0.2% of a weight's magnitude to rounding, which can stall "
+                "training (flat loss, normal grad norm). Use the float32 default, or a "
+                "Kahan/stochastic-rounding optimizer (adamw8bitkahan, adamw_optimi).",
+                flush=True,
+            )
 
     config.setdefault("epochs", 1)
     config.setdefault("gradient_accumulation_steps", 1)

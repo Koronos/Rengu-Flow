@@ -18,14 +18,14 @@ Add an `[adapter]` section with `type = "lora"` and a rank (or `dim`):
 [adapter]
 type = "lora"
 rank = 16
-# optional: dim = 16 (alias for rank, Kohya-style), dropout = 0.0, dtype = "bfloat16"
+# optional: dim = 16 (alias for rank, Kohya-style), dropout = 0.0, dtype = "float32"
 ```
 
 - **rank**: LoRA rank (e.g. 8, 16, 32). Required unless you use `dim`.
 - **dim**: Alias for `rank` (Kohya-style). You must set either `rank` or `dim`.
 - **alpha**: Not configurable — rengu always sets `alpha = rank` (scale 1.0) so exports load at the intended strength; setting it in the TOML is rejected.
 - **dropout**: Optional; default 0.0.
-- **dtype**: Optional; defaults to the model dtype.
+- **dtype**: Optional; default `float32`. Adapter weights are stored and updated in this dtype (forward matmuls still run in the model dtype via autocast). Keep `float32`: with 16-bit adapter weights, a plain optimizer (adamw/adam/sgd) loses updates smaller than ~0.2% of a weight's magnitude to rounding and training can stall — flat loss with a normal grad norm. Only pair 16-bit with a Kahan/stochastic-rounding optimizer (`adamw8bitkahan`, `adamw_optimi`).
 
 Example minimal LoRA config: see `examples/minimal_config_lora_sdxl.toml`.
 
@@ -37,7 +37,7 @@ Add an `[adapter]` section with `type = "lokr"` and a rank (or `dim`):
 [adapter]
 type = "lokr"
 rank = 16
-# optional: dim = 16 (alias for rank), factor = -1, decompose_both = false, full_matrix = false, dtype = "bfloat16"
+# optional: dim = 16 (alias for rank), factor = -1, decompose_both = false, full_matrix = false, dtype = "float32"
 ```
 
 - **rank**: LoKr rank. Required unless you use `dim`.
@@ -46,7 +46,7 @@ rank = 16
 - **factor**: Factorization hint; use -1 for automatic. Optional.
 - **decompose_both**: Decompose both Kronecker factors. Optional; default false.
 - **full_matrix**: Use full matrices instead of low-rank for the second factor. Optional; default false.
-- **dtype**: Optional; defaults to the model dtype.
+- **dtype**: Optional; default `float32`. Adapter weights are stored and updated in this dtype (forward matmuls still run in the model dtype via autocast). Keep `float32`: with 16-bit adapter weights, a plain optimizer (adamw/adam/sgd) loses updates smaller than ~0.2% of a weight's magnitude to rounding and training can stall — flat loss with a normal grad norm. Only pair 16-bit with a Kahan/stochastic-rounding optimizer (`adamw8bitkahan`, `adamw_optimi`).
 
 Example minimal LoKr config: see `examples/minimal_config_lokr_vendored.toml`.
 

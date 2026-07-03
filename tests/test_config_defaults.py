@@ -31,7 +31,7 @@ def test_set_config_defaults_adapter_lora(minimal_config_copy, adapter_init, exp
     assert adapter["rank"] == expected_rank
     assert adapter["alpha"] == expected_alpha
     assert adapter["dropout"] == 0.0
-    assert "dtype" in adapter
+    assert adapter["dtype"] == torch.float32  # fp32 default: bf16 adapters stall under plain AdamW
 
 
 @pytest.mark.parametrize("adapter_init, expected_rank", [
@@ -47,7 +47,7 @@ def test_set_config_defaults_adapter_lokr(minimal_config_copy, adapter_init, exp
     assert adapter["factor"] == -1
     assert adapter["decompose_both"] is False
     assert adapter["full_matrix"] is False
-    assert "dtype" in adapter
+    assert adapter["dtype"] == torch.float32  # fp32 default: bf16 adapters stall under plain AdamW
 
 
 def test_set_config_defaults_rejects_explicit_alpha(minimal_config_copy):

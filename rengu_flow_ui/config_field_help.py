@@ -252,11 +252,13 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "doc": "docs/user/training-sdxl-lora-lokr.md",
     },
     "adapter.dtype": {
-        "summary": "Dtype for adapter weights (defaults to model dtype).",
+        "summary": "Dtype for adapter weights (default float32).",
         "detail": (
-            "Override the precision of the adapter (LoRA/LoKr) weights. Leave unset to inherit "
-            "model.dtype; set e.g. bfloat16/float16/float32 if you want the adapter to train at "
-            "a different precision than the base model."
+            "Precision the adapter (LoRA/LoKr) weights are stored and updated in; forward "
+            "matmuls still run in model.dtype via autocast. In bfloat16 a plain-optimizer "
+            "update below ~0.2% of a weight's magnitude rounds to zero, so training can stall "
+            "(flat loss, normal grad norm) — keep float32 unless you pair 16-bit with a "
+            "Kahan/stochastic-rounding optimizer (adamw8bitkahan, adamw_optimi)."
         ),
         "doc": "docs/user/training-sdxl-lora-lokr.md",
     },
