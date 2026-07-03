@@ -9,18 +9,19 @@ from rengu_flow_ui.model_form import hidden_model_paths_by_type, toml_only_model
 
 def test_hidden_model_paths_by_type() -> None:
     hidden = hidden_model_paths_by_type()
-    assert hidden["cosmos_predict2"] == ["model.diffusion_model_dtype"]
+    # cosmos_predict2 no longer hides diffusion_model_dtype (now a visible UI field).
+    assert "cosmos_predict2" not in hidden
     assert hidden["sdxl"] == ["model.guidance"]
 
 
-def test_diffusion_model_dtype_not_in_schema() -> None:
+def test_diffusion_model_dtype_visible_in_schema() -> None:
     schema = get_schema()
     paths = {f["path"] for s in schema["sections"] for f in s["fields"]}
-    assert "model.diffusion_model_dtype" not in paths
+    assert "model.diffusion_model_dtype" in paths
     assert "model.guidance" not in paths
 
 
-def test_prune_drops_toml_only_keys_for_cosmos() -> None:
+def test_prune_keeps_diffusion_model_dtype_for_cosmos() -> None:
     form = {
         "model.type": "cosmos_predict2",
         "model.dtype": "bfloat16",
@@ -28,7 +29,7 @@ def test_prune_drops_toml_only_keys_for_cosmos() -> None:
         "model.diffusion_model_dtype": "float16",
     }
     pruned = prune_form_for_model(form)
-    assert "model.diffusion_model_dtype" not in pruned
+    assert pruned["model.diffusion_model_dtype"] == "float16"
     assert pruned["model.transformer_path"] == "/t"
 
 

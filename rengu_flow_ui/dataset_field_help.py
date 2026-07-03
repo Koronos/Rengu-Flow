@@ -97,6 +97,15 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "detail": "Enable if you update captions.json between training runs without regenerating the full cache. Only applies to this folder.",
         "doc": "docs/user/dataset-config.md",
     },
+    "directory.uncond_fraction": {
+        "summary": "Fraction of this folder's samples trained with an empty caption. Overrides the global default.",
+        "detail": (
+            "Per-step probability (0-1) that a sample from this folder trains with an empty caption "
+            "instead of its real one — improves classifier-free guidance quality at inference. "
+            "Overrides the global uncond_fraction for this folder only."
+        ),
+        "doc": "docs/user/dataset-config.md",
+    },
     "directory.resolutions": {
         "summary": "Override global resolutions for this folder only.",
         "doc": "docs/user/dataset-config.md",
@@ -137,6 +146,16 @@ FIELD_HELP: dict[str, dict[str, str]] = {
     "online_captions": {
         "summary": "Re-read captions.json from disk at training time for all folders.",
         "detail": "Enable globally if you update caption files between runs without regenerating the full cache. Per-folder directory.online_captions overrides this.",
+        "doc": "docs/user/dataset-config.md",
+    },
+    "uncond_fraction": {
+        "summary": "Default fraction of samples trained with an empty caption (unconditional), for CFG quality.",
+        "detail": (
+            "Per-step probability (0-1) that any sample trains with an empty caption instead of its "
+            "real one — teaches the model the unconditional branch it needs for classifier-free "
+            "guidance at inference. 0 (default) = never; a folder's directory.uncond_fraction "
+            "overrides this per folder."
+        ),
         "doc": "docs/user/dataset-config.md",
     },
     "subsample_ratio": {
