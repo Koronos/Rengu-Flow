@@ -304,6 +304,14 @@ export interface RunProgress {
   current?: number | null;
   /** Caching-phase: total items to process. */
   total?: number | null;
+  /** Caching-phase: 1-based index of the running stage (metadata/latents/text embeddings). */
+  stage?: number | null;
+  /** Caching-phase: total number of stages in this run's caching plan. */
+  stages?: number | null;
+  /** Caching-phase: name of the running stage, e.g. `latents`. */
+  stage_name?: string | null;
+  /** Caching-phase: current unit inside the stage, e.g. `latents 512x512x1`. */
+  detail?: string | null;
 }
 
 export type TrainingRunKind = "job";

@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import shutil
+import sys
 import threading
 from collections import defaultdict
 from inspect import signature
 from pathlib import Path
 
+import datasets as datasets_mod
 import torch
 from torch import nn
 
@@ -16,6 +18,8 @@ try:
 except ImportError:
     import multiprocessing as mp  # type: ignore[no-redef]
 
+from rengu_flow.control.progress_stream import ProgressEmitter
+from rengu_flow.data import caching_progress
 from rengu_flow.data.cache_paths import caption_cache_key
 from rengu_flow.distributed import is_main_process
 from rengu_flow import distributed as dist
@@ -71,6 +75,29 @@ class _TextEmbeddingDedup:
         shutil.rmtree(self.dir, ignore_errors=True)
 
 
+def _count_latent_units(datasets_list) -> int:
+    """Latent-encode buckets across all datasets: one unit per (size|ar-resolution) bucket."""
+    total = 0
+    for ds in datasets_list:
+        for dd in getattr(ds, "directory_datasets", []):
+            if dd.use_size_buckets:
+                total += len(dd.size_bucket_datasets)
+            else:
+                total += sum(len(ar.resolutions) for ar in dd.ar_bucket_datasets)
+    return total
+
+
+def _count_te_units(datasets_list) -> int:
+    """Text-embedding caches across all datasets: one unit per (size|ar) bucket."""
+    total = 0
+    for ds in datasets_list:
+        for dd in getattr(ds, "directory_datasets", []):
+            total += len(
+                dd.size_bucket_datasets if dd.use_size_buckets else dd.ar_bucket_datasets
+            )
+    return total
+
+
 def _cache_fn(
     datasets_list,
     queue,
@@ -85,18 +112,46 @@ def _cache_fn(
 ) -> None:
     """Worker process: run cache_metadata, cache_latents, cache_text_embeddings; send GPU work via queue."""
     torch.set_num_threads(1)
+    # HF datasets renders its own tqdm bars ("Saving the dataset (x/y shards)", map descs).
+    # In a captured log (web UI) they are pure noise between our phase lines; keep them on a
+    # real terminal. The information itself stays: each step logs a [cache] line.
+    if not sys.stderr.isatty():
+        try:
+            datasets_mod.disable_progress_bars()
+        except Exception:
+            pass
+    from rengu_flow.utils.logging import tag_third_party_console_logs
+
+    tag_third_party_console_logs()
+
+    # One coordinator for every phase: unified "[cache] ..." log lines plus a single
+    # monotonic progress bar (stage index + intra-stage fraction) instead of per-bucket
+    # counters that made the UI bar bounce. Worker process is single-purpose: install
+    # for its whole lifetime.
+    progress = caching_progress.CachingProgress(
+        emitter=ProgressEmitter() if is_main_process() else None
+    )
+    stage_names = ["metadata", "latents"] + [
+        f"text embeddings {i + 1}" for i in range(num_text_encoders)
+    ]
+    progress.plan(stage_names)
+    caching_progress.set_active(progress)
+
     dedup = None
     if cache_dedup_text_embeddings:
         dedup = _TextEmbeddingDedup(
             Path(datasets_list[0].directory_datasets[0].cache_dir) / "te_dedup_spill"
         )
 
-    for ds in datasets_list:
-        ds.cache_metadata(
-            regenerate_cache=regenerate_cache,
-            trust_cache=trust_cache,
-            cache_num_proc=cache_num_proc,
-        )
+    with progress.stage(
+        "metadata", units=sum(len(ds.directory_datasets) for ds in datasets_list)
+    ):
+        for ds in datasets_list:
+            ds.cache_metadata(
+                regenerate_cache=regenerate_cache,
+                trust_cache=trust_cache,
+                cache_num_proc=cache_num_proc,
+            )
 
     pipes = {}
 
@@ -178,15 +233,16 @@ def _cache_fn(
             results["valid"] = [bool(t[2]) for t in tensors_and_masks]
         return results
 
-    for ds in datasets_list:
-        ds.cache_latents(
-            latents_map_fn,
-            regenerate_cache=regenerate_cache,
-            trust_cache=trust_cache,
-            caching_batch_size=caching_batch_size,
-            cache_num_proc=cache_num_proc,
-            cache_keep_in_memory=cache_keep_in_memory,
-        )
+    with progress.stage("latents", units=_count_latent_units(datasets_list)):
+        for ds in datasets_list:
+            ds.cache_latents(
+                latents_map_fn,
+                regenerate_cache=regenerate_cache,
+                trust_cache=trust_cache,
+                caching_batch_size=caching_batch_size,
+                cache_num_proc=cache_num_proc,
+                cache_keep_in_memory=cache_keep_in_memory,
+            )
 
     for text_encoder_idx in range(num_text_encoders):
         def text_embedding_map_fn(example, rank):
@@ -221,15 +277,19 @@ def _cache_fn(
                 dedup.store(keys, result)
             return result
 
-        for ds in datasets_list:
-            ds.cache_text_embeddings(
-                text_embedding_map_fn,
-                text_encoder_idx + 1,
-                regenerate_cache=regenerate_cache,
-                caching_batch_size=caching_batch_size,
-                cache_num_proc=cache_num_proc,
-                cache_keep_in_memory=cache_keep_in_memory,
-            )
+        with progress.stage(
+            f"text embeddings {text_encoder_idx + 1}",
+            units=_count_te_units(datasets_list),
+        ):
+            for ds in datasets_list:
+                ds.cache_text_embeddings(
+                    text_embedding_map_fn,
+                    text_encoder_idx + 1,
+                    regenerate_cache=regenerate_cache,
+                    caching_batch_size=caching_batch_size,
+                    cache_num_proc=cache_num_proc,
+                    cache_keep_in_memory=cache_keep_in_memory,
+                )
 
     if dedup is not None:
         # The spill only serves this run's caching: every embedding now lives in the

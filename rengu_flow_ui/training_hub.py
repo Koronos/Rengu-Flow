@@ -238,6 +238,10 @@ def compute_run_progress(
         # Caching-phase fields (present only while caching).
         "current": m.get("current"),
         "total": m.get("total"),
+        "stage": m.get("stage"),
+        "stages": m.get("stages"),
+        "stage_name": m.get("stage_name"),
+        "detail": m.get("detail"),
     }
 
 
