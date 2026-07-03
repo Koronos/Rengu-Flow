@@ -1,9 +1,15 @@
 """Pytest fixtures for rengu-flow tests."""
 
 import copy
+import os
 from pathlib import Path
 
 import pytest
+
+# Tests validate configs with placeholder paths on machines without the weights;
+# host-side preflight (path existence, writability) is off suite-wide. Its own
+# tests (tests/test_preflight.py) re-enable it per test.
+os.environ.setdefault("RENGU_PREFLIGHT", "0")
 
 
 def _repo_root() -> Path:

@@ -1626,6 +1626,12 @@ def run_prepared(args) -> None:
 
     try:
         validate_config(config, for_script=True)
+        from rengu_flow.config.preflight import collect_preflight_issues
+        from rengu_flow.config.validation import format_validation_issues
+
+        preflight = collect_preflight_issues(config)
+        if preflight:
+            raise ConfigValidationError(format_validation_issues(preflight))
     except ConfigValidationError as e:
         raise SystemExit(f"Config validation failed: {e}") from e
 
