@@ -308,7 +308,9 @@ def test_defaults_fill_per_algo_and_reject_alpha():
     assert adapter["dora_wd"] is False
     assert adapter["wd_on_output"] is True
     assert adapter["train_conv"] is False
-    assert adapter["dtype"] == torch.bfloat16
+    # float32 regardless of model dtype: bf16 adapter weights lose sub-0.2% AdamW updates
+    # to rounding (flat loss, healthy grad norm).
+    assert adapter["dtype"] == torch.float32
 
     with pytest.raises(ConfigValidationError, match="alpha"):
         set_config_defaults(_base_config({"type": "lycoris_locon", "rank": 4, "alpha": 2}))
