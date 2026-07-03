@@ -95,6 +95,18 @@ class Cache:
             self.clear()
             return
 
+        # A kill between the manifest write and the SQLite commit (older builds ordered
+        # them wrong; any crash inside the window can too) leaves the manifest claiming
+        # rows the meta lost to rollback. Trust the smaller committed truth: the tail
+        # re-encodes on the next caching pass instead of IndexError-ing mid-training.
+        committed = self._committed_meta_rows()
+        if committed < count:
+            print(
+                f"[CACHE] manifest claims {count} items but only {committed} are committed "
+                f"(interrupted write at {self.path.name}) — resuming from {committed}",
+                flush=True,
+            )
+            count = committed
         self.count = count
         self.tensor_specs = tensor_specs
         # SQLite + mmaps open lazily on first use — an opened-but-unread cache holds no
@@ -128,6 +140,25 @@ class Cache:
         if self._meta_con is not None:
             self._meta_con.commit()
         self._write_manifest()
+
+    def _committed_meta_rows(self) -> int:
+        """Rows durably committed in the meta DB (0 when it doesn't exist yet).
+
+        A short-lived read-only connection: init() must not hold fds open (many bucket
+        caches coexist), so count and close immediately.
+        """
+        db = self.path / META_DB_NAME
+        if not db.is_file():
+            return 0
+        try:
+            con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+            try:
+                row = con.execute("SELECT COUNT(*) FROM item_meta").fetchone()
+                return int(row[0]) if row else 0
+            finally:
+                con.close()
+        except sqlite3.Error:
+            return 0
 
     def _open_meta(self, read_only: bool = False) -> None:
         if self._meta_con is not None:
@@ -272,7 +303,15 @@ class Cache:
         if new_d0 <= old_shape[0]:
             return
         storage_dtype = _dtype_from_str(spec["storage_dtype"])
-        new_shape = (new_d0,) + old_shape[1:]
+        # Growth slack: every grow streams the whole stack once (O(file size)), so growing
+        # to each new max exactly makes a run's total rewrite I/O quadratic in items — on
+        # krea2 the multi-GB text-embedding dedup spill rewrote itself on every new longest
+        # caption (minutes of idle GPU between TE buckets). Growing to at least 1.5x,
+        # rounded up to 16 tokens, caps rewrites at O(log max_len) per run; the slack is
+        # invisible to readers (each row's true shape lives in its meta).
+        target_d0 = max(int(new_d0), (old_shape[0] * 3 + 1) // 2)
+        target_d0 = ((target_d0 + 15) // 16) * 16
+        new_shape = (target_d0,) + old_shape[1:]
         path = self.path / TENSORS_DIR / f"{key}.bin"
         if key in self._tensor_files:
             self._tensor_files[key].close()
@@ -281,15 +320,15 @@ class Cache:
         old_row = int(spec["item_nbytes"])
         new_row = _tensor_nbytes(new_shape, storage_dtype)
         tmp = path.with_suffix(".bin.tmp")
+        # Rows are C-contiguous with dim 0 outermost, so extending dim 0 appends zero
+        # bytes at each row's tail — stream row by row, never the whole file into RAM.
+        pad_tail = bytes(new_row - old_row)
         with tmp.open("wb") as out:
             if path.is_file() and self.count > 0:
-                raw = path.read_bytes()
-                for i in range(self.count):
-                    chunk = raw[i * old_row : (i + 1) * old_row]
-                    t = self._decode_row(chunk, old_shape, storage_dtype)
-                    padded = torch.zeros(new_shape, dtype=storage_dtype)
-                    padded[: old_shape[0]] = t
-                    out.write(self._row_bytes(padded, storage_dtype))
+                with path.open("rb") as src:
+                    for _ in range(self.count):
+                        out.write(src.read(old_row))
+                        out.write(pad_tail)
         tmp.replace(path)
         spec["shape"] = list(new_shape)
         spec["item_nbytes"] = new_row
@@ -443,6 +482,12 @@ class Cache:
             if hasattr(f, "close"):
                 f.close()
         self._tensor_files.clear()
+        # Commit the meta BEFORE recording the count in the manifest: a kill between the
+        # two must leave the manifest behind (tail re-encodes on resume), never ahead — a
+        # manifest claiming rows SQLite lost to rollback reads as a complete cache and
+        # crashes training later with "Cache index N out of range".
+        if self._meta_con is not None and not self._meta_read_only:
+            self._meta_con.commit()
         self._write_manifest()
         # Bucket finished caching: drop its mmaps and SQLite handle so a cached-but-unread
         # cache holds zero fds (reads re-open lazily). Bounds fds across many bucket caches.

@@ -150,7 +150,8 @@ def test_cache_variable_dim0_prompt_embeds(tmp_path):
     for i, shape in enumerate(shapes):
         got = cache[i]["prompt_embeds"]
         assert tuple(got.shape) == shape
-    assert cache.tensor_specs["prompt_embeds"]["shape"] == [8, 768]
+    assert cache.tensor_specs["prompt_embeds"]["shape"][0] >= 8
+    assert cache.tensor_specs["prompt_embeds"]["shape"][1:] == [768]
 
 
 def test_mmaps_open_lazily_per_key(tmp_path):
@@ -299,7 +300,9 @@ def test_cache_variable_dim0_3d_and_1d(tmp_path):
         assert tuple(cache[i]["prompt_embeds"].shape) == (n, 12, 32)
         assert tuple(cache[i]["text_mask"].shape) == (n,)
         assert cache[i]["text_mask"].all()
-    assert cache.tensor_specs["prompt_embeds"]["shape"] == [55, 12, 32]
+    spec_d0 = cache.tensor_specs["prompt_embeds"]["shape"][0]
+    assert spec_d0 >= 55  # grown at least to the longest row (slack allowed, see _grow_tensor_dim0)
+    assert cache.tensor_specs["prompt_embeds"]["shape"][1:] == [12, 32]
 
 
 def test_cache_refresh_reads_interleaved_add_read(tmp_path):
@@ -318,3 +321,70 @@ def test_cache_refresh_reads_interleaved_add_read(tmp_path):
     assert torch.equal(cache[0]["prompt_embeds"], first)
     assert tuple(cache[1]["prompt_embeds"].shape) == (9, 12, 8)
     assert tuple(cache[2]["prompt_embeds"].shape) == (3, 12, 8)
+
+
+def test_cache_dim0_growth_is_amortized(tmp_path, monkeypatch):
+    """Regression: growing to each new max exactly rewrote the whole stack per new
+    longest sequence — O(N^2) I/O that stalled TE caching for minutes (idle GPU) once
+    the dedup spill reached GBs. Slack growth keeps full-file rewrites logarithmic."""
+    from rengu_flow.utils import cache as cache_mod
+
+    cache = Cache(tmp_path / "c", "fp-growth")
+    rewrites = {"n": 0}
+    orig = Cache._grow_tensor_dim0
+
+    def counting_grow(self, key, new_d0):
+        before = tuple(self.tensor_specs[key]["shape"]) if key in self.tensor_specs else None
+        orig(self, key, new_d0)
+        after = tuple(self.tensor_specs[key]["shape"])
+        if before != after:
+            rewrites["n"] += 1
+
+    monkeypatch.setattr(cache_mod.Cache, "_grow_tensor_dim0", counting_grow)
+    # Strictly increasing lengths 4..200: worst case for exact growth (one rewrite per add).
+    lengths = list(range(4, 201))
+    for n in lengths:
+        cache.add({"prompt_embeds": torch.randn(n, 4, dtype=torch.bfloat16), "caption": str(n)})
+    assert rewrites["n"] <= 12, f"{rewrites['n']} full-file rewrites for {len(lengths)} adds"
+    # Rows survive every growth intact (true shapes come from per-item meta).
+    cache.finalize_current_shard()
+    for i, n in enumerate(lengths):
+        assert tuple(cache[i]["prompt_embeds"].shape) == (n, 4)
+
+
+def test_cache_manifest_ahead_of_meta_self_heals(tmp_path):
+    """Regression (prod IndexError at train step): a kill between the manifest write and
+    the SQLite commit left the manifest claiming rows the meta rolled back — the cache
+    then read as complete, nothing re-encoded, and training crashed with
+    'Cache index N out of range'. On open, the committed row count wins."""
+    cache = Cache(tmp_path / "c", "fp-heal")
+    for i in range(36):
+        cache.add({"prompt_embeds": torch.randn(6, 4, dtype=torch.bfloat16), "caption": str(i)})
+    # Simulate the kill window: manifest records count=36, then the process dies before
+    # the SQLite commit (rollback loses everything after the last 128-item checkpoint).
+    cache._write_manifest()
+    cache._meta_con.rollback()
+    cache._meta_con.close()
+    cache._meta_con = None
+
+    reopened = Cache(tmp_path / "c", "fp-heal")
+    assert reopened.count == 0  # nothing was committed — heal to the durable truth
+    # The tail simply re-encodes (resume path), ending complete and readable.
+    for i in range(36):
+        reopened.add({"prompt_embeds": torch.randn(6, 4, dtype=torch.bfloat16), "caption": str(i)})
+    reopened.finalize_current_shard()
+    final = Cache(tmp_path / "c", "fp-heal")
+    assert final.count == 36
+    assert final[35]["caption"] == "35"  # the exact read that crashed in prod
+
+
+def test_cache_finalize_then_kill_keeps_all_rows(tmp_path):
+    """finalize commits the meta before the manifest, so a finalized cache reopened
+    after any crash still serves every row."""
+    cache = Cache(tmp_path / "c", "fp-final")
+    for i in range(5):
+        cache.add({"prompt_embeds": torch.randn(3, 4, dtype=torch.bfloat16), "caption": str(i)})
+    cache.finalize_current_shard()
+    reopened = Cache(tmp_path / "c", "fp-final")
+    assert reopened.count == 5
+    assert reopened[4]["caption"] == "4"
