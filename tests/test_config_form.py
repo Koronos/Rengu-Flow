@@ -133,7 +133,13 @@ def test_schema_train_seed_field() -> None:
 def test_schema_cosmos_model_paths_help() -> None:
     """Cosmos weight paths use plain-language help (not empty or label-only)."""
     schema = get_schema()
-    paths = {f["path"]: f for s in schema["sections"] for f in s["fields"]}
+    # Component paths exist once per model type (scoped by `when`); pick the cosmos variants.
+    paths = {
+        f["path"]: f
+        for s in schema["sections"]
+        for f in s["fields"]
+        if (f.get("when") or {}).get("in") == ["cosmos_predict2"] or not f.get("when")
+    }
     transformer = paths["model.transformer_path"]
     assert "safetensors" in transformer.get("help", "").lower()
     assert "vae" in transformer.get("help", "").lower() or "VAE" in transformer.get("help", "")
