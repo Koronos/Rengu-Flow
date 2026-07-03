@@ -58,7 +58,6 @@ class CosmosPredict2Pipeline(BasePipeline):
         self._init_block_swap_state()
         dtype = self.model_config["dtype"]
         self.cache_text_embeddings = self.model_config.get("cache_text_embeddings", True)
-        self.multiscale_loss_weight = self.model_config.get("multiscale_loss_weight", None)
 
         self.vae = WanVAE(vae_pth=self.model_config["vae_path"], device="cpu", dtype=dtype)
         self.vae.mean = self.vae.mean.to("cuda")

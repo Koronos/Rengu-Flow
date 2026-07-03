@@ -250,6 +250,89 @@ def _register_builtin_capabilities() -> None:
                     "type": "boolean",
                     "description": "UNet-only style training when omitted adapter.",
                 },
+                {
+                    "path": "model.v_pred",
+                    "label": "V-prediction",
+                    "type": "boolean",
+                    "default": False,
+                    "description": (
+                        "Trains toward velocity instead of noise — required for v-pred checkpoints "
+                        "(e.g. NoobAI vpred). Wrong setting trains toward the wrong target: previews "
+                        "wash out or oversaturate."
+                    ),
+                },
+                {
+                    "path": "model.clip_skip",
+                    "label": "CLIP skip",
+                    "type": "integer",
+                    "min": 0,
+                    "placeholder": "empty = standard -2 layer",
+                    "description": (
+                        "Uses an earlier CLIP hidden layer than the default -2: "
+                        "hidden_states[-(clip_skip + 2)], so clip_skip=2 uses the layer two before "
+                        "the default. Anime-style checkpoints commonly want clip_skip=2."
+                    ),
+                },
+                {
+                    "path": "model.min_snr_gamma",
+                    "label": "Min-SNR gamma",
+                    "type": "number",
+                    "placeholder": "empty = off",
+                    "description": (
+                        "Min-SNR loss weighting (typical value 5): caps the loss weight of low-SNR "
+                        "(high-noise) timesteps so they don't dominate training. Composes with "
+                        "debiased_estimation_loss when both are set — this trainer applies both "
+                        "independently, not as alternatives."
+                    ),
+                },
+                {
+                    "path": "model.debiased_estimation_loss",
+                    "label": "Debiased estimation loss",
+                    "type": "boolean",
+                    "default": False,
+                    "description": (
+                        "Debiased-estimation loss weighting by timestep SNR. Composes with "
+                        "min_snr_gamma when both are set — this trainer applies both independently, "
+                        "not as alternatives."
+                    ),
+                },
+                {
+                    "path": "model.unet_lr",
+                    "label": "UNet LR override",
+                    "type": "number",
+                    "placeholder": "empty = optimizer.lr",
+                    "description": (
+                        "Per-group LR override for the UNet parameter group; empty uses optimizer.lr. "
+                        "0 sets that group's lr to 0 (no updates) while the other groups keep training."
+                    ),
+                },
+                {
+                    "path": "model.text_encoder_1_lr",
+                    "label": "Text encoder 1 LR override",
+                    "type": "number",
+                    "placeholder": "empty = optimizer.lr",
+                    "description": (
+                        "Per-group LR override for text_encoder (CLIP-L); empty uses optimizer.lr. "
+                        "0 sets that group's lr to 0 (no updates)."
+                    ),
+                },
+                {
+                    "path": "model.text_encoder_2_lr",
+                    "label": "Text encoder 2 LR override",
+                    "type": "number",
+                    "placeholder": "empty = optimizer.lr",
+                    "description": (
+                        "Per-group LR override for text_encoder_2 (OpenCLIP-bigG); empty uses "
+                        "optimizer.lr. 0 sets that group's lr to 0 (no updates)."
+                    ),
+                },
+                {
+                    "path": "model.diffusion_model_dtype",
+                    "label": "UNet forward dtype",
+                    "type": "select",
+                    "options_key": "dtypes",
+                    "description": "Autocast dtype for the UNet forward pass; defaults to Model dtype.",
+                },
             ],
         )
     )
@@ -345,8 +428,123 @@ def _register_builtin_capabilities() -> None:
                     "label": "DiT forward dtype",
                     "type": "select",
                     "options_key": "dtypes",
-                    "ui": False,
                     "description": "Autocast dtype for DiT forward; defaults to model.dtype. Sets transformer_dtype when omitted.",
+                },
+                {
+                    "path": "model.t5_path",
+                    "label": "Text encoder — T5 (alternative)",
+                    "type": "path",
+                    "show_if_set": True,
+                    "description": "Alternative text encoder — a raw T5 checkpoint used instead of llm_path.",
+                },
+                {
+                    "path": "model.self_attn_lr",
+                    "label": "Self-attention LR override",
+                    "type": "number",
+                    "placeholder": "empty = optimizer.lr",
+                    "description": (
+                        "Per-group LR override for self-attention DiT parameters (adapter or finetune "
+                        "— both route through this grouping); empty uses optimizer.lr, 0 freezes the group."
+                    ),
+                },
+                {
+                    "path": "model.cross_attn_lr",
+                    "label": "Cross-attention LR override",
+                    "type": "number",
+                    "placeholder": "empty = optimizer.lr",
+                    "description": (
+                        "Per-group LR override for cross-attention DiT parameters (adapter or "
+                        "finetune); empty uses optimizer.lr, 0 freezes the group."
+                    ),
+                },
+                {
+                    "path": "model.mlp_lr",
+                    "label": "MLP LR override",
+                    "type": "number",
+                    "placeholder": "empty = optimizer.lr",
+                    "description": (
+                        "Per-group LR override for MLP/feed-forward DiT parameters (adapter or "
+                        "finetune); empty uses optimizer.lr, 0 freezes the group."
+                    ),
+                },
+                {
+                    "path": "model.mod_lr",
+                    "label": "AdaLN modulation LR override",
+                    "type": "number",
+                    "placeholder": "empty = optimizer.lr",
+                    "description": (
+                        "Per-group LR override for the adaLN-modulation DiT parameters (adapter or "
+                        "finetune); empty uses optimizer.lr, 0 freezes the group."
+                    ),
+                },
+                {
+                    "path": "model.shift",
+                    "label": "Fixed timestep shift",
+                    "type": "number",
+                    "placeholder": "empty = no shift (unless flux_shift is on)",
+                    "description": (
+                        "Fixed timestep-shift transform t' = (t*shift)/(1+(shift-1)*t) applied after "
+                        "sampling; overrides flux_shift when set. Empty leaves timesteps unshifted "
+                        "unless flux_shift is enabled."
+                    ),
+                },
+                {
+                    "path": "model.flux_shift",
+                    "label": "Flux-style resolution shift",
+                    "type": "boolean",
+                    "default": False,
+                    "description": (
+                        "Flux-style resolution-aware timestep shift (shifts sampling toward higher "
+                        "noise at larger latent sizes); ignored whenever model.shift is set."
+                    ),
+                },
+                {
+                    "path": "model.sigmoid_scale",
+                    "label": "Logit-normal sigmoid scale",
+                    "type": "number",
+                    "default": 1.0,
+                    "description": (
+                        "Scale applied to the logit-normal sample before sigmoid, only used when "
+                        "timestep_sample_method is logit_normal. Raising it pushes sampled timesteps "
+                        "toward the extremes (near 0 or 1)."
+                    ),
+                },
+                {
+                    "path": "model.timestep_sample_method",
+                    "label": "Timestep sample method",
+                    "type": "select",
+                    "options": ["logit_normal", "uniform"],
+                    "default": "logit_normal",
+                    "description": (
+                        "How training timesteps are sampled per step: logit_normal (default, "
+                        "concentrates around mid-range noise levels) or uniform (uniform in [0, 1])."
+                    ),
+                },
+                {
+                    "path": "model.transformer_fp8_matmul",
+                    "label": "Quantize base to fp8 (scaled matmul)",
+                    "type": "boolean",
+                    "default": False,
+                    "when_model_has_adapter": True,
+                    "description": (
+                        "fp8 scaled-matmul quantization of the frozen DiT's big linears (mutually "
+                        "exclusive with transformer_4bit). Measured ~70% SLOWER on Ada (RTX 4080) and "
+                        "fp8-sensitive on Cosmos — an experimental/compat lever; transformer_4bit is "
+                        "the recommended VRAM-saving option."
+                    ),
+                },
+                {
+                    "path": "model.fp8_matmul_dtype",
+                    "label": "fp8 weight format",
+                    "type": "select",
+                    "options": ["e5m2", "e4m3"],
+                    "default": "e5m2",
+                    "show_if_set": True,
+                    "description": (
+                        "Weight fp8 format for transformer_fp8_matmul. On Ada (RTX 4080), "
+                        "torch._scaled_mm rejects e5m2 weights (e4m3 is required there), but Cosmos "
+                        "is fp8-sensitive to e4m3 outliers — measure before relying on this."
+                    ),
                 },
             ],
         )
@@ -411,7 +609,6 @@ def _register_builtin_capabilities() -> None:
                     "label": "Tokenizer override",
                     "type": "path",
                     "show_if_set": True,
-                    "ui": False,
                     "description": "Folder with tokenizer files; defaults to the bundled Qwen3-VL tokenizer.",
                 },
                 {
@@ -435,6 +632,73 @@ def _register_builtin_capabilities() -> None:
                     "type": "select",
                     "options_key": "dtypes",
                     "description": "DiT checkpoint load only; defaults to Model dtype. VAE/text unchanged.",
+                },
+                {
+                    "path": "model.diffusion_model_dtype",
+                    "label": "DiT forward dtype",
+                    "type": "select",
+                    "options_key": "dtypes",
+                    "description": "Autocast dtype for DiT forward; defaults to model.dtype. Sets transformer_dtype when omitted.",
+                },
+                {
+                    "path": "model.shift",
+                    "label": "Fixed timestep shift",
+                    "type": "number",
+                    "placeholder": "empty = resolution-aware dynamic shift",
+                    "description": (
+                        "Fixed timestep shift, overriding Krea 2's default resolution-aware dynamic "
+                        "shift (exponential, ~0.5 at short sequences to ~1.15 at long ones by latent "
+                        "sequence length). Empty keeps the dynamic default."
+                    ),
+                },
+                {
+                    "path": "model.sigmoid_scale",
+                    "label": "Logit-normal sigmoid scale",
+                    "type": "number",
+                    "default": 1.0,
+                    "description": (
+                        "Scale applied to the logit-normal sample before sigmoid, only used when "
+                        "timestep_sample_method is logit_normal. Raising it pushes sampled timesteps "
+                        "toward the extremes (near 0 or 1)."
+                    ),
+                },
+                {
+                    "path": "model.timestep_sample_method",
+                    "label": "Timestep sample method",
+                    "type": "select",
+                    "options": ["logit_normal", "uniform"],
+                    "default": "logit_normal",
+                    "description": (
+                        "How training timesteps are sampled per step: logit_normal (default, "
+                        "concentrates around mid-range noise levels) or uniform (uniform in [0, 1])."
+                    ),
+                },
+                {
+                    "path": "model.transformer_fp8_matmul",
+                    "label": "Quantize base to fp8 (scaled matmul)",
+                    "type": "boolean",
+                    "default": False,
+                    "when_model_has_adapter": True,
+                    "description": (
+                        "fp8 scaled-matmul quantization of the frozen DiT's big linears (mutually "
+                        "exclusive with transformer_4bit). Measured ~70% SLOWER on Ada (RTX 4080) for "
+                        "Cosmos on the same quantize_dit implementation Krea 2 shares — an "
+                        "experimental/compat lever; transformer_4bit is the recommended VRAM-saving "
+                        "option."
+                    ),
+                },
+                {
+                    "path": "model.fp8_matmul_dtype",
+                    "label": "fp8 weight format",
+                    "type": "select",
+                    "options": ["e5m2", "e4m3"],
+                    "default": "e5m2",
+                    "show_if_set": True,
+                    "description": (
+                        "Weight fp8 format for transformer_fp8_matmul. On Ada (RTX 4080), "
+                        "torch._scaled_mm rejects e5m2 weights (e4m3 is required there); measure "
+                        "before relying on this."
+                    ),
                 },
             ],
         )

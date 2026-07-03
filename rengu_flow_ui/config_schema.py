@@ -417,6 +417,20 @@ def get_sections() -> list[dict[str, Any]]:
                     default=False,
                     importance="advanced",
                 ),
+                _field(
+                    "engine",
+                    "Training engine",
+                    "select",
+                    options=["", "deepspeed", "accelerate"],
+                    importance="advanced",
+                    placeholder="empty = host default",
+                    description=(
+                        "Training backend for this run. Precedence: the RENGU_ENGINE environment "
+                        "variable wins if set, then this field, then the host's platform default. "
+                        "Leave empty unless you need to force a specific backend (e.g. deepspeed for "
+                        "multi-GPU pipeline parallelism)."
+                    ),
+                ),
             ],
         },
         {
@@ -451,6 +465,18 @@ def get_sections() -> list[dict[str, Any]]:
                     description=(
                         "All [optimizer] keys (lr, betas, weight_decay, gradient_release, …). "
                         "Pre-filled when you change optimizer type; see docs for per-type tables."
+                    ),
+                ),
+                _field(
+                    "optimizer.gradient_release",
+                    "Gradient release",
+                    "boolean",
+                    deepspeed_only=True,
+                    description=(
+                        "Runs each parameter's optimizer step inside the backward pass instead of "
+                        "after gradient accumulation — required for full-model block swap (a block's "
+                        "optimizer step must run while it is still resident on GPU). DeepSpeed engine "
+                        "only; accelerate raises at train time. Needs pipeline_stages = 1."
                     ),
                 ),
             ],
@@ -520,6 +546,18 @@ def get_sections() -> list[dict[str, Any]]:
                 _field("caching_batch_size", "Dataset cache batch size", "integer", default=1),
                 _field("cache_num_proc", "Cache CPU workers", "integer", default=8, min_value=1),
                 _field("cache_keep_in_memory", "Keep HF slice in RAM during cache", "boolean", default=False),
+                _field(
+                    "cache_root",
+                    "Cache root directory",
+                    "string",
+                    importance="advanced",
+                    placeholder="empty = <repo>/cache",
+                    description=(
+                        "Overrides where dataset latent/text-embedding caches (and the compile cache "
+                        "under it) are written. Point it at a larger/faster disk when caching many "
+                        "datasets or the default location runs low on space."
+                    ),
+                ),
                 _field(
                     "cache_dedup_text_embeddings",
                     "Dedup text embeddings on cache",
@@ -683,6 +721,70 @@ def get_sections() -> list[dict[str, Any]]:
                     "boolean",
                     default=True,
                 ),
+                _field(
+                    "huber_delta",
+                    "Huber loss delta",
+                    "number",
+                    importance="advanced",
+                    placeholder="empty = MSE loss",
+                    description=(
+                        "Loss switch: when set, per-element loss is Huber(delta) instead of MSE. "
+                        "Presence-keyed and takes priority over smooth_l1_beta / pseudo_huber_c if "
+                        "more than one is set — only one loss is ever active."
+                    ),
+                ),
+                _field(
+                    "smooth_l1_beta",
+                    "Smooth-L1 loss beta",
+                    "number",
+                    importance="advanced",
+                    placeholder="empty = MSE loss",
+                    description=(
+                        "Loss switch: when set (and huber_delta is not), per-element loss is "
+                        "Smooth-L1(beta) instead of MSE. Presence-keyed; mutually exclusive with "
+                        "huber_delta and pseudo_huber_c."
+                    ),
+                ),
+                _field(
+                    "pseudo_huber_c",
+                    "Pseudo-Huber loss c",
+                    "number",
+                    importance="advanced",
+                    placeholder="empty = MSE loss",
+                    description=(
+                        "Loss switch: when set (and huber_delta / smooth_l1_beta are not), per-element "
+                        "loss is sqrt((output-target)^2 + c^2) - c instead of MSE. Presence-keyed; "
+                        "lowest priority of the three."
+                    ),
+                ),
+                _field(
+                    "min_image_exposure",
+                    "Target image exposure (report only)",
+                    "number",
+                    importance="advanced",
+                    placeholder="empty = no target in the report",
+                    description=(
+                        "Target average per-image exposure shown against the resolution-schedule "
+                        "exposure report printed at run startup — a reporting threshold only, it does "
+                        "not change training. Set it to the exposure you're aiming for to see how far "
+                        "each resolution/stage is from it."
+                    ),
+                ),
+                _field(
+                    "video_clip_mode",
+                    "Video clip mode",
+                    "select",
+                    options=["single_beginning", "single_middle"],
+                    default="single_beginning",
+                    importance="advanced",
+                    when=_when_model("cosmos_predict2"),
+                    description=(
+                        "How a longer source video is cut down to the target frame count: "
+                        "single_beginning (default) takes the first N frames; single_middle takes N "
+                        "frames centered in the clip. Only meaningful for video-capable models "
+                        "(Cosmos Predict2); no effect on image-only training."
+                    ),
+                ),
             ],
         },
         {
@@ -722,6 +824,20 @@ def get_sections() -> list[dict[str, Any]]:
                     min_value=1,
                     importance="advanced",
                     description="Checkpoint every N transformer blocks (1 = every block). Measured neutral on Cosmos.",
+                ),
+                _field(
+                    "activation_budget_backoff",
+                    "Auto-AC budget backoff on OOM",
+                    "boolean",
+                    default=True,
+                    importance="advanced",
+                    when={"field": "activation_checkpointing", "equals": "auto"},
+                    description=(
+                        "Only acts when activation_checkpointing='auto' AND compile=true: on a CUDA "
+                        "OOM, activation_memory_budget is lowered and the step retried instead of "
+                        "crashing the run (the configured budget is a ceiling, not a promise). Turn "
+                        "off to fail fast on OOM instead of silently settling for a lower budget."
+                    ),
                 ),
                 _field(
                     "reentrant_activation_checkpointing",
@@ -849,6 +965,19 @@ def get_sections() -> list[dict[str, Any]]:
                 _field("save_every_n_steps", "Save model every N steps", "integer", min_value=1, example=500),
                 _field("save_every_n_examples", "Save every N examples", "integer", min_value=1, example=1000),
                 _field("save_dtype", "Save dtype", "select", options=DTYPE_OPTIONS),
+                _field(
+                    "async_model_export",
+                    "Async model export",
+                    "boolean",
+                    default=False,
+                    importance="advanced",
+                    description=(
+                        "Overlaps the model export's disk write with training: the CPU snapshot still "
+                        "happens synchronously, but the safetensors write runs on a background thread "
+                        "so the next training step doesn't wait on I/O. Auto-disabled (falls back to "
+                        "synchronous export) when pipeline_stages > 1."
+                    ),
+                ),
             ],
         },
         {

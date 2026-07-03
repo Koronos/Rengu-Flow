@@ -90,6 +90,13 @@ def get_directory_fields() -> list[dict[str, Any]]:
             description="Read captions.json at train time instead of cache-only.",
         ),
         _field(
+            "uncond_fraction",
+            "Unconditional fraction override",
+            "number",
+            show_if_set=True,
+            description="Fraction of this folder's samples trained with an empty caption. Overrides the global default for this folder only.",
+        ),
+        _field(
             "resolutions",
             "Resolutions override",
             "integer_list",
@@ -350,6 +357,14 @@ def get_dataset_schema() -> dict[str, Any]:
             "fields": [
                 _field("shuffle_metadata", "Shuffle metadata order", "boolean", default=True),
                 _field("online_captions", "Online captions.json", "boolean", default=False),
+                _field(
+                    "uncond_fraction",
+                    "Unconditional fraction",
+                    "number",
+                    default=0.0,
+                    min=0,
+                    description="Default fraction of samples trained with an empty caption (unconditional), for CFG quality. Folders may override it.",
+                ),
                 _field(
                     "subsample_ratio",
                     "Subsample ratio",

@@ -21,16 +21,18 @@ def _paths(schema) -> set[str]:
     return {f["path"] for s in schema["sections"] for f in s["fields"]}
 
 
-def test_cosmos_schema_excludes_t5_and_includes_llm() -> None:
+def test_cosmos_schema_includes_t5_and_llm() -> None:
     schema = get_schema()
     paths = _paths(schema)
-    assert "model.t5_path" not in paths
+    # model.t5_path is the llm_path alternative (one_of pair) — a show_if_set expert field,
+    # not TOML-only, so it appears in the schema like any other field.
+    assert "model.t5_path" in paths
     assert "model.llm_path" in paths
     assert "model.transformer_path" in paths
     assert "model.checkpoint_path" in paths
-    # diffusion_model_dtype is a TOML-only (ui: false) expert key for cosmos — hidden
-    # from the web form, like sdxl's model.guidance below.
-    assert "model.diffusion_model_dtype" not in paths
+    # diffusion_model_dtype is a visible expert field for cosmos (unlike sdxl's model.guidance
+    # below, which stays a TOML-only ui: false key).
+    assert "model.diffusion_model_dtype" in paths
     assert "model.guidance" not in paths
 
 

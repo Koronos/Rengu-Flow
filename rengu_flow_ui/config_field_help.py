@@ -675,12 +675,23 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "doc": "docs/user/training-cosmos-predict2-lora-lokr-finetune.md",
     },
     "model.diffusion_model_dtype": {
-        "summary": "DiT forward autocast dtype (Cosmos/Anima).",
+        "summary": "DiT forward autocast dtype (Cosmos Predict2, Krea 2).",
         "detail": (
-            "Sets training forward autocast (main.py). Defaults to model.dtype. "
-            "When set and transformer_dtype is omitted, defaults copies this to transformer_dtype for checkpoint load."
+            "Sets training forward autocast (main.py), applied regardless of model type. Defaults to "
+            "model.dtype. On Cosmos, when set and transformer_dtype is omitted, defaults copies this "
+            "to transformer_dtype for checkpoint load too; Krea 2 has its own transformer_dtype field "
+            "that is independent of this one."
         ),
         "doc": "docs/user/training-cosmos-predict2-lora-lokr-finetune.md",
+    },
+    "model.diffusion_model_dtype@sdxl": {
+        "summary": "UNet forward autocast dtype override (defaults to model.dtype).",
+        "detail": (
+            "Sets training forward autocast (main.py). SDXL has no separate checkpoint-load dtype "
+            "path (unlike Cosmos/Krea 2's transformer_dtype) — this only changes the forward-pass "
+            "compute dtype, not how weights are loaded from disk."
+        ),
+        "doc": "docs/user/training-sdxl-lora-lokr.md",
     },
     "cache_dedup_text_embeddings": {
         "summary": "Reuse text-encoder outputs for duplicate captions during cache.",
@@ -1051,6 +1062,103 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "summary": "Export adapter or full-model weights every N epochs (default 1).",
         "detail": "Writes an epoch1/, epoch2/, ... folder usable in ComfyUI/Forge. Reduce to save fewer intermediate files; increase max_model_exports_to_keep if you want them all kept.",
         "doc": "docs/user/checkpoint-and-save.md",
+    },
+    "async_model_export": {
+        "summary": "Write the model export to disk on a background thread instead of blocking the next step.",
+        "detail": (
+            "The CPU state-dict snapshot still happens synchronously (so training resumes safely), "
+            "but the safetensors write to disk runs in the background — the next training step starts "
+            "immediately instead of waiting on export I/O. Off by default. Auto-disabled (falls back "
+            "to synchronous export, with a warning) when pipeline_stages > 1."
+        ),
+        "doc": "docs/user/checkpoint-and-save.md",
+    },
+    "engine": {
+        "summary": "Training backend for this run: deepspeed or accelerate.",
+        "detail": (
+            "Precedence: the RENGU_ENGINE environment variable wins if set, then this field, then the "
+            "host's platform default. deepspeed adds multi-GPU pipeline parallelism, gradient_release, "
+            "and the pipeline_stages/partition_method knobs; accelerate is the single-GPU path and "
+            "raises if a deepspeed-only option (marked accordingly in the form) is set."
+        ),
+        "doc": "docs/user/training-loop-and-eval.md",
+    },
+    "huber_delta": {
+        "summary": "Switch the diffusion loss to Huber(delta) instead of MSE.",
+        "detail": (
+            "Presence-keyed: setting this key at all switches the per-element loss from MSE to "
+            "F.huber_loss(delta=...). Takes priority over smooth_l1_beta and pseudo_huber_c if more "
+            "than one is set — only one loss function is ever active."
+        ),
+        "doc": "docs/user/training-loop-and-eval.md",
+    },
+    "smooth_l1_beta": {
+        "summary": "Switch the diffusion loss to Smooth-L1(beta) instead of MSE.",
+        "detail": (
+            "Presence-keyed: setting this key switches the per-element loss to "
+            "F.smooth_l1_loss(beta=...), unless huber_delta is also set (which wins). Mutually "
+            "exclusive in practice with huber_delta and pseudo_huber_c."
+        ),
+        "doc": "docs/user/training-loop-and-eval.md",
+    },
+    "pseudo_huber_c": {
+        "summary": "Switch the diffusion loss to pseudo-Huber(c) instead of MSE.",
+        "detail": (
+            "Presence-keyed: setting this key switches the per-element loss to "
+            "sqrt((output-target)^2 + c^2) - c, unless huber_delta or smooth_l1_beta is also set "
+            "(both take priority). Lowest priority of the three loss switches."
+        ),
+        "doc": "docs/user/training-loop-and-eval.md",
+    },
+    "min_image_exposure": {
+        "summary": "Target image exposure for the startup resolution-schedule report (reporting only).",
+        "detail": (
+            "Printed once at run startup alongside the estimated per-resolution image exposure. "
+            "Setting a target only changes what the report compares against — it never changes "
+            "training. Leave empty to print the estimate without a target line."
+        ),
+        "doc": "docs/user/training-loop-and-eval.md",
+    },
+    "video_clip_mode": {
+        "summary": "How a longer source video is trimmed to the target frame count (Cosmos only).",
+        "detail": (
+            "single_beginning (default) takes the first N frames of the clip; single_middle takes N "
+            "frames centered in it. Videos shorter than the target frame count are skipped regardless "
+            "of this setting. No effect on image-only training or non-video-capable models."
+        ),
+        "doc": "docs/user/training-cosmos-predict2-lora-lokr-finetune.md",
+    },
+    "cache_root": {
+        "summary": "Overrides where dataset caches (latents, text embeddings, compile cache) are written.",
+        "detail": (
+            "Empty uses <repo>/cache. A legacy cache_root left in the dataset TOML is only honored "
+            "when this field is empty (deprecated path, logs a warning); when both are set, this "
+            "field wins and the dataset TOML value is ignored."
+        ),
+        "doc": "docs/user/dataset-config.md",
+    },
+    "activation_budget_backoff": {
+        "summary": "On a CUDA OOM under activation_checkpointing='auto', lower the memory budget and retry instead of crashing.",
+        "detail": (
+            "Only acts when activation_checkpointing='auto' AND compile=true — activation_memory_budget "
+            "is a fraction the compile partitioner may overshoot on a new model/resolution/batch "
+            "combination. On by default so an OOM backs off the budget and recompiles rather than "
+            "ending the run; turn off to fail fast on OOM and see the real budget you configured."
+        ),
+        "doc": "docs/user/training-loop-and-eval.md",
+    },
+    "optimizer.gradient_release": {
+        "summary": "Run each parameter's optimizer step inside the backward pass (DeepSpeed only).",
+        "detail": (
+            "Instead of accumulating gradients and stepping the optimizer once per micro-batch group, "
+            "each parameter's optimizer.step() runs as soon as its gradient is ready, then the "
+            "gradient is freed immediately. Required for full-model training with blocks_to_swap "
+            "(a swapped block's optimizer step must happen while it is still on GPU) — without it, a "
+            "full finetune has to keep the whole optimizer state resident. Patches the DeepSpeed "
+            "pipeline engine, so it requires engine='deepspeed' (accelerate raises at train time) and "
+            "pipeline_stages = 1 / data-parallel world size 1."
+        ),
+        "doc": "docs/developer/vram-optimization.md",
     },
 }
 
