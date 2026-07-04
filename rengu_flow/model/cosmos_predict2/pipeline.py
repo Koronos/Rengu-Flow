@@ -510,6 +510,11 @@ class CosmosPredict2Pipeline(BasePipeline):
 
     def prepare_preview_memory(self, preview_cfg: dict) -> None:
         """Prepare DiT for preview sampling (eval mode; optional block swap)."""
+        # Park the training offloader (if any) so its hooks don't fight the preview offloader
+        # over block placement and its retained GPU copies are released. resume() on restore.
+        train_offloader = getattr(self, "_block_swap_offloader", None)
+        if train_offloader is not None and getattr(train_offloader, "enabled", False):
+            train_offloader.suspend()
         self.ensure_transformer_for_preview("cuda")
         state: dict = {}
         blocks_swap = int(preview_cfg.get("preview_blocks_to_swap", 0))
@@ -559,7 +564,12 @@ class CosmosPredict2Pipeline(BasePipeline):
     def restore_after_preview(self) -> None:
         state = getattr(self, "_preview_restore_state", None) or {}
         offloader = getattr(self, "_preview_offloader", None)
-        if offloader is not None:
+        train_offloader = getattr(self, "_block_swap_offloader", None)
+        if train_offloader is not None and getattr(train_offloader, "enabled", False):
+            # Training streams the blocks itself: re-park on the CPU masters and re-arm the hooks
+            # (the preview offloader's teardown would pull every block onto the GPU instead).
+            train_offloader.resume()
+        elif offloader is not None:
             offloader.teardown()
         self._preview_offloader = None
         # If a decode offloaded the DiT to CPU (no block swap path), put it back on GPU for training.

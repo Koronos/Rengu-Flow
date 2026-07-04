@@ -243,7 +243,18 @@ def run_previews(
             model.prepare_block_swap_training()
         else:
             if hasattr(model, "restore_after_preview"):
-                model.restore_after_preview()
+                try:
+                    empty_cuda_cache()  # give the restore room — it may follow a preview OOM
+                    model.restore_after_preview()
+                except Exception as restore_err:  # noqa: BLE001 — same contract as the preview itself
+                    # A failed restore after a preview OOM used to raise out of this finally and
+                    # abort the whole run. Report it; the next training step re-pulls what it needs.
+                    if is_main_process():
+                        print(
+                            f"rengu_flow: post-preview restore failed — training continues. "
+                            f"{type(restore_err).__name__}: {restore_err}",
+                            flush=True,
+                        )
             empty_cuda_cache()
             if torch.cuda.is_available():
                 torch.cuda.synchronize()

@@ -409,6 +409,12 @@ class Krea2Pipeline(BasePipeline):
             self.load_diffusion_model()
         target = torch.device("cuda", torch.cuda.current_device()) if torch.cuda.is_available() else torch.device("cpu")
         state: dict = {"transformer_was_training": self.transformer.training}
+        # The training offloader's hooks fire on any forward (previews included) and its retained
+        # residents/pending buffers hold several GB; park it so the preview offloader manages the
+        # blocks alone and the preview text encoder has room. resume() in restore_after_preview.
+        train_offloader = getattr(self, "_block_swap_offloader", None)
+        if train_offloader is not None and getattr(train_offloader, "enabled", False):
+            train_offloader.suspend()
         blocks_swap = int(preview_cfg.get("preview_blocks_to_swap", 0))
         if blocks_swap > 0:
             from rengu_flow.training.block_swap import BlockSwapOffloader
@@ -433,7 +439,13 @@ class Krea2Pipeline(BasePipeline):
     def restore_after_preview(self) -> None:
         state = getattr(self, "_preview_restore_state", None) or {}
         offloader = getattr(self, "_preview_offloader", None)
-        if offloader is not None:
+        train_offloader = getattr(self, "_block_swap_offloader", None)
+        if train_offloader is not None and getattr(train_offloader, "enabled", False):
+            # Training streams the blocks itself: resume() re-parks them on the CPU masters and
+            # re-arms the hooks. The preview offloader's teardown would instead pull ALL blocks
+            # onto the GPU — an instant OOM with an unquantized 12B base.
+            train_offloader.resume()
+        elif offloader is not None:
             offloader.teardown()
         self._preview_offloader = None
         if state.get("vae_was_meta"):

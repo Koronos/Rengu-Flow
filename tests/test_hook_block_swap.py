@@ -136,3 +136,22 @@ def test_hooks_compose_with_torch_compile() -> None:
     out = compiled(torch.randn(2, 4))
     assert out.shape == (2, 4)
     assert 1 in off._resident
+
+
+def test_suspend_makes_hooks_noop_and_resume_rearms() -> None:
+    # suspend() parks everything and must silence the hooks (a preview-side offloader then
+    # manages the same blocks alone); resume() re-arms them for the next training step.
+    blocks = _blocks(4)
+    off = HookBlockSwapOffloader(blocks, blocks_to_swap=3, device="cpu")
+    off._ensure_resident_sync(0)
+    assert set(off._resident) == {0}
+    off.suspend()
+    assert off._suspended is True
+    assert off._resident == {} or len(off._resident) == 0
+    assert off._pending_free == []
+    off._forward_pre_hook(blocks[1][0], ())  # suspended: must NOT pull
+    assert len(off._resident) == 0
+    off.resume()
+    assert off._suspended is False
+    off._forward_pre_hook(blocks[1][0], ())  # re-armed: pulls again
+    assert set(off._resident) == {1}

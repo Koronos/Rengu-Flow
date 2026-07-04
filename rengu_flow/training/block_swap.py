@@ -185,6 +185,7 @@ class HookBlockSwapOffloader:
         # bottleneck anyway, so the wait costs nothing extra).
         self._pending_free: list[tuple[torch.cuda.Event, list[torch.Tensor]]] = []
         self._pending_budget = 2
+        self._suspended = False
         if self._enabled:
             self._register_hooks()
             if self._prefetch:
@@ -349,6 +350,8 @@ class HookBlockSwapOffloader:
             self._evict_async(oldest)
 
     def _forward_pre_hook(self, module: nn.Module, args) -> None:
+        if self._suspended:
+            return
         idx = self._block_of_module[id(module)]
         if self._prefetch:
             self._ensure_resident_prefetch(idx, ahead=1)
@@ -356,11 +359,51 @@ class HookBlockSwapOffloader:
             self._ensure_resident_sync(idx)
 
     def _backward_pre_hook(self, module: nn.Module, grad_output) -> None:
+        if self._suspended:
+            return
         idx = self._block_of_module[id(module)]
         if self._prefetch:
             self._ensure_resident_prefetch(idx, ahead=-1)
         else:
             self._ensure_resident_sync(idx)
+
+    def _park_on_cpu(self) -> None:
+        """Point every swapped param back at its CPU master and drop all GPU copies/bookkeeping.
+        No data copies when pinned masters exist (the frozen values live there); non-pinned params
+        are moved. Leaves the offloader in the pristine 'nothing resident' state."""
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()  # in-flight consumers of the GPU copies must finish first
+        self._pending_free.clear()
+        for idx in range(self.num_blocks):
+            for p in self._swap_params(idx):
+                master = self._cpu.get(id(p))
+                if master is not None:
+                    p.data = master
+                elif p.data.device.type != "cpu":
+                    p.data = p.data.to("cpu")
+        self._gpu.clear()
+        self._resident.clear()
+        self._pull_event.clear()
+        self._last_block = None
+
+    def suspend(self) -> None:
+        """Park the offloader for an out-of-band phase (previews/eval that manage placement
+        themselves): swapped params return to their CPU masters, GPU copies and pending frees are
+        released (several GB with large bf16 blocks), and the hooks become no-ops until
+        ``resume()``. Without this, a preview-side offloader and these hooks fight over the same
+        ``p.data`` and the retained residents/pending buffers OOM the preview's text encoder."""
+        if not self._enabled or self._suspended:
+            return
+        self._park_on_cpu()
+        self._suspended = True
+
+    def resume(self) -> None:
+        """Undo ``suspend()``: re-park on the CPU masters (the out-of-band phase may have left
+        blocks on the GPU) and re-arm the hooks; the next training step re-pulls on demand."""
+        if not self._enabled or not self._suspended:
+            return
+        self._park_on_cpu()
+        self._suspended = False
 
     def apply_training_layout(self) -> None:
         """Push every swappable block to CPU; blocks are pulled back on demand by the hooks. When
