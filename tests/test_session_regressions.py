@@ -195,3 +195,34 @@ def test_reentrant_ac_off_without_block_swap():
     }
     set_config_defaults(cfg)
     assert cfg["reentrant_activation_checkpointing"] is False
+
+
+def test_preview_offloader_never_routes_blocks_through_module_to():
+    """The preview BlockSwapOffloader must move blocks by reassigning ``.data``, never
+    ``nn.Module.to()``: on a bitsandbytes 4-bit base, ``module.to()`` routes through bnb's
+    ``Params4bit.to`` and corrupts the resident model's ``quant_state`` — an illegal memory
+    access on the next training step (the crash seen right after a preview). Full 4-bit
+    validation is GPU-only; this pins the move mechanism and Parameter identity."""
+    from rengu_flow.training.block_swap import BlockSwapOffloader
+
+    class Block(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.lin = torch.nn.Linear(4, 4)
+            self.lin.weight.quant_state = object()  # sentinel, like a bnb Params4bit weight
+
+        def to(self, *a, **k):  # noqa: A003 - must never be called by the offloader
+            raise AssertionError("blocks must not be moved via nn.Module.to() (breaks bnb 4-bit)")
+
+    blocks = torch.nn.ModuleList([Block() for _ in range(3)])
+    sentinels = [b.lin.weight.quant_state for b in blocks]
+    param_ids = [id(b.lin.weight) for b in blocks]
+
+    off = BlockSwapOffloader(blocks, blocks_to_swap=3, device="cpu")  # __init__ lays blocks out
+    off.wait_for_block(0)
+    off.submit_move_blocks_forward(0)
+    off.teardown()
+
+    for b, sentinel, pid in zip(blocks, sentinels, param_ids):
+        assert b.lin.weight.quant_state is sentinel  # quant_state left untouched
+        assert id(b.lin.weight) == pid  # Parameter object preserved (optimizer refs stay valid)

@@ -78,27 +78,41 @@ class BlockSwapOffloader:
     def enabled(self) -> bool:
         return self._enabled
 
+    @staticmethod
+    def _move_block(block: nn.Module, device, *, non_blocking: bool = False) -> None:
+        """Move a block by reassigning each param's ``.data`` and buffers — NOT ``nn.Module.to()``.
+
+        For a bitsandbytes ``Params4bit`` weight, ``module.to()`` routes through bnb's ``.to``
+        override, which mishandles the round-trip and corrupts the ``quant_state`` of the resident
+        model (illegal memory access on the next use — the failure this preview offloader hit on a
+        4-bit base). Moving ``.data`` shifts only the packed uint8 weight; the (tiny) ``quant_state``
+        tensors stay put on the GPU, exactly as the training HookBlockSwapOffloader relies on."""
+        for p in block.parameters():
+            p.data = p.data.to(device, non_blocking=non_blocking)
+        for b in block.buffers():
+            b.data = b.data.to(device, non_blocking=non_blocking)
+
     def apply_training_layout(self) -> None:
         if not self._enabled:
             return
         for block in self.blocks:
-            block.to("cpu")
+            self._move_block(block, "cpu")
 
     def wait_for_block(self, block_idx: int) -> None:
         if not self._enabled:
             return
-        self.blocks[block_idx].to(self.device, non_blocking=True)
+        self._move_block(self.blocks[block_idx], self.device, non_blocking=True)
 
     def submit_move_blocks_forward(self, block_idx: int) -> None:
         if not self._enabled:
             return
-        self.blocks[block_idx].to("cpu", non_blocking=True)
+        self._move_block(self.blocks[block_idx], "cpu", non_blocking=True)
 
     def teardown(self) -> None:
         if not self._enabled:
             return
         for block in self.blocks:
-            block.to(self.device, non_blocking=True)
+            self._move_block(block, self.device, non_blocking=True)
         if self.device.type == "cuda":
             torch.cuda.current_stream().synchronize()
 
