@@ -77,8 +77,6 @@ def set_config_defaults(config: dict[str, Any]) -> None:
     model_config.setdefault("guidance", 1.0)
     if str(model_config.get("type", "")).lower() in ("cosmos_predict2", "sdxl", "krea2"):
         model_config.setdefault("cache_text_embeddings", True)
-        if config.get("activation_checkpointing") and not config.get("blocks_to_swap"):
-            config.setdefault("reentrant_activation_checkpointing", True)
 
     if str(model_config.get("type", "")).lower() == "krea2":
         # The 4B Qwen3-VL dominates caching and each caption otherwise re-encodes once per

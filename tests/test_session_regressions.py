@@ -170,3 +170,28 @@ def test_reentrant_checkpoint_reaches_adapter_grad(use_reentrant):
 
     assert layer.adapter.weight.grad is not None, "checkpointed adapter got no gradient"
     assert layer.adapter.weight.grad.abs().sum() > 0
+
+
+def test_reentrant_ac_off_without_block_swap():
+    """Reentrant AC only pays off with block swap (frees bnb 4-bit refs on eviction);
+    without swap it is pure overhead — slower recompute for no memory win. Guard that a
+    krea2 run with activation_checkpointing on but blocks_to_swap unset resolves to the
+    faster non-reentrant mode (a stale default used to force reentrant on here)."""
+    from rengu_flow.config import set_config_defaults
+
+    cfg = {
+        "dataset": "examples/minimal_krea2_dataset.toml",
+        "activation_checkpointing": True,  # no blocks_to_swap
+        "model": {
+            "type": "krea2",
+            "dtype": "bfloat16",
+            "transformer_path": "x",
+            "vae_path": "v",
+            "text_encoder_path": "t",
+            "transformer_4bit": True,
+        },
+        "optimizer": {"type": "adamw", "lr": 1e-4},
+        "adapter": {"type": "lokr", "rank": 4},
+    }
+    set_config_defaults(cfg)
+    assert cfg["reentrant_activation_checkpointing"] is False
