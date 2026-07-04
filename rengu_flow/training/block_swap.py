@@ -176,6 +176,15 @@ class HookBlockSwapOffloader:
         self._pull_event: dict[int, torch.cuda.Event] = {}  # block_idx -> pull-complete event
         self._params: dict[int, list] = {}           # block_idx -> [params]
         self._last_block: int | None = None
+        # Evicted-but-not-yet-reclaimable GPU buffers: (consumers-done event, tensors) per block.
+        # Python enqueues hooks far ahead of the GPU, so eviction via record_stream alone lets an
+        # unbounded pile of in-flight block buffers accumulate inside one step (~all swapped blocks
+        # co-resident transiently -> OOM with large bf16 blocks). Holding the refs here and freeing
+        # only once the event fires bounds that pile; when it exceeds _pending_budget blocks we
+        # synchronize the oldest event, which throttles Python to the GPU's pace (the GPU is the
+        # bottleneck anyway, so the wait costs nothing extra).
+        self._pending_free: list[tuple[torch.cuda.Event, list[torch.Tensor]]] = []
+        self._pending_budget = 2
         if self._enabled:
             self._register_hooks()
             if self._prefetch:
@@ -264,6 +273,7 @@ class HookBlockSwapOffloader:
         """Issue an H2D copy of block ``idx`` on the side stream (pinned -> fresh GPU tensors)."""
         if idx in self._resident:
             return
+        self._drain_pending()
         event = torch.cuda.Event()
         with torch.cuda.stream(self._stream):
             for p in self._swap_params(idx):
@@ -293,14 +303,29 @@ class HookBlockSwapOffloader:
                     gpu.record_stream(self._stream)
                     self._gpu.pop(id(p), None)
         else:
+            dropped = []
             for p in self._swap_params(idx):
                 gpu = self._gpu.pop(id(p), None)
                 if gpu is None:
                     continue
                 p.data = self._cpu[id(p)]  # immutable frozen master — no D2H copy needed
-                gpu.record_stream(torch.cuda.current_stream())
+                dropped.append(gpu)
+            if dropped:
+                # All consumers of these weights are already enqueued on the current stream;
+                # the event marks that point. _drain_pending frees them once it fires.
+                event = torch.cuda.Event()
+                event.record(torch.cuda.current_stream())
+                self._pending_free.append((event, dropped))
         self._resident.pop(idx, None)
         self._pull_event.pop(idx, None)
+
+    def _drain_pending(self) -> None:
+        """Free evicted buffers whose consumers finished; block on the oldest when over budget."""
+        while self._pending_free and self._pending_free[0][0].query():
+            self._pending_free.pop(0)
+        while len(self._pending_free) > self._pending_budget:
+            event, _ = self._pending_free.pop(0)
+            event.synchronize()  # throttle: Python may not run further ahead than the GPU
 
     def _ensure_resident_prefetch(self, block_idx: int, ahead: int) -> None:
         if block_idx == self._last_block:
@@ -356,6 +381,7 @@ class HookBlockSwapOffloader:
                     self._cpu[id(p)] = p.data
         self._resident.clear()
         self._pull_event.clear()
+        self._pending_free.clear()
         self._last_block = None
 
     def teardown(self) -> None:
@@ -371,6 +397,7 @@ class HookBlockSwapOffloader:
         self._gpu.clear()
         self._cpu.clear()
         self._pull_event.clear()
+        self._pending_free.clear()
         self._last_block = None
         self._enabled = False
 
