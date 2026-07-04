@@ -65,11 +65,19 @@ class BlockSwapOffloader:
         blocks: list[nn.Module] | nn.ModuleList,
         blocks_to_swap: int,
         device: torch.device | str = "cuda",
+        swap_trainable: bool = True,
     ):
         self.blocks: list[nn.Module] = list(blocks)
         self.num_blocks = len(self.blocks)
         self.blocks_to_swap = min(max(int(blocks_to_swap), 0), self.num_blocks)
         self.device = torch.device(device)
+        # When False, trainable params (LoRA/LoKr adapters) stay GPU-resident and only the frozen
+        # base weights + buffers stream — mirroring HookBlockSwapOffloader's swap_trainable. A preview
+        # offloader built over a model whose training offloader keeps adapters resident MUST match it:
+        # otherwise this offloader parks the adapters on CPU, the training resume() (which re-homes
+        # only frozen params) never brings them back, and the next training step hits a
+        # cpu-weight/cuda-input device mismatch.
+        self._swap_trainable = bool(swap_trainable)
         self._enabled = self.blocks_to_swap > 0
         if self._enabled:
             self.apply_training_layout()
@@ -78,24 +86,38 @@ class BlockSwapOffloader:
     def enabled(self) -> bool:
         return self._enabled
 
-    @staticmethod
-    def _move_block(block: nn.Module, device, *, non_blocking: bool = False) -> None:
+    def _move_block(self, block: nn.Module, device, *, non_blocking: bool = False) -> None:
         """Move a block by reassigning each param's ``.data`` and buffers — NOT ``nn.Module.to()``.
 
         For a bitsandbytes ``Params4bit`` weight, ``module.to()`` routes through bnb's ``.to``
         override, which mishandles the round-trip and corrupts the ``quant_state`` of the resident
         model (illegal memory access on the next use — the failure this preview offloader hit on a
         4-bit base). Moving ``.data`` shifts only the packed uint8 weight; the (tiny) ``quant_state``
-        tensors stay put on the GPU, exactly as the training HookBlockSwapOffloader relies on."""
-        for p in block.parameters():
+        tensors stay put on the GPU, exactly as the training HookBlockSwapOffloader relies on.
+
+        With ``swap_trainable=False`` the trainable params are left untouched (kept wherever they
+        already are — GPU-resident) so they never get stranded on CPU across a preview."""
+        for p in self._swappable_params(block):
             p.data = p.data.to(device, non_blocking=non_blocking)
         for b in block.buffers():
             b.data = b.data.to(device, non_blocking=non_blocking)
+
+    def _swappable_params(self, block: nn.Module):
+        """Params that physically stream CPU<->GPU: everything when ``swap_trainable``; only the
+        frozen base weights otherwise (trainable adapters stay resident)."""
+        for p in block.parameters():
+            if self._swap_trainable or not p.requires_grad:
+                yield p
 
     def apply_training_layout(self) -> None:
         if not self._enabled:
             return
         for block in self.blocks:
+            if not self._swap_trainable:
+                # Keep the (small) trainable adapters GPU-resident; only the frozen weights stream.
+                for p in block.parameters():
+                    if p.requires_grad and p.data.device != self.device:
+                        p.data = p.data.to(self.device)
             self._move_block(block, "cpu")
 
     def wait_for_block(self, block_idx: int) -> None:

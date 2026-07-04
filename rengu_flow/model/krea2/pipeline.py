@@ -423,8 +423,13 @@ class Krea2Pipeline(BasePipeline):
             for name, module in self.transformer.named_children():
                 if name != "transformer_blocks":
                     module.to(target)
+            # Mirror the training offloader's frozen/trainable split: if it keeps the (small) adapter
+            # params GPU-resident (swap_trainable=False), the preview offloader must too, or resume()
+            # finds them stranded on CPU. Default True when there is no training offloader.
+            swap_trainable = getattr(train_offloader, "_swap_trainable", True)
             self._preview_offloader = BlockSwapOffloader(
-                self.transformer.transformer_blocks, blocks_swap, device=target
+                self.transformer.transformer_blocks, blocks_swap, device=target,
+                swap_trainable=swap_trainable,
             )
         else:
             self._preview_offloader = None

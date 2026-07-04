@@ -521,8 +521,12 @@ class CosmosPredict2Pipeline(BasePipeline):
         if blocks_swap > 0:
             from rengu_flow.training.block_swap import BlockSwapOffloader
 
+            # Mirror the training offloader's frozen/trainable split (swap_trainable=False keeps
+            # adapters GPU-resident), else resume() leaves them stranded on CPU after a preview.
+            swap_trainable = getattr(train_offloader, "_swap_trainable", True)
             self._preview_offloader = BlockSwapOffloader(
-                self.transformer.blocks, blocks_swap, device="cuda"
+                self.transformer.blocks, blocks_swap, device="cuda",
+                swap_trainable=swap_trainable,
             )
         else:
             self._preview_offloader = None
