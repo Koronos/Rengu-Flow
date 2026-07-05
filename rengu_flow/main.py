@@ -942,6 +942,14 @@ def _run_training(args, config):
         sink.set_lineage(lineage.capture())
         sink.set_hardware(lineage.hardware())
     disable_block_swap_for_eval = config.get("disable_block_swap_for_eval", False)
+    # Block swap allocates/frees a fresh GPU copy of each swapped block every step. That churn,
+    # interleaved with variable-size activation allocations, slowly grows the caching allocator's
+    # *reserved* pool (fragmentation) — ~0.3 GB per 50 steps observed on krea2 — until an otherwise
+    # 13 GB run OOMs. eval/preview already call empty_cuda_cache() and reset it, which is why runs
+    # *with* previews never showed the creep; a run with neither reclaims nothing. Reclaim on a
+    # sparse cadence so pure-training swap runs stay bounded (a sync every 50 steps costs nothing
+    # next to the swap traffic). Gated on block swap so non-swap bench baselines are untouched.
+    block_swap_active = bool(config.get("blocks_to_swap", 0))
     x_axis_examples = config.get("x_axis_examples", False)
     eval_every_n_steps = config.get("eval_every_n_steps")
     eval_every_n_epochs = config.get("eval_every_n_epochs")
@@ -1490,6 +1498,11 @@ def _run_training(args, config):
                     "([preview].prompts is empty) — nothing to render",
                     flush=True,
                 )
+
+            # Bound the block-swap allocator creep (see block_swap_active above): reclaim the
+            # reserved pool periodically when neither eval nor preview is doing it for us.
+            if block_swap_active and step > 0 and step % 50 == 0:
+                empty_cuda_cache()
 
             if step >= total_budget_steps:
                 final_model_name, _reason = budget_reached_target(max_steps, epochs, step)
