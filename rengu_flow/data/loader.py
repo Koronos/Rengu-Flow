@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import queue
 import threading
+import time
 
 import torch
 
@@ -194,6 +195,7 @@ class PipelineDataLoader:
         thread, q = self._prefetch_thread, self._prefetch_queue
         if thread is not None and thread.is_alive():
             self._prefetch_stop.set()
+            deadline = time.monotonic() + 30.0
             while thread.is_alive():
                 if q is not None:
                     try:
@@ -201,6 +203,11 @@ class PipelineDataLoader:
                     except queue.Empty:
                         pass
                 thread.join(timeout=0.05)
+                if time.monotonic() > deadline:
+                    # Producer stuck somewhere other than put() (e.g. blocked inside the
+                    # dataset iterator). Abandon it like the pre-drain code did — daemon
+                    # thread, ignores the dead queue — instead of spinning forever.
+                    break
         self._prefetch_stop.clear()
         self._prefetch_thread = None
         self._prefetch_queue = None
