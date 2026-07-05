@@ -63,8 +63,9 @@ nothing is ever downloaded automatically, rengu never resolves repo ids.
 | **`max_sequence_length`** | Prompt token budget before truncation. Lower it to shrink the text-embedding cache; captions longer than this lose their tail. | No | `512` |
 | **`transformer_dtype`** | DiT checkpoint load dtype only (VAE/text unaffected). | No | `dtype` |
 | **`transformer_4bit`** | Quantize the frozen DiT's linears to 4-bit NF4 (bitsandbytes). Mutually exclusive with `transformer_fp8_matmul`. | No | `false` |
-| **`transformer_fp8_matmul`** | Quantize the frozen DiT's linears to fp8 scaled matmul. Mutually exclusive with `transformer_4bit`. | No | `false` |
-| **`fp8_matmul_dtype`** | `"e5m2"` or `"e4m3"`, only when `transformer_fp8_matmul = true`. | No | `"e5m2"` |
+| **`transformer_fp8_matmul`** | Quantize the frozen DiT's linears to fp8 (tensorwise-scaled e4m3, 1 byte/param). Mutually exclusive with `transformer_4bit`. | No | `false` |
+| **`fp8_matmul_dtype`** | `"e5m2"` or `"e4m3"`. Not read on this path — Krea 2's tensorwise quantization always uses e4m3 (see below). | No | `"e5m2"` |
+| **`fp8_grad_mode`** | `"bf16"` or `"fp8"`: backward input-gradient GEMM precision, only used when `transformer_fp8_matmul = true`. | No | `"bf16"` |
 | **`timestep_sample_method`** | `"logit_normal"` or `"uniform"` timestep sampling for training. | No | `"logit_normal"` |
 | **`sigmoid_scale`** | Scales the logit-normal sample before the sigmoid; only used when `timestep_sample_method = "logit_normal"`. | No | `1.0` |
 | **`shift`** | Fixed rectified-flow time shift. When set, it **overrides** the default resolution-aware dynamic shift below. | No | Unset (dynamic) |
@@ -233,6 +234,64 @@ while that block is resident) — the same lever documented model-agnostically i
 [VRAM optimization](../developer/vram-optimization.md). For the general OOM playbook (text-embedding
 cache, checkpointing, memory-efficient optimizer states, block swap, in that order), see the
 [VRAM ladder](training-loop-and-eval.md#if-it-doesnt-fit-the-vram-ladder).
+
+## Speed: fp8 base + token routing
+
+Three knobs combine into an "F8T" recipe that measured a large per-step speedup on a 16 GB
+card, at the cost of some setup complexity and an open quality A/B:
+
+```toml
+[model]
+transformer_fp8_matmul = true
+
+compile = true
+compile_dynamic = true
+compile_scope = "block"
+reentrant_activation_checkpointing = true
+blocks_to_swap = 16
+
+[tread]
+drop_ratio = 0.5
+```
+
+- **`model.transformer_fp8_matmul`** stores the frozen DiT's big linears as tensorwise-scaled
+  e4m3 (1 byte/param): 25.6 -> 12.9 GB resident, and ~2x bf16 GEMM throughput on the cuBLASLt
+  kernel — but only once `compile_scope = "block"` is also on (eager fp8 nets ~nothing).
+- **`compile_scope = "block"`** compiles each transformer block alone instead of the whole
+  pipeline, so activation checkpointing and block swap stay eager (whole-module compile
+  graph-breaks on those hooks). This is the prerequisite for the fp8 GEMM speedup above, and
+  measured 1.14x alone (bf16, no fp8).
+- **`[tread]` `drop_ratio`** (TREAD-style token routing, arXiv 2501.04765) trains the blocks
+  between `start_block` (default `2`) and `end_block` (default `-3`, negative = from the end)
+  on a random batch-shared subset of image tokens instead of the full sequence; text tokens
+  are always kept, and dropped tokens still get gradient through the bypass. Leaving
+  `drop_ratio` unset keeps the `[tread]` table out of the TOML entirely (routing off — there
+  is no default). Training-only: never active for eval, previews, or val probes.
+
+**Constraint:** `transformer_fp8_matmul` + `compile_scope = "block"` requires
+`reentrant_activation_checkpointing = true`. Non-reentrant AC's recompute compares checkpoint
+metadata against the forward graph, and that comparison fails once the block is compiled
+(static-vs-dynamic-shape divergence, pytorch#166926); reentrant AC runs the recompute under
+`no_grad` and skips the comparison entirely.
+
+Measured on the wlop 96 bench (16 GB card, `blocks_to_swap = 16`):
+
+| Config | 512 @ bs2 | 1024 @ bs1 | VRAM peak | Pinned host RAM |
+|--------|-----------|------------|-----------|-----------------|
+| bf16 baseline | 2.87 s/it | 6.23 s/it | — | — |
+| F8T (fp8 + block-compile + TREAD 0.5) | 1.66 s/it | 2.62 s/it | 12.9 GB | ~7 GB |
+| bf16 + `blocks_to_swap = 25` (for comparison) | ties F8T's speed | ties F8T's speed | — | ~24 GB |
+
+The bf16+swap25 config ties F8T on raw speed with zero added quantization noise, but pins
+~24 GB of host RAM — enough to choke the rest of the machine on a 16 GB card, so it is not the
+recommended config despite the tied step time.
+
+**Quality:** the e4m3 tensorwise quantization measured 2.65% RMS error on real krea2 weights,
+vs 9.55% for NF4 (3.6x cleaner) — see `model.fp8_grad_mode` to also run the backward's
+input-gradient GEMM in fp8 (~15-20% faster per step; default `bf16` keeps that gradient
+unquantized). TREAD training shows an initial loss spike that converges as training
+progresses. A full quality A/B (F8T vs bf16 baseline, matched steps) is still pending —
+treat F8T as a speed lever to validate against your own dataset, not a drop-in default.
 
 ## Text-embedding cache and `max_sequence_length`
 

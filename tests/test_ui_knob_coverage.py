@@ -68,6 +68,7 @@ ALLOWLIST: frozenset[str] = frozenset(
         "optimizer",  # section/table name, not a leaf key
         "preview",  # section/table name, not a leaf key
         "tracking",  # section/table name, not a leaf key
+        "tread",  # section/table name, not a leaf key
         "train",  # section/table name, not a leaf key
         "bench",  # section/table name, not a leaf key
         "adapter.alpha",  # rejected by validation; alpha=rank is enforced, never user-settable

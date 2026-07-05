@@ -723,6 +723,21 @@ def get_sections() -> list[dict[str, Any]]:
                     ),
                 ),
                 _field(
+                    "compile_scope",
+                    "torch.compile scope",
+                    "select",
+                    options=["model", "block"],
+                    default="model",
+                    importance="advanced",
+                    when={"field": "compile", "equals": True},
+                    description=(
+                        "'model' (default) compiles the whole pipeline; 'block' compiles each "
+                        "transformer block alone so activation checkpointing and block swap stay "
+                        "eager. Required for the fp8 tensorwise speedup; measured 1.14x alone on "
+                        "krea2 bf16."
+                    ),
+                ),
+                _field(
                     "compile_dynamic",
                     "torch.compile dynamic shapes",
                     "boolean",
@@ -753,6 +768,48 @@ def get_sections() -> list[dict[str, Any]]:
                     when={"field": "compile", "equals": True},
                     placeholder="<cache_root>/compile",
                     description="Where the on-disk compile cache lives (must be ext4/255-char). Default: a 'compile' subdir of the dataset cache_root.",
+                ),
+                _field(
+                    "tread.drop_ratio",
+                    "TREAD drop ratio",
+                    "number",
+                    min_value=0.0,
+                    importance="advanced",
+                    when={"field": "model.type", "in": ["krea2"]},
+                    placeholder="empty = off (no token routing)",
+                    description=(
+                        "Fraction of image tokens skipped through the routed block window each "
+                        "step (batch-shared, text always kept); must be in (0, 1). Measured 1.83x "
+                        "@1024/bs1 on krea2 at 0.5 — expect an initial loss spike that converges."
+                    ),
+                ),
+                _field(
+                    "tread.start_block",
+                    "TREAD route start block",
+                    "integer",
+                    default=2,
+                    importance="advanced",
+                    when={
+                        "all": [
+                            {"field": "model.type", "in": ["krea2"]},
+                            {"form_nonempty": "tread.drop_ratio"},
+                        ],
+                    },
+                    description="First block index where routing begins; blocks before it always see the full sequence.",
+                ),
+                _field(
+                    "tread.end_block",
+                    "TREAD route end block",
+                    "integer",
+                    importance="advanced",
+                    default=-3,
+                    when={
+                        "all": [
+                            {"field": "model.type", "in": ["krea2"]},
+                            {"form_nonempty": "tread.drop_ratio"},
+                        ],
+                    },
+                    description="Last block index (negative = from the end) where routing is active; blocks after it always see the full sequence.",
                 ),
                 _field("x_axis_examples", "TensorBoard x-axis = examples", "boolean"),
                 _field(

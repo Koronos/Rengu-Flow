@@ -150,6 +150,16 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         ),
         "doc": "docs/user/training-krea2.md",
     },
+    "model.fp8_grad_mode": {
+        "summary": "Input-gradient GEMM precision through the frozen fp8 base (Krea 2, transformer_fp8_matmul only).",
+        "detail": (
+            "'bf16' (default) keeps the backward's input-gradient GEMM unquantized for a clean "
+            "gradient; 'fp8' runs it through the same e4m3 tensorwise kernel as the forward, "
+            "measured ~15-20% faster per step. Only takes effect when model.transformer_fp8_matmul "
+            "is true."
+        ),
+        "doc": "docs/user/training-krea2.md",
+    },
     "model.transformer_path": {
         "summary": "Main image model — one .safetensors file (the big checkpoint you train).",
         "detail": (
@@ -1030,6 +1040,17 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         ),
         "doc": "docs/user/training-cosmos-predict2-lora-lokr-finetune.md",
     },
+    "compile_scope": {
+        "summary": "Compile granularity: whole pipeline ('model', default) or one graph per transformer block ('block').",
+        "detail": (
+            "'block' compiles each transformer block on its own and leaves the layer loop (activation "
+            "checkpointing, block-swap hooks, tuple plumbing) eager — whole-module compile measured "
+            "~0% on a swapped krea2 base because the trace graph-breaks on all of that. Block scope "
+            "measured 1.14x alone (bf16) and is required to see the fp8 tensorwise GEMM speedup "
+            "(model.transformer_fp8_matmul); only applies when compile is on."
+        ),
+        "doc": "docs/user/training-krea2.md",
+    },
     "compile_disk_cache": {
         "summary": "Persist torch.compile's kernels to disk so re-runs skip recompilation (static shapes only).",
         "detail": (
@@ -1052,6 +1073,27 @@ FIELD_HELP: dict[str, dict[str, str]] = {
             "compile_disk_cache is active."
         ),
         "doc": "docs/user/training-cosmos-predict2-lora-lokr-finetune.md",
+    },
+    "tread.drop_ratio": {
+        "summary": "TREAD token routing: fraction of image tokens skipped through the routed block window (Krea 2 only).",
+        "detail": (
+            "Training-only FLOP cut — a batch-shared random subset of image tokens skips the middle "
+            "blocks (text tokens are always kept); dropped tokens still get gradient through the "
+            "bypass, so the loss covers every token. No default: leave it empty to keep the [tread] "
+            "table out of the TOML entirely (routing off). Measured 1.83x @1024/bs1 on krea2 at 0.5, "
+            "with an initial loss spike that converges; never active for eval/previews."
+        ),
+        "doc": "docs/user/training-krea2.md",
+    },
+    "tread.start_block": {
+        "summary": "First block (0-indexed) where TREAD routing begins.",
+        "detail": "Blocks before this index always process the full sequence. Default 2 leaves the first two blocks unrouted.",
+        "doc": "docs/user/training-krea2.md",
+    },
+    "tread.end_block": {
+        "summary": "Last block (inclusive, negative = from the end) where TREAD routing is active.",
+        "detail": "Blocks after this index always process the full sequence. Default -3 leaves the last two blocks unrouted.",
+        "doc": "docs/user/training-krea2.md",
     },
     "checkpoint_every_n_epochs": {
         "summary": "Write a DeepSpeed resume checkpoint at the end of every N epochs.",

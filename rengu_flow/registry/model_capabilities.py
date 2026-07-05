@@ -702,16 +702,16 @@ def _register_builtin_capabilities() -> None:
                 },
                 {
                     "path": "model.transformer_fp8_matmul",
-                    "label": "Quantize base to fp8 (scaled matmul)",
+                    "label": "Quantize base to fp8 (tensorwise scaled matmul)",
                     "type": "boolean",
                     "default": False,
                     "when_model_has_adapter": True,
                     "description": (
-                        "fp8 scaled-matmul quantization of the frozen DiT's big linears (mutually "
-                        "exclusive with transformer_4bit). Measured ~70% SLOWER on Ada (RTX 4080) for "
-                        "Cosmos on the same quantize_dit implementation Krea 2 shares — an "
-                        "experimental/compat lever; transformer_4bit is the recommended VRAM-saving "
-                        "option."
+                        "Tensorwise-scaled e4m3 quantization of the frozen DiT's big linears (mutually "
+                        "exclusive with transformer_4bit): 1 byte/param drops the base 25.6 -> 12.9 GB, "
+                        "and the cuBLASLt kernel hits ~2x bf16 GEMM throughput under compile_scope = "
+                        "\"block\". Quant error is 2.65% RMS vs NF4's 9.55%; pair with model.fp8_grad_mode "
+                        "for the backward precision."
                     ),
                 },
                 {
@@ -725,6 +725,24 @@ def _register_builtin_capabilities() -> None:
                         "Weight fp8 format for transformer_fp8_matmul. On Ada (RTX 4080), "
                         "torch._scaled_mm rejects e5m2 weights (e4m3 is required there); measure "
                         "before relying on this."
+                    ),
+                },
+                {
+                    "path": "model.fp8_grad_mode",
+                    "label": "fp8 backward gradient precision",
+                    "type": "select",
+                    "options": ["bf16", "fp8"],
+                    "default": "bf16",
+                    "visibility": {
+                        "all": [
+                            {"when_model_has_adapter": True},
+                            {"field": "model.transformer_fp8_matmul", "equals": True},
+                        ],
+                    },
+                    "description": (
+                        "Input-gradient GEMM precision through the frozen fp8 base, only used when "
+                        "transformer_fp8_matmul is on: fp8 measures ~15-20% faster per step, bf16 "
+                        "(default) keeps the clean gradient."
                     ),
                 },
             ],
