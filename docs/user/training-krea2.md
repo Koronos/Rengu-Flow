@@ -252,6 +252,7 @@ blocks_to_swap = 16
 
 [tread]
 drop_ratio = 0.5
+disable_after_frac = 0.85
 ```
 
 - **`model.transformer_fp8_matmul`** stores the frozen DiT's big linears as tensorwise-scaled
@@ -274,24 +275,30 @@ metadata against the forward graph, and that comparison fails once the block is 
 (static-vs-dynamic-shape divergence, pytorch#166926); reentrant AC runs the recompute under
 `no_grad` and skips the comparison entirely.
 
-Measured on the wlop 96 bench (16 GB card, `blocks_to_swap = 16`):
+**`tread.disable_after_frac`** is the routing off-ramp: past that fraction of the run
+(0.85 = the final 15%) the routing turns off and training finishes on full sequences, which
+recovers nearly all of the routed-training quality gap (below) at a fraction of the speed
+cost. `1.0` (default) never disables.
+
+Measured on the wlop 96 bench (RTX 4080 16 GB, `blocks_to_swap = 16`):
 
 | Config | 512 @ bs2 | 1024 @ bs1 | VRAM peak | Pinned host RAM |
 |--------|-----------|------------|-----------|-----------------|
-| bf16 baseline | 2.87 s/it | 6.23 s/it | — | — |
+| bf16 + swap25 baseline | 2.87 s/it | 6.23 s/it | 12.1 GB | ~24 GB |
 | F8T (fp8 + block-compile + TREAD 0.5) | 1.66 s/it | 2.62 s/it | 12.9 GB | ~7 GB |
-| bf16 + `blocks_to_swap = 25` (for comparison) | ties F8T's speed | ties F8T's speed | — | ~24 GB |
+| + `fp8_grad_mode = "fp8"` | ~1.7 s/it | ~2.3 s/it | 13.3 GB | ~7 GB |
 
-The bf16+swap25 config ties F8T on raw speed with zero added quantization noise, but pins
-~24 GB of host RAM — enough to choke the rest of the machine on a 16 GB card, so it is not the
-recommended config despite the tied step time.
+**Quality (measured, 300-step wlop A/B, all adapters probed on the clean bf16 base):** the
+baseline adapter scored val 0.0925; TREAD 0.5 alone cost +7.4% (val 0.0993) and fp8 added
+only +0.6% on top — the e4m3 tensorwise quantization (2.65% RMS weight error vs NF4's 9.55%)
+is effectively free. With the `disable_after_frac = 0.85` off-ramp the full recipe landed at
+**val 0.0936 (+1.2% vs baseline)** while keeping routed speed for 85% of the run. TREAD shows
+an initial loss spike that converges within a few hundred steps.
 
-**Quality:** the e4m3 tensorwise quantization measured 2.65% RMS error on real krea2 weights,
-vs 9.55% for NF4 (3.6x cleaner) — see `model.fp8_grad_mode` to also run the backward's
-input-gradient GEMM in fp8 (~15-20% faster per step; default `bf16` keeps that gradient
-unquantized). TREAD training shows an initial loss spike that converges as training
-progresses. A full quality A/B (F8T vs bf16 baseline, matched steps) is still pending —
-treat F8T as a speed lever to validate against your own dataset, not a drop-in default.
+**Known issue:** with this recipe, mid-run val-gap probes (`val_gap_enable` +
+`eval_datasets`) can stall for minutes per probe inside the block-swap prefetch throttle.
+Until fixed, keep in-run probes off for fp8+block-compile runs and evaluate the exported
+adapter instead. `fp8_grad_mode = "fp8"` shares this interaction.
 
 ## Text-embedding cache and `max_sequence_length`
 
