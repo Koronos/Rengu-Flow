@@ -714,19 +714,9 @@ def _register_builtin_capabilities() -> None:
                         "for the backward precision."
                     ),
                 },
-                {
-                    "path": "model.fp8_matmul_dtype",
-                    "label": "fp8 weight format",
-                    "type": "select",
-                    "options": ["e5m2", "e4m3"],
-                    "default": "e5m2",
-                    "show_if_set": True,
-                    "description": (
-                        "Weight fp8 format for transformer_fp8_matmul. On Ada (RTX 4080), "
-                        "torch._scaled_mm rejects e5m2 weights (e4m3 is required there); measure "
-                        "before relying on this."
-                    ),
-                },
+                # model.fp8_matmul_dtype is intentionally NOT exposed for krea2: its fp8
+                # path always quantizes tensorwise e4m3 (sm89's _scaled_mm rejects e5m2
+                # weights), so the knob would be a no-op here. Cosmos still exposes it.
                 {
                     "path": "model.fp8_grad_mode",
                     "label": "fp8 backward gradient precision",
