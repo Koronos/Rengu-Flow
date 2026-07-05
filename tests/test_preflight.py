@@ -136,7 +136,9 @@ def test_module_roots_match_real_krea2_dit():
     import torch  # noqa: F401  (model import needs torch)
 
     from rengu_flow.registry.model_capabilities import get_capability
-    from tests.test_adapter_layer_groups import _tiny_krea2
+    # Same-directory test module: pytest puts tests/ itself on sys.path (rootdir import
+    # mode); the `tests.` package form fails (no tests/__init__.py).
+    from test_adapter_layer_groups import _tiny_krea2
 
     roots = set(get_capability("krea2").adapter_module_roots)
     model = _tiny_krea2()
