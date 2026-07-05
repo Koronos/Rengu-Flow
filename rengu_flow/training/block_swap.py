@@ -259,7 +259,10 @@ class HookBlockSwapOffloader:
         for p in block.parameters():
             p.data = p.data.to(self.device if p.requires_grad else "cpu")
         for buf in block.buffers():
-            buf.data = buf.data.to("cpu")
+            # Tiny buffers (e.g. the 0-dim fp8 weight scales) stay GPU-resident: parking
+            # them saves no VRAM and CUDA-only ops (_scaled_mm) need them on-device —
+            # the block pull path restores only parameters, never buffers.
+            buf.data = buf.data.to("cpu" if buf.numel() > 1_000_000 else self.device)
 
     # --------------------------------------------------------------- simple (synchronous) path
     def _ensure_resident_sync(self, block_idx: int) -> None:
