@@ -74,6 +74,7 @@ class PipelineDataLoader:
         self._seen_latent_shapes: set = set()
         self._prefetch_thread: threading.Thread | None = None
         self._prefetch_queue: queue.Queue | None = None
+        self._prefetch_stop = threading.Event()
         self._prefetch_error: list[BaseException] = []
         self._create_dataloader()
         self.data = self._pull_batches_from_dataloader()
@@ -184,13 +185,23 @@ class PipelineDataLoader:
         return self.dataloader_prefetch and self.num_dataloader_workers == 0
 
     def _stop_prefetch_thread(self) -> None:
-        if self._prefetch_queue is not None:
-            try:
-                self._prefetch_queue.put(_SENTINEL, block=False)
-            except queue.Full:
-                pass
-        if self._prefetch_thread is not None and self._prefetch_thread.is_alive():
-            self._prefetch_thread.join(timeout=30)
+        """Stop the prefetch producer WITHOUT stalling: signal stop, then drain the
+        bounded queue until the thread exits. A producer blocked in ``put()`` (queue
+        full, consumer gone — every eval-probe ``reset()``) can only observe the stop
+        flag after its ``put`` returns, so the consumer must keep draining. The old
+        ``join(timeout=30)`` burned 30 s per reset and leaked the still-blocked thread
+        (measured: ~6 min of frozen log per val probe + one zombie producer per eval)."""
+        thread, q = self._prefetch_thread, self._prefetch_queue
+        if thread is not None and thread.is_alive():
+            self._prefetch_stop.set()
+            while thread.is_alive():
+                if q is not None:
+                    try:
+                        q.get_nowait()
+                    except queue.Empty:
+                        pass
+                thread.join(timeout=0.05)
+        self._prefetch_stop.clear()
         self._prefetch_thread = None
         self._prefetch_queue = None
 
@@ -243,15 +254,24 @@ class PipelineDataLoader:
 
         self._prefetch_error = []
         self._prefetch_queue = queue.Queue(maxsize=2)
+        self._prefetch_stop.clear()
+        prefetch_queue, stop = self._prefetch_queue, self._prefetch_stop
 
         def producer():
+            # Captures its own queue/stop (not self._*): reset() reassigns those for the
+            # next epoch while an old producer may still be exiting.
             try:
                 for batch in self.dataloader:
-                    self._prefetch_queue.put(batch)
+                    if stop.is_set():
+                        return
+                    prefetch_queue.put(batch)
+                    if stop.is_set():
+                        return
             except BaseException as exc:
                 self._prefetch_error.append(exc)
             finally:
-                self._prefetch_queue.put(_SENTINEL)
+                if not stop.is_set():
+                    prefetch_queue.put(_SENTINEL)
 
         self._prefetch_thread = threading.Thread(target=producer, daemon=True)
         self._prefetch_thread.start()
