@@ -579,7 +579,44 @@ def _run_training(args, config):
             print(msg, flush=True)
             for note in compile_plan.notes:
                 print(f"[compile] {note}", flush=True)
-        pipeline_model.compile(**compile_plan.kwargs)
+        if config.get("compile_scope", "model") == "block":
+            # Compile each transformer block alone, leaving the layer orchestration
+            # (activation checkpointing, block-swap hooks, tuple plumbing) eager. The
+            # whole-module trace graph-breaks on all of those and measured ~0% on a
+            # swapped base; block scope keeps one clean fusable graph per block
+            # (1.14x bf16, 1.78x with fp8 tensorwise — krea2 4080 microbench 2026-07).
+            class _SeqDynamicShim(torch.nn.Module):
+                """Pin the sequence dim as dynamic on every call: under non-reentrant AC
+                the recompute otherwise can select a different compiled graph than the
+                forward (static->dynamic transition; pytorch#166926) and checkpointing
+                aborts with a CheckpointError."""
+
+                def __init__(self, inner):
+                    super().__init__()
+                    self.inner = inner
+
+                def forward(self, hidden, *args, **kwargs):
+                    torch._dynamo.mark_dynamic(hidden, 1)
+                    return self.inner(hidden, *args, **kwargs)
+
+            try:
+                # Second half of the pytorch#166926 workaround: without it the AC
+                # recompute can probe compiled graphs in a different LRU order than
+                # the forward and fail the checkpoint metadata check.
+                torch._C._dynamo.eval_frame._set_lru_cache(False)
+            except AttributeError:
+                pass
+            n_blocks = 0
+            for m in pipeline_model.modules():
+                inner = getattr(m, "block", None)
+                if isinstance(inner, torch.nn.Module):
+                    compiled = torch.compile(inner, **compile_plan.kwargs)
+                    m.block = _SeqDynamicShim(compiled) if compile_dynamic else compiled
+                    n_blocks += 1
+            if is_main_process():
+                print(f"[compile] block scope: compiled {n_blocks} transformer blocks", flush=True)
+        else:
+            pipeline_model.compile(**compile_plan.kwargs)
     parameters_to_train = [p for p in pipeline_model.parameters() if p.requires_grad]
 
     # With a per-resolution dict, a single representative number is still needed
