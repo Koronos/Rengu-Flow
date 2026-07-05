@@ -1031,6 +1031,10 @@ def _run_training(args, config):
     # disagree. The dataloader keeps its own internal epoch only for shuffling/seeding.
     epoch_schedule = EpochSchedule(steps_per_epoch, epochs)
     total_budget_steps = schedule_target_steps  # = max_steps if set, else total_steps
+    # Duck-typed progress consumers (TREAD route layers); collected once, pushed per step.
+    route_progress_layers = [
+        m for m in pipeline_model.modules() if hasattr(m, "set_training_progress")
+    ]
     epoch = epoch_schedule.current(step)
     logging_steps = config.get("logging_steps", 1)
 
@@ -1321,6 +1325,12 @@ def _run_training(args, config):
             model_engine.reset_activation_shape()
             if train_data is not None and hasattr(train_data, "set_training_context"):
                 train_data.set_training_context(train_seed, step)
+            # TREAD off-ramp: layers with a progress hook (RouteStartLayer) see the run
+            # fraction so tread.disable_after_frac can turn routing off for the final
+            # stretch (full-sequence re-calibration recovers most of the routed-training
+            # quality gap at a fraction of the speed cost).
+            for _rl in route_progress_layers:
+                _rl.set_training_progress(step / max(total_budget_steps, 1))
             # Step-accurate resolution schedule: switch the active resolution(s) the
             # moment this step crosses a stage boundary, restarting iteration mid-epoch
             # if needed. Must run before pulling this step's micro-batches.

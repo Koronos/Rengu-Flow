@@ -292,10 +292,15 @@ class Krea2Pipeline(BasePipeline):
                 raise ConfigValidationError(
                     f"tread.drop_ratio must be in (0, 1), got {drop_ratio}."
                 )
+            disable_after_frac = float(tread.get("disable_after_frac", 1.0))
+            if not 0.0 < disable_after_frac <= 1.0:
+                raise ConfigValidationError(
+                    f"tread.disable_after_frac must be in (0, 1], got {disable_after_frac}."
+                )
         layers = [InitialLayer(self.transformer)]
         for i, block in enumerate(self.transformer.transformer_blocks):
             if route and i == route[0]:
-                layers.append(RouteStartLayer(drop_ratio))
+                layers.append(RouteStartLayer(drop_ratio, disable_after_frac))
             layers.append(TransformerLayer(block, i, self.offloader))
             if route and i == route[1]:
                 layers.append(RouteEndLayer())

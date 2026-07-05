@@ -100,6 +100,18 @@ def test_route_layers_through_block(with_mask):
     assert inputs[0].grad is not None and inputs[0].grad.abs().sum() > 0
 
 
+def test_route_off_ramp_by_progress():
+    inputs = _layer_inputs()
+    start = RouteStartLayer(0.5, disable_after_frac=0.85)
+    start.train()
+    start.set_training_progress(0.5)
+    assert len(start(inputs)) == 13  # routing active mid-run
+    start.set_training_progress(0.9)
+    out = start(inputs)
+    assert len(out) == 8 and out[0] is inputs[0]  # off-ramp: full sequence
+    assert RouteEndLayer()(out) is out
+
+
 def test_route_layers_noop_in_eval():
     inputs = _layer_inputs()
     start, end = RouteStartLayer(0.5), RouteEndLayer()

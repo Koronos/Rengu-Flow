@@ -83,15 +83,23 @@ class RouteStartLayer(nn.Module):
     training-with-grad, so eval/preview/val probes always see the full sequence.
     """
 
-    def __init__(self, drop_ratio: float):
+    def __init__(self, drop_ratio: float, disable_after_frac: float = 1.0):
         super().__init__()
         self.drop_ratio = drop_ratio
+        self.disable_after_frac = disable_after_frac
+        self._progress = 0.0
+
+    def set_training_progress(self, frac: float) -> None:
+        """Run fraction [0, 1], pushed by the training loop (TREAD off-ramp)."""
+        self._progress = float(frac)
 
     def forward(self, inputs):
         from rengu_flow.training.token_routing import route_start, sample_keep_index
 
         if not (self.training and torch.is_grad_enabled()):
             return inputs
+        if self._progress >= self.disable_after_frac:
+            return inputs  # off-ramp: final stretch trains on the full sequence
         hidden, temb, temb_mod, freqs_cos, freqs_sin, attn_mask, text_mask, grid = inputs
         text_len = text_mask.shape[1]
         keep_idx = sample_keep_index(
