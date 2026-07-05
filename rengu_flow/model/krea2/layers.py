@@ -64,14 +64,64 @@ class TransformerLayer(nn.Module):
 
     def forward(self, inputs):
         with cuda_autocast():
-            hidden, temb, temb_mod, freqs_cos, freqs_sin, attn_mask, text_mask, grid = inputs
+            # Items past the base 8 are route-window state (see RouteStartLayer): pass through.
+            hidden, temb, temb_mod, freqs_cos, freqs_sin, attn_mask, text_mask, grid = inputs[:8]
 
             self.offloader.wait_for_block(self.block_idx)
             mask = attn_mask if attn_mask.numel() else None  # 0-size sentinel = no padding
             hidden = self.block(hidden, temb_mod, (freqs_cos, freqs_sin), mask)
             self.offloader.submit_move_blocks_forward(self.block_idx)
 
-            return make_contiguous(hidden, temb, temb_mod, freqs_cos, freqs_sin, attn_mask, text_mask, grid)
+            return make_contiguous(hidden, temb, temb_mod, freqs_cos, freqs_sin, attn_mask, text_mask, grid) + tuple(inputs[8:])
+
+
+class RouteStartLayer(nn.Module):
+    """TREAD route entry: shrink the sequence to text + a random subset of image tokens.
+
+    Appends the pre-route state (full hidden/rope/mask + keep index) to the inter-layer
+    tuple so RouteEndLayer can scatter back. No-op (8-tuple passthrough) outside
+    training-with-grad, so eval/preview/val probes always see the full sequence.
+    """
+
+    def __init__(self, drop_ratio: float):
+        super().__init__()
+        self.drop_ratio = drop_ratio
+
+    def forward(self, inputs):
+        from rengu_flow.training.token_routing import route_start, sample_keep_index
+
+        if not (self.training and torch.is_grad_enabled()):
+            return inputs
+        hidden, temb, temb_mod, freqs_cos, freqs_sin, attn_mask, text_mask, grid = inputs
+        text_len = text_mask.shape[1]
+        keep_idx = sample_keep_index(
+            text_len, hidden.shape[1] - text_len, self.drop_ratio, hidden.device
+        )
+        routed = route_start(hidden, keep_idx)
+        cos_r = freqs_cos.index_select(0, keep_idx)
+        sin_r = freqs_sin.index_select(0, keep_idx)
+        mask_r = attn_mask[..., keep_idx] if attn_mask.numel() else attn_mask
+        return (
+            routed.contiguous(), temb, temb_mod, cos_r, sin_r, mask_r, text_mask, grid,
+            hidden, freqs_cos, freqs_sin, attn_mask, keep_idx,
+        )
+
+
+class RouteEndLayer(nn.Module):
+    """TREAD route exit: scatter processed tokens over the saved pre-route sequence
+    (identity bypass) and restore the full-sequence rope/mask."""
+
+    def forward(self, inputs):
+        from rengu_flow.training.token_routing import route_end
+
+        if len(inputs) == 8:  # RouteStartLayer was a no-op
+            return inputs
+        routed, temb, temb_mod, _cos, _sin, _mask, text_mask, grid = inputs[:8]
+        full_hidden, freqs_cos, freqs_sin, attn_mask, keep_idx = inputs[8:]
+        hidden = route_end(routed, full_hidden, keep_idx)
+        return make_contiguous(
+            hidden, temb, temb_mod, freqs_cos, freqs_sin, attn_mask, text_mask, grid
+        )
 
 
 class FinalLayer(nn.Module):

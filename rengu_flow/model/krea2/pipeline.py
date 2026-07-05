@@ -278,9 +278,27 @@ class Krea2Pipeline(BasePipeline):
         return (noisy_latents, t, prompt_embeds, text_mask), (target, mask)
 
     def to_layers(self):
+        from rengu_flow.model.krea2.layers import RouteEndLayer, RouteStartLayer
+        from rengu_flow.training.token_routing import resolve_route
+
+        route = None
+        if tread := self.config.get("tread"):
+            num_blocks = len(self.transformer.transformer_blocks)
+            route = resolve_route(
+                num_blocks, int(tread.get("start_block", 2)), int(tread.get("end_block", -3))
+            )
+            drop_ratio = float(tread["drop_ratio"])
+            if not 0.0 < drop_ratio < 1.0:
+                raise ConfigValidationError(
+                    f"tread.drop_ratio must be in (0, 1), got {drop_ratio}."
+                )
         layers = [InitialLayer(self.transformer)]
         for i, block in enumerate(self.transformer.transformer_blocks):
+            if route and i == route[0]:
+                layers.append(RouteStartLayer(drop_ratio))
             layers.append(TransformerLayer(block, i, self.offloader))
+            if route and i == route[1]:
+                layers.append(RouteEndLayer())
         layers.append(FinalLayer(self.transformer))
         return layers
 
