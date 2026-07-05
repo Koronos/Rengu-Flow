@@ -98,6 +98,11 @@ def set_config_defaults(config: dict[str, Any]) -> None:
             raise ConfigValidationError(
                 "model.fp8_matmul_dtype must be 'e5m2' (default) or 'e4m3'."
             )
+        model_config.setdefault("fp8_grad_mode", "bf16")
+        if model_config["fp8_grad_mode"] not in ("bf16", "fp8"):
+            raise ConfigValidationError(
+                "model.fp8_grad_mode must be 'bf16' (default) or 'fp8'."
+            )
 
     if str(model_config.get("type", "")).lower() in ("cosmos_predict2", "anima", "krea2"):
         preview_cfg = config.get("preview")

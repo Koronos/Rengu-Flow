@@ -44,6 +44,7 @@ from __future__ import annotations
 from typing import Optional
 
 import torch
+import torch.nn.functional as F
 from torch import nn
 
 # Block linears we quantize. These are the matmul-heavy frozen linears inside each
@@ -234,6 +235,143 @@ def convert_dit_to_fp8_matmul(
 
 
 # ---------------------------------------------------------------------------
+# (A2) fp8 TENSORWISE scaled matmul — the sm89-viable scheme
+# ---------------------------------------------------------------------------
+#
+# The rowwise scheme above measured ~70% slower on Ada (eager per-call quant + the
+# CUTLASS rowwise kernel itself running BELOW bf16 speed: 77 vs 91 TFLOPS on krea2
+# shapes). Tensorwise scales hit the cuBLASLt kernel instead: measured 198-208 TFLOPS
+# on an RTX 4080 — a clean 2x over bf16 — and under torch.compile the activation quant
+# fuses, netting 1.49x (bf16 dgrad) / 1.78x (fp8 dgrad) on a full checkpointed krea2
+# block (tmp/bench2/fp8_block_bench.py, 2026-07-05). Eager it nets ~nothing; compile
+# at BLOCK scope is a prerequisite (whole-module compile graph-breaks it all away).
+#
+# Storage: the fp8 tensor IS the weight (no hi-precision copy) — 1 byte/param, so a
+# 12.9B krea2 base drops 25.6 GB -> 12.9 GB and block swap (if any) moves half the
+# bytes. Backward is QLoRA-style straight-through: grad_x from the dequantized (or
+# fp8-transposed) weight; the frozen base never needs grad_weight.
+
+_E4M3 = getattr(torch, "float8_e4m3fn", None)
+
+
+class _Fp8TensorwiseMatmul(torch.autograd.Function):
+    """fp8 forward on the fast tensorwise cuBLASLt kernel, with PER-OUTPUT-ROW weight
+    scales applied as a fused epilogue.
+
+    The weight is quantized row-normalized (each output row uses the full e4m3 range),
+    which cuts quant error to the per-row outlier level — but _scaled_mm's fast kernel
+    only takes scalar scales, so the GEMM runs with scale_b=1 and the row scales
+    multiply the output afterwards (a pointwise op torch.compile fuses with the
+    surrounding eltwise; ~2% cost, vs the rowwise CUTLASS kernel which runs BELOW
+    bf16 speed on Ada). dgrad folds the row scales into grad_out before the
+    contraction (they live on the contracted dim there)."""
+
+    @staticmethod
+    def forward(ctx, x2d, w8, wscale_row, one, grad_mode):
+        fp8_max = _fp8_max(w8.dtype)
+        xs = (x2d.detach().abs().amax().clamp_min(1e-12).float() / fp8_max).reshape(())
+        x8 = (x2d.detach().float() / xs).clamp(-fp8_max, fp8_max).to(w8.dtype)
+        out = torch._scaled_mm(
+            x8, w8.t(), scale_a=xs, scale_b=one, out_dtype=torch.bfloat16
+        )
+        out = out * wscale_row.to(out.dtype)  # [N] epilogue, compile-fused
+        ctx.save_for_backward(w8, wscale_row, one)
+        ctx.grad_mode = grad_mode
+        return out
+
+    @staticmethod
+    def backward(ctx, grad_out):
+        w8, wscale_row, one = ctx.saved_tensors
+        if ctx.grad_mode == "fp8":
+            fp8_max = _fp8_max(w8.dtype)
+            g = grad_out.detach().float() * wscale_row.float()  # fold row scales (contracted dim)
+            gs = (g.abs().amax().clamp_min(1e-12) / fp8_max).reshape(())
+            g8 = (g / gs).clamp(-fp8_max, fp8_max).to(w8.dtype)
+            w8_col = w8.t().contiguous().t()  # [N, K] column-major, transposed on the fly
+            grad_x = torch._scaled_mm(
+                g8, w8_col, scale_a=gs, scale_b=one, out_dtype=torch.bfloat16
+            )
+        else:
+            grad_x = (grad_out * wscale_row.to(grad_out.dtype)) @ w8.to(torch.bfloat16)
+        return grad_x.to(grad_out.dtype), None, None, None, None
+
+
+class Fp8TensorwiseLinear(nn.Linear):
+    """Frozen ``nn.Linear`` stored ONLY as tensorwise-scaled e4m3 (1 byte/param).
+
+    ``weight`` is the fp8 tensor itself (a frozen Parameter, so block swap moves it);
+    ``weight_scale`` is a scalar fp32 buffer. Adapters target it through the usual
+    ``isinstance(module, nn.Linear)`` walk and compose via ``base_linear`` (LoKr) or by
+    wrapping ``forward`` (PEFT LoRA). CPU calls fall back to a dequantized matmul so
+    CPU tests/previews still run; ``_scaled_mm`` is CUDA-only.
+    """
+
+    def __init__(self, linear: nn.Linear, grad_mode: str = "bf16"):
+        super().__init__(
+            linear.in_features, linear.out_features,
+            bias=linear.bias is not None, device="meta",
+        )
+        if _E4M3 is None:
+            raise RuntimeError("torch.float8_e4m3fn is unavailable in this torch build.")
+        if grad_mode not in ("bf16", "fp8"):
+            raise ValueError(f"fp8 grad_mode must be 'bf16' or 'fp8', got {grad_mode!r}.")
+        self.grad_mode = grad_mode
+        # Quantize on the GPU when there is one: the fp32 amax/div over a 6144x16384
+        # weight is seconds-vs-minutes CPU work across a 12.9B model (the weight round-
+        # trips over PCIe once; the result is parked back on the source device).
+        src_device = linear.weight.device
+        calc_device = "cuda" if torch.cuda.is_available() else src_device
+        w = linear.weight.detach().to(calc_device).float()
+        fp8_max = _fp8_max(_E4M3)
+        # Per-output-row scales: each row is normalized to the full e4m3 range, so one
+        # outlier row no longer sets the quant step for the whole tensor.
+        scale = (w.abs().amax(dim=1, keepdim=True).clamp_min(1e-12) / fp8_max)
+        self.weight = nn.Parameter(
+            (w / scale).clamp(-fp8_max, fp8_max).to(_E4M3).to(src_device), requires_grad=False
+        )
+        self.register_buffer(
+            "weight_scale", scale.reshape(-1).float().to(src_device), persistent=False
+        )
+        self.register_buffer("scale_one", torch.ones((), dtype=torch.float32), persistent=False)
+        if linear.bias is not None:
+            self.bias = nn.Parameter(linear.bias.detach().clone(), requires_grad=False)
+        else:
+            self.register_parameter("bias", None)
+
+    def base_linear(self, x: torch.Tensor) -> torch.Tensor:
+        if not x.is_cuda:  # CPU fallback: dequantized matmul (tests, CPU previews)
+            w = self.weight.to(torch.float32) * self.weight_scale[:, None]
+            return F.linear(x.float(), w, None if self.bias is None else self.bias.float()).to(x.dtype)
+        shp = x.shape
+        out = _Fp8TensorwiseMatmul.apply(
+            x.reshape(-1, shp[-1]), self.weight, self.weight_scale, self.scale_one, self.grad_mode
+        )
+        if self.bias is not None:
+            out = out + self.bias.to(out.dtype)
+        return out.reshape(*shp[:-1], self.out_features)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:  # noqa: D401
+        return self.base_linear(x)
+
+
+def convert_dit_to_fp8_tensorwise(
+    transformer: nn.Module, *, grad_mode: str = "bf16", leaf_names=None, skip_substrings=None
+) -> int:
+    """Replace the frozen DiT's big block linears with :class:`Fp8TensorwiseLinear`.
+
+    Returns the number of linears converted. Unlike the rowwise scheme, the original
+    hi-precision weight is DROPPED (halves weight memory vs bf16)."""
+    count = 0
+    for parent, child_attr, _full_name, linear in _iter_quant_targets(
+        transformer, leaf_names, skip_substrings
+    ):
+        new = Fp8TensorwiseLinear(linear, grad_mode=grad_mode)
+        setattr(parent, child_attr, new)
+        count += 1
+    return count
+
+
+# ---------------------------------------------------------------------------
 # (B) 4-bit NF4 (bitsandbytes)
 # ---------------------------------------------------------------------------
 
@@ -302,7 +440,7 @@ def base_linear_of(module: nn.Module):
     quantized base path instead of recomputing ``F.linear(x, module.weight)`` (which would
     bypass fp8 / break for 4-bit packed weights).
     """
-    if isinstance(module, Fp8MatmulLinear):
+    if isinstance(module, (Fp8MatmulLinear, Fp8TensorwiseLinear)):
         return module.base_linear
     # bitsandbytes Linear4bit: its own forward IS the dequant+matmul base path.
     try:

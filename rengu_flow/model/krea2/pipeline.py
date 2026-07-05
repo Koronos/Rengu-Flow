@@ -174,12 +174,17 @@ class Krea2Pipeline(BasePipeline):
             if is_main_process():
                 print(f"rengu_flow: quantized {n} frozen Krea2 DiT linears to 4-bit NF4 (bnb).")
         else:
-            fp8_dtype = quantize_dit.resolve_fp8_dtype(self.model_config.get("fp8_matmul_dtype", "e5m2"))
-            n = quantize_dit.convert_dit_to_fp8_matmul(
-                self.transformer, fp8_dtype=fp8_dtype, **scope
+            # Tensorwise e4m3 (the sm89-viable scheme): 2x GEMM throughput under
+            # block-scope compile AND 1 byte/param storage (no hi-precision copy).
+            grad_mode = str(self.model_config.get("fp8_grad_mode", "bf16"))
+            n = quantize_dit.convert_dit_to_fp8_tensorwise(
+                self.transformer, grad_mode=grad_mode, **scope
             )
             if is_main_process():
-                print(f"rengu_flow: converted {n} frozen Krea2 DiT linears to fp8 scaled matmul.")
+                print(
+                    f"rengu_flow: converted {n} frozen Krea2 DiT linears to fp8 tensorwise "
+                    f"matmul (grad_mode={grad_mode})."
+                )
 
     # ---- caching hooks -------------------------------------------------------------------
 
