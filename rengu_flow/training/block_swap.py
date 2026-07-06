@@ -225,17 +225,17 @@ class HookBlockSwapOffloader:
         fwd_hook = torch.compiler.disable(self._forward_pre_hook)
         bwd_hook = torch.compiler.disable(self._backward_pre_hook)
         for idx, block in enumerate(self.blocks):
-            for module in block.modules():
-                # The block root is hooked too when it directly owns parameters: krea2's
-                # blocks keep their modulation table as a raw Parameter on the block and use
-                # it BEFORE any leaf submodule runs, so a leaf-only hook set leaves it on
-                # CPU at first use. Roots without direct params (cosmos, SDXL) are skipped
-                # by the ownership check below, as before.
-                if next(module.parameters(recurse=False), None) is None:
-                    continue  # only modules that directly own parameters actually run/transfer
-                self._block_of_module[id(module)] = idx
-                self._handles.append(module.register_forward_pre_hook(fwd_hook))
-                self._handles.append(module.register_full_backward_pre_hook(bwd_hook))
+            # ROOT-ONLY hooks: the root's forward-pre fires before any child runs and the
+            # full-backward-pre fires when the block's output grads arrive — both directions
+            # covered by one hook pair, and the pull is whole-block anyway. The previous
+            # per-leaf registration put a compiler.disable'd hook on every param-owning
+            # module INSIDE the compiled block, fragmenting each "compile_scope=block"
+            # graph into dozens of tiny guarded sub-graphs (a dynamo resume trampoline per
+            # leaf) whose shared default recompile budget was exhausted by train<->eval
+            # guard flips — mass eager fallback that looked like a probe hang.
+            self._block_of_module[id(block)] = idx
+            self._handles.append(block.register_forward_pre_hook(fwd_hook))
+            self._handles.append(block.register_full_backward_pre_hook(bwd_hook))
 
     def _swap_params(self, idx: int) -> list:
         """Params that physically move CPU<->GPU for this block. Full-model mode swaps everything;
@@ -257,7 +257,16 @@ class HookBlockSwapOffloader:
             block.to("cpu")
             return
         for p in block.parameters():
-            p.data = p.data.to(self.device if p.requires_grad else "cpu")
+            if p.requires_grad:
+                p.data = p.data.to(self.device)
+            else:
+                # Reuse the existing pinned CPU master instead of materializing a fresh
+                # pageable copy: keeps apply_training_layout()'s pinning idempotent.
+                master = self._cpu.get(id(p))
+                if master is not None and master.is_pinned():
+                    p.data = master
+                else:
+                    p.data = p.data.to("cpu")
         for buf in block.buffers():
             # Tiny buffers (e.g. the 0-dim fp8 weight scales) stay GPU-resident: parking
             # them saves no VRAM and CUDA-only ops (_scaled_mm) need them on-device —
@@ -436,15 +445,27 @@ class HookBlockSwapOffloader:
         on-demand H2D copies run as DMA — and, at cap>=2, can also overlap compute (prefetch)."""
         if not self._enabled:
             return
+        # In-flight consumers of evicted buffers must finish before _pending_free is cleared
+        # below (same discipline as _park_on_cpu): the deferred-free list is the ONLY thing
+        # keeping the allocator from reusing those buffers while the compute stream still
+        # reads them — a bare clear() here was a use-after-free race at every probe boundary.
+        if torch.cuda.is_available() and self._pending_free:
+            torch.cuda.synchronize()
         for block in self.blocks:
             self._offload_block_to_cpu(block)
         if self._pin:
             # Pin only the params that actually swap (frozen base weights in adapter mode); the
             # trainable adapters stay GPU-resident and are never streamed, so they aren't pinned.
-            self._cpu.clear()
+            # IDEMPOTENT: Tensor.pin_memory() always cudaHostAllocs a FRESH buffer and copies —
+            # re-pinning the whole multi-GB base on every eval/probe boundary cost minutes per
+            # probe and fragmented the locked-page pool (progressively slower each probe).
+            # _offload_block_to_cpu above repoints frozen params at their existing pinned
+            # masters, so on every call after the first this loop is a no-op.
             self._gpu.clear()
             for idx in range(self.num_blocks):
                 for p in self._swap_params(idx):
+                    if self._cpu.get(id(p)) is p.data and p.data.is_pinned():
+                        continue
                     p.data = p.data.pin_memory()
                     self._cpu[id(p)] = p.data
         self._resident.clear()
