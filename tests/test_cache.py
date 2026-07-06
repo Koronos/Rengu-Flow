@@ -336,7 +336,28 @@ def test_cache_ragged_resume_appends_correctly(tmp_path):
         assert tuple(row.shape) == (n, 8)
         assert row.float().eq(v).all()  # right bytes at the right offset across the resume seam
     emb = (d / TENSORS_DIR / "prompt_embeds.bin").stat().st_size
-    assert emb == sum(n * 8 * 2 for n in all_lengths)  # still zero padding after resume  # bf16 = 2 B/elt, zero padding
+    assert emb == sum(n * 8 * 2 for n in all_lengths)  # still zero padding after resume
+
+
+def test_cache_ragged_null_row_costs_zero_bytes(tmp_path):
+    """A ragged key absent on a row consumes NO bytes (no zero placeholder) and reads back None;
+    the following real row's offset is still correct — the null gap doesn't corrupt anything."""
+    d = tmp_path / "te_null"
+    c = Cache(d, "fp-null")
+    c.add({"prompt_embeds": torch.full((5, 8), 1.0, dtype=torch.bfloat16), "caption": "a"})
+    c.add({"caption": "b"})  # no prompt_embeds -> null row
+    c.add({"prompt_embeds": torch.full((9, 8), 2.0, dtype=torch.bfloat16), "caption": "c"})
+    c.finalize_current_shard()
+
+    assert tuple(c[0]["prompt_embeds"].shape) == (5, 8)
+    assert c[0]["prompt_embeds"].float().eq(1.0).all()
+    assert c[1]["prompt_embeds"] is None  # null row -> None, exactly as the fixed-stack path did
+    assert tuple(c[2]["prompt_embeds"].shape) == (9, 8)  # offset survived the null gap
+    assert c[2]["prompt_embeds"].float().eq(2.0).all()
+    assert len(c) == 3
+    # .bin holds only the two real rows — the null contributed zero bytes.
+    emb = (d / TENSORS_DIR / "prompt_embeds.bin").stat().st_size
+    assert emb == (5 + 9) * 8 * 2  # bf16 = 2 B/elt, zero padding
 
 
 def test_cache_refresh_reads_interleaved_add_read(tmp_path):
