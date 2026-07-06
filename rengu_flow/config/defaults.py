@@ -78,11 +78,6 @@ def set_config_defaults(config: dict[str, Any]) -> None:
     if str(model_config.get("type", "")).lower() in ("cosmos_predict2", "sdxl", "krea2"):
         model_config.setdefault("cache_text_embeddings", True)
 
-    if str(model_config.get("type", "")).lower() == "krea2":
-        # The 4B Qwen3-VL dominates caching and each caption otherwise re-encodes once per
-        # resolution bucket. Dedup is disk-backed (mmap spill, ~zero RAM; see
-        # data/manager.py), so it is safe at any dataset size.
-        config.setdefault("cache_dedup_text_embeddings", True)
 
     if str(model_config.get("type", "")).lower() in ("cosmos_predict2", "anima", "krea2"):
         # Frozen-base quantization knobs (A/B; default-off, mutually exclusive).
@@ -207,7 +202,6 @@ def set_config_defaults(config: dict[str, Any]) -> None:
     # cadence. No-ops gracefully when no val set (eval_datasets) is available.
     config.setdefault("val_gap_enable", True)
     config.setdefault("val_gap_probe_batches", 8)
-    config.setdefault("cache_dedup_text_embeddings", False)
     # Stream saved activations to pinned CPU RAM over side streams (see
     # training/activation_offload.py). Pairs with a raised
     # activation_memory_budget: the budget picks save-vs-recompute, the

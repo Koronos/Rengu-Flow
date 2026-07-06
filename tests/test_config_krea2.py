@@ -75,7 +75,6 @@ def test_krea2_defaults_after_set_config_defaults():
     cfg["preview"] = {}
     set_config_defaults(cfg)
     assert cfg["model"]["cache_text_embeddings"] is True
-    assert cfg["cache_dedup_text_embeddings"] is True
     assert cfg["preview"]["num_inference_steps"] == 28
     assert cfg["preview"]["guidance_scale"] == 4.5
     assert cfg["model"]["transformer_4bit"] is False

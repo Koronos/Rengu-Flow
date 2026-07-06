@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-import shutil
 import sys
-import threading
 from collections import defaultdict
 from inspect import signature
-from pathlib import Path
 
 import datasets as datasets_mod
 import torch
@@ -20,7 +17,6 @@ except ImportError:
 
 from rengu_flow.control.progress_stream import ProgressEmitter
 from rengu_flow.data import caching_progress
-from rengu_flow.data.cache_paths import caption_cache_key
 from rengu_flow.distributed import is_main_process
 from rengu_flow import distributed as dist
 
@@ -59,56 +55,6 @@ def _from_pipe(obj):
     if isinstance(obj, list):
         return [_from_pipe(v) for v in obj]
     return obj
-
-
-class _TextEmbeddingDedup:
-    """Per-sample disk-backed memo for text-embedding caching.
-
-    Embeddings spill to a temporary mmap Cache; RAM holds only
-    ``(text_encoder_idx, caption_hash) -> row index``. The TE map runs on *batches*
-    whose tensors are padded to the batch max, so rows are stored and looked up per
-    sample — a full-batch hit returns per-sample lists (``unbatch_iter`` indexes lists
-    and tensors alike, and the bucket cache pads per item). Thread-safe (the TE map
-    runs on a thread pool)."""
-
-    def __init__(self, spill_dir: Path) -> None:
-        from rengu_flow.utils.cache import Cache
-
-        self.dir = Path(spill_dir)
-        shutil.rmtree(self.dir, ignore_errors=True)
-        self.cache = Cache(self.dir, "te-dedup-spill")
-        self.index: dict[tuple[int, str], int] = {}
-        self.lock = threading.Lock()
-        self.dirty = False
-
-    def lookup(self, keys: list[tuple[int, str]]) -> dict | None:
-        """Return the batch as per-sample lists when EVERY key is cached, else None."""
-        with self.lock:
-            idxs = [self.index.get(k) for k in keys]
-            if any(i is None for i in idxs):
-                return None
-            if self.dirty:
-                self.cache.refresh_reads()
-                self.dirty = False
-            rows = [self.cache[i] for i in idxs]
-        return {
-            key: [r[key] for r in rows] for key in rows[0] if rows[0][key] is not None
-        }
-
-    def store(self, keys: list[tuple[int, str]], result: dict) -> None:
-        """Split a batched TE result into per-sample rows and cache the new ones."""
-        with self.lock:
-            for i, key in enumerate(keys):
-                if key not in self.index:
-                    self.cache.add(
-                        {k: v[i] for k, v in result.items() if k != "image_spec"}
-                    )
-                    self.index[key] = self.cache.count - 1
-                    self.dirty = True
-
-    def close(self) -> None:
-        self.cache.close()
-        shutil.rmtree(self.dir, ignore_errors=True)
 
 
 def _count_latent_units(datasets_list) -> int:
@@ -173,7 +119,6 @@ def _cache_fn(
     caching_batch_size: int,
     cache_num_proc: int | None,
     cache_keep_in_memory: bool,
-    cache_dedup_text_embeddings: bool,
     single_process_channel: bool = False,
 ) -> None:
     """Worker process: run cache_metadata, cache_latents, cache_text_embeddings; send GPU work via queue."""
@@ -202,12 +147,6 @@ def _cache_fn(
     ]
     progress.plan(stage_names)
     caching_progress.set_active(progress)
-
-    dedup = None
-    if cache_dedup_text_embeddings:
-        dedup = _TextEmbeddingDedup(
-            Path(datasets_list[0].directory_datasets[0].cache_dir) / "te_dedup_spill"
-        )
 
     with progress.stage(
         "metadata", units=sum(len(ds.directory_datasets) for ds in datasets_list)
@@ -313,17 +252,6 @@ def _cache_fn(
     for text_encoder_idx in range(num_text_encoders):
         def text_embedding_map_fn(example, rank):
             captions = example["caption"]
-            # Key includes the encoder index: multi-encoder models (SDXL) produce a
-            # different embedding per encoder for the same caption.
-            keys = (
-                [(text_encoder_idx, caption_cache_key(c)) for c in captions]
-                if dedup is not None
-                else None
-            )
-            if keys is not None:
-                cached = dedup.lookup(keys)
-                if cached is not None:
-                    return {**cached, "image_spec": example["image_spec"]}
             if rank not in pipes:
                 pipes[rank] = _make_channel(single_process_channel)
             parent_conn, child_conn = pipes[rank]
@@ -339,8 +267,6 @@ def _cache_fn(
             )
             result = _from_pipe(parent_conn.recv())
             result["image_spec"] = example["image_spec"]
-            if keys is not None:
-                dedup.store(keys, result)
             return result
 
         with progress.stage(
@@ -356,11 +282,6 @@ def _cache_fn(
                     cache_num_proc=cache_num_proc,
                     cache_keep_in_memory=cache_keep_in_memory,
                 )
-
-    if dedup is not None:
-        # The spill only serves this run's caching: every embedding now lives in the
-        # per-bucket caches, so drop the duplicate bytes.
-        dedup.close()
 
     queue.put(None)
 
@@ -392,7 +313,6 @@ class DatasetManager:
         caching_batch_size: int = 1,
         cache_num_proc: int | None = None,
         cache_keep_in_memory: bool = False,
-        cache_dedup_text_embeddings: bool = False,
         backend=None,
     ) -> None:
         self.model = model
@@ -412,7 +332,6 @@ class DatasetManager:
         self.caching_batch_size = caching_batch_size
         self.cache_num_proc = cache_num_proc
         self.cache_keep_in_memory = cache_keep_in_memory
-        self.cache_dedup_text_embeddings = cache_dedup_text_embeddings
         self.backend = backend
         self.datasets = []
 
@@ -450,7 +369,6 @@ class DatasetManager:
                 self.caching_batch_size,
                 self.cache_num_proc,
                 self.cache_keep_in_memory,
-                self.cache_dedup_text_embeddings,
                 # Single-device worker is a thread: use the in-memory Queue channel (no pickling).
                 # Multi-GPU worker is a real process: keep mp.Pipe (cross-process IPC).
                 not self.backend.is_distributed,

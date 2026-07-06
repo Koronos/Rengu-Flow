@@ -610,14 +610,6 @@ def get_sections() -> list[dict[str, Any]]:
                         "datasets or the default location runs low on space."
                     ),
                 ),
-                _field(
-                    "cache_dedup_text_embeddings",
-                    "Dedup text embeddings on cache",
-                    "boolean",
-                    default=False,
-                    importance="advanced",
-                    description="Reuse TE outputs when captions match (tag-heavy datasets).",
-                ),
             ],
         },
         {

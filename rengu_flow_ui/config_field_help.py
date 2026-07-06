@@ -703,11 +703,6 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         ),
         "doc": "docs/user/training-sdxl-lora-lokr.md",
     },
-    "cache_dedup_text_embeddings": {
-        "summary": "Reuse text-encoder outputs for duplicate captions during cache.",
-        "detail": "Speeds --cache_only on tag-heavy datasets. Caption hash dedup in DatasetManager.",
-        "doc": "docs/user/training-loop-and-eval.md",
-    },
     "ema_decay": {
         "summary": "EMA decay for trainable weights (CPU shadow).",
         "detail": "Float in (0, 1), e.g. 0.999. Omit to disable. Export from EMA is not automatic yet.",

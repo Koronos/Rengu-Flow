@@ -437,7 +437,6 @@ def _run_training(args, config):
             caching_batch_size=config.get("caching_batch_size", 1),
             cache_num_proc=config.get("cache_num_proc"),
             cache_keep_in_memory=config.get("cache_keep_in_memory", False),
-            cache_dedup_text_embeddings=config.get("cache_dedup_text_embeddings", False),
             backend=backend_obj,
         )
         dataset_manager.register(train_data)

@@ -13,19 +13,6 @@ def _stable_id(text: str, length: int = 16) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:length]
 
 
-def caption_cache_key(caption: str | list[str]) -> str:
-    """Full SHA-256 hex for caption dedup during text-embedding cache.
-
-    Captions may be a single string or a list of strings (multi-caption images);
-    a NUL separator keeps ["a", "b"] distinct from ["ab"].
-    """
-    if isinstance(caption, (list, tuple)):
-        payload = "\x00".join(str(c) for c in caption)
-    else:
-        payload = str(caption)
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
-
-
 def default_cache_root() -> Path:
     """Untracked cache root at rengu-flow installation (repo) root."""
     return Path(__file__).resolve().parents[2] / "cache"
