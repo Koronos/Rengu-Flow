@@ -96,7 +96,10 @@ class RouteStartLayer(nn.Module):
     def forward(self, inputs):
         from rengu_flow.training.token_routing import route_start, sample_keep_index
 
-        if not (self.training and torch.is_grad_enabled()):
+        # Gate on training mode ONLY (eval/probes/previews call module.eval()). Gating on
+        # torch.is_grad_enabled() too made grad-mode an extra shape-divergence axis for the
+        # compiled blocks downstream (reentrant AC flips grad mode within one step).
+        if not self.training:
             return inputs
         if self._progress >= self.disable_after_frac:
             return inputs  # off-ramp: final stretch trains on the full sequence
