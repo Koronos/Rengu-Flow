@@ -57,7 +57,11 @@ def plan_compile(config: dict, num_shapes: int | None) -> CompilePlan:
         # Budget one cache entry per shape. Without this, >8 shapes overflow
         # torch._dynamo's per-code-object cache and fall back to eager. Dynamic
         # mode recompiles per resolution bucket too, so size it the same way.
-        limit = num_shapes + _SHAPE_MARGIN
+        # Block scope: the shared block code object needs one entry per shape PER
+        # GRAD-MODE variant — reentrant AC calls each block under no_grad (forward)
+        # and enable_grad (recompute), and eval probes add a no-grad eval variant.
+        grad_states = 3 if config.get("compile_scope", "model") == "block" else 1
+        limit = num_shapes * grad_states + _SHAPE_MARGIN
         if limit > DEFAULT_CACHE_SIZE_LIMIT:
             plan.cache_size_limit = limit
         accumulated = limit * _CODE_OBJECTS_HEADROOM
@@ -93,7 +97,16 @@ def apply_dynamo_limits(plan: CompilePlan) -> None:
     cfg = torch._dynamo.config
     if plan.cache_size_limit is not None:
         cfg.cache_size_limit = max(cfg.cache_size_limit, plan.cache_size_limit)
+        # torch >= 2.10 split the per-code-object cap into recompile_limit; the old
+        # name still exists but the enforcement warning reads the NEW knob, so raising
+        # only cache_size_limit silently left the effective budget at the default (8).
+        if hasattr(cfg, "recompile_limit"):
+            cfg.recompile_limit = max(cfg.recompile_limit, plan.cache_size_limit)
     if plan.accumulated_cache_size_limit is not None:
         cfg.accumulated_cache_size_limit = max(
             cfg.accumulated_cache_size_limit, plan.accumulated_cache_size_limit
         )
+        if hasattr(cfg, "accumulated_recompile_limit"):
+            cfg.accumulated_recompile_limit = max(
+                cfg.accumulated_recompile_limit, plan.accumulated_cache_size_limit
+            )

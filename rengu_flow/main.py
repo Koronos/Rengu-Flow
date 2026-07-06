@@ -599,19 +599,27 @@ def _run_training(args, config):
                     torch._dynamo.mark_dynamic(hidden, 1)
                     return self.inner(hidden, *args, **kwargs)
 
-            try:
-                # Second half of the pytorch#166926 workaround: without it the AC
-                # recompute can probe compiled graphs in a different LRU order than
-                # the forward and fail the checkpoint metadata check.
-                torch._C._dynamo.eval_frame._set_lru_cache(False)
-            except AttributeError:
-                pass
+            reentrant_ac = bool(config.get("reentrant_activation_checkpointing", False))
+            if not reentrant_ac:
+                # pytorch#166926 workarounds: the AC-recompute checkpoint metadata
+                # comparison only exists on the NON-reentrant path. Reentrant AC skips
+                # the comparison entirely, and disabling LRU reordering there is pure
+                # harm — FIFO eviction thrashes the shared block cache into repeated
+                # cold recompiles at every train<->eval guard flip.
+                try:
+                    torch._C._dynamo.eval_frame._set_lru_cache(False)
+                except AttributeError:
+                    pass
             n_blocks = 0
             for m in pipeline_model.modules():
                 inner = getattr(m, "block", None)
                 if isinstance(inner, torch.nn.Module):
                     compiled = torch.compile(inner, **compile_plan.kwargs)
-                    m.block = _SeqDynamicShim(compiled) if compile_dynamic else compiled
+                    m.block = (
+                        _SeqDynamicShim(compiled)
+                        if compile_dynamic and not reentrant_ac
+                        else compiled
+                    )
                     n_blocks += 1
             if is_main_process():
                 print(f"[compile] block scope: compiled {n_blocks} transformer blocks", flush=True)
