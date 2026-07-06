@@ -14,15 +14,24 @@ from pathlib import Path
 import numpy as np
 import torch
 
-FORMAT_VERSION = 2
+FORMAT_VERSION = 3
 MANIFEST_NAME = "manifest.json"
 META_DB_NAME = "meta.db"
 TENSORS_DIR = "tensors"
 CHECKPOINT_EVERY = 128  # items between resume checkpoints (flush + commit + manifest)
 
-# Keys whose dim 0 is a token-sequence length and may grow/pad per item at any rank
-# (see _align_tensor_to_spec). 2-D tensors are always treated as sequences.
+# Keys whose dim 0 is a token-sequence length that varies per row (text embeddings, masks).
+# 2-D tensors are always treated as sequences. These are stored RAGGED — each row at its own
+# length in a flat append-only .bin, with the byte offset in the row's meta — instead of a
+# fixed-width stack padded to the shard's longest caption (which wasted most of the disk and
+# forced O(n^2) whole-file rewrites as longer captions appeared). Fixed-shape tensors (latents)
+# keep the mmap stack layout.
 _SEQUENCE_TENSOR_KEYS = frozenset({"prompt_embeds", "text_mask"})
+
+
+def _is_sequence_key(key: str, shape) -> bool:
+    """A row of *key* is a variable-length sequence (stored ragged), not a fixed stack row."""
+    return len(shape) == 2 or key in _SEQUENCE_TENSOR_KEYS
 
 
 def _dtype_to_str(dtype: torch.dtype) -> str:
@@ -63,6 +72,7 @@ class Cache:
         self._meta_read_only: bool = False
         self._tensor_files: dict[str, object] = {}
         self._mmaps: dict[str, np.memmap] = {}
+        self._ragged_end: dict[str, int] = {}  # key -> current byte length of its flat .bin
         os.makedirs(self.path, exist_ok=True)
         os.makedirs(self.path / TENSORS_DIR, exist_ok=True)
         self.init()
@@ -198,6 +208,13 @@ class Cache:
             return
         path = self.path / TENSORS_DIR / f"{key}.bin"
         if not path.is_file():
+            return
+        if spec.get("ragged"):
+            # Flat byte buffer; rows are sliced by [offset:offset+nbytes] (offset in each row's meta).
+            size = path.stat().st_size
+            if size == 0:
+                return
+            self._mmaps[key] = np.memmap(path, dtype=np.uint8, mode="r", shape=(size,))
             return
         dtype = _dtype_from_str(spec["storage_dtype"])
         shape = (self.count,) + tuple(spec["shape"])
@@ -371,24 +388,37 @@ class Cache:
         if key in self.tensor_specs:
             return
         storage_dtype = _storage_dtype(tensor.dtype)
-        self.tensor_specs[key] = {
-            "shape": list(tensor.shape),
-            "dtype": _dtype_to_str(tensor.dtype),
-            "storage_dtype": _dtype_to_str(storage_dtype),
-            "item_nbytes": _tensor_nbytes(tensor.shape, storage_dtype),
-        }
+        shape = [int(x) for x in tensor.shape]
         path = self.path / TENSORS_DIR / f"{key}.bin"
-        f = open(path, "wb")  # noqa: SIM115
-        storage_dtype = _dtype_from_str(self.tensor_specs[key]["storage_dtype"])
-        zeros = torch.zeros(self.tensor_specs[key]["shape"], dtype=storage_dtype)
-        row_bytes = (
-            zeros.view(torch.uint16).numpy().tobytes()
-            if storage_dtype == torch.bfloat16
-            else zeros.numpy().tobytes()
-        )
-        for _ in range(self.count):
-            f.write(row_bytes)
-        self._tensor_files[key] = f
+        if _is_sequence_key(key, shape):
+            # Ragged: a flat append-only .bin, one variable-length row per item (offset in meta).
+            self.tensor_specs[key] = {
+                "ragged": True,
+                "trailing_shape": shape[1:],  # fixed dims after the variable-length dim 0
+                "dtype": _dtype_to_str(tensor.dtype),
+                "storage_dtype": _dtype_to_str(storage_dtype),
+            }
+            self._tensor_files[key] = open(path, "wb")  # noqa: SIM115 — starts empty
+            self._ragged_end[key] = 0
+        else:
+            self.tensor_specs[key] = {
+                "shape": shape,
+                "dtype": _dtype_to_str(tensor.dtype),
+                "storage_dtype": _dtype_to_str(storage_dtype),
+                "item_nbytes": _tensor_nbytes(tensor.shape, storage_dtype),
+            }
+            f = open(path, "wb")  # noqa: SIM115
+            zeros = torch.zeros(shape, dtype=storage_dtype)
+            row_bytes = (
+                zeros.view(torch.uint16).numpy().tobytes()
+                if storage_dtype == torch.bfloat16
+                else zeros.numpy().tobytes()
+            )
+            for _ in range(self.count):
+                f.write(row_bytes)
+            self._tensor_files[key] = f
+        # A key first seen after row 0 had no value in the prior rows: mark them null so reads
+        # return None (ragged wrote nothing for them; fixed wrote zero placeholders above).
         if self.count > 0 and self._meta_con is not None:
             for idx in range(self.count):
                 row = self._meta_con.execute(
@@ -414,6 +444,26 @@ class Cache:
                 continue
             self._register_tensor_key(key, tensor)
 
+    def _ragged_committed_end(self, key: str) -> int:
+        """Byte length of *key*'s flat .bin up to self.count committed rows (append order):
+        the last committed row's offset + its nbytes (0 if no committed row carries the key)."""
+        spec = self.tensor_specs[key]
+        storage_dtype = _dtype_from_str(spec["storage_dtype"])
+        assert self._meta_con is not None
+        for idx in range(self.count - 1, -1, -1):
+            row = self._meta_con.execute(
+                "SELECT payload FROM item_meta WHERE idx=?", (idx,)
+            ).fetchone()
+            if row is None:
+                continue
+            payload = json.loads(row[0])
+            offsets = payload.get("_ragged_offsets") or {}
+            if key in offsets:
+                return int(offsets[key]) + _tensor_nbytes(
+                    payload["_tensor_shapes"][key], storage_dtype
+                )
+        return 0
+
     def _ensure_writable(self) -> None:
         resuming = self._meta_con is None or self._meta_read_only
         if resuming:
@@ -424,10 +474,22 @@ class Cache:
             self._meta_con.execute("DELETE FROM item_meta WHERE idx >= ?", (self.count,))
             self._meta_con.commit()
         self._mmaps.clear()
-        for key in self.tensor_specs:
+        for key, spec in self.tensor_specs.items():
             if key in self._tensor_files:
                 continue
             path = self.path / TENSORS_DIR / f"{key}.bin"
+            if spec.get("ragged"):
+                # Truncate the flat .bin back to its committed byte length before appending.
+                end = self._ragged_committed_end(key) if resuming else self._ragged_end.get(key, 0)
+                if resuming and path.exists():
+                    f = open(path, "r+b")  # noqa: SIM115
+                    f.truncate(end)
+                    f.seek(0, os.SEEK_END)
+                else:
+                    f = open(path, "ab")  # noqa: SIM115
+                self._tensor_files[key] = f
+                self._ragged_end[key] = end
+                continue
             if resuming and path.exists():
                 f = open(path, "r+b")  # noqa: SIM115
                 f.truncate(self.count * self._row_size(key))
@@ -453,15 +515,29 @@ class Cache:
         for key, spec in self.tensor_specs.items():
             tensor = tensors.get(key)
             storage_dtype = _dtype_from_str(spec["storage_dtype"])
+            if key not in self._tensor_files:
+                self._ensure_writable()
+            if spec.get("ragged"):
+                if tensor is None:
+                    null_tensor_keys.append(key)  # ragged null row occupies zero bytes
+                    continue
+                actual = [int(x) for x in tensor.shape]
+                if actual[1:] != list(spec["trailing_shape"]):
+                    raise ValueError(
+                        f"Cache tensor {key} shape {tuple(actual)} incompatible with "
+                        f"trailing {tuple(spec['trailing_shape'])}"
+                    )
+                data = self._row_bytes(tensor, storage_dtype)
+                meta.setdefault("_tensor_shapes", {})[key] = actual
+                meta.setdefault("_ragged_offsets", {})[key] = self._ragged_end[key]
+                self._tensor_files[key].write(data)
+                self._ragged_end[key] += len(data)
+                continue
             if tensor is None:
                 null_tensor_keys.append(key)
                 buf = torch.zeros(spec["shape"], dtype=storage_dtype)
             else:
-                buf, actual_shape = self._align_tensor_to_spec(key, tensor)
-                if len(actual_shape) == 2 or key in _SEQUENCE_TENSOR_KEYS:
-                    meta.setdefault("_tensor_shapes", {})[key] = actual_shape
-            if key not in self._tensor_files:
-                self._ensure_writable()
+                buf, _actual_shape = self._align_tensor_to_spec(key, tensor)
             self._tensor_files[key].write(self._row_bytes(buf, storage_dtype))
 
         if null_tensor_keys:
@@ -508,6 +584,20 @@ class Cache:
             t = t.to(original_dtype)
         return t
 
+    def _read_ragged(self, key: str, offset, shape) -> torch.Tensor:
+        """Read one ragged row: slice ``[offset:offset+nbytes]`` of the flat .bin, reshape."""
+        spec = self.tensor_specs[key]
+        storage_dtype = _dtype_from_str(spec["storage_dtype"])
+        original_dtype = _dtype_from_str(spec["dtype"])
+        shape = tuple(int(s) for s in shape)
+        nbytes = _tensor_nbytes(shape, storage_dtype)
+        self._open_mmap(key)
+        raw = bytes(self._mmaps[key][int(offset): int(offset) + nbytes])
+        t = self._decode_row(raw, shape, storage_dtype)
+        if original_dtype != storage_dtype:
+            t = t.to(original_dtype)
+        return t
+
     def valid_flags(self) -> list[bool]:
         """Per-row 'valid' flag from the JSON meta only (no tensor mmap reads).
 
@@ -532,9 +622,12 @@ class Cache:
         item = json.loads(row[0])
         null_keys = set(item.pop("_null_tensors", []) or [])
         tensor_shapes = item.pop("_tensor_shapes", {}) or {}
+        ragged_offsets = item.pop("_ragged_offsets", {}) or {}
         for key in self.tensor_specs:
             if key in null_keys:
                 item[key] = None
+            elif self.tensor_specs[key].get("ragged"):
+                item[key] = self._read_ragged(key, ragged_offsets[key], tensor_shapes[key])
             else:
                 t = self._read_tensor(key, idx)
                 actual = tensor_shapes.get(key)

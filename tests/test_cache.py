@@ -9,6 +9,7 @@ import torch
 
 from rengu_flow.utils.cache import (
     MANIFEST_NAME,
+    TENSORS_DIR,
     Cache,
     open_disk_cache,
     reject_legacy_v1,
@@ -150,8 +151,13 @@ def test_cache_variable_dim0_prompt_embeds(tmp_path):
     for i, shape in enumerate(shapes):
         got = cache[i]["prompt_embeds"]
         assert tuple(got.shape) == shape
-    assert cache.tensor_specs["prompt_embeds"]["shape"][0] >= 8
-    assert cache.tensor_specs["prompt_embeds"]["shape"][1:] == [768]
+    # Ragged storage: each row kept at its own length, no dim-0 padding to a shared max.
+    spec = cache.tensor_specs["prompt_embeds"]
+    assert spec["ragged"] is True
+    assert spec["trailing_shape"] == [768]
+    # The .bin holds exactly the sum of real row bytes (bf16 storage = 2 B/elt) — zero padding.
+    bin_size = (tmp_path / "te" / TENSORS_DIR / "prompt_embeds.bin").stat().st_size
+    assert bin_size == sum(n * 768 * 2 for n, _d in shapes)
 
 
 def test_mmaps_open_lazily_per_key(tmp_path):
@@ -284,7 +290,7 @@ def test_cache_valid_flags(tmp_path):
 
 
 def test_cache_variable_dim0_3d_and_1d(tmp_path):
-    """krea2-shaped rows: (L, layers, D) stacks and (L,) bool masks grow on dim 0 too."""
+    """krea2-shaped rows: (L, layers, D) stacks and (L,) bool masks stored ragged per row."""
     cache = Cache(tmp_path / "te3d", "fp-var3d")
     lengths = [50, 55, 48]
     for i, n in enumerate(lengths):
@@ -300,9 +306,37 @@ def test_cache_variable_dim0_3d_and_1d(tmp_path):
         assert tuple(cache[i]["prompt_embeds"].shape) == (n, 12, 32)
         assert tuple(cache[i]["text_mask"].shape) == (n,)
         assert cache[i]["text_mask"].all()
-    spec_d0 = cache.tensor_specs["prompt_embeds"]["shape"][0]
-    assert spec_d0 >= 55  # grown at least to the longest row (slack allowed, see _grow_tensor_dim0)
-    assert cache.tensor_specs["prompt_embeds"]["shape"][1:] == [12, 32]
+    # Both sequence keys are ragged (no shared dim-0 width to pad short rows up to).
+    assert cache.tensor_specs["prompt_embeds"]["ragged"] is True
+    assert cache.tensor_specs["prompt_embeds"]["trailing_shape"] == [12, 32]
+    assert cache.tensor_specs["text_mask"]["ragged"] is True
+    emb_bytes = (tmp_path / "te3d" / TENSORS_DIR / "prompt_embeds.bin").stat().st_size
+    assert emb_bytes == sum(n * 12 * 32 * 2 for n in lengths)
+
+
+def test_cache_ragged_resume_appends_correctly(tmp_path):
+    """Reopen a ragged cache and append more rows: offsets/truncate must keep every row readable."""
+    d = tmp_path / "te_resume"
+    lengths_a, lengths_b = [40, 90, 55], [70, 30]
+    c1 = Cache(d, "fp-resume")
+    for i, n in enumerate(lengths_a):
+        c1.add({"prompt_embeds": torch.full((n, 8), float(i), dtype=torch.bfloat16), "caption": f"a{i}"})
+    c1.finalize_current_shard()
+    c1.close()
+
+    c2 = Cache(d, "fp-resume")
+    assert len(c2) == len(lengths_a)  # recovered committed rows on reopen
+    for j, n in enumerate(lengths_b):
+        c2.add({"prompt_embeds": torch.full((n, 8), float(100 + j), dtype=torch.bfloat16), "caption": f"b{j}"})
+    c2.finalize_current_shard()
+
+    all_lengths = lengths_a + lengths_b
+    for i, (n, v) in enumerate(zip(all_lengths, [0.0, 1.0, 2.0, 100.0, 101.0])):
+        row = c2[i]["prompt_embeds"]
+        assert tuple(row.shape) == (n, 8)
+        assert row.float().eq(v).all()  # right bytes at the right offset across the resume seam
+    emb = (d / TENSORS_DIR / "prompt_embeds.bin").stat().st_size
+    assert emb == sum(n * 8 * 2 for n in all_lengths)  # still zero padding after resume  # bf16 = 2 B/elt, zero padding
 
 
 def test_cache_refresh_reads_interleaved_add_read(tmp_path):
