@@ -86,6 +86,7 @@ def _evaluate(
     for name, eval_dataloader in eval_dataloaders.items():
         losses = []
         for quantile in TIMESTEP_QUANTILES_FOR_EVAL:
+            q_start = time.time()
             loss = evaluate_single(
                 model_engine,
                 eval_dataloader,
@@ -96,6 +97,13 @@ def _evaluate(
             losses.append(loss)
             if is_main_process():
                 sink.scalar(f"{name}/loss_quantile_{quantile:.2f}", loss, step)
+                # Heartbeat: an eval pass on a swapped multi-B model takes real minutes and
+                # tqdm is disabled off-tty — without this line a captured log looks hung.
+                print(
+                    f"[eval] {name} quantile {quantile:.2f}: loss {loss:.4f} "
+                    f"({time.time() - q_start:.1f}s)",
+                    flush=True,
+                )
         avg_loss = sum(losses) / len(losses)
         if is_main_process():
             sink.scalar(f"{name}/loss", avg_loss, step)
