@@ -270,7 +270,11 @@ class _Fp8TensorwiseMatmul(torch.autograd.Function):
     def forward(ctx, x2d, w8, wscale_row, one, grad_mode):
         fp8_max = _fp8_max(w8.dtype)
         xs = (x2d.detach().abs().amax().clamp_min(1e-12).float() / fp8_max).reshape(())
-        x8 = (x2d.detach().float() / xs).clamp(-fp8_max, fp8_max).to(w8.dtype)
+        # Quantize WITHOUT the fp32 upcast: at 4864x16384 the .float() temporary alone
+        # was 304 MiB (the exact failed allocation in the LoKr OOM) and this path runs
+        # eager whenever an adapter wrapper keeps it out of the compiled graph. The
+        # bf16-domain divide adds quantization noise far below the e4m3 step itself.
+        x8 = (x2d.detach() / xs.to(x2d.dtype)).clamp(-fp8_max, fp8_max).to(w8.dtype)
         out = torch._scaled_mm(
             x8, w8.t(), scale_a=xs, scale_b=one, out_dtype=torch.bfloat16
         )
@@ -284,9 +288,9 @@ class _Fp8TensorwiseMatmul(torch.autograd.Function):
         w8, wscale_row, one = ctx.saved_tensors
         if ctx.grad_mode == "fp8":
             fp8_max = _fp8_max(w8.dtype)
-            g = grad_out.detach().float() * wscale_row.float()  # fold row scales (contracted dim)
-            gs = (g.abs().amax().clamp_min(1e-12) / fp8_max).reshape(())
-            g8 = (g / gs).clamp(-fp8_max, fp8_max).to(w8.dtype)
+            g = grad_out.detach() * wscale_row.to(grad_out.dtype)  # fold row scales (contracted dim)
+            gs = (g.abs().amax().clamp_min(1e-12).float() / fp8_max).reshape(())
+            g8 = (g / gs.to(g.dtype)).clamp(-fp8_max, fp8_max).to(w8.dtype)
             w8_col = w8.t().contiguous().t()  # [N, K] column-major, transposed on the fly
             grad_x = torch._scaled_mm(
                 g8, w8_col, scale_a=gs, scale_b=one, out_dtype=torch.bfloat16
