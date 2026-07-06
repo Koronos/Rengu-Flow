@@ -53,15 +53,19 @@ def plan_compile(config: dict, num_shapes: int | None) -> CompilePlan:
         # bucket so every step runs single-res-speed kernels.
         plan.kwargs["dynamic"] = False
 
-    if num_shapes and num_shapes > 1:
+    block_scope = config.get("compile_scope", "model") == "block"
+    if (num_shapes and num_shapes > 1) or block_scope:
         # Budget one cache entry per shape. Without this, >8 shapes overflow
         # torch._dynamo's per-code-object cache and fall back to eager. Dynamic
         # mode recompiles per resolution bucket too, so size it the same way.
         # Block scope: the shared block code object needs one entry per shape PER
         # GRAD-MODE variant — reentrant AC calls each block under no_grad (forward)
         # and enable_grad (recompute), and eval probes add a no-grad eval variant.
-        grad_states = 3 if config.get("compile_scope", "model") == "block" else 1
-        limit = num_shapes * grad_states + _SHAPE_MARGIN
+        # This applies even at num_shapes == 1 (a single-resolution run still needs
+        # 3 variants against the default budget of 8 shared by all 28 blocks —
+        # exceeding it silently drops blocks to eager, no exception).
+        grad_states = 3 if block_scope else 1
+        limit = max(num_shapes or 1, 1) * grad_states + _SHAPE_MARGIN
         if limit > DEFAULT_CACHE_SIZE_LIMIT:
             plan.cache_size_limit = limit
         accumulated = limit * _CODE_OBJECTS_HEADROOM
