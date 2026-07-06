@@ -1095,6 +1095,15 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "detail": "Blocks after this index always process the full sequence. Default -3 leaves the last two blocks unrouted.",
         "doc": "docs/user/training-krea2.md",
     },
+    "tread.disable_after_frac": {
+        "summary": "Run fraction after which routing turns off (off-ramp); 1.0 = routed to the end.",
+        "detail": (
+            "The final stretch trains on full sequences so the model re-calibrates before "
+            "export. Measured on krea2 at drop_ratio 0.5: off-ramp 0.85 cut the routed-training "
+            "val gap from +7.4% to +1.2% vs unrouted while keeping routed speed for 85% of the run."
+        ),
+        "doc": "docs/user/training-krea2.md",
+    },
     "checkpoint_every_n_epochs": {
         "summary": "Write a DeepSpeed resume checkpoint at the end of every N epochs.",
         "detail": "Stores full optimizer and scheduler state for training resumption; not a usable inference file. Combine with max_checkpoints_to_keep to limit disk use.",

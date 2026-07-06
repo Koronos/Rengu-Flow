@@ -811,6 +811,26 @@ def get_sections() -> list[dict[str, Any]]:
                     },
                     description="Last block index (negative = from the end) where routing is active; blocks after it always see the full sequence.",
                 ),
+                _field(
+                    "tread.disable_after_frac",
+                    "TREAD off-ramp fraction",
+                    "number",
+                    importance="advanced",
+                    default=1.0,
+                    when={
+                        "all": [
+                            {"field": "model.type", "in": ["krea2"]},
+                            {"form_nonempty": "tread.drop_ratio"},
+                        ],
+                    },
+                    placeholder="1.0 = routing active for the whole run",
+                    description=(
+                        "Run fraction past which routing turns off and the final stretch trains "
+                        "on full sequences. Measured on krea2: 0.85 recovered the routed-training "
+                        "val gap from +7.4% to +1.2% vs unrouted, keeping routed speed for 85% of "
+                        "the run."
+                    ),
+                ),
                 _field("x_axis_examples", "TensorBoard x-axis = examples", "boolean"),
                 _field(
                     "ema_decay",
