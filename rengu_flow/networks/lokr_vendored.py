@@ -1,6 +1,7 @@
 """LoKr (LyCORIS Kronecker) adapter for SDXL. Uses LyCORIS if installed, else vendored implementation."""
 
 import re
+import types
 from pathlib import Path
 
 import safetensors
@@ -22,6 +23,43 @@ except ImportError:
 # ---------------------------------------------------------------------------
 # Vendored LoKr
 # ---------------------------------------------------------------------------
+
+def _lokr_factors(module):
+    w1 = module.lokr_w1 if module._lokr_use_w1_full else module.lokr_w1_a @ module.lokr_w1_b
+    w2 = module.lokr_w2 if module._lokr_use_w2_full else module.lokr_w2_a @ module.lokr_w2_b
+    return w1, w2
+
+
+def _lokr_delta_forward(self, x):
+    """LoKr delta WITHOUT materializing kron(w1, w2) — the vec-trick.
+
+    ``y = x @ kron(w1, w2)^T`` factors into two small GEMMs over the ``(in1, in2)`` /
+    ``(out1, out2)`` grids. The old path built the dense ``[out_dim, in_dim]`` delta on
+    EVERY call (and again in the AC recompute): at full_matrix factor=6 on krea2 that
+    was a base-weight-sized buffer plus a base-sized extra GEMM per linear — measured
+    2x step time and the OOM margin. This form costs ~1/6th the FLOPs at those shapes
+    and never allocates an ``[out_dim, in_dim]`` tensor. Runs in the activation dtype;
+    fp32 masters are untouched.
+    """
+    out1, out2, in1, in2, out_dim, _in_dim = self._lokr_dims
+    w1, w2 = _lokr_factors(self)
+    w1 = w1.to(x.dtype)
+    w2 = w2.to(x.dtype)
+    shp = x.shape
+    grid = x.reshape(-1, in1, in2)                     # [B, in1, in2]
+    t = torch.matmul(grid, w2.transpose(0, 1))         # [B, in1, out2]
+    y = torch.matmul(w1, t)                            # [B, out1, out2] (w1 broadcasts)
+    return y.reshape(*shp[:-1], out_dim) * self._lokr_scale
+
+
+def _lokr_forward_quantized(self, x):
+    base = self._lokr_base_linear(x)
+    return base + _lokr_delta_forward(self, x).to(base.dtype)
+
+
+def _lokr_forward_plain(self, x):
+    return F.linear(x, self.weight, self.bias) + _lokr_delta_forward(self, x).to(x.dtype)
+
 
 def _inject_lokr_into_linear(module, rank, alpha, factor=-1, decompose_both=False, full_matrix=False, dtype=torch.float32):
     """Inject LoKr parameters into an nn.Linear and replace its forward. ComfyUI/LyCORIS convention."""
@@ -89,24 +127,14 @@ def _inject_lokr_into_linear(module, rank, alpha, factor=-1, decompose_both=Fals
     except Exception:
         base_linear = None
 
-    def _lokr_delta_weight():
-        w1 = module.lokr_w1 if module._lokr_use_w1_full else module.lokr_w1_a @ module.lokr_w1_b
-        w2 = module.lokr_w2 if module._lokr_use_w2_full else module.lokr_w2_a @ module.lokr_w2_b
-        diff = torch.kron(w1, w2) * module._lokr_scale
-        return diff.reshape(out_dim, in_dim)
-
-    if base_linear is not None:
-        def lokr_forward(x):
-            ref = module.lokr_w1 if module._lokr_use_w1_full else module.lokr_w1_a
-            diff = _lokr_delta_weight().to(ref.dtype)
-            base = base_linear(x)
-            return base + F.linear(x.to(ref.dtype), diff).to(base.dtype)
-    else:
-        def lokr_forward(x):
-            diff = _lokr_delta_weight().to(module.weight.dtype)
-            return F.linear(x, module.weight + diff, module.bias)
-
-    module.forward = lokr_forward
+    module._lokr_dims = (out1, out2, in1, in2, out_dim, in_dim)
+    module._lokr_base_linear = base_linear
+    # Real bound methods (not per-instance closures): dynamo specializes on the shared
+    # function code object with self-relative attribute sources, matching how PEFT and
+    # Fp8TensorwiseLinear express their forwards.
+    module.forward = types.MethodType(
+        _lokr_forward_quantized if base_linear is not None else _lokr_forward_plain, module
+    )
 
 
 def _fuse_one_lokr_linear(module):

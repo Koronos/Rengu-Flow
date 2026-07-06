@@ -93,3 +93,39 @@ def test_lokr_uses_logical_dims_not_weight_shape():
     for d in lin.lokr_w1.shape:
         total *= d
     assert max(lin.lokr_w1.shape) <= 64, lin.lokr_w1.shape  # factorized from 64, not 2048
+
+
+def test_vec_trick_matches_dense_kron_delta():
+    """The factored delta forward must equal the dense kron(w1, w2) reference exactly
+    (same math, no materialization) for every factor-structure combination."""
+    import torch.nn.functional as F
+
+    from rengu_flow.networks.lokr_vendored import (
+        _inject_lokr_into_linear,
+        _lokr_delta_forward,
+        _lokr_factors,
+    )
+
+    torch.manual_seed(0)
+    for full_matrix, factor, out_dim, in_dim in [
+        (True, 6, 36, 48),      # full W1 + full W2 (the krea2 full_matrix regime)
+        (False, -1, 32, 64),    # low-rank W2
+        (False, 4, 64, 48),
+    ]:
+        lin = torch.nn.Linear(in_dim, out_dim, bias=False)
+        _inject_lokr_into_linear(lin, rank=4, alpha=4, factor=factor, full_matrix=full_matrix)
+        for p in lin.parameters():
+            if p.requires_grad:
+                torch.nn.init.normal_(p, std=0.1)
+        x = torch.randn(3, 5, in_dim)
+
+        w1, w2 = _lokr_factors(lin)
+        dense = torch.kron(w1, w2).reshape(out_dim, in_dim) * lin._lokr_scale
+        ref = F.linear(x, dense)
+        got = _lokr_delta_forward(lin, x)
+        assert torch.allclose(got, ref, atol=1e-5), (full_matrix, factor, (got - ref).abs().max())
+
+        # And gradients flow to the factors through the factored path.
+        got.sum().backward()
+        grads = [p.grad for n, p in lin.named_parameters() if "lokr_" in n]
+        assert grads and all(g is not None and g.abs().sum() > 0 for g in grads)
