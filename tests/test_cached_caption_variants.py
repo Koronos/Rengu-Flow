@@ -179,6 +179,62 @@ def test_iteration_order_rebuilds_when_k_changes(tmp_path):
     assert len(sb5.iteration_order) == 10  # rebuilt for K=5
 
 
+# --- root-keyed text embeddings (augmentation variants share one root's captions) ------------
+
+
+def test_caption_variants_shared_across_augmentation_of_same_root():
+    """Augmentation variants of one root image get IDENTICAL baked captions (seeded by the root,
+    not the per-crop variant_key), so the TE cache can store them once instead of once per crop."""
+    from rengu_flow.data.dataset import maybe_expand_caption_variants
+
+    meta = datasets.Dataset.from_dict(
+        {
+            "image_spec": [[None, "a.jpg"], [None, "a.jpg", "flipx"], [None, "a.jpg", "crop2"]],
+            "caption": [["red, hair, smile, outdoors"]] * 3,
+        }
+    )
+    expanded, did = maybe_expand_caption_variants(
+        meta, _mock_dir_dataset({"cached_caption_variants": 4}, DROP_HALF)
+    )
+    assert did
+    assert len(expanded["caption"][0]) == 4  # K baked variants per base caption
+    # all three augmentation variants of the root -> identical baked caption set
+    assert expanded["caption"][0] == expanded["caption"][1] == expanded["caption"][2]
+
+
+def test_text_embedding_dataset_resolves_by_root_image():
+    """Any augmentation variant's full image_spec resolves to the same (root-deduped) TE rows."""
+    from rengu_flow.data.dataset import TextEmbeddingDataset
+
+    flattened = {"image_spec": [[None, "a.jpg"], [None, "a.jpg"]]}  # 2 caption rows, one root
+    ds = TextEmbeddingDataset([{"prompt_embeds": "row0"}, {"prompt_embeds": "row1"}], flattened)
+    assert list(ds.image_spec_to_te_idx) == [(None, "a.jpg")]  # one entry keyed by the root
+    for aug in [(None, "a.jpg"), (None, "a.jpg", "flipx"), (None, "a.jpg", "crop2")]:
+        assert ds.get_text_embeddings(aug, 0) == {"prompt_embeds": "row0"}
+        assert ds.get_text_embeddings(aug, 1) == {"prompt_embeds": "row1"}
+
+
+def test_cache_text_embeddings_dedups_augmentation_variants(tmp_path):
+    """_cache_text_embeddings stores one row per (root, caption): augmentation variants of a
+    source image (identical captions) collapse instead of each writing its own embedding."""
+    from rengu_flow.data.dataset import _cache_text_embeddings
+
+    specs = []
+    for root in ("a.jpg", "b.jpg"):
+        specs += [[None, root], [None, root, "v1"], [None, root, "v2"]]
+    meta = datasets.Dataset.from_dict({"image_spec": specs, "caption": [["one caption"]] * 6})
+
+    def fake_te_map(example, rank):
+        return {"prompt_embeds": torch.zeros(len(example["caption"]), 2)}
+
+    te = _cache_text_embeddings(
+        meta, fake_te_map, 1, tmp_path / "cache", True, 1, cache_num_proc=1
+    )
+    assert len(te.te_dataset) == 2  # 2 roots x 1 caption, NOT 6 (variants collapsed)
+    assert set(te.image_spec_to_te_idx) == {(None, "a.jpg"), (None, "b.jpg")}
+    assert te.get_text_embeddings((None, "a.jpg", "v2"), 0) is not None  # a crop resolves to root
+
+
 def test_te_cache_fingerprint_tracks_variant_config(tmp_path):
     """The text-embedding cache is keyed by caption content, so a K/seed change shifts it."""
     cols = ["caption", "image_spec"]

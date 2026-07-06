@@ -124,13 +124,16 @@ class TextEmbeddingDataset:
     def __init__(self, te_dataset, flattened_captions) -> None:
         self.te_dataset = te_dataset
         self.flattened_captions = flattened_captions
+        # Key on the ROOT image (image_spec_base): a source image's augmentation variants share
+        # one set of cached text embeddings (the caption is identical across crops), so any
+        # variant's full image_spec resolves to the same root rows.
         self.image_spec_to_te_idx = defaultdict(list)
         for i, image_spec in enumerate(flattened_captions["image_spec"]):
-            self.image_spec_to_te_idx[tuple(image_spec)].append(i)
+            self.image_spec_to_te_idx[image_spec_base(tuple(image_spec))].append(i)
 
     def get_text_embeddings(self, image_spec, caption_number):
         return self.te_dataset[
-            self.image_spec_to_te_idx[image_spec][caption_number]
+            self.image_spec_to_te_idx[image_spec_base(tuple(image_spec))][caption_number]
         ]
 
 
@@ -145,6 +148,32 @@ def _cache_text_embeddings(
     cache_keep_in_memory: bool = False,
 ):
     """Flatten captions to one row per (image, caption), then map_and_cache."""
+    # Collapse a root image's augmentation variants to ONE row per (root image, caption): text
+    # embeddings depend only on the caption, not the image crop, and once caption variants are
+    # seeded by the base image (image_spec_base) every augmentation of a source carries identical
+    # captions. Keying the cache on the base image stores each caption embedding once instead of
+    # once per (augmentation variant × caption) — augmentation multiplies latents, not text
+    # embeddings — and stops an augmentation change from invalidating the whole TE cache.
+    specs = metadata_dataset["image_spec"]
+    seen: set = set()
+    keep: list[int] = []
+    for row_idx, spec in enumerate(specs):
+        base = image_spec_base(tuple(spec))
+        if base not in seen:
+            seen.add(base)
+            keep.append(row_idx)
+    if len(keep) < len(specs):
+        metadata_dataset = metadata_dataset.select(
+            keep, keep_in_memory=cache_keep_in_memory
+        ).map(
+            lambda ex: {
+                "image_spec": [list(image_spec_base(tuple(s))) for s in ex["image_spec"]]
+            },
+            batched=True,
+            keep_in_memory=cache_keep_in_memory,
+            desc="TE: dedup augmentation variants to root image",
+        )
+
     def flatten_captions(example):
         result = {key: [] for key in example}
         for idx, captions in enumerate(example["caption"]):
@@ -397,13 +426,20 @@ def maybe_expand_caption_variants(metadata_dataset, directory_dataset, *, warn: 
         return memo[fingerprint], True
 
     def _expand(example):
+        # Seed by the ROOT image path (image_spec_base()[-1]), NOT image_spec[-1] (which is the
+        # augmentation variant_key on a crop): every augmentation of a source image then gets the
+        # SAME baked caption variants, so the text-embedding cache stores them once per root (see
+        # the root-dedup in _cache_text_embeddings) instead of regenerating a distinct set per crop.
+        # Image diversity comes from augmentation; caption diversity from cached_caption_variants —
+        # not their product. Using the base path keeps the seed identical to the old value when
+        # augmentation is off (variant_key is the path there), so those caches are not invalidated.
         return {
             "caption": expand_caption_variants(
                 list(example["caption"]),
                 cached_variants,
                 tag_dropout,
                 cached_shuffle,
-                seed_key=str(example["image_spec"][-1]),
+                seed_key=str(image_spec_base(tuple(example["image_spec"]))[-1]),
             )
         }
 
