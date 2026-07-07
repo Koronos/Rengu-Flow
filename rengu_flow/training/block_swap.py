@@ -189,6 +189,17 @@ class HookBlockSwapOffloader:
         # Correctness never depends on either (ensure_resident always falls back to a blocking pull).
         self._pin = bool(prefetch) and self.device.type == "cuda"
         self._prefetch = self._pin and self.resident_cap >= 2
+        if bool(prefetch) and self.device.type == "cuda" and not self._prefetch:
+            # Requested but impossible: double-buffering needs a second resident slot. At
+            # blocks_to_swap >= num_blocks - 1 the cap is 1, so prefetch silently degrades to the
+            # synchronous single-buffered path — warn so it isn't a surprise (lower blocks_to_swap
+            # by 1-2 to actually get the overlap).
+            print(
+                f"rengu_flow: block_swap_prefetch requested but resident_cap={self.resident_cap} "
+                f"(<2): overlap disabled (swapping {self.blocks_to_swap}/{self.num_blocks} blocks). "
+                "Lower blocks_to_swap to enable prefetch.",
+                flush=True,
+            )
         self._resident: "OrderedDict[int, None]" = OrderedDict()
         self._block_of_module: dict[int, int] = {}
         self._handles: list = []

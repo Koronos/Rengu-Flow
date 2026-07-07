@@ -1554,9 +1554,19 @@ def _run_training(args, config):
                 )
 
             # Bound the block-swap allocator creep (see block_swap_active above): reclaim the
-            # reserved pool periodically when neither eval nor preview is doing it for us.
-            if block_swap_active and step > 0 and step % 50 == 0:
-                empty_cuda_cache()
+            # reserved pool periodically when neither eval nor preview is doing it for us. The
+            # single-buffered swap path (and eager fp8/AC transients under an adapter) allocate
+            # many shape-varying tensors per step, fragmenting the *reserved* pool by hundreds of
+            # MB between reclaims — enough to OOM a tight blocks_to_swap. A 50-step cadence let it
+            # grow ~0.3-0.8 GB; reclaim more often (default every 10) so the pool stays bounded and
+            # tight swap settings don't OOM. Bare empty_cache() is cheap; keep the full
+            # gc.collect()+empty_cache() on the sparse 50-step cadence.
+            reclaim_every = int(config.get("block_swap_reclaim_every", 10))
+            if block_swap_active and step > 0 and reclaim_every > 0 and step % reclaim_every == 0:
+                if step % 50 == 0:
+                    empty_cuda_cache()
+                else:
+                    torch.cuda.empty_cache()
 
             if step >= total_budget_steps:
                 final_model_name, _reason = budget_reached_target(max_steps, epochs, step)
