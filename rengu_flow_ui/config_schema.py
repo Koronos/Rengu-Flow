@@ -427,6 +427,52 @@ def get_registries() -> dict[str, Any]:
     }
 
 
+def _split_training_section(fields: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Partition the (formerly monolithic) training fields into focused sections by path, so the
+    UI shows one card per concern instead of a 35-field grab-bag. The two guards below make a
+    mislaid or renamed field fail loudly at schema build time rather than silently vanish."""
+    by_path = {f["path"]: f for f in fields}
+    layout = [
+        ("training", "Training loop", [
+            "epochs", "max_steps", "micro_batch_size_per_gpu",
+            "image_micro_batch_size_per_gpu", "gradient_accumulation_steps",
+            "gradient_clipping", "train_seed", "ema_decay",
+        ]),
+        ("loss", "Loss function", ["huber_delta", "smooth_l1_beta", "pseudo_huber_c"]),
+        ("compile", "torch.compile", [
+            "compile", "compile_mode", "compile_scope", "compile_dynamic",
+            "compile_disk_cache", "compile_cache_dir",
+        ]),
+        ("dataloader", "DataLoader", [
+            "dataloader_num_workers", "dataloader_prefetch", "dataloader_pin_memory",
+            "dataloader_prefetch_factor", "dataloader_persistent_workers",
+        ]),
+        ("tread", "Token routing (TREAD)", [
+            "tread.drop_ratio", "tread.start_block", "tread.end_block",
+            "tread.disable_after_frac",
+        ]),
+        ("oom_recovery", "OOM recovery", [
+            "train.oom_skip.enabled", "train.oom_skip.max_consecutive",
+            "train.oom_skip.clear_cache_on_skip",
+        ]),
+        ("logging_debug", "Logging & debug", [
+            "logging_steps", "steps_per_print", "x_axis_examples",
+            "synthetic_num_batches", "min_image_exposure", "video_clip_mode",
+        ]),
+    ]
+    assigned = [p for _sid, _title, paths in layout for p in paths]
+    unknown = [p for p in assigned if p not in by_path]
+    if unknown:
+        raise ValueError(f"training section references unknown fields: {unknown}")
+    missing = [p for p in by_path if p not in assigned]
+    if missing:
+        raise ValueError(f"training fields not assigned to a section: {missing}")
+    return [
+        {"id": sid, "title": title, "fields": [by_path[p] for p in paths]}
+        for sid, title, paths in layout
+    ]
+
+
 def get_sections() -> list[dict[str, Any]]:
     sections: list[dict[str, Any]] = [
         {
@@ -612,10 +658,7 @@ def get_sections() -> list[dict[str, Any]]:
                 ),
             ],
         },
-        {
-            "id": "training",
-            "title": "Training loop",
-            "fields": [
+        *_split_training_section([
                 _field("epochs", "Epochs", "integer", default=1, min_value=1, recommended=True),
                 _field(
                     "max_steps",
@@ -943,8 +986,7 @@ def get_sections() -> list[dict[str, Any]]:
                         "(Cosmos Predict2); no effect on image-only training."
                     ),
                 ),
-            ],
-        },
+        ]),
         {
             "id": "memory",
             "title": "Memory savings",
