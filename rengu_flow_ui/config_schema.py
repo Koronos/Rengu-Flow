@@ -453,7 +453,8 @@ def _split_training_section(fields: list[dict[str, Any]]) -> list[dict[str, Any]
         ]),
         ("oom_recovery", "OOM recovery", [
             "train.oom_skip.enabled", "train.oom_skip.max_consecutive",
-            "train.oom_skip.clear_cache_on_skip",
+            "train.oom_skip.clear_cache_on_skip", "train.oom_skip.bump_block_swap",
+            "train.oom_skip.bump_block_swap_step",
         ]),
         ("logging_debug", "Logging & debug", [
             "logging_steps", "steps_per_print", "x_axis_examples",
@@ -903,6 +904,35 @@ def get_sections() -> list[dict[str, Any]]:
                         "Run empty_cache() + ipc_collect() on each OOM skip to release the "
                         "fragmented reserved pool before retrying the next step."
                     ),
+                ),
+                _field(
+                    "train.oom_skip.bump_block_swap",
+                    "Raise block swap on repeated OOM",
+                    "boolean",
+                    default=False,
+                    importance="advanced",
+                    when={"field": "train.oom_skip.enabled", "equals": True},
+                    description=(
+                        "On reaching 'max consecutive' OOMs, swap more transformer blocks to CPU "
+                        "(freeing base-model VRAM) and keep training instead of aborting — repeats "
+                        "up to every block swapped, then saves and stops. Only helps if "
+                        "blocks_to_swap started below the max."
+                    ),
+                ),
+                _field(
+                    "train.oom_skip.bump_block_swap_step",
+                    "Block-swap bump step",
+                    "integer",
+                    default=2,
+                    min_value=1,
+                    importance="advanced",
+                    when={
+                        "all": [
+                            {"field": "train.oom_skip.enabled", "equals": True},
+                            {"field": "train.oom_skip.bump_block_swap", "equals": True},
+                        ],
+                    },
+                    description="How many extra blocks to swap each time the OOM limit is hit.",
                 ),
                 _field(
                     "ema_decay",

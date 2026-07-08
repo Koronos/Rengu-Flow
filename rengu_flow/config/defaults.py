@@ -248,3 +248,5 @@ def set_config_defaults(config: dict[str, Any]) -> None:
     oom_skip.setdefault("enabled", True)
     oom_skip.setdefault("max_consecutive", 3)
     oom_skip.setdefault("clear_cache_on_skip", True)
+    oom_skip.setdefault("bump_block_swap", False)
+    oom_skip.setdefault("bump_block_swap_step", 2)

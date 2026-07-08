@@ -1243,6 +1243,10 @@ def _run_training(args, config):
 
     oom_skip_cfg = config.get("train", {}).get("oom_skip", {})
     oom_skip_enabled = bool(oom_skip_cfg.get("enabled", False))
+    # On reaching max_consecutive OOMs, raise blocks_to_swap by this step (freeing more base-model
+    # VRAM) and keep going, up to num_blocks, instead of aborting — off by default.
+    bump_block_swap = bool(oom_skip_cfg.get("bump_block_swap", False))
+    bump_block_swap_step = int(oom_skip_cfg.get("bump_block_swap_step", 2))
     # Emergency checkpoint on ANY otherwise-fatal error (OOM, I/O, etc.) so the run is resumable
     # instead of lost. Best-effort: a failed save never masks the original error. Legacy key
     # ``save_checkpoint_on_oom`` is honoured as the default when the broader key is unset.
@@ -1373,7 +1377,33 @@ def _run_training(args, config):
                             step=step,
                             sink=sink,
                         )
-                        oom_skip_state.record_skip()
+                        # About to hit the consecutive-OOM limit? If bump_block_swap is on and the
+                        # offloader can still swap more blocks, raise blocks_to_swap and reset the
+                        # streak (3 fresh tries at the higher swap) instead of aborting; only abort
+                        # once every block is already swapped.
+                        _at_limit = (
+                            oom_skip_state.consecutive + 1 > oom_skip_state.max_consecutive
+                        )
+                        _off = getattr(model, "_block_swap_offloader", None)
+                        _bumped = False
+                        if (
+                            _at_limit and bump_block_swap
+                            and _off is not None and getattr(_off, "enabled", False)
+                        ):
+                            _before = _off.blocks_to_swap
+                            _after = _off.increase_swap(bump_block_swap_step)
+                            if _after > _before:
+                                oom_skip_state.record_success()  # fresh streak at the higher swap
+                                _bumped = True
+                                if is_main_process():
+                                    print(
+                                        f"rengu_flow: {oom_skip_state.max_consecutive} consecutive "
+                                        f"OOMs — raised blocks_to_swap {_before} -> {_after}, "
+                                        "retrying (oom_skip.bump_block_swap)",
+                                        flush=True,
+                                    )
+                        if not _bumped:
+                            oom_skip_state.record_skip()  # normal path: aborts once past the limit
                         train_dataloader.sync_epoch()
                         skipped_oom = True
                     else:

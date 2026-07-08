@@ -56,6 +56,9 @@ class NoopOffloader:
     def apply_training_layout(self) -> None:
         pass
 
+    def increase_swap(self, step: int = 2) -> int:
+        return 0
+
 
 class BlockSwapOffloader:
     """Keep swapable blocks on CPU between forward steps; move one block to GPU per step."""
@@ -449,6 +452,24 @@ class HookBlockSwapOffloader:
             return
         self._park_on_cpu()
         self._suspended = False
+
+    def increase_swap(self, step: int = 2) -> int:
+        """Swap ``step`` more blocks (lower the resident cap) to free VRAM after an OOM, then park
+        every block on the CPU so the next forward re-pulls only up to the new, smaller cap.
+        Returns the resulting ``blocks_to_swap`` (clamped to ``num_blocks``; unchanged when already
+        maxed or disabled)."""
+        if not self._enabled:
+            return self.blocks_to_swap
+        new_swap = min(self.blocks_to_swap + max(1, int(step)), self.num_blocks)
+        if new_swap == self.blocks_to_swap:
+            return self.blocks_to_swap  # already swapping every block
+        self.blocks_to_swap = new_swap
+        self.resident_cap = max(1, self.num_blocks - self.blocks_to_swap)
+        self._prefetch = self._pin and self.resident_cap >= 2
+        if not self._suspended:
+            # Drop every resident GPU copy now; the hooks re-pull at the new cap on the next step.
+            self._park_on_cpu()
+        return self.blocks_to_swap
 
     def apply_training_layout(self) -> None:
         """Push every swappable block to CPU; blocks are pulled back on demand by the hooks. When

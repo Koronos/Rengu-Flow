@@ -25,6 +25,16 @@ def test_disabled_when_zero() -> None:
     assert off._handles == []
 
 
+def test_increase_swap_raises_cap_and_clamps() -> None:
+    off = HookBlockSwapOffloader(_blocks(6), blocks_to_swap=2, device="cpu")  # cap = 6 - 2 = 4
+    assert (off.blocks_to_swap, off.resident_cap) == (2, 4)
+    assert off.increase_swap(2) == 4  # swap 2 more
+    assert (off.blocks_to_swap, off.resident_cap) == (4, 2)
+    assert off.increase_swap(10) == 6  # clamps to num_blocks
+    assert (off.blocks_to_swap, off.resident_cap) == (6, 1)
+    assert off.increase_swap(2) == 6  # already maxed -> unchanged
+
+
 def test_resident_cap_and_lru_eviction() -> None:
     blocks = _blocks(5)
     off = HookBlockSwapOffloader(blocks, blocks_to_swap=3, device="cpu")  # cap = 5 - 3 = 2
