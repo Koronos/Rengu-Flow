@@ -36,19 +36,35 @@ def test_is_cuda_oom_other_runtime_error():
     assert not is_cuda_oom(RuntimeError("something else"))
 
 
-def test_oom_skip_state_resets_on_success():
-    state = OomSkipState(max_consecutive=3)
-    state.consecutive = 2
-    state.record_success()
-    assert state.consecutive == 0
+def test_oom_skip_at_limit_within_window():
+    # 3 OOMs within the 10-step window -> at limit on the 3rd (the point to bump swap or abort).
+    state = OomSkipState(max_in_window=3)
+    state.record_skip(0)
+    assert not state.at_limit(0)
+    state.record_skip(4)
+    assert not state.at_limit(4)
+    state.record_skip(9)
+    assert state.at_limit(9)  # 3 OOMs in steps 0..9
 
 
-def test_oom_skip_state_aborts_after_max():
-    state = OomSkipState(max_consecutive=2)
-    state.record_skip()
-    state.record_skip()
-    with pytest.raises(RuntimeError, match="OOM during training"):
-        state.record_skip()
+def test_oom_skip_window_forgets_aged_out_steps():
+    # OOMs interleaved with good steps but spread past the 10-step window must NOT trip the limit.
+    state = OomSkipState(max_in_window=3)
+    state.record_skip(0)
+    state.record_skip(5)
+    # step 20 is >10 past step 0 and 5: only the step-20 OOM is in-window.
+    state.record_skip(20)
+    assert not state.at_limit(20)
+    assert state.recent(20) == 1
+
+
+def test_oom_skip_reset_window_clears_history():
+    state = OomSkipState(max_in_window=3)
+    state.record_skip(0)
+    state.record_skip(1)
+    state.reset_window()  # e.g. after a swap bump
+    assert state.recent(1) == 0
+    assert not state.at_limit(1)
 
 
 def test_handle_oom_skip_zeros_grad():
@@ -59,7 +75,7 @@ def test_handle_oom_skip_zeros_grad():
         engine.optimizer.zeroed = True
 
     engine.optimizer.zero_grad = zero_grad
-    state = OomSkipState(max_consecutive=3)
+    state = OomSkipState(max_in_window=3)
     handle_oom_skip(state, engine, clear_cache=False)
     assert engine.optimizer.zeroed is True
 
@@ -80,5 +96,5 @@ def test_handle_oom_skip_resets_timers():
     engine.optimizer = type("O", (), {})()
     engine.optimizer.zero_grad = lambda set_to_none=True: None
     engine.timers = _FakeTimerGroup()
-    handle_oom_skip(OomSkipState(max_consecutive=3), engine, clear_cache=False)
+    handle_oom_skip(OomSkipState(max_in_window=3), engine, clear_cache=False)
     assert all(not t.started_ for t in engine.timers.timers.values())

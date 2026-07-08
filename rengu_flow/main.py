@@ -1243,8 +1243,8 @@ def _run_training(args, config):
 
     oom_skip_cfg = config.get("train", {}).get("oom_skip", {})
     oom_skip_enabled = bool(oom_skip_cfg.get("enabled", False))
-    # On reaching max_consecutive OOMs, raise blocks_to_swap by this step (freeing more base-model
-    # VRAM) and keep going, up to num_blocks, instead of aborting — off by default.
+    # On reaching max_in_window OOMs (within the 10-step window), raise blocks_to_swap by this step
+    # (freeing more base-model VRAM) and keep going, up to num_blocks, instead of aborting — off by default.
     bump_block_swap = bool(oom_skip_cfg.get("bump_block_swap", False))
     bump_block_swap_step = int(oom_skip_cfg.get("bump_block_swap_step", 2))
     # Emergency checkpoint on ANY otherwise-fatal error (OOM, I/O, etc.) so the run is resumable
@@ -1260,7 +1260,11 @@ def _run_training(args, config):
     if oom_skip_enabled:
         from rengu_flow.utils.oom_skip import OomSkipState, handle_oom_skip
 
-        oom_skip_state = OomSkipState(max_consecutive=int(oom_skip_cfg.get("max_consecutive", 3)))
+        oom_skip_state = OomSkipState(
+            max_in_window=int(
+                oom_skip_cfg.get("max_in_window", oom_skip_cfg.get("max_consecutive", 3))
+            )
+        )
 
     # Budget backoff: activation_memory_budget is a fraction of the saved set,
     # so its byte translation can overshoot on any new model/resolution/batch
@@ -1370,6 +1374,7 @@ def _run_training(args, config):
                         train_dataloader.sync_epoch()
                         skipped_oom = True
                     elif oom_skip_enabled:
+                        oom_skip_state.record_skip(step)  # count first so the banner reads N/max
                         handle_oom_skip(
                             oom_skip_state,
                             model_engine,
@@ -1377,33 +1382,34 @@ def _run_training(args, config):
                             step=step,
                             sink=sink,
                         )
-                        # About to hit the consecutive-OOM limit? If bump_block_swap is on and the
-                        # offloader can still swap more blocks, raise blocks_to_swap and reset the
-                        # streak (3 fresh tries at the higher swap) instead of aborting; only abort
-                        # once every block is already swapped.
-                        _at_limit = (
-                            oom_skip_state.consecutive + 1 > oom_skip_state.max_consecutive
-                        )
-                        _off = getattr(model, "_block_swap_offloader", None)
-                        _bumped = False
-                        if (
-                            _at_limit and bump_block_swap
-                            and _off is not None and getattr(_off, "enabled", False)
-                        ):
-                            _before = _off.blocks_to_swap
-                            _after = _off.increase_swap(bump_block_swap_step)
-                            if _after > _before:
-                                oom_skip_state.record_success()  # fresh streak at the higher swap
-                                _bumped = True
-                                if is_main_process():
-                                    print(
-                                        f"rengu_flow: {oom_skip_state.max_consecutive} consecutive "
-                                        f"OOMs — raised blocks_to_swap {_before} -> {_after}, "
-                                        "retrying (oom_skip.bump_block_swap)",
-                                        flush=True,
-                                    )
-                        if not _bumped:
-                            oom_skip_state.record_skip()  # normal path: aborts once past the limit
+                        # Enough OOMs inside the 10-step window? If bump_block_swap is on and the
+                        # offloader can still swap more blocks, raise blocks_to_swap and start a
+                        # fresh window (retry at the higher swap) instead of aborting; only abort
+                        # once every block is already swapped (or bump is off).
+                        if oom_skip_state.at_limit(step):
+                            _off = getattr(model, "_block_swap_offloader", None)
+                            _bumped = False
+                            if (
+                                bump_block_swap
+                                and _off is not None and getattr(_off, "enabled", False)
+                            ):
+                                _before = _off.blocks_to_swap
+                                _after = _off.increase_swap(bump_block_swap_step)
+                                if _after > _before:
+                                    oom_skip_state.reset_window()  # fresh window at higher swap
+                                    _bumped = True
+                                    if is_main_process():
+                                        print(
+                                            f"rengu_flow: {oom_skip_state.max_in_window} OOMs within "
+                                            f"{oom_skip_state.window} steps — raised blocks_to_swap "
+                                            f"{_before} -> {_after}, retrying (oom_skip.bump_block_swap)",
+                                            flush=True,
+                                        )
+                            if not _bumped:
+                                raise RuntimeError(
+                                    f"OOM {oom_skip_state.max_in_window} times within "
+                                    f"{oom_skip_state.window} training steps, aborting training"
+                                )
                         train_dataloader.sync_epoch()
                         skipped_oom = True
                     else:
@@ -1424,8 +1430,6 @@ def _run_training(args, config):
                 step += 1
                 examples += global_batch_size
                 continue
-            if oom_skip_state is not None:
-                oom_skip_state.record_success()
             if training_ema is not None:
                 training_ema.update(parameters_to_train)
             if bench_enabled(config) and is_main_process():

@@ -452,7 +452,7 @@ def _split_training_section(fields: list[dict[str, Any]]) -> list[dict[str, Any]
             "tread.disable_after_frac",
         ]),
         ("oom_recovery", "OOM recovery", [
-            "train.oom_skip.enabled", "train.oom_skip.max_consecutive",
+            "train.oom_skip.enabled", "train.oom_skip.max_in_window",
             "train.oom_skip.clear_cache_on_skip", "train.oom_skip.bump_block_swap",
             "train.oom_skip.bump_block_swap_step",
         ]),
@@ -876,21 +876,22 @@ def get_sections() -> list[dict[str, Any]]:
                     description=(
                         "Catch a CUDA OOM during a training step, free the CUDA cache, and skip "
                         "that batch instead of crashing — recovers from transient fragmentation-"
-                        "driven OOMs. After 'max consecutive' OOMs in a row it saves an emergency "
-                        "checkpoint and stops."
+                        "driven OOMs. Once 'max OOMs in window' OOMs land within a 10-step window "
+                        "it saves an emergency checkpoint and stops."
                     ),
                 ),
                 _field(
-                    "train.oom_skip.max_consecutive",
-                    "Max consecutive OOM skips",
+                    "train.oom_skip.max_in_window",
+                    "Max OOMs in a 10-step window",
                     "integer",
                     default=3,
                     min_value=1,
                     importance="advanced",
                     when={"field": "train.oom_skip.enabled", "equals": True},
                     description=(
-                        "Abort (save an emergency checkpoint + stop) after this many OOM-skipped "
-                        "steps in a row, so a deterministic OOM does not loop forever."
+                        "Act (bump block swap, or abort with an emergency checkpoint) once this many "
+                        "steps OOM within any 10-step window — catches OOMs interleaved with good "
+                        "steps, not just back-to-back ones."
                     ),
                 ),
                 _field(
@@ -913,7 +914,7 @@ def get_sections() -> list[dict[str, Any]]:
                     importance="advanced",
                     when={"field": "train.oom_skip.enabled", "equals": True},
                     description=(
-                        "On reaching 'max consecutive' OOMs, swap more transformer blocks to CPU "
+                        "On reaching 'max OOMs in window', swap more transformer blocks to CPU "
                         "(freeing base-model VRAM) and keep training instead of aborting — repeats "
                         "up to every block swapped, then saves and stops. Only helps if "
                         "blocks_to_swap started below the max."
