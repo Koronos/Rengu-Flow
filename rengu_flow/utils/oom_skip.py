@@ -10,7 +10,10 @@ from rengu_flow.utils.common import empty_cuda_cache, is_main_process
 def is_cuda_oom(exc: BaseException) -> bool:
     if isinstance(exc, torch.cuda.OutOfMemoryError):
         return True
-    return isinstance(exc, RuntimeError) and "CUDA out of memory" in str(exc)
+    # Match OOMs from any layer, not just torch's "CUDA out of memory": a fused optimizer kernel
+    # OOMs as "Triton Error [CUDA]: out of memory", cuBLAS/cuDNN as their own strings. The emitting
+    # library varies; "out of memory" doesn't. (CPU OOMs say "not enough memory", so they're excluded.)
+    return isinstance(exc, RuntimeError) and "out of memory" in str(exc).lower()
 
 
 _OOM_WINDOW = 10  # fixed: act once max_in_window OOMs land within this many training steps

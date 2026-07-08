@@ -32,8 +32,14 @@ def test_is_cuda_oom_runtime_message():
     assert is_cuda_oom(RuntimeError("CUDA out of memory. Tried to allocate 2.00 GiB"))
 
 
+def test_is_cuda_oom_triton_message():
+    # Fused optimizer kernels (kaon/adakaon) OOM through Triton with a different string than torch.
+    assert is_cuda_oom(RuntimeError("Triton Error [CUDA]: out of memory"))
+
+
 def test_is_cuda_oom_other_runtime_error():
     assert not is_cuda_oom(RuntimeError("something else"))
+    assert not is_cuda_oom(RuntimeError("DefaultCPUAllocator: not enough memory"))
 
 
 def test_oom_skip_at_limit_within_window():
