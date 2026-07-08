@@ -243,6 +243,8 @@ def set_config_defaults(config: dict[str, Any]) -> None:
 
     train_cfg = config.setdefault("train", {})
     oom_skip = train_cfg.setdefault("oom_skip", {})
-    oom_skip.setdefault("enabled", False)
+    # On by default: a transient (fragmentation-driven) OOM skips the batch and continues instead
+    # of killing the run; max_consecutive real OOMs in a row still aborts with an emergency save.
+    oom_skip.setdefault("enabled", True)
     oom_skip.setdefault("max_consecutive", 3)
     oom_skip.setdefault("clear_cache_on_skip", True)

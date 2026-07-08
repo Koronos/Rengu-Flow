@@ -825,6 +825,43 @@ def get_sections() -> list[dict[str, Any]]:
                 ),
                 _field("x_axis_examples", "TensorBoard x-axis = examples", "boolean"),
                 _field(
+                    "train.oom_skip.enabled",
+                    "Skip step on CUDA OOM",
+                    "boolean",
+                    default=True,
+                    description=(
+                        "Catch a CUDA OOM during a training step, free the CUDA cache, and skip "
+                        "that batch instead of crashing — recovers from transient fragmentation-"
+                        "driven OOMs. After 'max consecutive' OOMs in a row it saves an emergency "
+                        "checkpoint and stops."
+                    ),
+                ),
+                _field(
+                    "train.oom_skip.max_consecutive",
+                    "Max consecutive OOM skips",
+                    "integer",
+                    default=3,
+                    min_value=1,
+                    importance="advanced",
+                    when={"field": "train.oom_skip.enabled", "equals": True},
+                    description=(
+                        "Abort (save an emergency checkpoint + stop) after this many OOM-skipped "
+                        "steps in a row, so a deterministic OOM does not loop forever."
+                    ),
+                ),
+                _field(
+                    "train.oom_skip.clear_cache_on_skip",
+                    "Empty CUDA cache on skip",
+                    "boolean",
+                    default=True,
+                    importance="advanced",
+                    when={"field": "train.oom_skip.enabled", "equals": True},
+                    description=(
+                        "Run empty_cache() + ipc_collect() on each OOM skip to release the "
+                        "fragmented reserved pool before retrying the next step."
+                    ),
+                ),
+                _field(
                     "ema_decay",
                     "EMA decay",
                     "number",
