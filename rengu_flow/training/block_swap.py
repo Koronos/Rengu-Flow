@@ -99,11 +99,19 @@ class BlockSwapOffloader:
         tensors stay put on the GPU, exactly as the training HookBlockSwapOffloader relies on.
 
         With ``swap_trainable=False`` the trainable params are left untouched (kept wherever they
-        already are — GPU-resident) so they never get stranded on CPU across a preview."""
+        already are — GPU-resident) so they never get stranded on CPU across a preview.
+
+        Tiny buffers (fp8 tensorwise weight scales, bnb quant_state, etc.) stay GPU-resident and are
+        NEVER parked to CPU — they're needed alongside the streamed weight and cost ~nothing, and the
+        training offloader's restore path re-homes only params, not buffers. Parking them here would
+        strand each block's fp8 scale on CPU while its weight streams back to GPU → a cuda/cpu
+        device mismatch on the next forward (the failure this mirrors the size-gate from
+        HookBlockSwapOffloader._offload_block_to_cpu to avoid)."""
         for p in self._swappable_params(block):
             p.data = p.data.to(device, non_blocking=non_blocking)
         for b in block.buffers():
-            b.data = b.data.to(device, non_blocking=non_blocking)
+            dst = device if b.numel() > 1_000_000 else self.device  # large stream; tiny stay resident
+            b.data = b.data.to(dst, non_blocking=non_blocking)
 
     def _swappable_params(self, block: nn.Module):
         """Params that physically stream CPU<->GPU: everything when ``swap_trainable``; only the

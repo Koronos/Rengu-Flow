@@ -91,6 +91,28 @@ def test_swap_trainable_false_keeps_adapter_on_gpu_cuda() -> None:
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required for device moves")
+def test_block_swap_keeps_tiny_buffers_resident_cuda() -> None:
+    """Tiny buffers (fp8 weight scales) must stay GPU-resident even when the block streams to CPU —
+    the training offloader's restore re-homes only params, so a parked scale strands on CPU and
+    causes a cuda/cpu mismatch on the next forward."""
+
+    class _Fp8ish(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.weight = nn.Parameter(torch.zeros(4, 4))       # streams CPU<->GPU
+            self.register_buffer("scale", torch.ones(4))        # tiny -> stays resident
+            self.register_buffer("big", torch.zeros(1_500_000)) # large -> streams
+
+    blocks = nn.ModuleList([_Fp8ish()])
+    blocks.to("cuda")
+    b = blocks[0]
+    BlockSwapOffloader(blocks, blocks_to_swap=1, device="cuda")  # __init__ applies the CPU layout
+    assert b.weight.device.type == "cpu"   # weight parked
+    assert b.scale.device.type == "cuda"   # tiny buffer NOT parked (the fix)
+    assert b.big.device.type == "cpu"      # large buffer streams like the weight
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required for device moves")
 def test_block_swap_roundtrip_cuda() -> None:
     blocks = nn.ModuleList([_Block(), _Block()])
     blocks.to("cuda")

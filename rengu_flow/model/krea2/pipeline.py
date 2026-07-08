@@ -461,8 +461,16 @@ class Krea2Pipeline(BasePipeline):
             )
         else:
             self._preview_offloader = None
-            param = next(self.transformer.parameters())
-            if param.device != target:
+            # When block swap is active, suspend() parked the frozen block weights on CPU. The first
+            # parameter is a never-swapped top-level module, so `param.device` can't reveal that —
+            # the old `!= target` short-circuit then skipped the move and left every block's fp8
+            # weight (and scale buffer) on CPU → a cuda/cpu mismatch in the preview forward. So force
+            # the whole-transformer move when swapping; `.to()` carries params AND buffers back.
+            # Without block swap the DiT is already resident, so keep the skip to avoid a needless
+            # `.to()` (which reassigns param storage on a DeepSpeed/compiled module). If the full DiT
+            # doesn't fit for a no-swap preview, set preview_blocks_to_swap > 0.
+            swap_active = train_offloader is not None and getattr(train_offloader, "enabled", False)
+            if swap_active or next(self.transformer.parameters()).device != target:
                 if is_main_process():
                     print(f"rengu_flow: moving DiT to {target} for preview...", flush=True)
                 self.transformer.to(target)
