@@ -118,6 +118,29 @@ def _materialize_dataset_for_job(config: dict[str, Any], job_staging: Path) -> N
     config["dataset"] = str(merged_path.resolve())
 
 
+def _materialize_eval_datasets_for_job(config: dict[str, Any], job_staging: Path) -> None:
+    """Resolve library refs in ``eval_datasets`` entries (str path, or dict with a 'config' key —
+    see ``rengu_flow.config.loader.load_eval_dataset_config``). Mirrors ``_materialize_dataset_for_job``,
+    which only ever handled the ``dataset`` field — eval sets referencing the UI's dataset library
+    were staged unresolved and failed at trainer startup (`collect_script_dataset_library_ref_issues`)."""
+    entries = config.get("eval_datasets")
+    if not isinstance(entries, list):
+        return
+    out: list[Any] = []
+    for entry in entries:
+        if isinstance(entry, str) and entry.strip():
+            resolved = _resolve_dataset_value(entry.strip(), job_staging)
+            _copy_dataset_file_if_outside_staging(Path(resolved), job_staging)
+            out.append(resolved)
+        elif isinstance(entry, dict) and isinstance(entry.get("config"), str):
+            resolved = _resolve_dataset_value(entry["config"].strip(), job_staging)
+            _copy_dataset_file_if_outside_staging(Path(resolved), job_staging)
+            out.append({**entry, "config": resolved})
+        else:
+            out.append(entry)
+    config["eval_datasets"] = out
+
+
 def _resolve_dataset_value(value: str, job_staging: Path) -> str:
     """Turn library dataset refs and relative paths into absolute TOML paths for training.
 
@@ -165,6 +188,7 @@ def materialize_staging(
     set_config_defaults(copy.deepcopy(config))
     if "dataset" in config:
         _materialize_dataset_for_job(config, job_staging)
+    _materialize_eval_datasets_for_job(config, job_staging)
     out = job_staging / "train.toml"
     out.write_text(toml.dumps(config), encoding="utf-8")
     return out

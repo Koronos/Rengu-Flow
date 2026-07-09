@@ -121,6 +121,43 @@ def test_materialize_staging_merges_multiple_datasets(ui_data_tmp: Path) -> None
     assert len(merged["directory"]) == 2
 
 
+def test_materialize_staging_resolves_eval_datasets_library_ref(ui_data_tmp: Path) -> None:
+    """eval_datasets entries referencing the UI library must resolve during staging too —
+    only `dataset` was handled before, so an eval-set-via-library job failed at trainer
+    startup with 'uses UI-only library reference' even though it validated fine in the UI."""
+    train_did = datasets_store.insert_dataset(DATASET_TOML)
+    eval_did = datasets_store.insert_dataset(
+        DATASET_TOML.replace('path = "/tmp/img"', 'path = "/tmp/eval_img"')
+    )
+    base = toml.loads(MINIMAL_TOML)
+    base["dataset"] = library_db.dataset_library_ref(train_did)
+    base["eval_datasets"] = [library_db.dataset_library_ref(eval_did)]
+    content = toml.dumps(base)
+
+    staging = run_staging.materialize_staging(content, "job-eval-str")
+    cfg = toml.loads(staging.read_text(encoding="utf-8"))
+    assert len(cfg["eval_datasets"]) == 1
+    assert Path(cfg["eval_datasets"][0]).is_absolute()
+    assert Path(cfg["eval_datasets"][0]).is_file()
+
+
+def test_materialize_staging_resolves_eval_datasets_dict_form(ui_data_tmp: Path) -> None:
+    train_did = datasets_store.insert_dataset(DATASET_TOML)
+    eval_did = datasets_store.insert_dataset(DATASET_TOML)
+    content = MINIMAL_TOML.replace(
+        "rengu-flow-dataset:my_dataset", library_db.dataset_library_ref(train_did)
+    )
+    ref = library_db.dataset_library_ref(eval_did)
+    content += f'\n[[eval_datasets]]\nname = "held_out"\nconfig = "{ref}"\n'
+
+    staging = run_staging.materialize_staging(content, "job-eval-dict")
+    cfg = toml.loads(staging.read_text(encoding="utf-8"))
+    entry = cfg["eval_datasets"][0]
+    assert entry["name"] == "held_out"
+    assert Path(entry["config"]).is_absolute()
+    assert Path(entry["config"]).is_file()
+
+
 def test_validate_accepts_dataset_list(ui_data_tmp: Path, minimal_config: dict) -> None:
     did = datasets_store.insert_dataset(DATASET_TOML)
     ref = library_db.dataset_library_ref(did)
