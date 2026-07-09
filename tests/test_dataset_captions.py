@@ -515,6 +515,46 @@ def test_size_bucket_online_captions_selects_caption_number(tmp_path):
     assert sb[0]["caption"] == "third"
 
 
+def test_size_bucket_online_captions_strips_directory_from_image_spec(tmp_path):
+    """image_spec for non-tar entries carries the full enumerated path
+    (self.path.glob("*") -> str(file), see process_file), not a bare filename — the
+    online_captions lookup must strip it to match add_captions' basename-keyed
+    captions.json, or every lookup here misses whenever the directory path is non-trivial."""
+    full_path = "/some/dataset/dir/img.png"
+    metadata = datasets.Dataset.from_dict(
+        {
+            "image_spec": [[None, full_path]],
+            "caption": [[""]],
+        }
+    )
+
+    class FakeDir:
+        captions_dict = {"img.png": ["first", "second", "third"]}
+
+        def folder_subsampler(self):
+            return FolderSubsampler([], cap=None, static=False, seed=0)  # uncapped
+
+    sb = SizeBucketDataset(
+        metadata,
+        {"path": str(tmp_path), "num_repeats": 1},
+        (512, 512, 1),
+        tmp_path / "cache",
+        FakeDir(),
+    )
+    sb.latent_dataset = [{"latents": 0}]
+    sb.iteration_order = datasets.Dataset.from_dict(
+        {
+            "image_spec": [[None, full_path]],
+            "latents_idx": [0],
+            "caption": [""],
+            "caption_number": [1],
+        }
+    )
+    sb.text_embedding_datasets = []
+    sb.uncond_text_embeddings = []
+    assert sb[0]["caption"] == "second"
+
+
 def test_uniform_caption_variants_equal_counts():
     from rengu_flow.data.dataset import uniform_caption_variants
 

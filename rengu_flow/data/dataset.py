@@ -723,7 +723,15 @@ class SizeBucketDataset:
             caption = ""
         elif self.captions_dict and not self._caption_variants_expanded:
             spec = entry["image_spec"]
-            key = spec[-1]
+            tar_file, image_file = spec[0], spec[-1]
+            # Match add_captions' key normalization (dataset.py ~1479): non-tar image_spec
+            # entries carry the full enumerated path (self.path.glob("*") -> str(file)), not a
+            # bare filename, so captions.json (basename-keyed) only matches after stripping the
+            # directory. Without this, every online_captions lookup here missed whenever the
+            # directory path had ever contained a "/" (i.e. always) for a fraction of samples
+            # whose fast-path baked caption wasn't used (this method is also called directly),
+            # silently falling back to an empty caption.
+            key = image_file.split("/")[-1] if tar_file is None else image_file
             if key in self.captions_dict:
                 caption = self.captions_dict[key][entry["caption_number"]]
             else:
