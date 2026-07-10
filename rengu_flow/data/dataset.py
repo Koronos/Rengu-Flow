@@ -1596,8 +1596,18 @@ class DirectoryDataset:
                 )
 
             seed = seed_from_hash(self.path)
-            if self.shuffle_metadata:
+            # Same rule as SizeBucketDataset's per-bucket shuffle: parquet-backed rows
+            # must keep enumeration order or every downstream cache read decodes a
+            # whole row group per row (random-access thrash). Training-time mixing is
+            # handled per epoch by RandomCursor, not by this materialization order.
+            has_parquet_rows = any(c is not None for c in inline_captions)
+            if self.shuffle_metadata and not has_parquet_rows:
                 metadata_dataset = metadata_dataset.shuffle(seed=seed)
+            elif self.shuffle_metadata and has_parquet_rows:
+                logger.info(
+                    "shuffle_metadata skipped for %s: parquet-backed rows stay in "
+                    "enumeration order (sequential cache reads).", self.path,
+                )
             caching_progress.note("saving intermediate metadata")
             metadata_dataset.save_to_disk(str(metadata_cache_1))
             del metadata_dataset
