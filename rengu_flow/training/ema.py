@@ -11,10 +11,21 @@ from torch import nn
 class TrainingEMA:
     """Track EMA copies of parameters on CPU to reduce VRAM."""
 
-    def __init__(self, parameters: list[nn.Parameter], decay: float) -> None:
+    def __init__(
+        self, parameters: list[nn.Parameter], decay: float, update_interval: int = 1
+    ) -> None:
         if not 0.0 < decay < 1.0:
             raise ValueError(f"ema_decay must be in (0, 1), got {decay}")
-        self.decay = decay
+        if update_interval < 1:
+            raise ValueError(f"ema_update_interval must be >= 1, got {update_interval}")
+        # Updating every N steps with decay^N keeps the same smoothing horizon as a
+        # per-step update (the decay products match; only intra-window drift differs,
+        # negligible for N << 1/(1-decay)). This matters because each update round-trips
+        # every trainable param over PCIe to the fp32 CPU shadow — measured ~0.4-0.7s per
+        # step on a 348M-param full finetune, i.e. it can silently dominate the step time
+        # (it runs outside the timed train_batch window).
+        self.decay = decay ** update_interval
+        self.update_interval = update_interval
         self.shadow: dict[int, torch.Tensor] = {}
         for p in parameters:
             if p.requires_grad:
@@ -25,7 +36,11 @@ class TrainingEMA:
         decay = config.get("ema_decay")
         if decay is None:
             return None
-        return cls(parameters, float(decay))
+        return cls(
+            parameters,
+            float(decay),
+            update_interval=int(config.get("ema_update_interval", 1)),
+        )
 
     def update(self, parameters: list[nn.Parameter]) -> None:
         d = self.decay

@@ -1351,8 +1351,13 @@ def _run_training(args, config):
             # if needed. Must run before pulling this step's micro-batches.
             if schedule_active:
                 train_dataloader.refresh_for_step(step)
-            iterator = get_data_iterator_for_step(train_dataloader, model_engine)
+            # t0 must wrap the data fetch too: get_data_iterator_for_step calls next()
+            # eagerly (pipeline.py), so timing from after it excludes the entire dataloader
+            # cost from step_time_sec/steps_per_second/eta — silently hiding a real
+            # data-bound bottleneck as if the GPU were the whole step (measured: reported
+            # ~2.9 steps/sec vs ~1.2 true wall-clock steps/sec on a data-bound run).
             t0 = time.perf_counter()
+            iterator = get_data_iterator_for_step(train_dataloader, model_engine)
             skipped_oom = False
             act_offload_ctx = (
                 act_offloader.step() if act_offloader is not None else contextlib.nullcontext()
@@ -1430,7 +1435,7 @@ def _run_training(args, config):
                 step += 1
                 examples += global_batch_size
                 continue
-            if training_ema is not None:
+            if training_ema is not None and step % training_ema.update_interval == 0:
                 training_ema.update(parameters_to_train)
             if bench_enabled(config) and is_main_process():
                 bench_record(
