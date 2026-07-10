@@ -467,7 +467,19 @@ class SizeBucketDataset:
         resolution: int | None = None,
     ) -> None:
         # Per-bucket shuffle mixes multi-resolution training better (diffusion-pipe).
-        metadata_dataset = metadata_dataset.shuffle(seed=seed_from_hash(size_bucket))
+        # SKIPPED for parquet-backed metadata: shuffling here randomizes the CACHING
+        # read order, and random row access into parquets decodes a whole row group
+        # per row (measured: 2 imgs/s from an HDD reading flat-out at 633 IOPS —
+        # ~50MB decompressed per served row). Keeping parquet rows in enumeration
+        # order makes caching reads near-sequential (each row group decoded ~once
+        # per bucket). Training-time mixing does not regress: the per-epoch
+        # RandomCursor order (_epoch_pool_order) shuffles what batches actually see.
+        first_spec = (
+            metadata_dataset[0]["image_spec"] if len(metadata_dataset) else (None, "")
+        )
+        is_parquet_backed = first_spec[0] is not None and str(first_spec[0]).endswith(".parquet")
+        if not is_parquet_backed:
+            metadata_dataset = metadata_dataset.shuffle(seed=seed_from_hash(size_bucket))
         self.metadata_dataset = metadata_dataset
         self._caption_variants = None
         self._caption_variants_expanded = False
