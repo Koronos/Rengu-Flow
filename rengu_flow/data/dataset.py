@@ -1453,7 +1453,26 @@ class DirectoryDataset:
                     if p.is_file()
                 }
 
+            from rengu_flow.data.parquet_source import MEMBER_PREFIX, ParquetSource
+
+            # Parquet rows carry their caption (and optionally width/height) in
+            # columns; enumeration scans ONLY those columns (no image bytes).
+            pq_source = ParquetSource(self.directory_config)
+            pq_row_captions: list | None = None
+            pq_row_dims: list | None = None
+
             def process_file(file):
+                nonlocal pq_row_captions, pq_row_dims
+                if file.suffix == ".parquet":
+                    path = str(file)
+                    cols = pq_source.enumerate_columns(path)
+                    n = len(cols["caption"])
+                    pq_row_captions = cols["caption"]
+                    if "width" in cols:
+                        pq_row_dims = list(zip(cols["width"], cols["height"]))
+                    else:
+                        pq_row_dims = [(None, None)] * n
+                    return [(path, f"{MEMBER_PREFIX}{i}") for i in range(n)]
                 if file.suffix != ".tar":
                     return [(None, str(file))]
                 with tarfile.open(file) as tar_f:
@@ -1466,13 +1485,22 @@ class DirectoryDataset:
             caption_files = []
             mask_files = []
             control_files = []
+            inline_captions = []   # parquet rows only; None for file/tar entries
+            inline_dims = []       # (width, height) from parquet columns, or (None, None)
             for file in tqdm(files, disable=not sys.stderr.isatty()):
                 if (
                     not file.is_file()
-                    or file.suffix in (".txt", ".npz", ".json", ".parquet", ".bak")
+                    or file.suffix in (".txt", ".npz", ".json", ".bak")
                 ):
                     continue
-                for image_spec in process_file(file):
+                pq_row_captions = pq_row_dims = None
+                for i, image_spec in enumerate(process_file(file)):
+                    if pq_row_captions is not None:
+                        inline_captions.append(pq_row_captions[i])
+                        inline_dims.append(pq_row_dims[i])
+                    else:
+                        inline_captions.append(None)
+                        inline_dims.append((None, None))
                     image_file = Path(image_spec[1])
                     caption_file = image_file.with_suffix(".txt")
                     if has_captions_json or not caption_file.exists():
@@ -1513,6 +1541,11 @@ class DirectoryDataset:
             }
             if self.control_path:
                 d["control_file"] = control_files
+            if any(c is not None for c in inline_captions):
+                d["caption"] = [c if c is not None else [""] for c in inline_captions]
+                if any(w is not None for w, _ in inline_dims):
+                    d["pq_width"] = [w for w, _ in inline_dims]
+                    d["pq_height"] = [h for _, h in inline_dims]
             metadata_dataset = datasets.Dataset.from_dict(d)
 
             if captions_json.exists():
@@ -1522,6 +1555,10 @@ class DirectoryDataset:
 
                 def add_captions(example):
                     tar_file, image_file = example["image_spec"]
+                    if tar_file is not None and str(tar_file).endswith(".parquet"):
+                        # Parquet rows carry their own captions; captions.json is for
+                        # loose/tar files sharing the directory.
+                        return {"caption": example["caption"]}
                     if tar_file is None:
                         image_file = image_file.split("/")[-1]
                     captions = caption_data.get(image_file)
@@ -1580,6 +1617,7 @@ class DirectoryDataset:
 
     def _metadata_map_fn(self):
         tarfile_map = {}
+        pq_reader_box = [None]  # lazy per-process ParquetSource (same pattern as tarfile_map)
 
         def fn(example):
             caption_file = example["caption_file"][0]
@@ -1611,8 +1649,25 @@ class DirectoryDataset:
             if self.control_path:
                 empty_return["control_file"] = []
 
+            # Parquet fast path: width/height columns make this stage purely columnar —
+            # no image bytes are read at all for AR/size bucketing.
+            pq_w = example.get("pq_width", [None])[0]
+            pq_h = example.get("pq_height", [None])[0]
+            if pq_w and pq_h:
+                return self._bucketed_return(
+                    example, image_spec, captions, int(pq_w), int(pq_h), 1
+                )
+
             if image_spec[0] is None:
                 filepath_or_file = str(image_file)
+            elif str(image_spec[0]).endswith(".parquet"):
+                from rengu_flow.data.parquet_source import ParquetSource, spec_row
+
+                if pq_reader_box[0] is None:
+                    pq_reader_box[0] = ParquetSource(self.directory_config)
+                filepath_or_file = pq_reader_box[0].read_image(
+                    str(image_spec[0]), spec_row(image_spec)
+                )
             else:
                 tar_filename = image_spec[0]
                 if tar_filename not in tarfile_map:
@@ -1657,53 +1712,70 @@ class DirectoryDataset:
                 if hasattr(filepath_or_file, "close"):
                     filepath_or_file.close()
 
-            is_video = frames > 1
-            log_ar = np.log(width / height)
-
-            if self.use_size_buckets:
-                size_bucket = self._find_closest_size_bucket(
-                    log_ar, frames, is_video, width, height
-                )
-                if size_bucket is None:  # no_upscale + drop_undersized: too small for any bucket
-                    return empty_return
-                ar_bucket = None
-            else:
-                ar_bucket = self._find_closest_ar_bucket(
-                    log_ar, frames, is_video
-                )
-                if ar_bucket is None:
-                    return empty_return
-                size_bucket = None
-
-            if is_video and self._aug_enabled:
-                raise RuntimeError(
-                    f"Augmentation is enabled for {self.path} but {image_file} is video; "
-                    "not supported in this release."
-                )
-
-            variant_keys = self._variant_keys
-            ret = {
-                "image_spec": [],
-                "mask_file": [],
-                "caption": [],
-                "ar_bucket": [],
-                "size_bucket": [],
-                "is_video": [],
-            }
-            if self.control_path:
-                ret["control_file"] = []
-            for vk in variant_keys:
-                ret["image_spec"].append(with_variant_key(image_spec, vk))
-                ret["mask_file"].append(example["mask_file"][0])
-                ret["caption"].append(captions)
-                ret["ar_bucket"].append(ar_bucket)
-                ret["size_bucket"].append(size_bucket)
-                ret["is_video"].append(is_video)
-                if self.control_path:
-                    ret["control_file"].append(example["control_file"][0])
-            return ret
+            return self._bucketed_return(
+                example, image_spec, captions, width, height, frames
+            )
 
         return fn, tarfile_map
+
+    def _bucketed_return(self, example, image_spec, captions, width, height, frames):
+        """Bucket one image and expand it into the metadata rows (variant keys)."""
+        empty_return = {
+            "image_spec": [],
+            "mask_file": [],
+            "caption": [],
+            "ar_bucket": [],
+            "size_bucket": [],
+            "is_video": [],
+        }
+        if self.control_path:
+            empty_return["control_file"] = []
+
+        is_video = frames > 1
+        log_ar = np.log(width / height)
+
+        if self.use_size_buckets:
+            size_bucket = self._find_closest_size_bucket(
+                log_ar, frames, is_video, width, height
+            )
+            if size_bucket is None:  # no_upscale + drop_undersized: too small for any bucket
+                return empty_return
+            ar_bucket = None
+        else:
+            ar_bucket = self._find_closest_ar_bucket(
+                log_ar, frames, is_video
+            )
+            if ar_bucket is None:
+                return empty_return
+            size_bucket = None
+
+        if is_video and self._aug_enabled:
+            raise RuntimeError(
+                f"Augmentation is enabled for {self.path} but {image_spec[1]} is video; "
+                "not supported in this release."
+            )
+
+        variant_keys = self._variant_keys
+        ret = {
+            "image_spec": [],
+            "mask_file": [],
+            "caption": [],
+            "ar_bucket": [],
+            "size_bucket": [],
+            "is_video": [],
+        }
+        if self.control_path:
+            ret["control_file"] = []
+        for vk in variant_keys:
+            ret["image_spec"].append(with_variant_key(image_spec, vk))
+            ret["mask_file"].append(example["mask_file"][0])
+            ret["caption"].append(captions)
+            ret["ar_bucket"].append(ar_bucket)
+            ret["size_bucket"].append(size_bucket)
+            ret["is_video"].append(is_video)
+            if self.control_path:
+                ret["control_file"].append(example["control_file"][0])
+        return ret
 
     def _find_closest_ar_bucket(self, log_ar, frames, is_video):
         i = np.argmin(np.abs(log_ar - self.log_ars))

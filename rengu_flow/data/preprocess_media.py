@@ -93,6 +93,7 @@ class PreprocessMediaFile:
         if self.support_video:
             assert self.framerate
         self.tarfile_map = {}
+        self._pq_source = None  # lazy ParquetSource (parquet-backed image_specs)
 
     def __del__(self):
         for tar_f in self.tarfile_map.values():
@@ -119,6 +120,13 @@ class PreprocessMediaFile:
         if spec[0] is None:
             tar_f = None
             filepath_or_file = str(spec[1])
+        elif str(spec[0]).endswith(".parquet"):
+            from rengu_flow.data.parquet_source import ParquetSource, spec_row
+
+            if self._pq_source is None:
+                self._pq_source = ParquetSource()
+            tar_f = None
+            filepath_or_file = self._pq_source.read_image(str(spec[0]), spec_row(spec))
         else:
             tar_filename = spec[0]
             if tar_filename not in self.tarfile_map:
