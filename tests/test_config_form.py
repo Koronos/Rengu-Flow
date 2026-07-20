@@ -38,18 +38,17 @@ vae_path = "/v"
 
 
 def test_schema_training_core_importance() -> None:
+    # Looked up across all sections, not within "training": the 35-field Training loop was
+    # split into 7 focused sections (94073a9), which moved logging_steps and
+    # synthetic_num_batches to logging_debug. What is asserted here is the importance
+    # tagging, not which section a knob currently lives in.
     schema = get_schema()
-    training = next(s for s in schema["sections"] if s["id"] == "training")
-    epochs = next(f for f in training["fields"] if f["path"] == "epochs")
-    micro = next(f for f in training["fields"] if f["path"] == "micro_batch_size_per_gpu")
-    accum = next(f for f in training["fields"] if f["path"] == "gradient_accumulation_steps")
-    logging = next(f for f in training["fields"] if f["path"] == "logging_steps")
-    synthetic = next(f for f in training["fields"] if f["path"] == "synthetic_num_batches")
-    assert epochs["importance"] == "recommended"
-    assert micro["importance"] == "recommended"
-    assert accum["importance"] == "recommended"
-    assert logging["importance"] == "advanced"
-    assert synthetic["importance"] == "advanced"
+    fields = {f["path"]: f for sec in schema["sections"] for f in sec["fields"]}
+    assert fields["epochs"]["importance"] == "recommended"
+    assert fields["micro_batch_size_per_gpu"]["importance"] == "recommended"
+    assert fields["gradient_accumulation_steps"]["importance"] == "recommended"
+    assert fields["logging_steps"]["importance"] == "advanced"
+    assert fields["synthetic_num_batches"]["importance"] == "advanced"
 
 
 def test_schema_training_tab_importance_not_over_tagged() -> None:
