@@ -960,6 +960,7 @@ def _run_training(args, config):
         model_engine,
         pipeline_model,
         steps_per_epoch=steps_per_epoch,
+        training_ema=training_ema,
     )
     # Centralized tracking client: one sink fans out to the configured backends (manifest /
     # tensorboard / optional wandb). Built only on rank 0; other ranks get a no-op NullSink so
@@ -1158,6 +1159,9 @@ def _run_training(args, config):
             from rengu_flow.utils.rng_state import restore_rng_state
 
             restore_rng_state(client_state.get("rng_state"))
+            from rengu_flow.training.ema import load_ema_checkpoint
+
+            load_ema_checkpoint(load_path, training_ema, parameters_to_train)
             step = client_state["step"] + 1
             examples = client_state.get("examples", (step - 1) * global_batch_size) + global_batch_size
             epoch = epoch_schedule.current(step)

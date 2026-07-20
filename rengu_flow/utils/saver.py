@@ -143,6 +143,7 @@ class Saver:
         pipeline_model,
         *,
         steps_per_epoch: int = 1,
+        training_ema=None,
     ):
         self.args = args
         self.config = config
@@ -152,6 +153,7 @@ class Saver:
         self.train_dataloader = train_dataloader
         self.model_engine = model_engine
         self.pipeline_model = pipeline_model
+        self.training_ema = training_ema
         self.steps_per_epoch = max(int(steps_per_epoch), 1)
         self._last_status_step: int | None = None
         self._last_status_examples: int | None = None
@@ -342,7 +344,10 @@ class Saver:
         # iterate — same reason save_checkpoint does. Otherwise a lookahead optimizer's
         # between-step displacement is baked into the exported adapter (see
         # _persist_at_true_iterate).
-        with self._persist_at_true_iterate():
+        # EMA swap nests INSIDE _persist_at_true_iterate: the optimizer's eval() (true iterate)
+        # must run first, then EMA weights are written on top and read by the export. Reversing
+        # the order would let eval() overwrite the swapped-in EMA weights.
+        with self._persist_at_true_iterate(), self._averaged_weights():
             if self._async_writer is not None:
                 self._run_pipeline_export_async(name, adapter_only=adapter_only)
                 return
@@ -417,6 +422,24 @@ class Saver:
             self._finalize_successful_export()
             return True
 
+    def _trainable_params(self):
+        """Trainable parameters in a stable order (same identity/order as EMA's shadow)."""
+        return [p for p in self.pipeline_model.parameters() if p.requires_grad]
+
+    def _save_ema_shadow(self) -> None:
+        """Persist the EMA shadow next to the checkpoint just written. No-op if EMA off."""
+        if self.training_ema is None:
+            return
+        from rengu_flow.training.ema import save_ema_checkpoint
+
+        save_ema_checkpoint(self.save_root, self.training_ema, self._trainable_params())
+
+    def _averaged_weights(self):
+        """Swap EMA weights into the model for the duration of an export (no-op if EMA off)."""
+        if self.training_ema is None:
+            return contextlib.nullcontext()
+        return self.training_ema.average_parameters(self._trainable_params())
+
     @contextlib.contextmanager
     def _persist_at_true_iterate(self):
         """Hold the live weights at the optimizer's TRUE iterate while persisting them.
@@ -470,6 +493,7 @@ class Saver:
                 dist.barrier()
                 return False
             dist.barrier()
+            self._save_ema_shadow()
             if is_main_process():
                 _prune_old_checkpoints(self.save_root, self.config.get("max_checkpoints_to_keep"))
             dist.barrier()

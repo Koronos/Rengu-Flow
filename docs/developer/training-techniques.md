@@ -33,7 +33,7 @@ Cross-model VRAM, speed, and quality helpers. Pipeline models only supply **whic
 
 ## EMA
 
-[`TrainingEMA`](../../rengu_flow/training/ema.py) is constructed when top-level `ema_decay` is set. [`main.py`](../../rengu_flow/main.py) calls `update()` after each successful `train_batch` (CPU shadow tensors). No automatic export yet.
+[`TrainingEMA`](../../rengu_flow/training/ema.py) is constructed when top-level `ema_decay` is set. [`main.py`](../../rengu_flow/main.py) calls `update()` after each successful `train_batch` (CPU shadow tensors). The shadow is **persisted inside each resume checkpoint** (`ema.pt`, written/loaded by the `Saver` alongside the engine checkpoint) so a resumed run continues the same average, and is **swapped into the model at export** ([`Saver._run_pipeline_export`](../../rengu_flow/utils/saver.py)) so exported/`save_model` weights are the smoothed average — nested inside the optimizer's `eval()` bracket so lookahead optimizers (Nekaon/MSAM) export the true iterate's average, not the displaced weights. Not applied at preview time (previews toggle `optimizer.eval()` themselves, which would clobber externally-swapped weights).
 
 ## Forward / load dtype (Cosmos)
 
