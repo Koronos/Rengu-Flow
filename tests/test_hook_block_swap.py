@@ -49,12 +49,16 @@ def test_resident_cap_and_lru_eviction() -> None:
     assert set(off._resident) == {1, 3}
 
 
-def test_hooks_registered_on_leaf_modules() -> None:
+def test_hooks_registered_on_block_roots() -> None:
     blocks = _blocks(3)
     off = HookBlockSwapOffloader(blocks, blocks_to_swap=2, device="cpu")
-    # 3 blocks * 2 leaf Linears * 2 hooks (fwd-pre + bwd-pre) = 12 handles
-    assert len(off._handles) == 12
-    # every leaf Linear maps back to its block index
+    # Root-only hooks (d99fda0): 3 blocks * 2 hooks (fwd-pre + bwd-pre) = 6 handles.
+    # Hooking every leaf fragmented the compiled graph under compile_scope=block; the
+    # root's forward-pre fires before any child and full-backward-pre when the block's
+    # output grads arrive, so both directions stay covered with zero in-block breaks.
+    assert len(off._handles) == 6
+    # only block roots are registered, each mapping to its block index
+    assert set(off._block_of_module) == {id(b) for b in blocks}
     assert set(off._block_of_module.values()) == {0, 1, 2}
 
 
@@ -114,7 +118,8 @@ def test_teardown_removes_hooks() -> None:
 
 class _Krea2StyleBlock(nn.Module):
     """Block that owns a raw Parameter directly and uses it BEFORE any leaf module runs
-    (krea2's scale_shift_table). A leaf-only hook set never pulls it resident in time."""
+    (krea2's scale_shift_table). A leaf-only hook set never pulled it resident in time —
+    the reason hooks live on the block root."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -128,8 +133,8 @@ class _Krea2StyleBlock(nn.Module):
 def test_block_root_with_direct_params_is_hooked() -> None:
     blocks = nn.ModuleList(_Krea2StyleBlock() for _ in range(3))
     off = HookBlockSwapOffloader(blocks, blocks_to_swap=2, device="cpu")
-    # The block ROOT owns params directly, so it must be hooked alongside its leaves —
-    # its forward-pre fires before `x + self.table`, the first use of the direct param.
+    # The block ROOT owns params directly, so hooking it is what makes this work: its
+    # forward-pre fires before `x + self.table`, the first use of the direct param.
     assert all(id(b) in off._block_of_module for b in blocks)
     x = torch.randn(2, 4)
     blocks[1](x)
@@ -159,9 +164,9 @@ def test_suspend_makes_hooks_noop_and_resume_rearms() -> None:
     assert off._suspended is True
     assert off._resident == {} or len(off._resident) == 0
     assert off._pending_free == []
-    off._forward_pre_hook(blocks[1][0], ())  # suspended: must NOT pull
+    off._forward_pre_hook(blocks[1], ())  # suspended: must NOT pull
     assert len(off._resident) == 0
     off.resume()
     assert off._suspended is False
-    off._forward_pre_hook(blocks[1][0], ())  # re-armed: pulls again
+    off._forward_pre_hook(blocks[1], ())  # re-armed: pulls again
     assert set(off._resident) == {1}
