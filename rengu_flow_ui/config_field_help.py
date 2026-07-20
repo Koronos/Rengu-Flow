@@ -704,9 +704,33 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "doc": "docs/user/training-sdxl-lora-lokr.md",
     },
     "ema_decay": {
-        "summary": "EMA decay for trainable weights (CPU shadow).",
-        "detail": "Float in (0, 1), e.g. 0.999. Omit to disable. Export from EMA is not automatic yet.",
+        "summary": "EMA decay for trainable weights (fp32 CPU shadow).",
+        "detail": (
+            "Float in (0, 1), e.g. 0.999; omit to disable. The shadow is swapped into the model "
+            "at export and saved inside each resume checkpoint, so exported weights are the "
+            "smoothed average rather than the last noisy step. Use when late-training samples "
+            "swing in quality between neighbouring checkpoints."
+        ),
         "doc": "docs/user/training-loop-and-eval.md",
+    },
+    "ema_update_interval": {
+        "summary": "Update the EMA shadow every N steps instead of every step (default 1).",
+        "detail": (
+            "The shadow lives on CPU, so each update costs a GPU->CPU copy of every trainable "
+            "tensor on the critical path; decay is compounded by N so the effective averaging "
+            "window is unchanged. Raise to 4-8 if enabling ema_decay visibly slowed your s/it."
+        ),
+        "doc": "docs/user/training-loop-and-eval.md",
+    },
+    "block_swap_reclaim_every": {
+        "summary": "Steps between empty_cache() calls while block swap is active (default 10).",
+        "detail": (
+            "The single-buffered swap path allocates many shape-varying tensors per step, "
+            "fragmenting the reserved pool by hundreds of MB between reclaims; a 50-step cadence "
+            "let it grow 0.3-0.8 GB. Set 0 to disable, or raise it if the reclaim itself shows up "
+            "in your step time. Lower it if a tight blocks_to_swap OOMs only after many steps."
+        ),
+        "doc": "docs/developer/vram-optimization.md",
     },
     "disable_block_swap_for_eval": {
         "summary": "Load the full backbone onto GPU for eval passes even when blocks_to_swap is on.",

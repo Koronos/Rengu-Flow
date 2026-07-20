@@ -436,7 +436,7 @@ def _split_training_section(fields: list[dict[str, Any]]) -> list[dict[str, Any]
         ("training", "Training loop", [
             "epochs", "max_steps", "micro_batch_size_per_gpu",
             "image_micro_batch_size_per_gpu", "gradient_accumulation_steps",
-            "gradient_clipping", "train_seed", "ema_decay",
+            "gradient_clipping", "train_seed", "ema_decay", "ema_update_interval",
         ]),
         ("loss", "Loss function", ["huber_delta", "smooth_l1_beta", "pseudo_huber_c"]),
         ("compile", "torch.compile", [
@@ -940,8 +940,21 @@ def get_sections() -> list[dict[str, Any]]:
                     "EMA decay",
                     "number",
                     importance="advanced",
-                    description="Optional; CPU shadow weights updated each step. No auto-export yet.",
+                    description=(
+                        "Optional; fp32 CPU shadow weights. Applied at export and persisted "
+                        "across resume."
+                    ),
                     example=0.999,
+                ),
+                _field(
+                    "ema_update_interval",
+                    "EMA update interval",
+                    "integer",
+                    default=1,
+                    min_value=1,
+                    importance="advanced",
+                    placeholder="e.g. 1",
+                    when={"form_nonempty": "ema_decay"},
                 ),
                 _field("dataloader_num_workers", "Train DataLoader workers", "integer", default=0, min_value=0),
                 _field("dataloader_prefetch", "Prefetch next batch (thread)", "boolean", default=True),
@@ -1154,6 +1167,17 @@ def get_sections() -> list[dict[str, Any]]:
                     # H2D copy with compute via a side stream + pinned buffers. Works for both adapter
                     # (streams frozen weights, adapters stay resident) and full-model (gradient_release)
                     # runs, so it is NOT deepspeed-only. Needs >=2 blocks resident (handled at runtime).
+                    when={"form_nonempty": "blocks_to_swap", "exclude_zero": True},
+                ),
+                _field(
+                    "block_swap_reclaim_every",
+                    "Block-swap cache reclaim interval",
+                    "integer",
+                    default=10,
+                    min_value=0,
+                    importance="advanced",
+                    placeholder="e.g. 10",
+                    when_capability="block_swap",
                     when={"form_nonempty": "blocks_to_swap", "exclude_zero": True},
                 ),
             ],
