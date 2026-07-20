@@ -72,8 +72,12 @@ class SequentialPipe(torch.nn.Module):
         for start in range(0, len(layers), self._ac_interval):
             group = layers[start:start + self._ac_interval]
             if self._group_checkpointable(group):
-                def run(*inp, _group=group):
-                    state = inp[0] if len(inp) == 1 else inp
+                # Whether the state is a tuple must be captured HERE, not inferred from
+                # len(inp) inside run(): a bare tensor and a 1-tuple both arrive as a
+                # single positional arg, and guessing "1 arg means bare tensor" hands a
+                # raw tensor to layers that expect the (x,) pipeline convention.
+                def run(*inp, _group=group, _tupled=isinstance(x, tuple)):
+                    state = inp if _tupled else inp[0]
                     for layer in _group:
                         state = layer(state)
                     return state
