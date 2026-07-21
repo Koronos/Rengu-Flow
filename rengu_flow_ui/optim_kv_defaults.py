@@ -101,9 +101,14 @@ OPTIMIZER_REGISTRY_KV_DEFAULTS: dict[str, dict[str, Any]] = {
         "lr_bump": 1e-6,
     },
     # github.com/Koronos/K-Optimizers (the `kaon` package; installed on demand via the "kaon" profile).
+    # `auto_lr`: composable parameter-free LR discovery (update-space DoWG) — set True and the
+    # optimizer finds its own learning rate (the pre-filled lr < 1 is ignored with a warning). This
+    # replaces the old standalone "autokaon" entry (now just Adakaon with auto_lr=True). The advanced
+    # knobs auto_lr_freeze ("auto"/int/null) and auto_lr_scale (float) can be added via the KV editor.
     # Adakaon: conv-aware factored optimizer (formerly "Adafusion").
     "adakaon": {
         "lr": 1e-4,
+        "auto_lr": False,
         "betas": [0.9, 0.999],
         "eps": [1e-30, 1e-3],
         "weight_decay": 0.0,
@@ -118,6 +123,7 @@ OPTIMIZER_REGISTRY_KV_DEFAULTS: dict[str, dict[str, Any]] = {
     # lower lr (~1e-3, ≈ AdamW's lr ÷ 5) — that is what we pre-fill here.
     "adamuon": {
         "lr": 1e-3,
+        "auto_lr": False,
         "betas": [0.95, 0.999],
         "eps": [1e-30, 1e-3],
         "weight_decay": 0.0,
@@ -138,19 +144,12 @@ OPTIMIZER_REGISTRY_KV_DEFAULTS: dict[str, dict[str, Any]] = {
         "momentum_dtype": "bfloat16",
         "bf16_method": "stochastic_rounding",
     },
-    # Autokaon: parameter-free LR on Adakaon via a Mechanic tuner (formerly "Autofusion").
-    # Train at lr=1.0; the tuner finds the scale. s_init/lr_freeze/scale_cap stay on "auto".
-    "autokaon": {
-        "lr": 1.0,
-        "adakaon_betas": [0.0, 0.999],
-        "momentum_dtype": "bfloat16",
-        "bf16_method": "stochastic_rounding",
-    },
     # Lion: sign-momentum (EvoLved Sign Momentum) on Adakaon's quantized-momentum backend
     # (formerly "Liofusion"; no 2nd moment). betas are a loss<->generalization dial; (0.95, 0.98)
     # (classic Lion) is the recommended small-data starting point. lr is sign-update scale (~AdamW lr x2).
     "lion": {
         "lr": 2e-4,
+        "auto_lr": False,
         "betas": [0.95, 0.98],
         "weight_decay": 0.0,
         "momentum_dtype": "bfloat16",
@@ -161,6 +160,7 @@ OPTIMIZER_REGISTRY_KV_DEFAULTS: dict[str, dict[str, Any]] = {
     # loss<->gap dial (0.8 shipped elbow); beta0 is the PN coefficient (0.5 default, 0 = plain Adam).
     "adapnm": {
         "lr": 1e-3,
+        "auto_lr": False,
         "betas": [0.8, 0.999],
         "beta0": 0.5,
         "weight_decay": 0.0,
@@ -174,6 +174,7 @@ OPTIMIZER_REGISTRY_KV_DEFAULTS: dict[str, dict[str, Any]] = {
     # eps is deliberately tiny (1e-16) — AdaBelief's denominator is a variance, not an RMS.
     "adabelief": {
         "lr": 1e-3,
+        "auto_lr": False,
         "betas": [0.9, 0.999],
         "weight_decay": 0.0,
         "cautious": True,
@@ -184,6 +185,7 @@ OPTIMIZER_REGISTRY_KV_DEFAULTS: dict[str, dict[str, Any]] = {
     # delta/wd_ratio are the projection knobs (defaults match the paper).
     "adamp": {
         "lr": 1e-3,
+        "auto_lr": False,
         "betas": [0.9, 0.999],
         "weight_decay": 0.0,
         "cautious": True,
@@ -194,6 +196,7 @@ OPTIMIZER_REGISTRY_KV_DEFAULTS: dict[str, dict[str, Any]] = {
     # betas default to (0.9, 0.9999) — the higher beta2 is intentional and safe here.
     "adopt": {
         "lr": 1e-3,
+        "auto_lr": False,
         "betas": [0.9, 0.9999],
         "weight_decay": 0.0,
         "cautious": True,
@@ -249,6 +252,7 @@ OPTIMIZER_REGISTRY_KV_DEFAULTS: dict[str, dict[str, Any]] = {
     # Sampling/checkpointing must bracket with opt.eval()/opt.train() — renga does this automatically.
     "nekaon": {
         "lr": 1e-4,
+        "auto_lr": False,
         "k": 1.5,
         "betas": [0.5, 0.999],
         "weight_decay": 0.1,

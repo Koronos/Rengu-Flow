@@ -28,7 +28,7 @@ PROFILE_LABELS: dict[str, str] = {
     "optim": "Optimizers (bitsandbytes, torchao, …)",
     "lycoris": "LyCORIS adapters",
     "dev": "Development (pytest, httpx)",
-    "kaon": "K-Optimizers (Adakaon, AdaMuon, KProdigy, Autokaon, Lion, AdaPNM, AdaBelief, AdamP, ADOPT, ScheduleFree, Lookahead, SAM, MSAM, Nekaon)",
+    "kaon": "K-Optimizers (Adakaon, AdaMuon, KProdigy, Lion, AdaPNM, AdaBelief, AdamP, ADOPT, ScheduleFree, Lookahead, SAM, MSAM, Nekaon)",
     "prep": "Dataset preparation (taggers, captioners, watermark cleanup)",
     "onnx-cuda": "ONNX GPU runtime (CUDA 12, Windows)",
 }
@@ -41,7 +41,7 @@ PROFILE_DESCRIPTIONS: dict[str, str] = {
     "optim": "Optional optimizer backends (bitsandbytes, pytorch-optimizer, …).",
     "lycoris": "LyCORIS-style adapter backend.",
     "dev": "pytest and httpx for development.",
-    "kaon": "Memory-efficient optimizers (Adakaon, AdaMuon, KProdigy, Autokaon, Lion, AdaPNM, AdaBelief, AdamP, ADOPT, ScheduleFree, Lookahead, SAM, MSAM, Nekaon) from github.com/Koronos/K-Optimizers.",
+    "kaon": "Memory-efficient optimizers (Adakaon, AdaMuon, KProdigy, Lion, AdaPNM, AdaBelief, AdamP, ADOPT, ScheduleFree, Lookahead, SAM, MSAM, Nekaon) from github.com/Koronos/K-Optimizers.",
     "prep": "ONNX taggers, JoyCaption/ToriiGate captioners, YOLO+LaMa watermark cleanup for `rengu prep`.",
     "onnx-cuda": "CUDA 12 runtime DLLs (cublas/cudnn/cudart) so the ONNX tagger runs on GPU on native Windows.",
 }

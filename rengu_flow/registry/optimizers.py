@@ -23,7 +23,6 @@ OPTIMIZER_ALIASES: dict[str, tuple[str, str]] = {
     "adakaon": ("kaon", "Adakaon"),
     "adamuon": ("kaon", "AdaMuon"),
     "kprodigy": ("kaon", "KProdigy"),
-    "autokaon": ("kaon", "Autokaon"),
     "lion": ("kaon", "Lion"),
     "adapnm": ("kaon", "AdaPNM"),
     "adabelief": ("kaon", "AdaBelief"),
