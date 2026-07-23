@@ -160,4 +160,4 @@ torchvision = { index = "pytorch-cu130" }
 # `rev` is bumped (then committed to renga). Bump it to ship a newer kaon; users pick it up on
 # their next `rengu update` (only if the kaon extra is already installed). Only installed when
 # the `kaon` extra is selected (see rengu_flow/install/profiles.py).
-kaon = { git = "https://github.com/Koronos/K-Optimizers", rev = "dae4bc8cd4a76da60dc687a7fa94472b0d03b726" }
+kaon = { git = "https://github.com/Koronos/K-Optimizers", rev = "4f4020ee54a0459ec56ba1c9b83dd678fd88f5d0" }
