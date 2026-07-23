@@ -104,7 +104,8 @@ OPTIMIZER_REGISTRY_KV_DEFAULTS: dict[str, dict[str, Any]] = {
     # `auto_lr`: composable parameter-free LR discovery (update-space DoWG) — set True and the
     # optimizer finds its own learning rate (the pre-filled lr < 1 is ignored with a warning). This
     # replaces the old standalone "autokaon" entry (now just Adakaon with auto_lr=True). The advanced
-    # knobs auto_lr_freeze ("auto"/int/null) and auto_lr_scale (float) can be added via the KV editor.
+    # knob auto_lr_scale (float) can be added via the KV editor. (kaon 0.6.0 removed auto_lr_freeze:
+    # the tuner freezes itself at the stability edge — passing it now raises TypeError.)
     # Adakaon: conv-aware factored optimizer (formerly "Adafusion").
     "adakaon": {
         "lr": 1e-4,

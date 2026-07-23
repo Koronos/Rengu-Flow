@@ -154,10 +154,10 @@ torch = { index = "pytorch-cu130" }
 torchvision = { index = "pytorch-cu130" }
 # Memory-efficient optimizers (Adakaon, AdaMuon, KProdigy, Lion, AdaPNM,
 # AdaBelief, AdamP, ADOPT, ScheduleFree, Lookahead, SAM, MSAM, Nekaon).
-# kaon 0.5.0 adds a composable `auto_lr=True` flag (parameter-free LR discovery) to every base.
+# kaon 0.6.0: knobless auto_lr (stability-edge guard discovers AND stops by itself; auto_lr_freeze removed).
 # K-Optimizers (the `kaon` package) ships no release tags, so we pin an
 # exact commit — that SHA *is* kaon's version here: reproducible, and it only changes when this
 # `rev` is bumped (then committed to renga). Bump it to ship a newer kaon; users pick it up on
 # their next `rengu update` (only if the kaon extra is already installed). Only installed when
 # the `kaon` extra is selected (see rengu_flow/install/profiles.py).
-kaon = { git = "https://github.com/Koronos/K-Optimizers", rev = "cc53e25c035dd3251581d25aaa5d16878ff78e8c" }
+kaon = { git = "https://github.com/Koronos/K-Optimizers", rev = "9a3876076c77107865dd6f8bccc19762a7ada3ff" }
