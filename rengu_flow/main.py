@@ -1439,6 +1439,12 @@ def _run_training(args, config):
                 step += 1
                 examples += global_batch_size
                 continue
+            if hasattr(optimizer, "report_loss"):
+                # kaon auto_lr: feed the step loss so the tuner runs its loss-driven LR
+                # range test (the reliable discovery mode) instead of the gradient-only
+                # fallback. The tuner consumes it on the NEXT internal step (train_batch
+                # steps before the loss is visible here) and tolerates that one-step lag.
+                optimizer.report_loss(loss)
             if training_ema is not None and step % training_ema.update_interval == 0:
                 training_ema.update(parameters_to_train)
             if bench_enabled(config) and is_main_process():
