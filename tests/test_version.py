@@ -32,9 +32,9 @@ def test_package_version_falls_back_to_metadata_for_wheel_install(monkeypatch):
     """No pyproject beside the package (wheel install) -> use the installed distribution metadata."""
     version_mod.package_version.cache_clear()
     monkeypatch.setattr(version_mod, "_version_from_pyproject", lambda: None)
-    monkeypatch.setattr(version_mod, "_dist_version", lambda _name: "1.2.3")
+    monkeypatch.setattr(version_mod, "_dist_version", lambda _name: "1.2.4")
     try:
-        assert version_mod.package_version() == "1.2.3"
+        assert version_mod.package_version() == "1.2.4"
     finally:
         version_mod.package_version.cache_clear()
 

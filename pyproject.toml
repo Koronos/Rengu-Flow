@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rengu-flow"
-version = "1.2.3"
+version = "1.2.4"
 description = "TOML-driven diffusion training: DeepSpeed, LoRA/LoKr/full finetune (SDXL, Cosmos Predict2), optional web UI."
 readme = "README.md"
 license = "GPL-3.0-or-later"
@@ -154,10 +154,10 @@ torch = { index = "pytorch-cu130" }
 torchvision = { index = "pytorch-cu130" }
 # Memory-efficient optimizers (Adakaon, AdaMuon, KProdigy, Lion, AdaPNM,
 # AdaBelief, AdamP, ADOPT, ScheduleFree, Lookahead, SAM, MSAM, Nekaon).
-# kaon 0.7.0: auto_lr primary mode = loss-driven LR range test (needs the report_loss hook below in main.py).
+# Kaon 0.7.4 AutoLR is fully autonomous; the trainer does not report loss or choose candidates.
 # K-Optimizers (the `kaon` package) ships no release tags, so we pin an
 # exact commit — that SHA *is* kaon's version here: reproducible, and it only changes when this
 # `rev` is bumped (then committed to renga). Bump it to ship a newer kaon; users pick it up on
 # their next `rengu update` (only if the kaon extra is already installed). Only installed when
 # the `kaon` extra is selected (see rengu_flow/install/profiles.py).
-kaon = { git = "https://github.com/Koronos/K-Optimizers", rev = "297942b41f050bc79873d451bc34f429dcfc8c84" }
+kaon = { git = "https://github.com/Koronos/K-Optimizers", rev = "e6a496f29c15e9a8ef72aeda8d94095cc9856f93" }

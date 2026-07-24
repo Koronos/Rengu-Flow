@@ -72,14 +72,15 @@ def test_optimizer_genericoptim_defaults() -> None:
 
 
 def test_new_kaon_optimizer_defaults() -> None:
-    """kprodigy/autokaon/lion/adapnm pre-fill the diffusion-recommended kaon defaults."""
+    """KProdigy, Adakaon, Lion and AdaPNM expose their supported Kaon controls."""
     kprodigy = optimizer_extra_params_defaults("kprodigy")
     assert kprodigy["lr"] == 1.0  # parameter-free: train at lr=1.0
     assert kprodigy["d_coef"] == 1.0
 
-    autokaon = optimizer_extra_params_defaults("autokaon")
-    assert autokaon["lr"] == 1.0  # parameter-free
-    assert autokaon["adakaon_betas"] == [0.0, 0.999]
+    adakaon = optimizer_extra_params_defaults("adakaon")
+    assert adakaon["auto_lr"] is False
+    adakaon["auto_lr"] = True  # free optimizer kwarg; no trainer-side probe config
+    assert adakaon["auto_lr"] is True
 
     lion = optimizer_extra_params_defaults("lion")
     assert lion["lr"] == 2e-4

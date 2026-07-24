@@ -101,11 +101,9 @@ OPTIMIZER_REGISTRY_KV_DEFAULTS: dict[str, dict[str, Any]] = {
         "lr_bump": 1e-6,
     },
     # github.com/Koronos/K-Optimizers (the `kaon` package; installed on demand via the "kaon" profile).
-    # `auto_lr`: composable parameter-free LR discovery (update-space DoWG) — set True and the
-    # optimizer finds its own learning rate (the pre-filled lr < 1 is ignored with a warning). This
-    # replaces the old standalone "autokaon" entry (now just Adakaon with auto_lr=True). The advanced
-    # knob auto_lr_scale (float) can be added via the KV editor. (kaon 0.6.0 removed auto_lr_freeze:
-    # the tuner freezes itself at the stability edge — passing it now raises TypeError.)
+    # `auto_lr`: autonomous DoWG step-size discovery — set True and the optimizer owns its
+    # learning rate without trainer callbacks. The advanced auto_lr_d0, auto_lr_scale and
+    # auto_lr_fuse_rel controls remain ordinary optimizer kwargs in the KV editor.
     # Adakaon: conv-aware factored optimizer (formerly "Adafusion").
     "adakaon": {
         "lr": 1e-4,
@@ -355,5 +353,4 @@ def scheduler_kv_defaults(sched_type: str) -> dict[str, Any]:
     else:
         kv = dict(SCHEDULER_BUILTIN_KV_DEFAULTS.get(name.lower(), {}))
     return kv
-
 

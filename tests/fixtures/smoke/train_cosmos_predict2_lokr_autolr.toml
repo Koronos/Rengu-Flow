@@ -1,0 +1,35 @@
+# Cosmos Predict2 LoKr smoke for autonomous Kaon AutoLR (~30 steps), smoke_cc0 fixture.
+# Starts deliberately above the conservative fuse to exercise clamping and safe recovery.
+
+dataset = "tests/fixtures/smoke/dataset_cc0.toml"
+output_dir = "output"
+max_steps = 30
+epochs = 999
+micro_batch_size_per_gpu = 1
+gradient_accumulation_steps = 1
+pipeline_stages = 1
+activation_checkpointing = true
+logging_steps = 1
+caching_batch_size = 1
+save_every_n_epochs = 999
+bench = true
+
+[model]
+type = "cosmos_predict2"
+dtype = "bfloat16"
+cache_text_embeddings = true
+
+[adapter]
+type = "lokr"
+rank = 6
+factor = -1
+
+[optimizer]
+type = "adakaon"
+lr = 1.0
+auto_lr = true
+auto_lr_d0 = 1.0
+fused = true
+betas = [0.9, 0.999]
+momentum_dtype = "bfloat16"
+cautious = true

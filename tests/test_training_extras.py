@@ -52,7 +52,6 @@ def test_kaon_optimizers_route_to_kaon_profile() -> None:
         "adakaon",
         "adamuon",
         "kprodigy",
-        "autokaon",
         "lion",
         "adapnm",
         "adabelief",

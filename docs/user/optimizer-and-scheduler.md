@@ -39,10 +39,9 @@ You can use these names (case-insensitive) for `optimizer.type`:
 | **adamw_optimi**, **stableadamw** | Optimi AdamW variants | [optimi](https://github.com/williamberman/optimi) |
 | **offload** | CPU-offload wrapper (`torchao`) | [torchao](https://github.com/pytorch/ao) |
 | **prodigy** | Prodigy adaptive LR (`pytorch-optimizer`) | [Prodigy paper/repo](https://github.com/konstmish/prodigy), [pytorch-optimizer Prodigy](https://github.com/kozistr/pytorch_optimizer) |
-| **adakaon** | Conv-aware factored optimizer; AdamW-quality at 1–2 B/param with bf16-correct updates. Optional Triton `fused` step (`kaon`) | [K-Optimizers](https://github.com/Koronos/K-Optimizers), [Adakaon docs](https://github.com/Koronos/K-Optimizers/blob/main/docs/adakaon.md) |
+| **adakaon** | Conv-aware factored optimizer; AdamW-quality at 1–2 B/param with bf16-correct updates. Set `auto_lr = true` for autonomous DoWG step-size discovery with no trainer callback. Optional Triton `fused` step (`kaon`) | [K-Optimizers](https://github.com/Koronos/K-Optimizers), [AutoLR docs](https://github.com/Koronos/K-Optimizers/blob/main/docs/autolr.md) |
 | **adamuon** | Muon orthogonalized momentum + factored quantized 2nd moment; near-Adafactor memory. **Diffusion lr is much lower than Muon's** — start ~`1e-3` (≈ AdamW lr ÷ 5), not the `2e-2` Muon/LLM default (`kaon`) | [K-Optimizers](https://github.com/Koronos/K-Optimizers), [AdaMuon docs](https://github.com/Koronos/K-Optimizers/blob/main/docs/adamuon.md) |
 | **kprodigy** | Memory-efficient parameter-free Prodigy (D-adaptation); train at `lr=1.0` and it discovers the LR itself, at Adakaon-style memory (`kaon`) | [K-Optimizers](https://github.com/Koronos/K-Optimizers), [KProdigy docs](https://github.com/Koronos/K-Optimizers/blob/main/docs/kprodigy.md) |
-| **autokaon** | Parameter-free LR on Adakaon via a Mechanic tuner (not Prodigy); train at `lr=1.0`, the tuner finds the scale then freezes to plain Adakaon (`kaon`) | [K-Optimizers](https://github.com/Koronos/K-Optimizers), [Autokaon docs](https://github.com/Koronos/K-Optimizers/blob/main/docs/autokaon.md) |
 | **lion** | Lion sign-momentum on Adakaon's quantized-momentum backend; absolute-minimum state (no 2nd moment, ~0.5 B/param at 4bit) (`kaon`) | [K-Optimizers](https://github.com/Koronos/K-Optimizers), [Lion docs](https://github.com/Koronos/K-Optimizers/blob/main/docs/lion.md) |
 | **adapnm** | Adam + Positive-Negative Momentum on the factored/quantized backend; `beta1` is a loss↔gap dial for small-data fine-tuning. Optional Triton `fused` step (`kaon`) | [K-Optimizers](https://github.com/Koronos/K-Optimizers), [AdaPNM docs](https://github.com/Koronos/K-Optimizers/blob/main/docs/adapnm.md) |
 | **adabelief** | Adam on the variance of the gradient residual (`g − m`) on the factored backend; sharper denominator than Adam (`kaon`) | [K-Optimizers](https://github.com/Koronos/K-Optimizers), [AdaBelief docs](https://github.com/Koronos/K-Optimizers/blob/main/docs/adabelief.md) |
@@ -60,7 +59,7 @@ Install optional optimizer dependencies:
 pip install -e ".[optim]"
 ```
 
-`adakaon`, `adamuon`, `kprodigy`, `autokaon`, `lion`, `adapnm`, `adabelief`, `adamp`, `adopt`, `schedulefree`, `lookahead`, `sam`, `msam`, and `nekaon` come from the git-backed [`kaon`](https://github.com/Koronos/K-Optimizers) package and are installed on demand via the **kaon** install profile when you select one of these types.
+`adakaon`, `adamuon`, `kprodigy`, `lion`, `adapnm`, `adabelief`, `adamp`, `adopt`, `schedulefree`, `lookahead`, `sam`, `msam`, and `nekaon` come from the git-backed [`kaon`](https://github.com/Koronos/K-Optimizers) package and are installed on demand via the **kaon** install profile when you select one of these types.
 
 ### Form pre-fill (optimizer KV)
 
@@ -76,10 +75,9 @@ When you pick a built-in name in the form, common keys are pre-filled (edit as n
 | **genericoptim** | `lr`, `betas`, `weight_decay`, `muon`, `adamuon`, `correct_bias` |
 | **automagic** | `min_lr`, `max_lr`, `lr_bump` |
 | **prodigy** | `lr` → `1.0`, `betas` → `[0.9, 0.99]`, `weight_decay` → `0.01`, `d0` → `1e-6`, `d_coef` → `1.0`, `weight_decouple` → `true`, `bias_correction` → `true`, `safeguard_warmup` → `true` |
-| **adakaon** | `lr` → `1e-4`, `betas` → `[0.9, 0.999]`, `eps` → `[1e-30, 1e-3]`, `weight_decay` → `0.0`, `clip_threshold` → `1.0`, `momentum_dtype` → `"bfloat16"`, `cautious` → `true`, `fused` → `false`, `bf16_method` → `"stochastic_rounding"` |
+| **adakaon** | `lr` → `1e-4`, `auto_lr` → `false` (set `true` for autonomous discovery), `betas` → `[0.9, 0.999]`, `eps` → `[1e-30, 1e-3]`, `weight_decay` → `0.0`, `clip_threshold` → `1.0`, `momentum_dtype` → `"bfloat16"`, `cautious` → `true`, `fused` → `false`, `bf16_method` → `"stochastic_rounding"` |
 | **adamuon** | `lr` → `1e-3` (diffusion-scale, **not** Muon's `2e-2`), `betas` → `[0.95, 0.999]`, `eps` → `[1e-30, 1e-3]`, `weight_decay` → `0.0`, `ns_steps` → `2`, `clip_threshold` → `1.0`, `momentum_dtype` → `"bfloat16"`, `cautious` → `true`, `bf16_method` → `"stochastic_rounding"` |
 | **kprodigy** | `lr` → `1.0` (parameter-free — keep it at `1.0`), `betas` → `[0.9, 0.999]`, `weight_decay` → `0.0`, `d0` → `1e-6`, `d_coef` → `1.0`, `momentum_dtype` → `"bfloat16"`, `bf16_method` → `"stochastic_rounding"` |
-| **autokaon** | `lr` → `1.0` (parameter-free — keep it at `1.0`), `adakaon_betas` → `[0.0, 0.999]`, `momentum_dtype` → `"bfloat16"`, `bf16_method` → `"stochastic_rounding"` |
 | **lion** | `lr` → `2e-4`, `betas` → `[0.95, 0.98]` (classic Lion; loss↔generalization dial), `weight_decay` → `0.0`, `momentum_dtype` → `"bfloat16"`, `cautious` → `true`, `bf16_method` → `"stochastic_rounding"` |
 | **adapnm** | `lr` → `1e-3`, `betas` → `[0.8, 0.999]` (`beta1` is the loss↔gap dial), `beta0` → `0.5` (PN coefficient; `0` = plain Adam), `weight_decay` → `0.0`, `cautious` → `true`, `momentum_dtype` → `"bfloat16"`, `fused` → `false`, `bf16_method` → `"stochastic_rounding"` |
 | **adabelief** | `lr` → `1e-3`, `betas` → `[0.9, 0.999]`, `weight_decay` → `0.0`, `cautious` → `true`, `momentum_dtype` → `"bfloat16"`, `bf16_method` → `"stochastic_rounding"` |
@@ -105,17 +103,16 @@ When you pick a built-in name in the form, common keys are pre-filled (edit as n
 | **kahan_buffer_offload** | **genericoptim**, **adamw8bitkahan** | Offload Kahan buffer to CPU (saves VRAM) |
 | **d0**, **d_coef** | **prodigy**, **kprodigy** | D-adaptation initial estimate and scale; tune `d_coef` (not `lr`) to force larger/smaller adaptive LR |
 | **weight_decouple**, **bias_correction**, **safeguard_warmup** | **prodigy** | `pytorch-optimizer` kwargs; diffusion-friendly defaults are pre-filled in the form |
-| parameter-free `lr` | **prodigy**, **kprodigy**, **autokaon** | Keep `lr = 1.0`; these discover the effective LR themselves (Prodigy D-adaptation; Autokaon's Mechanic tuner) |
+| **auto_lr** | **adakaon** (and supported Kaon optimizers) | Set `true` for autonomous dynamic step-size discovery. No loss callback, trainer candidate list, or `[lr_probe]` section is used; `lr` is ignored while AutoLR owns the step size |
 | **eps** | **adakaon**, **adamuon** | Two floats `[eps_factored, eps_clip]` (default `[1e-30, 1e-3]`). (**kprodigy** uses a single scalar `eps`, default `1e-8`) |
 | **clip_threshold** | **adakaon**, **adamuon** | RMS ceiling on the normalized update (default `1.0`). Internal / load-bearing — an Adafactor-style RMS clip, **not** the DeepSpeed `gradient_clipping` grad-norm clip; leave at `1.0` |
-| **momentum_dtype** | **adakaon**, **adamuon**, **kprodigy**, **autokaon**, **lion**, **adapnm**, **adabelief**, **adamp**, **adopt**, **schedulefree** | Momentum storage: `"float32"`, `"bfloat16"`, `"int8"`, or `"4bit"`. bf16 keeps state at ~2 B/param (int8 ~1 B, 4bit ~0.5 B). For Adakaon, set `betas` to `[0.0, …]` for a true no-momentum (lowest-memory) run |
+| **momentum_dtype** | **adakaon**, **adamuon**, **kprodigy**, **lion**, **adapnm**, **adabelief**, **adamp**, **adopt**, **schedulefree** | Momentum storage: `"float32"`, `"bfloat16"`, `"int8"`, or `"4bit"`. bf16 keeps state at ~2 B/param (int8 ~1 B, 4bit ~0.5 B). For Adakaon, set `betas` to `[0.0, …]` for a true no-momentum (lowest-memory) run |
 | **cautious** | **adakaon**, **adamuon**, **kprodigy**, **lion**, **adapnm**, **adabelief**, **adamp**, **adopt**, **schedulefree** | Cautious update masking; helps with momentum (on by default for these; off by default for KProdigy). For Adakaon, set `false` when `betas[0] = 0.0` (no momentum), where it's a no-op |
 | **fused** | **adakaon**, **adapnm** | `true`/`false` (default `false`). Triton-fused GPU step — **same math, same memory**, much faster on many-small-tensor / LoRA training. Needs a CUDA GPU and the `triton` package; falls back to the standard step otherwise |
 | **gradient_centralization** | **adakaon**, **adamuon**, **kprodigy**, **lion**, **adapnm**, **adabelief**, **adamp**, **adopt**, **schedulefree** | Subtract the per-tensor gradient mean before the step (default `true`, off for AdaMuon). Cheap regularizer; rarely needs changing |
 | **ns_steps** | **adamuon** | Newton-Schulz orthogonalization steps (default `2`). `2` is the validated sweet spot for diffusion; `5` (LLM Muon) over-orthogonalizes |
-| **bf16_method** | **adakaon**, **adamuon**, **kprodigy**, **autokaon**, **lion**, **adapnm**, **adabelief**, **adamp**, **adopt**, **schedulefree** | bf16-correct weight update: `"stochastic_rounding"` (no extra buffer), `"kahan"`, or `"none"` |
+| **bf16_method** | **adakaon**, **adamuon**, **kprodigy**, **lion**, **adapnm**, **adabelief**, **adamp**, **adopt**, **schedulefree** | bf16-correct weight update: `"stochastic_rounding"` (no extra buffer), `"kahan"`, or `"none"` |
 | **compile** | **adamuon** | Optional whole-step `torch.compile` (off by default; workload-dependent) |
-| **adakaon_betas** | **autokaon** | Inner Adakaon momentum betas (default `[0.0, 0.999]`; `beta1=0` gives the bit-exact freeze) |
 | **betas** (Lion dial) | **lion** | `β2` trades loss vs generalization: `[0.95, 0.98]` (classic Lion) lowest loss; `[0.9, 0.99]` balanced |
 | **betas**, **beta0** | **adapnm** | `beta1` is the loss↔gap dial (default `0.8`); `beta0` ∈ [0,1] is the positive-negative coefficient (default `0.5`; `0` = plain Adam, `1` = canonical PNM) |
 | **delta**, **wd_ratio** | **adamp** | Projection knobs for removing the radial update component (defaults `0.1` / `0.1`; paper values) |
@@ -125,7 +122,7 @@ When you pick a built-in name in the form, common keys are pre-filled (edit as n
 | **rho**, **norm** | **msam** | `rho` = perturbation radius (default `0.3`); **negative `rho` probes the downhill/Nesterov direction** (the sign is an empirical choice). `norm` ∈ `"global"`/`"tensor"`/`"none"` scales by the momentum norm (default `"global"`). Inner Adakaon kwargs pass through. **One** forward/backward per step (no extra pass) |
 | **k**, **betas** | **nekaon** | `k` = lookahead distance in optimizer steps (default `1.5`; `0` = plain Adakaon). `betas[0]` is the regime knob (**must be `> 0`** — the lookahead rides the momentum): `0.5` default, `0.2` anti-memorization (small-data LoRA), `0.9` fidelity (abundant data). `weight_decay` default `0.1`. Inner Adakaon kwargs pass through. **No extra forward/backward** |
 
-For the full kaon parameter set (e.g. `foreach` batching, `momentum_4bit_block`, `momentum_dtype` quantization blocks, AdamP's `nesterov`, Autokaon's `lr_freeze`/`scale_cap`), see the [kaon docs](https://github.com/Koronos/K-Optimizers/tree/main/docs). Any key under `[optimizer]` is forwarded to the constructor, so unlisted kwargs work too.
+For the full kaon parameter set (e.g. `auto_lr_d0`, `auto_lr_scale`, `auto_lr_fuse_rel`, `foreach` batching, `momentum_4bit_block`, momentum quantization, and AdamP's `nesterov`), see the [kaon docs](https://github.com/Koronos/K-Optimizers/tree/main/docs). Any key under `[optimizer]` is forwarded to the constructor, so unlisted kwargs work too.
 
 `gradient_release` requires **`pipeline_stages = 1`** and data-parallel world size 1.
 
