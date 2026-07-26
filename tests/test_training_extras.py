@@ -128,10 +128,9 @@ def test_jobs_start_calls_ensure_training_extras(tmp_path, monkeypatch):
 
     proc = MagicMock()
     proc.pid = 12345
-    from rengu_flow_ui import subprocess_util
-
+    # jobs.py binds this imported name locally; patching the source module would still run Popen.
     monkeypatch.setattr(
-        subprocess_util,
+        jobs,
         "popen_repo_subprocess",
         lambda *a, **k: (proc, None),
     )

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import socket
+import sys
 from pathlib import Path
 
 import pytest
@@ -11,6 +12,9 @@ from rengu_flow import platform_compat as pc
 
 # These are pure platform-layer unit tests; the UI sqlite autouse fixture is irrelevant.
 pytestmark = pytest.mark.no_ui_db
+
+# RLIMIT_NOFILE lifting is POSIX-only; `resource` does not exist on Windows (production no-ops there).
+requires_resource = pytest.mark.skipif(sys.platform == "win32", reason="resource is POSIX-only")
 
 
 @pytest.fixture
@@ -139,6 +143,7 @@ def test_open_browser_no_fallback_on_success(monkeypatch, capsys):
     assert "Open in browser" not in capsys.readouterr().out
 
 
+@requires_resource
 def test_raise_open_file_limit_lifts_soft_to_hard(monkeypatch):
     import resource
 
@@ -149,6 +154,7 @@ def test_raise_open_file_limit_lifts_soft_to_hard(monkeypatch):
     assert captured["lim"] == (1_048_576, 1_048_576)
 
 
+@requires_resource
 def test_raise_open_file_limit_noop_when_already_at_hard(monkeypatch):
     import resource
 
@@ -160,6 +166,7 @@ def test_raise_open_file_limit_noop_when_already_at_hard(monkeypatch):
     assert pc.raise_open_file_limit(log=False) is None
 
 
+@requires_resource
 def test_raise_open_file_limit_caps_infinite_hard(monkeypatch):
     import resource
 

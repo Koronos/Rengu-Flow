@@ -57,7 +57,8 @@ def test_missing_dataset_toml_and_directory(tmp_path):
     assert any("dataset TOML does not exist" in i for i in collect_preflight_issues(cfg))
 
     ds = tmp_path / "bad_dir.toml"
-    ds.write_text(f'resolutions = [512]\n[[directory]]\npath = "{tmp_path / "ghost"}"\n')
+    ghost = (tmp_path / "ghost").as_posix()
+    ds.write_text(f'resolutions = [512]\n[[directory]]\npath = "{ghost}"\n')
     cfg = _config(tmp_path, dataset=str(ds))
     assert any("is not a directory" in i for i in collect_preflight_issues(cfg))
 
@@ -75,7 +76,10 @@ def test_adapter_init_and_resume_paths(tmp_path):
     assert not any("resume_from_checkpoint" in i for i in collect_preflight_issues(cfg))
 
 
-@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores permission bits")
+@pytest.mark.skipif(
+    os.name == "nt" or getattr(os, "geteuid", lambda: -1)() == 0,
+    reason="Windows and root do not enforce POSIX chmod permission bits",
+)
 def test_unwritable_output_dir(tmp_path):
     locked = tmp_path / "locked"
     locked.mkdir()
