@@ -19,6 +19,7 @@ def _bare_pipeline() -> CosmosPredict2Pipeline:
     obj.model_config = {"dtype": torch.float32, "llm_path": "x"}
     obj._preview_restore_state = None
     obj._preview_offloader = None
+    obj.cache_text_embeddings = True
     return obj
 
 
@@ -45,3 +46,22 @@ def test_preview_text_encoder_loaded_from_disk_once(monkeypatch) -> None:
     assert calls["n"] == 1, "text encoder must be loaded from disk once, not per preview"
     assert "meta" not in devices, "text encoder must not be parked back on meta between previews"
     assert devices == ["cpu", "cpu", "cpu"]
+
+
+def test_training_resident_text_encoder_never_offloaded() -> None:
+    """cache_text_embeddings=false: the TE is in the training graph; a preview CPU round-trip
+    reassigns param .data under the fused optimizer / compiled graph → cudaErrorIllegalAddress
+    on the next step. The offload must be a no-op regardless of preview_offload_text_encoder."""
+    obj = _bare_pipeline()
+    obj.cache_text_embeddings = False
+    obj.text_encoder = _FakeTE()
+
+    obj.ensure_text_encoder_for_preview(device="cpu")
+    moves: list = []
+    obj.text_encoder.to = lambda *a, **k: moves.append(a)  # type: ignore[method-assign]
+    obj.offload_text_encoder_after_encode({"preview_offload_text_encoder": True})
+
+    assert not moves, (
+        "training-resident text encoder must not be moved (its param storages are referenced "
+        "by the optimizer and compiled graph)"
+    )

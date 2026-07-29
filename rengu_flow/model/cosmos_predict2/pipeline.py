@@ -483,6 +483,14 @@ class CosmosPredict2Pipeline(BasePipeline):
         """Move LLM/T5 to CPU after prompts are encoded (Euler loop only needs cross-attn)."""
         if not preview_cfg.get("preview_offload_text_encoder", True):
             return
+        if not self.cache_text_embeddings:
+            # Training-resident TE (on-the-fly encoding / LLM adapter): a CPU round-trip
+            # reassigns every param's .data to fresh storage while the fused optimizer and the
+            # compiled training graph still hold the old GPU addresses — empty_cache then frees
+            # them and the post-preview optimizer.train() swap dereferences dangling pointers
+            # (cudaErrorIllegalAddress at the next step). Same hazard documented on
+            # offload_transformer_for_decode; it fits on GPU anyway since training keeps it there.
+            return
         try:
             param = next(self.text_encoder.parameters())
         except StopIteration:

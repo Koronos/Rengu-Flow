@@ -88,6 +88,7 @@ def test_offload_text_encoder_after_encode_moves_to_cpu():
     from rengu_flow.model.cosmos_predict2.pipeline import CosmosPredict2Pipeline
 
     pipeline = MagicMock(spec=CosmosPredict2Pipeline)
+    pipeline.cache_text_embeddings = True
     p = torch.nn.Parameter(torch.zeros(1))
     pipeline.text_encoder = torch.nn.Module()
     pipeline.text_encoder.register_parameter("w", p)
