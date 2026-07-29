@@ -1,5 +1,5 @@
-# Cosmos Predict2 LoKr smoke for autonomous Kaon AutoLR (~30 steps), smoke_cc0 fixture.
-# Starts deliberately above the conservative fuse to exercise clamping and safe recovery.
+# Cosmos Predict2 LoKr smoke for Kaon 4-bit fused execution (~30 steps), smoke_cc0 fixture.
+# Uses an explicit conservative LR: AutoLR remains quarantined and is not exercised here.
 
 dataset = "tests/fixtures/smoke/dataset_cc0.toml"
 output_dir = "output"
@@ -26,10 +26,9 @@ factor = -1
 
 [optimizer]
 type = "adakaon"
-lr = 1.0
-auto_lr = true
-auto_lr_d0 = 1.0
+lr = 1.0e-4
+auto_lr = false
 fused = true
 betas = [0.9, 0.999]
-momentum_dtype = "bfloat16"
+momentum_dtype = "4bit"
 cautious = true

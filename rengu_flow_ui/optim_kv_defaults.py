@@ -101,9 +101,8 @@ OPTIMIZER_REGISTRY_KV_DEFAULTS: dict[str, dict[str, Any]] = {
         "lr_bump": 1e-6,
     },
     # github.com/Koronos/K-Optimizers (the `kaon` package; installed on demand via the "kaon" profile).
-    # `auto_lr`: autonomous DoWG step-size discovery — set True and the optimizer owns its
-    # learning rate without trainer callbacks. The advanced auto_lr_d0, auto_lr_scale and
-    # auto_lr_fuse_rel controls remain ordinary optimizer kwargs in the KV editor.
+    # `auto_lr` remains visible for checkpoint/config compatibility, but Kaon 0.7.6+
+    # quarantines it: True raises before the first step. Rengu does not drive an LR probe.
     # Adakaon: conv-aware factored optimizer (formerly "Adafusion").
     "adakaon": {
         "lr": 1e-4,
@@ -114,7 +113,7 @@ OPTIMIZER_REGISTRY_KV_DEFAULTS: dict[str, dict[str, Any]] = {
         "clip_threshold": 1.0,
         "momentum_dtype": "bfloat16",
         "cautious": True,
-        "fused": False,
+        "fused": True,
         "bf16_method": "stochastic_rounding",
     },
     # AdaMuon: Muon orthogonalized momentum + factored quantized variance.
@@ -166,7 +165,7 @@ OPTIMIZER_REGISTRY_KV_DEFAULTS: dict[str, dict[str, Any]] = {
         "clip_threshold": 1.0,
         "cautious": True,
         "momentum_dtype": "bfloat16",
-        "fused": False,
+        "fused": True,
         "bf16_method": "stochastic_rounding",
     },
     # AdaBelief: Adam on the variance of the gradient residual (g - m) on the factored backend.
@@ -257,6 +256,7 @@ OPTIMIZER_REGISTRY_KV_DEFAULTS: dict[str, dict[str, Any]] = {
         "weight_decay": 0.1,
         "cautious": True,
         "momentum_dtype": "4bit",
+        "fused": True,
         "bf16_method": "stochastic_rounding",
     },
 }
@@ -353,4 +353,3 @@ def scheduler_kv_defaults(sched_type: str) -> dict[str, Any]:
     else:
         kv = dict(SCHEDULER_BUILTIN_KV_DEFAULTS.get(name.lower(), {}))
     return kv
-

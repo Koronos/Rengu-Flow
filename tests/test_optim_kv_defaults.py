@@ -79,8 +79,6 @@ def test_new_kaon_optimizer_defaults() -> None:
 
     adakaon = optimizer_extra_params_defaults("adakaon")
     assert adakaon["auto_lr"] is False
-    adakaon["auto_lr"] = True  # free optimizer kwarg; no trainer-side probe config
-    assert adakaon["auto_lr"] is True
 
     lion = optimizer_extra_params_defaults("lion")
     assert lion["lr"] == 2e-4
@@ -92,9 +90,10 @@ def test_new_kaon_optimizer_defaults() -> None:
 
 
 def test_fused_flag_prefilled_for_fused_capable_kaon_optimizers() -> None:
-    """Adakaon and AdaPNM expose the Triton `fused` flag (default off) in the form."""
-    assert optimizer_extra_params_defaults("adakaon")["fused"] is False
-    assert optimizer_extra_params_defaults("adapnm")["fused"] is False
+    """Kaon's accelerated optimizers enable their native-Windows Triton path by default."""
+    assert optimizer_extra_params_defaults("adakaon")["fused"] is True
+    assert optimizer_extra_params_defaults("adapnm")["fused"] is True
+    assert optimizer_extra_params_defaults("nekaon")["fused"] is True
 
 
 def test_newer_kaon_optimizer_defaults() -> None:
