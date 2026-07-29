@@ -28,6 +28,9 @@ def bench_init(run_dir: str) -> Path | None:
                 "cuda_alloc_gb",
                 "cuda_reserved_gb",
                 "cuda_peak_gb",
+                "wall_sec",
+                "overhead_sec",
+                "wall_samples_per_sec",
             ]
         )
     if torch.cuda.is_available():
@@ -42,6 +45,7 @@ def bench_record(
     loss: float,
     iter_sec: float,
     batch_size: int,
+    wall_sec: float | None = None,
 ) -> None:
     if csv_path is None:
         return
@@ -55,13 +59,28 @@ def bench_record(
             # high-water mark (which is dominated by the cold compile step).
             torch.cuda.reset_peak_memory_stats()
     sps = batch_size / iter_sec if iter_sec > 0 else 0.0
+    wall_sec = iter_sec if wall_sec is None else wall_sec
+    overhead_sec = max(0.0, wall_sec - iter_sec)
+    wall_sps = batch_size / wall_sec if wall_sec > 0 else 0.0
     with csv_path.open("a", newline="") as f:
         csv.writer(f).writerow(
-            [step, f"{loss:.6f}", f"{iter_sec:.4f}", f"{sps:.4f}", f"{alloc:.3f}", f"{reserved:.3f}", f"{peak:.3f}"]
+            [
+                step,
+                f"{loss:.6f}",
+                f"{iter_sec:.4f}",
+                f"{sps:.4f}",
+                f"{alloc:.3f}",
+                f"{reserved:.3f}",
+                f"{peak:.3f}",
+                f"{wall_sec:.4f}",
+                f"{overhead_sec:.4f}",
+                f"{wall_sps:.4f}",
+            ]
         )
     print(
         f"[bench] step={step} loss={loss:.6f} iter_sec={iter_sec:.3f} "
-        f"samples/s={sps:.3f} cuda_peak_gb={peak:.2f}",
+        f"wall_sec={wall_sec:.3f} overhead_sec={overhead_sec:.3f} "
+        f"samples/s={sps:.3f} wall_samples/s={wall_sps:.3f} cuda_peak_gb={peak:.2f}",
         flush=True,
     )
 
@@ -117,6 +136,15 @@ def bench_summarize(csv_path: Path | None, label: str, run_dir: str) -> dict[str
         "samples_per_sec_mean": sum(sps) / len(sps),
         "cuda_peak_gb_max": max(peaks),
     }
+    if "wall_sec" in rows[0] and rows[0]["wall_sec"]:
+        walls = [float(r["wall_sec"]) for r in rows]
+        overheads = [float(r["overhead_sec"]) for r in rows]
+        wall_sps = [float(r["wall_samples_per_sec"]) for r in rows]
+        out.update(
+            wall_sec_mean=sum(walls) / len(walls),
+            overhead_sec_mean=sum(overheads) / len(overheads),
+            wall_samples_per_sec_mean=sum(wall_sps) / len(wall_sps),
+        )
     summary_path = Path(run_dir) / "bench_summary.txt"
     with summary_path.open("a") as f:
         f.write(f"\n=== {label} ===\n")

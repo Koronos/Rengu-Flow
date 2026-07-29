@@ -47,7 +47,11 @@ class InitialLayer(nn.Module):
             # must stay tensors-only (DeepSpeed pipe comm), so ship a 0-size sentinel instead.
             if attn_mask is None:
                 attn_mask = text_mask.new_empty(0)
-            grid = torch.tensor([grid_h, grid_w], device=hidden.device)
+            # Encode the static grid in a zero-storage tensor's shape. Reading CUDA tensor values
+            # with .item() in FinalLayer serialized the stream twice per forward; shape metadata is
+            # available on the host without a device synchronization and still satisfies the
+            # tensors-only DeepSpeed pipeline contract.
+            grid = hidden.new_empty((grid_h, grid_w, 0))
             outputs = make_contiguous(hidden, temb, temb_mod, freqs_cos, freqs_sin, attn_mask, text_mask, grid)
             for tensor in outputs:
                 if torch.is_floating_point(tensor):
@@ -145,4 +149,5 @@ class FinalLayer(nn.Module):
             hidden, temb, _temb_mod, _freqs_cos, _freqs_sin, _attn_mask, text_mask, grid = inputs
             hidden = hidden[:, text_mask.shape[1] :]
             output = self.final_layer(hidden, temb)
-            return unpack_latents(output, int(grid[0].item()), int(grid[1].item()))
+            grid_h, grid_w = grid.shape[:2]
+            return unpack_latents(output, grid_h, grid_w)

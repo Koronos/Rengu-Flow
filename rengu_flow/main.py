@@ -1105,7 +1105,6 @@ def _run_training(args, config):
     # per-iteration status.json writes; the web UI parses these for its live bar.
     progress_emitter = ProgressEmitter() if is_main_process() else None
     final_model_name = None
-    saved = False
     last_save_step = -1  # last step an inference model was exported (for the final export)
     last_checkpoint_step = -1  # last step a resume checkpoint was written (for the final ckpt)
     epoch_loss = 0.0
@@ -1341,6 +1340,8 @@ def _run_training(args, config):
 
     try:
         while True:
+            wall_t0 = time.perf_counter()
+            saved_this_step = False
             model_engine.reset_activation_shape()
             if train_data is not None and hasattr(train_data, "set_training_context"):
                 train_data.set_training_context(train_seed, step)
@@ -1355,11 +1356,8 @@ def _run_training(args, config):
             # if needed. Must run before pulling this step's micro-batches.
             if schedule_active:
                 train_dataloader.refresh_for_step(step)
-            # t0 must wrap the data fetch too: get_data_iterator_for_step calls next()
-            # eagerly (pipeline.py), so timing from after it excludes the entire dataloader
-            # cost from step_time_sec/steps_per_second/eta — silently hiding a real
-            # data-bound bottleneck as if the GPU were the whole step (measured: reported
-            # ~2.9 steps/sec vs ~1.2 true wall-clock steps/sec on a data-bound run).
+            # t0 must wrap iterator creation and consumption. DeepSpeed preloads here while the
+            # single-device engine streams during train_batch; either way iter_sec includes data.
             t0 = time.perf_counter()
             iterator = get_data_iterator_for_step(train_dataloader, model_engine)
             skipped_oom = False
@@ -1441,14 +1439,6 @@ def _run_training(args, config):
                 continue
             if training_ema is not None and step % training_ema.update_interval == 0:
                 training_ema.update(parameters_to_train)
-            if bench_enabled(config) and is_main_process():
-                bench_record(
-                    bench_csv,
-                    step=step,
-                    loss=loss,
-                    iter_sec=iter_sec,
-                    batch_size=per_step_batch,
-                )
             train_dataloader.sync_epoch()
             epoch_loss += loss
             num_steps += 1
@@ -1466,7 +1456,7 @@ def _run_training(args, config):
                 if checkpointed_ep:
                     last_checkpoint_step = step
                 if saved_ep:
-                    saved = True
+                    saved_this_step = True
                     last_save_step = step
             epoch = epoch_schedule.current(step)
 
@@ -1488,7 +1478,7 @@ def _run_training(args, config):
                         metrics=step_progress,
                         val_metrics=last_val_metrics,
                     ),
-                    force=is_final or finished_epoch or saved,
+                    force=is_final or finished_epoch or saved_this_step,
                 )
             log_training_step(
                 sink=sink,
@@ -1552,8 +1542,22 @@ def _run_training(args, config):
             if step_checkpointed:
                 last_checkpoint_step = step
             if step_saved:
-                saved = True
                 last_save_step = step
+                # Step-based exports run after the regular progress emission. Emit once here so
+                # the UI sees the boundary immediately without leaving a sticky force flag that
+                # would spam every later step.
+                if not saved_this_step and progress_emitter is not None:
+                    progress_emitter.emit(
+                        build_progress_payload(
+                            step=step,
+                            loss=loss,
+                            epoch=epoch,
+                            metrics=step_progress,
+                            val_metrics=last_val_metrics,
+                        ),
+                        force=True,
+                    )
+                saved_this_step = True
 
             # WSD: at the decay onset, save the protected pre-decay fork once (LR still at base).
             if wsd_fork_step is not None and step >= wsd_fork_step:
@@ -1610,6 +1614,16 @@ def _run_training(args, config):
                     empty_cuda_cache()
                 else:
                     torch.cuda.empty_cache()
+
+            if bench_enabled(config) and is_main_process():
+                bench_record(
+                    bench_csv,
+                    step=step,
+                    loss=loss,
+                    iter_sec=iter_sec,
+                    batch_size=per_step_batch,
+                    wall_sec=time.perf_counter() - wall_t0,
+                )
 
             if step >= total_budget_steps:
                 final_model_name, _reason = budget_reached_target(max_steps, epochs, step)

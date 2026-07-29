@@ -54,7 +54,11 @@ def _resolve_grad_norm(model_engine, optimizer) -> float | None:
             gn = model_engine.get_global_grad_norm()
         except Exception:
             gn = None
-        if isinstance(gn, (int, float)) and gn > 0:
+        if torch.is_tensor(gn):
+            if gn.numel() == 1:
+                value = float(gn.detach().item())
+                return value if value > 0 else None
+        elif isinstance(gn, (int, float)) and gn > 0:
             return float(gn)
     inner = getattr(optimizer, "_grad_norm", None)
     return float(inner) if isinstance(inner, (int, float)) else None
@@ -85,9 +89,10 @@ def install_grad_norm_capture(model_engine, _clip_fn=None) -> None:
             max_norm=model_engine.gradient_clipping(),
             mpu=model_engine.mpu,
         )
-        # Must end up a plain float: _resolve_grad_norm()'s isinstance check drops tensors silently.
+        # Preserve device scalars so clipping does not introduce a cudaStreamSynchronize before
+        # optimizer.step(). The logging boundary resolves it to a float after the loss sync.
         model_engine._global_grad_norm = (
-            float(total_norm.item()) if torch.is_tensor(total_norm) else float(total_norm)
+            total_norm.detach() if torch.is_tensor(total_norm) else float(total_norm)
         )
 
     model_engine.clip_fp32_gradients = _clip_and_capture

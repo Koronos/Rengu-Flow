@@ -131,6 +131,38 @@ def test_pipeline_layers_match_monolithic_forward(tiny_model):
     assert torch.allclose(actual, expected, atol=1e-5)
 
 
+def test_pipeline_grid_metadata_uses_shape_without_storage(tiny_model):
+    """Grid dimensions must not require CUDA scalar reads in the final pipeline layer."""
+    latents = torch.randn(2, 4, 8, 12)
+    embeds = torch.randn(2, 7, 3, 24)
+    mask = _text_mask_sample1_from_token4()
+    t = torch.rand(2)
+
+    outputs = InitialLayer(tiny_model)((latents, t.view(-1, 1), embeds, mask))
+    grid = outputs[7]
+    assert grid.shape == (4, 6, 0)
+    assert grid.numel() == 0
+    actual = FinalLayer(tiny_model)(outputs)
+    assert actual.shape == latents.shape
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
+def test_pipeline_grid_metadata_cuda_has_no_value_transfer(tiny_model):
+    """CUDA smoke for the zero-storage grid representation used across pipeline stages."""
+    model = tiny_model.to("cuda")
+    latents = torch.randn(2, 4, 8, 12, device="cuda")
+    embeds = torch.randn(2, 7, 3, 24, device="cuda")
+    mask = _text_mask_sample1_from_token4().to("cuda")
+    t = torch.rand(2, device="cuda")
+
+    outputs = InitialLayer(model)((latents, t.view(-1, 1), embeds, mask))
+    grid = outputs[7]
+    assert grid.is_cuda and grid.shape == (4, 6, 0) and grid.numel() == 0
+    actual = FinalLayer(model)(outputs)
+    torch.cuda.synchronize()
+    assert actual.shape == latents.shape and torch.isfinite(actual).all()
+
+
 ADAPTER_CONFIGS = [
     pytest.param(
         {"type": "lora", "rank": 4, "alpha": 4, "dropout": 0.0, "dtype": torch.float32},

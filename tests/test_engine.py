@@ -7,6 +7,7 @@ manual GPU smoke; this guards the engine's own logic.
 
 import torch
 import torch.nn as nn
+from unittest.mock import MagicMock
 
 from rengu_flow.engine import SequentialPipe, TorchEngine, resolve_backend, select_backend
 
@@ -99,6 +100,29 @@ def test_eval_batch_no_grad_finite():
     engine = _make_engine()
     loss = engine.eval_batch(_micro_batches(engine, 2, torch.zeros(2, 4)))
     assert torch.isfinite(loss)
+
+
+def test_module_mode_tree_is_only_walked_on_real_transitions():
+    engine = _make_engine(gas=1)
+    original_train = engine.module.train
+    engine.module.train = MagicMock(wraps=original_train)
+    target = torch.zeros(2, 4)
+
+    engine.train_batch(_micro_batches(engine, 1, target))
+    engine.train_batch(_micro_batches(engine, 1, target))
+    engine.module.train.assert_not_called()
+
+    engine.eval_batch(_micro_batches(engine, 1, target))
+    engine.eval_batch(_micro_batches(engine, 1, target))
+    engine.module.train.assert_called_once_with(False)
+
+    engine.train_batch(_micro_batches(engine, 1, target))
+    assert engine.module.train.call_args_list[-1].args == ()
+    assert engine.module.train.call_count == 2
+
+
+def test_single_device_engine_streams_micro_batches():
+    assert _make_engine().preload_micro_batches is False
 
 
 def test_checkpoint_roundtrip(tmp_path):

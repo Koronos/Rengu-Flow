@@ -100,6 +100,11 @@ class SequentialPipe(torch.nn.Module):
 class TorchEngine:
     """Minimal single-GPU training engine matching the DeepSpeed surface the loop uses."""
 
+    # DeepSpeed's pipeline engine needs all micro-batches materialized before pipeline IPC.
+    # The single-device engine consumes them in order, so keeping them lazy removes a redundant
+    # list allocation and avoids holding a full accumulation step of batch references at once.
+    preload_micro_batches = False
+
     def __init__(self, module: SequentialPipe, get_optimizer, parameters_to_train, ds_config: dict,
                  *, block_swap: bool = False):
         self.module = module
@@ -119,7 +124,7 @@ class TorchEngine:
         if not block_swap:
             self.module.to(self.device)
         self._trainable = [p for p in self.module.parameters() if p.requires_grad]
-        self._last_grad_norm: float | None = None
+        self._last_grad_norm: torch.Tensor | float | None = None
 
     # -- pipeline-stage queries (single GPU == both ends) --
     def is_first_stage(self) -> bool:
@@ -139,7 +144,10 @@ class TorchEngine:
 
     def _to_device(self, items):
         return tuple(
-            t.to(self.device) if isinstance(t, torch.Tensor) else t for t in items
+            t.to(self.device, non_blocking=self.device.type == "cuda")
+            if isinstance(t, torch.Tensor)
+            else t
+            for t in items
         )
 
     def _forward_loss(self, micro_batch):
@@ -154,7 +162,10 @@ class TorchEngine:
 
     def train_batch(self, iterator) -> torch.Tensor:
         """Run ``micro_batches`` forward/backward, then one optimizer step. Returns mean loss."""
-        self.module.train()
+        # Module.train() recursively visits every child. Large diffusion pipelines can contain
+        # hundreds of modules, so only walk the tree when eval actually changed its mode.
+        if not self.module.training:
+            self.module.train()
         # Accumulate the loss on-GPU (loss.detach(), not .item()) so we don't force a
         # cudaStreamSynchronize every micro-batch. That per-micro-batch sync stalls the CPU
         # behind the GPU and defeats the CPU-runs-ahead overlap torch.compile relies on; the
@@ -165,9 +176,11 @@ class TorchEngine:
             loss.backward()
             total = loss.detach() if total is None else total + loss.detach()
         if self._grad_clip:
-            self._last_grad_norm = float(
-                torch.nn.utils.clip_grad_norm_(self._trainable, self._grad_clip)
-            )
+            # Keep the scalar on-device. Converting it to float here synchronizes CUDA before the
+            # optimizer step; metrics resolve it later, after the caller's unavoidable loss sync.
+            self._last_grad_norm = torch.nn.utils.clip_grad_norm_(
+                self._trainable, self._grad_clip
+            ).detach()
         self.optimizer.step()
         if self.lr_scheduler is not None:
             self.lr_scheduler.step()
@@ -175,7 +188,8 @@ class TorchEngine:
         return total if total is not None else torch.tensor(0.0)
 
     def eval_batch(self, iterator, num_micro_batches: int | None = None) -> torch.Tensor:
-        self.module.eval()
+        if self.module.training:
+            self.module.eval()
         total, n = None, 0
         with torch.no_grad():
             for micro_batch in iterator:

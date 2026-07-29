@@ -28,14 +28,14 @@ class _FakeEngine:
         pass
 
 
-def test_install_grad_norm_capture_stores_float_from_tensor():
-    # DeepSpeed's clip_grad_norm_ returns a tensor; the capture must store a float, else
-    # _resolve_grad_norm()'s isinstance check drops it silently and the chart stays empty.
+def test_install_grad_norm_capture_defers_tensor_conversion_until_logging():
+    # Keep DeepSpeed's scalar tensor on-device at clip time. Converting it before optimizer.step()
+    # would synchronize CUDA; the normal logging boundary converts it after the loss sync.
     engine = _FakeEngine()
     install_grad_norm_capture(engine, _clip_fn=lambda **_: torch.tensor(2.5))
     engine.clip_fp32_gradients()
-    assert engine._global_grad_norm == 2.5
-    assert isinstance(engine._global_grad_norm, float)
+    assert torch.is_tensor(engine._global_grad_norm)
+    assert engine._global_grad_norm.item() == 2.5
 
 
 def test_install_grad_norm_capture_noop_when_clipping_off():
@@ -130,6 +130,27 @@ def test_log_training_step_logs_lr_and_engine_grad_norm():
     )
     sink.scalar.assert_any_call("train/lr", 3e-5, 10)
     sink.scalar.assert_any_call("train/grad_norm", 1.5, 10)
+
+
+def test_log_training_step_resolves_tensor_engine_grad_norm():
+    sink = MagicMock()
+    opt = MagicMock()
+    opt.__class__.__name__ = "AdamW"
+    opt.param_groups = [{"lr": 3e-5}]
+    del opt._grad_norm
+    engine = MagicMock()
+    engine.get_global_grad_norm = MagicMock(return_value=torch.tensor(1.75))
+    log_training_step(
+        sink=sink,
+        optimizer=opt,
+        loss=0.1,
+        x_axis=10,
+        step=10,
+        logging_steps=10,
+        is_main=True,
+        model_engine=engine,
+    )
+    sink.scalar.assert_any_call("train/grad_norm", 1.75, 10)
 
 
 def test_log_training_step_prints_human_readable_line_to_stdout(capsys):

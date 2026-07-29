@@ -132,26 +132,38 @@ def process_signals(run_dir: str | Path) -> SignalResult:
     should_reload_config = False
 
     if is_main_process():
+        # One stat per path is enough. The old exists()+is_file() checks doubled the filesystem
+        # syscalls both while detecting and while consuming signals; this function runs every
+        # training step and the empty case is overwhelmingly the common one.
+        signal_paths = (
+            save_quit_path,
+            save_path,
+            export_quit_path,
+            export_path,
+            preview_path,
+            reload_config_path,
+        )
+        present = {path for path in signal_paths if path.is_file()}
         # Log every signal as it's picked up (before acting on it) so a run's log shows exactly
         # what was requested and when — invaluable when debugging "why did it stop / export / etc."
-        if save_quit_path.exists() and save_quit_path.is_file():
+        if save_quit_path in present:
             should_checkpoint = True
             should_quit = True
             _log_signal("save_quit", "write resume checkpoint, then quit")
-        elif save_path.exists() and save_path.is_file():
+        elif save_path in present:
             should_checkpoint = True
             _log_signal("save", "write resume checkpoint")
-        if export_quit_path.exists() and export_quit_path.is_file():
+        if export_quit_path in present:
             should_export_model = True
             should_export_quit = True
             _log_signal("export_model_quit", "export inference weights, then quit")
-        elif export_path.exists() and export_path.is_file():
+        elif export_path in present:
             should_export_model = True
             _log_signal("export_model", "export inference weights")
-        if preview_path.exists() and preview_path.is_file():
+        if preview_path in present:
             should_preview = True
             _log_signal("preview", "render previews now")
-        if reload_config_path.exists() and reload_config_path.is_file():
+        if reload_config_path in present:
             should_reload_config = True
             _log_signal("reload_config", "hot-reload the [preview] section")
 
@@ -175,16 +187,11 @@ def process_signals(run_dir: str | Path) -> SignalResult:
     ) = result
 
     if is_main_process():
-        for path in (
-            save_quit_path,
-            save_path,
-            export_quit_path,
-            export_path,
-            preview_path,
-            reload_config_path,
-        ):
-            if path.exists() and path.is_file():
+        for path in present:
+            try:
                 path.unlink()
+            except FileNotFoundError:
+                pass
 
     _sync_ranks_after_rank0()
 

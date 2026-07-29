@@ -5,6 +5,8 @@ DeepSpeed is imported lazily: ``ManualPipelineModule`` is built on first attribu
 — used by BOTH the DeepSpeed engine and the single-GPU torch engine — can be imported on a host
 without DeepSpeed installed (native Windows, engine='accelerate')."""
 
+from itertools import islice
+
 from torch import nn
 
 _MANUAL_PIPELINE_MODULE_CLS = None
@@ -71,10 +73,12 @@ def __getattr__(name):  # PEP 562: lazy DeepSpeed import only when the class is 
 
 
 def get_data_iterator_for_step(dataloader, engine, num_micro_batches=None):
-    """Preload micro-batches from dataloader for one step (required for pipeline IPC)."""
+    """Return one step of micro-batches, preloading only when the engine requires pipeline IPC."""
     num_micro_batches = num_micro_batches or engine.micro_batches
     if not (engine.is_first_stage() or engine.is_last_stage()):
         return None
     dataloader_iter = iter(dataloader)
+    if not getattr(engine, "preload_micro_batches", True):
+        return islice(dataloader_iter, num_micro_batches)
     items = [next(dataloader_iter) for _ in range(num_micro_batches)]
     return iter(items)

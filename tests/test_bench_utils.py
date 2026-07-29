@@ -3,7 +3,10 @@
 from pathlib import Path
 
 from rengu_flow.utils.bench import (
+    bench_init,
     bench_mean_iter_sec_after_warmup,
+    bench_record,
+    bench_summarize,
     find_latest_bench_csv,
 )
 
@@ -44,3 +47,26 @@ def test_find_latest_bench_csv(tmp_path: Path):
     os.utime(new / "bench_steps.csv", None)
     found = find_latest_bench_csv(tmp_path)
     assert found == new / "bench_steps.csv"
+
+
+def test_bench_records_compute_and_full_wall_time(tmp_path: Path):
+    csv_path = bench_init(str(tmp_path))
+    bench_record(
+        csv_path,
+        step=1,
+        loss=0.5,
+        iter_sec=0.25,
+        wall_sec=0.4,
+        batch_size=2,
+    )
+    import csv
+
+    row = next(csv.DictReader(csv_path.open()))
+    assert float(row["iter_sec"]) == 0.25
+    assert float(row["wall_sec"]) == 0.4
+    assert float(row["overhead_sec"]) == 0.15
+    assert float(row["wall_samples_per_sec"]) == 5.0
+
+    summary = bench_summarize(csv_path, "test", str(tmp_path))
+    assert summary["wall_sec_mean"] == 0.4
+    assert summary["overhead_sec_mean"] == 0.15
