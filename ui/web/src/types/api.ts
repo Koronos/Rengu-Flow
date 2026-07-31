@@ -249,6 +249,8 @@ export interface ContinueRunBody {
   extra_args?: string;
   reset_dataloader?: boolean;
   reset_optimizer?: boolean;
+  /** Keep optimizer moments but apply optimizer LR/group values from the edited TOML. */
+  reset_optimizer_params?: boolean;
   /** Checkpoint folder name to resume from; omit to use the run's `latest`. */
   resume_from?: string;
   /** Ignore checkpoints and train from step 0 in the same folder. */

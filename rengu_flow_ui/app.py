@@ -139,6 +139,7 @@ class ContinueRunBody(BaseModel):
     extra_args: str = ""
     reset_dataloader: bool = False
     reset_optimizer: bool = False
+    reset_optimizer_params: bool = False
     resume_from: str | None = None
     from_scratch: bool = False
     enqueue: bool = True
@@ -719,6 +720,7 @@ def create_app() -> FastAPI:
                     extra_args=body.extra_args,
                     reset_dataloader=body.reset_dataloader,
                     reset_optimizer=body.reset_optimizer,
+                    reset_optimizer_params=body.reset_optimizer_params,
                     resume_from=body.resume_from,
                     from_scratch=body.from_scratch,
                     enqueue=body.enqueue,
@@ -732,6 +734,7 @@ def create_app() -> FastAPI:
                     extra_args=body.extra_args,
                     reset_dataloader=body.reset_dataloader,
                     reset_optimizer=body.reset_optimizer,
+                    reset_optimizer_params=body.reset_optimizer_params,
                     resume_from=body.resume_from,
                     from_scratch=body.from_scratch,
                     enqueue=body.enqueue,

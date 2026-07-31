@@ -98,7 +98,7 @@ There is no separate **Signals** page: signal buttons appear on **run detail** a
 
 **New config** seeds an SDXL LoRA template. Use **Import TOML…** on the config list if you already have a file on disk.
 
-To **continue a run**, open job or filesystem run detail → **Continue training…** → edits in **Configs** → queue continuation. Training resumes in the same output folder.
+To **continue a run**, open job or filesystem run detail → **Continue training…** → edits in **Configs** → queue continuation. Training resumes in the same output folder. By default, optimizer groups and scheduler state resume exactly from the checkpoint. Enable **Apply edited optimizer LR/settings** only when edited LR or parameter-group values from the TOML should replace the checkpoint values while preserving optimizer moments/state. **Start from scratch** does not use this option.
 
 For terminal-trained runs, use **Import script run** on **Runs** to link the folder for metrics and signals.
 

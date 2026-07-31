@@ -6,6 +6,41 @@ import copy
 from typing import Any, Callable
 
 
+def snapshot_param_group_options(
+    param_groups: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Capture configured group options without retaining parameter lists."""
+    return [
+        {key: value for key, value in group.items() if key != "params"}
+        for group in param_groups
+    ]
+
+
+def reapply_param_group_options(
+    param_groups: list[dict[str, Any]],
+    configured: list[dict[str, Any]],
+) -> None:
+    """Apply configured options to checkpoint-loaded groups without replacing the groups.
+
+    Wrapped optimizers such as Nekaon deliberately share the exact ``param_groups`` list with
+    their inner optimizer. Assigning a saved pre-load list to the outer wrapper breaks that
+    identity: its scheduler/lookahead and its inner Adakaon then operate on different LRs. Update
+    the checkpoint-loaded dictionaries in place so wrapper bindings, parameter IDs and optimizer
+    state stay intact.
+    """
+    if len(param_groups) != len(configured):
+        raise ValueError(
+            "Cannot apply edited optimizer settings: the checkpoint has "
+            f"{len(param_groups)} parameter groups but the current config builds "
+            f"{len(configured)}. Use a full optimizer reset when group structure changes."
+        )
+    for group, options in zip(param_groups, configured):
+        for key in tuple(group):
+            if key != "params":
+                del group[key]
+        group.update(options)
+
+
 def _partition(
     params: list[Any], predicate: Callable[[Any], bool]
 ) -> tuple[list[Any], list[Any]]:

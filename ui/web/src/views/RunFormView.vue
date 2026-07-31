@@ -62,7 +62,9 @@
           <template #title>Continuing run</template>
           <span class="continue-text">
             Resumes the run folder <code>{{ continuation.run_dir }}</code>. Raise
-            <code>epochs</code>/<code>max_steps</code> to train further.
+            <code>epochs</code>/<code>max_steps</code> to train further. By default the optimizer
+            and scheduler resume exactly from the checkpoint; enable the optimizer override only
+            when you want edited LR/group settings to take effect.
           </span>
         </el-alert>
 
@@ -90,6 +92,13 @@
             </el-option>
           </el-select>
           <el-checkbox v-model="fromScratch" size="small">Start from scratch</el-checkbox>
+          <el-checkbox
+            v-if="!fromScratch"
+            v-model="applyOptimizerParams"
+            size="small"
+          >
+            Apply edited optimizer LR/settings
+          </el-checkbox>
           <el-text
             v-if="!fromScratch && !checkpoints.length && !checkpointsLoading"
             type="info"
@@ -372,6 +381,7 @@ const { result: stepsEstimate, loading: stepsLoading } = useEstimateSteps(form, 
 
 const resumeFrom = ref<string>("");
 const fromScratch = ref(false);
+const applyOptimizerParams = ref(false);
 const cacheOnly = ref(false);
 const trustCache = ref(false);  // defaulted on for continue mode in init()
 const regenerateCache = ref(false);
@@ -470,6 +480,7 @@ function resetParams(): void {
   numGpus.value = 1;
   resumeFrom.value = "";
   fromScratch.value = false;
+  applyOptimizerParams.value = false;
   cacheOnly.value = false;
   trustCache.value = false;
   regenerateCache.value = false;
@@ -631,6 +642,7 @@ async function doSubmit(action: "queue" | "draft"): Promise<void> {
         num_gpus: numGpus.value,
         resume_from: fromScratch.value ? undefined : resumeFrom.value || undefined,
         from_scratch: fromScratch.value,
+        reset_optimizer_params: applyOptimizerParams.value,
         enqueue: action === "queue",
       });
     } else if (action === "draft") {
@@ -653,6 +665,7 @@ async function doSubmit(action: "queue" | "draft"): Promise<void> {
         num_gpus: numGpus.value,
         resume_from: fromScratch.value ? undefined : resumeFrom.value || undefined,
         from_scratch: fromScratch.value,
+        reset_optimizer_params: applyOptimizerParams.value,
         enqueue: true,
       });
     } else if (isEdit.value && routeJobId.value) {

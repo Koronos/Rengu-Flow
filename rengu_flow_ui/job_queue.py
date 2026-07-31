@@ -162,6 +162,7 @@ def merge_job_cli_args(
     regenerate_cache: bool = False,
     reset_dataloader: bool = False,
     reset_optimizer: bool = False,
+    reset_optimizer_params: bool = False,
     run_dir: str | None = None,
 ) -> str:
     """Merge job toggle flags into a CLI ``extra_args`` string (idempotent, deduped).
@@ -203,7 +204,11 @@ def merge_job_cli_args(
     if reset_dataloader:
         _add("--reset_dataloader")
     if reset_optimizer:
+        # A full reset supersedes restoring state with fresh parameter groups.
+        tokens = [tok for tok in tokens if tok != "--reset_optimizer_params"]
         _add("--reset_optimizer")
+    elif reset_optimizer_params and "--reset_optimizer" not in tokens:
+        _add("--reset_optimizer_params")
     if cache_only:
         _add("--cache_only")
     if trust_cache:
@@ -224,6 +229,7 @@ def prepare_job(
     extra_args: str,
     reset_dataloader: bool,
     reset_optimizer: bool,
+    reset_optimizer_params: bool = False,
     cache_only: bool = False,
     trust_cache: bool = False,
     regenerate_cache: bool = False,
@@ -257,6 +263,7 @@ def prepare_job(
         regenerate_cache=regenerate_cache,
         reset_dataloader=reset_dataloader,
         reset_optimizer=reset_optimizer,
+        reset_optimizer_params=reset_optimizer_params,
         run_dir=run_dir_pin,
     )
     cfg = toml.loads(staging.read_text(encoding="utf-8"))
@@ -283,6 +290,7 @@ def enqueue_continue_run(
     extra_args: str = "",
     reset_dataloader: bool = False,
     reset_optimizer: bool = False,
+    reset_optimizer_params: bool = False,
     resume_from: str | None = None,
     from_scratch: bool = False,
     enqueue: bool = True,
@@ -322,6 +330,9 @@ def enqueue_continue_run(
         extra_args=extra_args,
         reset_dataloader=reset_dataloader,
         reset_optimizer=reset_optimizer,
+        reset_optimizer_params=(
+            reset_optimizer_params and not from_scratch and not reset_optimizer
+        ),
         source_run_dir=str(run_dir),
         run_dir_pin=run_dir_pin,
     )
@@ -342,6 +353,7 @@ def continue_existing(
     extra_args: str = "",
     reset_dataloader: bool = False,
     reset_optimizer: bool = False,
+    reset_optimizer_params: bool = False,
     resume_from: str | None = None,
     from_scratch: bool = False,
     enqueue: bool = True,
@@ -389,6 +401,9 @@ def continue_existing(
         regenerate_cache=job.regenerate_cache,
         reset_dataloader=reset_dataloader,
         reset_optimizer=reset_optimizer,
+        reset_optimizer_params=(
+            reset_optimizer_params and bool(resume_arg) and not reset_optimizer
+        ),
         run_dir=run_dir_pin,
     )
     resolved_dir = str(Path(run_dir).resolve()) if run_dir else None

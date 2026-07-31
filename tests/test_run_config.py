@@ -77,6 +77,7 @@ def test_continue_run_api(ui_client, ui_data_tmp: Path) -> None:
         json={
             "run_path": str(run),
             "content": updated,
+            "reset_optimizer_params": True,
             "enqueue": True,
             "start_immediately": False,
         },
@@ -85,3 +86,4 @@ def test_continue_run_api(ui_client, ui_data_tmp: Path) -> None:
     job = r2.json()
     assert str(job["resume_from"]).endswith(run.name)
     assert job["source_run_dir"] == str(run.resolve())
+    assert "--reset_optimizer_params" in job["extra_args"]
