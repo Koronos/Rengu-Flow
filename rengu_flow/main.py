@@ -1124,16 +1124,7 @@ def _run_training(args, config):
         per_step_batch = max(1, global_batch_size // max(1, world_size_for_opt))
 
     if resume_from_checkpoint:
-        from rengu_flow.optim.param_groups import (
-            reapply_param_group_options,
-            snapshot_param_group_options,
-        )
-
-        load_lr = (
-            "force_constant_lr" not in config
-            and not args.reset_optimizer
-            and not args.reset_optimizer_params
-        )
+        load_lr = "force_constant_lr" not in config and not args.reset_optimizer and not args.reset_optimizer_params
         # WSD rebuilds its schedule for the (possibly extended) horizon and fast-forwards to the
         # resumed step below — loading the saved scheduler state would restore the OLD decay
         # milestone and misplace the tail when extending. Skip the state load for wsd.
@@ -1141,9 +1132,9 @@ def _run_training(args, config):
         if resume_is_wsd:
             load_lr = False
         load_optimizer = not args.reset_optimizer
-        configured_group_options = None
-        if args.reset_optimizer_params:
-            configured_group_options = snapshot_param_group_options(optimizer.param_groups)
+        param_groups = getattr(optimizer, "param_groups", None)
+        if param_groups is not None:
+            param_groups = param_groups.copy()
         load_path, client_state = model_engine.load_checkpoint(
             run_dir,
             tag=resume_tag,
@@ -1151,10 +1142,8 @@ def _run_training(args, config):
             load_lr_scheduler_states=load_lr,
             load_optimizer_states=load_optimizer,
         )
-        if configured_group_options is not None:
-            reapply_param_group_options(optimizer.param_groups, configured_group_options)
-            # _run_training lives for the whole run; release the short-lived option snapshot.
-            del configured_group_options
+        if args.reset_optimizer_params and param_groups is not None:
+            optimizer.param_groups = param_groups
         dist.barrier()
         if load_path is None:
             if is_main_process():
@@ -1177,16 +1166,6 @@ def _run_training(args, config):
             epoch = epoch_schedule.current(step)
             if is_main_process():
                 print(f"Resuming from checkpoint at epoch {epoch}, step {step}")
-                effective_lrs = [group.get("lr") for group in optimizer.param_groups]
-                lr_source = (
-                    "configured groups reapplied; optimizer state preserved"
-                    if args.reset_optimizer_params
-                    else "restored from checkpoint"
-                )
-                print(
-                    f"[resume] effective optimizer LRs ({lr_source}): {effective_lrs}",
-                    flush=True,
-                )
             # WSD: position the freshly-built schedule at the resumed step. The stable phase is
             # constant, so this re-anchors the decay tail to the (possibly new) horizon end —
             # resuming the 'predecay' fork with a larger length extends the flat phase instead of

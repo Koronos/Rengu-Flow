@@ -111,7 +111,7 @@ On `POST /api/v1/jobs`:
 | **Run folder `*.toml`** | Ground truth for a finished or in-progress training run; copied/updated by `rengu_flow.main` on each start (including resume) |
 | **Job row** (`jobs` table) | Queue metadata: `config_id` (library), `config_path` (staging), `resume_from`, `source_run_dir`, `run_dir` |
 
-**Continue training:** `GET /runs/config?run_path=…` reads the run TOML; user edits (e.g. more `epochs` or LR); `POST /jobs/continue-run` stages the new TOML and sets `resume_from` to that folder. Checkpoint continuations restore optimizer groups and scheduler state exactly by default. The explicit `reset_optimizer_params` request adds `--reset_optimizer_params`, preserving optimizer state while applying the edited TOML's parameter groups; a full optimizer reset supersedes it, and continue-from-scratch omits it. Optional `save_to_library` copies the edited TOML into `training_configs` for reuse. The trainer resumes in the **same** `run_dir` and overwrites the snapshot TOML there with the config used for that launch.
+**Continue training:** `GET /runs/config?run_path=…` reads the run TOML; user edits (e.g. more `epochs`); `POST /jobs/continue-run` stages the new TOML and sets `resume_from` to that folder. Optional `save_to_library` copies the edited TOML into `training_configs` for reuse. The trainer resumes in the **same** `run_dir` and overwrites the snapshot TOML there with the config used for that launch.
 
 ## Job import (script runs)
 

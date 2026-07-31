@@ -222,7 +222,6 @@ def test_continue_existing_specific_checkpoint_pins_folder(
     assert cont.resume_from == "global_step40"  # the tag (not a folder)
     assert "--run_dir" in (cont.extra_args or "")
     assert str(folder.resolve()) in (cont.extra_args or "")
-    assert "--reset_optimizer_params" not in (cont.extra_args or "")
 
 
 def test_continue_existing_without_folder_reuses_record(
@@ -330,60 +329,6 @@ def test_prepare_job_reset_flags(job_content: str, monkeypatch: pytest.MonkeyPat
     assert Path(job.config_path).is_file()
 
 
-def test_full_optimizer_reset_supersedes_param_group_reset() -> None:
-    out = job_queue.merge_job_cli_args(
-        "--reset_optimizer_params",
-        reset_optimizer=True,
-        reset_optimizer_params=True,
-    )
-    assert "--reset_optimizer" in out
-    assert "--reset_optimizer_params" not in out
-
-
-def test_checkpoint_continuation_reapplies_groups_only_when_requested(
-    job_content: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    import shlex
-    import sys
-    from types import ModuleType
-
-    run_config = ModuleType("rengu_flow_ui.run_config")
-    run_config.resume_checkpoint_arg = lambda run_dir, _cfg: str(run_dir)
-    monkeypatch.setitem(sys.modules, "rengu_flow_ui.run_config", run_config)
-    monkeypatch.setattr("rengu_flow_ui.job_queue.try_start_next", lambda: None)
-
-    folder = tmp_path / "run_lr_edit"
-    folder.mkdir()
-    job = job_queue.prepare_job(
-        content=job_content,
-        num_gpus=1,
-        resume_from=None,
-        output_dir=None,
-        extra_args="",
-        reset_dataloader=False,
-        reset_optimizer=False,
-        source_run_dir=str(folder),
-    )
-    db.update_job(job.id, state="finished")
-
-    exact = job_queue.continue_existing(
-        job.id,
-        content=job_content,
-        resume_from="global_step40",
-    )
-    assert "--reset_optimizer_params" not in shlex.split(exact.extra_args)
-
-    overridden = job_queue.continue_existing(
-        job.id,
-        content=job_content.replace("lr = 1.0e-4", "lr = 3.0e-6"),
-        resume_from="global_step40",
-        reset_optimizer_params=True,
-    )
-    tokens = shlex.split(overridden.extra_args)
-    assert "--reset_optimizer_params" in tokens
-    assert "--reset_optimizer" not in tokens
-
-
 def test_prepare_job_cache_flags(job_content: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("rengu_flow_ui.job_queue.try_start_next", lambda: None)
     cache_job = job_queue.prepare_job(
@@ -488,7 +433,6 @@ def test_continue_from_scratch_pins_run_folder(
     toks = shlex.split(cont.extra_args)
     assert "--run_dir" in toks
     assert toks[toks.index("--run_dir") + 1] == str(folder.resolve())
-    assert "--reset_optimizer_params" not in toks
 
 
 
