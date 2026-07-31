@@ -246,11 +246,17 @@ class TorchEngine:
         ckpt_file = root / tag / "torch_engine.pt"
         if not ckpt_file.is_file():
             return None, None
-        ckpt = torch.load(ckpt_file, map_location=self.device, weights_only=False)
+        # Load to CPU and stream tensors to the GPU one at a time. map_location=device parked
+        # the ENTIRE checkpoint on the GPU (a second full copy of the trainable weights plus
+        # the optimizer state) alongside the already-resident model — on a full finetune that
+        # transient is several GB and resume OOMs where a fresh start fits.
+        ckpt = torch.load(ckpt_file, map_location="cpu", weights_only=False)
         own = dict(self.module.named_parameters())
-        for name, tensor in ckpt["module"].items():
+        module_sd = ckpt.pop("module")
+        for name in list(module_sd):
             if name in own:
-                own[name].data.copy_(tensor.to(self.device))
+                own[name].data.copy_(module_sd[name].to(self.device))
+            del module_sd[name]  # free the CPU copy as we go
         if load_optimizer_states and ckpt.get("optimizer"):
             self.optimizer.load_state_dict(ckpt["optimizer"])
         if load_lr_scheduler_states and self.lr_scheduler and ckpt.get("lr_scheduler"):

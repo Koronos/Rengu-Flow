@@ -101,7 +101,20 @@ class PipelineDataLoader:
 
     def __next__(self):
         if self.next_micro_batch is None:
-            self.next_micro_batch = next(self.data)
+            try:
+                self.next_micro_batch = next(self.data)
+            except StopIteration:
+                # An empty iteration (a resume that skipped a full epoch's batches) must roll
+                # the epoch like the buffered path below — letting it escape leaves the engine
+                # iterating an exhausted loader forever: zero-loss "steps" at hundreds/s.
+                self._stop_prefetch_thread()
+                self.epoch += 1
+                self._refresh_dataset_epoch()
+                self._create_dataloader()
+                self.recreate_dataloader = False
+                self.data = self._pull_batches_from_dataloader()
+                self.num_batches_pulled = 0
+                self.next_micro_batch = next(self.data)
         ret = self.next_micro_batch
         self._maybe_announce_shape(ret)
         try:
@@ -336,6 +349,13 @@ class PipelineDataLoader:
         assert not self.iter_called
         self.epoch = state_dict["epoch"]
         self.num_batches_pulled = state_dict["num_batches_pulled"]
+        # The pulled count includes the one-batch prefetch, so a checkpoint saved at the last
+        # step of an epoch records a fully-consumed epoch. Skipping ALL of it would create an
+        # empty dataloader; roll straight into the next epoch instead.
+        if self.num_batches_pulled >= len(self.dataset):
+            self.epoch += 1
+            self.num_batches_pulled = 0
+            self._refresh_dataset_epoch()
         load_cursors = getattr(self.dataset, "load_cursor_state", None)
         if callable(load_cursors) and state_dict.get("cursors"):
             load_cursors(state_dict["cursors"])

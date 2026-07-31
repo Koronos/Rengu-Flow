@@ -150,3 +150,29 @@ def test_pipeline_data_loader_reset():
     # Can iterate again from the start
     micro_batch = next(iter(loader))
     assert micro_batch is not None
+
+
+def test_resume_at_epoch_boundary_yields_real_batches():
+    """A checkpoint saved at the last step of an epoch records num_batches_pulled == len(dataset)
+    (the pulled count includes the one-batch prefetch). Resuming must roll into the next epoch
+    and yield real batches — not iterate an empty skip-everything dataloader forever (which the
+    engine renders as infinite zero-loss steps)."""
+    ds = SyntheticSDXLDataset(num_batches=2, micro_batch_size=1, latent_height=64, latent_width=64)
+    loader = PipelineDataLoader(ds, _make_mock_engine(), gradient_accumulation_steps=1, model=_make_mock_model())
+    loader.load_state_dict({"epoch": 1, "num_batches_pulled": len(ds)})
+    assert loader.epoch == 2, "fully-consumed epoch must roll forward on load"
+    micro_batch = next(iter(loader))
+    assert micro_batch is not None
+
+
+def test_first_pull_stopiteration_rolls_epoch():
+    """Even if the freshly (re)created dataloader comes up empty (partial skip states), the FIRST
+    pull must roll the epoch like the buffered path instead of leaking StopIteration to the engine."""
+    ds = SyntheticSDXLDataset(num_batches=2, micro_batch_size=1, latent_height=64, latent_width=64)
+    loader = PipelineDataLoader(ds, _make_mock_engine(), gradient_accumulation_steps=1, model=_make_mock_model())
+    # Simulate a resume that skipped one short of everything, then exhaust the rest.
+    loader.load_state_dict({"epoch": 1, "num_batches_pulled": len(ds) - 1})
+    it = iter(loader)
+    batches = [next(it) for _ in range(3)]  # crosses the boundary into epoch 2
+    assert all(b is not None for b in batches)
+    assert loader.epoch >= 2
