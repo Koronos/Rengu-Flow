@@ -42,7 +42,6 @@ def parse_args(argv: list[str] | None = None):
     )
     parser.add_argument("--reset_dataloader", action="store_true")
     parser.add_argument("--reset_optimizer", action="store_true")
-    parser.add_argument("--reset_optimizer_params", action="store_true")
     parser.add_argument("--regenerate_cache", action="store_true")
     parser.add_argument(
         "--regenerate_text_cache",
@@ -432,7 +431,8 @@ def _run_training(args, config):
         )
         dataset_manager = DatasetManager(
             model,
-            regenerate_cache=args.regenerate_cache or args.regenerate_text_cache,
+            regenerate_cache=args.regenerate_cache,
+            regenerate_text_cache=args.regenerate_text_cache,
             trust_cache=args.trust_cache,
             caching_batch_size=config.get("caching_batch_size", 1),
             cache_num_proc=config.get("cache_num_proc"),
@@ -913,7 +913,12 @@ def _run_training(args, config):
     if is_main_process():
         for stale in clear_stale_signals(run_dir):
             print(f"Cleared stale signal file: {stale}")
-    if is_main_process() and not resume_from_checkpoint:
+    # Snapshot the config into the run folder on every launch, including resume: continuing
+    # with an edited config makes that edited config the run's effective config, so the
+    # folder snapshot (which post-hoc/finished UI views read for epoch/step totals) must
+    # reflect it, not the original. Live views read the marker, so this only matters after
+    # the process exits.
+    if is_main_process():
         shutil.copy(args.config, run_dir)
         if config.get("dataset") and os.path.isfile(config["dataset"]):
             shutil.copy(config["dataset"], run_dir)
@@ -1124,26 +1129,38 @@ def _run_training(args, config):
         per_step_batch = max(1, global_batch_size // max(1, world_size_for_opt))
 
     if resume_from_checkpoint:
-        load_lr = "force_constant_lr" not in config and not args.reset_optimizer and not args.reset_optimizer_params
-        # WSD rebuilds its schedule for the (possibly extended) horizon and fast-forwards to the
-        # resumed step below — loading the saved scheduler state would restore the OLD decay
-        # milestone and misplace the tail when extending. Skip the state load for wsd.
-        resume_is_wsd = config.get("lr_scheduler", "constant").lower() == "wsd"
-        if resume_is_wsd:
-            load_lr = False
+        from rengu_flow.optim.param_groups import (
+            reapply_param_group_options,
+            snapshot_param_group_options,
+        )
+
+        # The current config is authoritative on resume. The optimizer's *state* (moments) is
+        # restored from the checkpoint, but its hyperparameters (LR, betas, weight_decay, per-group
+        # options) follow the freshly-built config, so editing the LR/optimizer in the TOML and
+        # continuing just works — no flag. --reset_optimizer builds a fully fresh optimizer instead
+        # (nothing to restore, so no reapply).
         load_optimizer = not args.reset_optimizer
-        param_groups = getattr(optimizer, "param_groups", None)
-        if param_groups is not None:
-            param_groups = param_groups.copy()
+        configured_group_options = None
+        if load_optimizer:
+            configured_group_options = snapshot_param_group_options(optimizer.param_groups)
+        # Never restore the saved LR-scheduler state. The scheduler was just rebuilt over the
+        # (possibly edited) horizon from the current config; loading the old state would restore the
+        # old base LRs / decay milestone and clobber the edit. We instead fast-forward the fresh
+        # scheduler to the resumed step below. For the formula-based schedulers in the registry,
+        # stepping N times from a fresh build equals restoring last_epoch=N, so an unchanged-config
+        # resume reproduces the identical LR while an edited horizon/peak applies cleanly.
         load_path, client_state = model_engine.load_checkpoint(
             run_dir,
             tag=resume_tag,
             load_module_strict=False,
-            load_lr_scheduler_states=load_lr,
+            load_lr_scheduler_states=False,
             load_optimizer_states=load_optimizer,
         )
-        if args.reset_optimizer_params and param_groups is not None:
-            optimizer.param_groups = param_groups
+        if configured_group_options is not None:
+            # In-place so wrapped optimizers (e.g. Nekaon) keep sharing the same param_groups list
+            # with their inner optimizer — reassigning the list would break that identity.
+            reapply_param_group_options(optimizer.param_groups, configured_group_options)
+            del configured_group_options
         dist.barrier()
         if load_path is None:
             if is_main_process():
@@ -1164,15 +1181,34 @@ def _run_training(args, config):
             step = client_state["step"] + 1
             examples = client_state.get("examples", (step - 1) * global_batch_size) + global_batch_size
             epoch = epoch_schedule.current(step)
-            if is_main_process():
-                print(f"Resuming from checkpoint at epoch {epoch}, step {step}")
-            # WSD: position the freshly-built schedule at the resumed step. The stable phase is
-            # constant, so this re-anchors the decay tail to the (possibly new) horizon end —
-            # resuming the 'predecay' fork with a larger length extends the flat phase instead of
-            # re-dropping an already-lowered LR. Cheap arithmetic, even for large step counts.
-            if resume_is_wsd and model_engine.lr_scheduler is not None:
+            # Position the freshly-built LR scheduler at the resumed step (we skipped the saved
+            # scheduler state above). Replaying .step() re-anchors the curve — over the possibly
+            # edited horizon — to where the run left off: WSD's flat phase extends and an edited
+            # peak LR takes effect, while an unchanged config reproduces the identical LR. Skipped
+            # when force_constant_lr pins the LR (preserving its "don't advance the schedule on
+            # resume" behavior). Cheap per-step arithmetic even for large step counts.
+            fast_forward_scheduler = "force_constant_lr" not in config
+            if fast_forward_scheduler and model_engine.lr_scheduler is not None:
                 for _ in range(max(0, step - 1)):
                     model_engine.lr_scheduler.step()
+            if is_main_process():
+                print(f"Resuming from checkpoint at epoch {epoch}, step {step}")
+                effective_lrs = [group.get("lr") for group in optimizer.param_groups]
+                print(
+                    f"[resume] effective optimizer LRs (config applied; optimizer state "
+                    f"preserved): {effective_lrs}",
+                    flush=True,
+                )
+                # Transparency: a changed batch/schedule re-derives steps_per_epoch, so the same
+                # restored step now lands in a different epoch. Log it rather than silently drift.
+                prev_spe = client_state.get("steps_per_epoch")
+                if prev_spe and prev_spe != steps_per_epoch:
+                    print(
+                        f"[resume] batch/schedule changed: steps_per_epoch {prev_spe} -> "
+                        f"{steps_per_epoch}; step {step} now maps to epoch {epoch} of "
+                        f"{epoch_schedule.epochs}",
+                        flush=True,
+                    )
 
     # Lifecycle event (rank 0): one per process start. `resumed` carries the restored step; a
     # restart from step 1 in a folder that already saw a prior run is `restarted_from_scratch`
@@ -1475,6 +1511,7 @@ def _run_training(args, config):
                         step=step,
                         loss=loss,
                         epoch=epoch,
+                        epochs=epoch_schedule.epochs,
                         metrics=step_progress,
                         val_metrics=last_val_metrics,
                     ),

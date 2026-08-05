@@ -337,6 +337,8 @@ Before training, the framework runs a **cache** step: it encodes images to laten
 
 Cache uses **v2 only** (mmap bf16 stacks). It is stored under **`cache_root`** / `<dataset_id>` / `<directory_id>` / `<model_name>/` ( **`cache_root`** is set in the training TOML — see [Training loop](training-loop-and-eval.md); default `cache/` in the install directory). Tag dropout runs at **training time**; captions in metadata stay raw. Training **`train_seed`** is also set in the main training TOML.
 
+> **Note on invalidation:** the latent cache is keyed on each image's **path** (plus size bucket and augmentation settings), not its pixel bytes. Editing an image **in place** without renaming it will **not** invalidate its cached latent — pass **`--regenerate_cache`** after editing image files.
+
 ## Synthetic vs real data
 
 - If the main config has **`synthetic_num_batches`** set, training uses an in-memory synthetic dataset and **does not** use the dataset TOML for data (only for copying into the run directory). No cache is run.

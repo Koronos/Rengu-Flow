@@ -260,12 +260,33 @@ def apply_warmup(
     scheduler: torch.optim.lr_scheduler.LRScheduler | None,
     warmup_steps: int,
 ) -> torch.optim.lr_scheduler.LRScheduler | None:
-    """If warmup_steps > 0 and scheduler is not None, wrap with SequentialLR (warmup + main)."""
+    """If warmup_steps > 0 and scheduler is not None, wrap with SequentialLR (warmup + main).
+
+    torch's ``SequentialLR`` cannot be nested — the outer's ``get_lr`` delegates to the inner
+    ``SequentialLR`` whose ``get_lr`` raises ``NotImplementedError`` (it drives its phases via
+    ``step``, not ``get_lr``). WSD builds a ``SequentialLR`` (stable + decay), so naively wrapping
+    it for warmup would crash mid-run at the warmup milestone. Flatten instead: prepend the warmup
+    phase and splice the inner scheduler's phases into a single ``SequentialLR``, shifting the
+    inner milestones past the warmup window. ``SequentialLR.__init__`` resets lr to ``initial_lr``
+    and undoes the sub-schedulers' construction steps, so reusing the inner phase instances is safe.
+    """
     if scheduler is None or warmup_steps <= 0:
         return scheduler
     warmup_scheduler = torch.optim.lr_scheduler.LinearLR(
         optimizer, start_factor=1 / warmup_steps, total_iters=warmup_steps
     )
-    return torch.optim.lr_scheduler.SequentialLR(
-        optimizer, schedulers=[warmup_scheduler, scheduler], milestones=[warmup_steps]
+    if isinstance(scheduler, torch.optim.lr_scheduler.SequentialLR):
+        schedulers = [warmup_scheduler, *scheduler._schedulers]
+        milestones = [warmup_steps, *(warmup_steps + m for m in scheduler._milestones)]
+    else:
+        schedulers = [warmup_scheduler, scheduler]
+        milestones = [warmup_steps]
+    combined = torch.optim.lr_scheduler.SequentialLR(
+        optimizer, schedulers=schedulers, milestones=milestones
     )
+    # Preserve WSD's decay-onset marker for anything reading it off the scheduler (the trainer
+    # itself recomputes the fork step from config), shifted into the warmup-prefixed timeline.
+    onset = getattr(scheduler, "wsd_decay_onset", None)
+    if onset is not None:
+        combined.wsd_decay_onset = warmup_steps + onset
+    return combined

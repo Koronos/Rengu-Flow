@@ -217,7 +217,9 @@ def compute_run_progress(
         "step": step,
         "max_steps": max_steps,
         "epoch": epoch,
-        "epochs": limits.get("epochs"),
+        # Prefer the marker's live total (it reflects an edited epoch count on resume);
+        # fall back to the run-folder config for finished/imported runs without a marker.
+        "epochs": m.get("epochs") or limits.get("epochs"),
         "loss": loss,
         "loss_avg": m.get("loss_avg"),
         "val_loss": val_loss,

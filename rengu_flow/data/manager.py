@@ -115,6 +115,7 @@ def _cache_fn(
     preprocess_media_file_fn,
     num_text_encoders: int,
     regenerate_cache: bool,
+    regenerate_text_cache: bool,
     trust_cache: bool,
     caching_batch_size: int,
     cache_num_proc: int | None,
@@ -153,7 +154,9 @@ def _cache_fn(
     ):
         for ds in datasets_list:
             ds.cache_metadata(
-                regenerate_cache=regenerate_cache,
+                # Metadata is cheap and feeds the text pass, so --regenerate_text_cache rebuilds
+                # it too; the expensive VAE latents below stay keyed only on --regenerate_cache.
+                regenerate_cache=regenerate_cache or regenerate_text_cache,
                 trust_cache=trust_cache,
                 cache_num_proc=cache_num_proc,
             )
@@ -277,7 +280,7 @@ def _cache_fn(
                 ds.cache_text_embeddings(
                     text_embedding_map_fn,
                     text_encoder_idx + 1,
-                    regenerate_cache=regenerate_cache,
+                    regenerate_cache=regenerate_cache or regenerate_text_cache,
                     caching_batch_size=caching_batch_size,
                     cache_num_proc=cache_num_proc,
                     cache_keep_in_memory=cache_keep_in_memory,
@@ -309,6 +312,7 @@ class DatasetManager:
         self,
         model,
         regenerate_cache: bool = False,
+        regenerate_text_cache: bool = False,
         trust_cache: bool = False,
         caching_batch_size: int = 1,
         cache_num_proc: int | None = None,
@@ -328,6 +332,7 @@ class DatasetManager:
             for fn in self.call_text_encoder_fns
         ]
         self.regenerate_cache = regenerate_cache
+        self.regenerate_text_cache = regenerate_text_cache
         self.trust_cache = trust_cache
         self.caching_batch_size = caching_batch_size
         self.cache_num_proc = cache_num_proc
@@ -365,6 +370,7 @@ class DatasetManager:
                 ),
                 len(self.text_encoders),
                 self.regenerate_cache,
+                self.regenerate_text_cache,
                 self.trust_cache,
                 self.caching_batch_size,
                 self.cache_num_proc,

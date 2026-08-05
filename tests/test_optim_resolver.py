@@ -344,6 +344,40 @@ def test_wsd_warmup_keeps_decay_at_run_end():
     assert wsd_decay_onset_step(cfg, 200) == 180
 
 
+def test_wsd_with_warmup_flattens_and_runs():
+    """WSD + warmup must NOT nest SequentialLR (torch can't step nested SequentialLR). apply_warmup
+    flattens it to warmup -> stable -> decay; the run steps to the end and has the right shape."""
+    import warnings
+
+    from rengu_flow.optim.resolver import apply_warmup
+
+    base, total, warmup = 1.0, 200, 20
+    cfg = {"warmup_steps": warmup, "lr_scheduler": "wsd",
+           "lr_scheduler_args": {"decay": 0.1, "rex_d": 0.9, "lr_min": 0.0}}
+    opt = torch.optim.SGD([torch.nn.Parameter(torch.zeros(1))], lr=base)
+    opt.param_groups[0]["params"][0].grad = torch.zeros(1)
+    sched = apply_warmup(opt, resolve_scheduler("wsd", opt, cfg, total, 10), warmup)
+
+    # Flattened: a single SequentialLR of 3 phases, no nested SequentialLR.
+    assert not any(
+        isinstance(s, torch.optim.lr_scheduler.SequentialLR) for s in sched._schedulers
+    )
+    assert list(sched._milestones) == [warmup, 180]  # warmup end, decay onset (total - decay)
+    assert sched.wsd_decay_onset == 180
+
+    lrs = []
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        for _ in range(total):  # must not raise NotImplementedError
+            lrs.append(opt.param_groups[0]["lr"])
+            opt.step()
+            sched.step()
+    assert lrs[0] < base and abs(lrs[warmup] - base) < 1e-9          # warmup ramps to base
+    assert all(abs(lr - base) < 1e-9 for lr in lrs[warmup:180])       # flat stable phase
+    assert lrs[180:] == sorted(lrs[180:], reverse=True)              # decay is non-increasing
+    assert opt.param_groups[0]["lr"] < 1e-6                           # tail reaches ~lr_min
+
+
 def test_wsd_extend_reanchors_decay():
     """Mirrors main.py's extend path: rebuild for a longer horizon + fast-forward to the fork
     step → LR stays flat past the original end and only decays at the new end."""

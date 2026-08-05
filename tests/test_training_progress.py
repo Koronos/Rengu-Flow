@@ -8,6 +8,7 @@ from rengu_flow.training_progress import (
     EpochSchedule,
     TrainingProgressTracker,
     budget_reached_target,
+    build_progress_payload,
     format_eta,
     format_training_log_line,
     plan_final_saves,
@@ -201,6 +202,29 @@ def test_compute_run_progress_merges_marker_speed(tmp_path: Path) -> None:
     assert prog["steps_per_second_ema"] == 0.5
     assert prog["eta"] == "2m"
     assert prog["steps_remaining"] == 60
+
+
+def test_build_progress_payload_emits_total_epochs() -> None:
+    payload = build_progress_payload(step=50, loss=0.1, epoch=2, epochs=10, metrics={})
+    assert payload["epoch"] == 2
+    assert payload["epochs"] == 10
+
+
+def test_compute_run_progress_prefers_marker_epochs_over_stale_toml(tmp_path: Path) -> None:
+    # A run resumed with a raised epoch count: the folder TOML is stale (epochs=10) but the live
+    # marker carries the new total (epochs=20). The UI must show the live value so the bar's
+    # "epoch X / Y" agrees with the marker-derived max_steps/percent.
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "train.toml").write_text(
+        "epochs = 10\nmax_steps = 100\n[model]\ntype = \"sdxl\"\n",
+        encoding="utf-8",
+    )
+    marker = {"step": 40, "loss": 0.2, "epoch": 9, "epochs": 20, "max_steps": 200, "percent": 20.0}
+    prog = training_hub.compute_run_progress(run_dir, marker=marker)
+    assert prog is not None
+    assert prog["epochs"] == 20
+    assert prog["max_steps"] == 200
 
 
 def test_loader_announces_new_latent_shapes_once(capsys):

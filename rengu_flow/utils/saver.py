@@ -476,6 +476,9 @@ class Saver:
                     client_state={
                         "step": step,
                         "examples": examples,
+                        # Recorded so a resume can detect a changed batch/schedule (steps_per_epoch
+                        # differs) and report the epoch re-mapping instead of drifting silently.
+                        "steps_per_epoch": self.steps_per_epoch,
                         "custom_loader": self.train_dataloader.state_dict(),
                         "rng_state": capture_rng_state(),
                     },
@@ -519,6 +522,9 @@ class Saver:
                     client_state={
                         "step": step,
                         "examples": examples,
+                        # Recorded so a resume can detect a changed batch/schedule (steps_per_epoch
+                        # differs) and report the epoch re-mapping instead of drifting silently.
+                        "steps_per_epoch": self.steps_per_epoch,
                         "custom_loader": self.train_dataloader.state_dict(),
                         "rng_state": capture_rng_state(),
                     },

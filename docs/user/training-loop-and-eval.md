@@ -132,11 +132,15 @@ To resume from a specific run folder:
 rengu train --config my.toml --resume-from-checkpoint 20250218_12-00-00_myrun
 ```
 
-Checkpoint restores model, optimizer, LR scheduler, and dataloader state (epoch and position). Optional flags:
+Checkpoint restores the model weights and the optimizer *state* (momentum/variance). Optimizer and
+scheduler **hyperparameters follow the current config**: editing the learning rate, betas, weight
+decay, epoch count, or LR schedule in the TOML and continuing applies the new values automatically —
+the preserved optimizer state is re-anchored to them, and the LR schedule is rebuilt over the
+(possibly extended) horizon and fast-forwarded to the resumed step. Optional flags:
 
 - **`--reset_dataloader`** — Do not restore dataloader state; only restore epoch number. Useful if you changed the dataset.
-- **`--reset_optimizer`** — Do not restore optimizer state (e.g. to change optimizer).
-- **`--reset_optimizer_params`** — Restore optimizer state but reset param groups (e.g. learning rate) from config.
+- **`--reset_optimizer`** — Build a fully fresh optimizer (discard the saved moments). Use when changing the optimizer type or its param-group structure.
+- **`force_constant_lr`** (config key) — On resume, do not advance the LR schedule; keep the LR pinned instead of fast-forwarding it.
 
 ## Pipeline, cache, and debug options
 

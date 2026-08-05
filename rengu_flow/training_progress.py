@@ -244,6 +244,7 @@ def build_progress_payload(
     loss: float,
     epoch: int,
     metrics: dict[str, Any],
+    epochs: int | None = None,
     phase: str = "training",
     val_metrics: dict[str, float] | None = None,
 ) -> dict[str, Any]:
@@ -251,6 +252,10 @@ def build_progress_payload(
 
     Reuses the numeric fields from ``TrainingProgressTracker.metrics()`` and adds the
     per-step loss, current epoch, and phase. Mirrors the fields the UI bar consumes.
+
+    ``epochs`` is the run's total epoch budget. It travels in the marker (like ``max_steps``)
+    so the UI reads the *live* total instead of the run-folder TOML, which is stale after a
+    resume with an edited epoch count.
 
     ``val_metrics`` (when present) carries the latest deterministic generalization probe —
     ``val_loss``, optional ``train_probe`` and ``val_gap`` (the overfitting signal) — so the
@@ -262,6 +267,8 @@ def build_progress_payload(
         "loss": round(float(loss), 6),
         "epoch": int(epoch),
     }
+    if epochs is not None:
+        payload["epochs"] = int(epochs)
     payload.update(metrics)
     if val_metrics:
         if "val_loss" in val_metrics:

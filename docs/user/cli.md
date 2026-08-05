@@ -109,7 +109,7 @@ Passed via `rengu train --config X -- FLAG …` or `extra_args` in local TOML:
 | `--trust_cache` | Skip cache validation |
 | `--validate-only` | Load config, validate, exit |
 | `--dump_dataset` | Dump dataset layout and exit |
-| `--reset_dataloader` / `--reset_optimizer` / `--reset_optimizer_params` | Partial resume controls |
+| `--reset_dataloader` / `--reset_optimizer` | Partial resume controls (optimizer/scheduler hyperparameters otherwise follow the current config) |
 | `--local_rank` | Set by DeepSpeed launcher |
 | `--master_port` | DeepSpeed port (also on `rengu train`) |
 | `--i_know_what_i_am_doing` | Bypass some safety checks |
