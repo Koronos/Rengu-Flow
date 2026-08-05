@@ -79,6 +79,17 @@ def _webp_frame_count(path_or_file) -> int:
         reader.close()
 
 
+def size_bucket_ars(size_buckets_config) -> np.ndarray:
+    """Aspect ratios of the configured size buckets, index-parallel to *size_buckets_config*.
+
+    Never dedupe or sort the result: bucket selection ranks these by AR distance and uses the
+    resulting positions to index ``size_buckets_config``, so any renumbering picks a different
+    bucket than it measured. In particular two buckets sharing an aspect ratio (``1024x1024``
+    and ``512x512``) must stay two entries, or the second can never be selected.
+    """
+    return np.array([w / h for w, h, _ in size_buckets_config])
+
+
 def _select_size_bucket(candidates, frames, is_video, width, height,
                         no_upscale, drop_undersized):
     """Pick a (w, h, frames) size bucket from AR-sorted *candidates*.
@@ -198,17 +209,28 @@ def _cache_text_embeddings(
         flattened,
         [c for c in ("caption", "image_spec") if c in flattened.column_names],
     )
+    # A text embedding depends only on the caption and the encoder — never on the size bucket —
+    # but each bucket keeps its own cache directory. Offer the sibling buckets' caches as donors so
+    # adding a resolution copies the embeddings it needs instead of re-encoding every caption.
+    te_prefix = f"text_embeddings_{i}_"
+    sibling_donors = sorted(
+        sibling / te_prefix.strip("_")
+        for sibling in Path(cache_dir).parent.glob("cache_*")
+        if sibling != Path(cache_dir) and (sibling / te_prefix.strip("_")).is_dir()
+    )
     te_dataset = _map_and_cache(
         flattened,
         map_fn,
         cache_dir,
-        cache_file_prefix=f"text_embeddings_{i}_",
+        cache_file_prefix=te_prefix,
         new_fingerprint_args=[i],
         fingerprint_override=te_fp_override,
         regenerate_cache=regenerate_cache,
         caching_batch_size=caching_batch_size,
         num_proc=cache_num_proc,
         keep_in_memory=cache_keep_in_memory,
+        identity_columns=("caption", "image_spec"),
+        donor_dirs=sibling_donors,
     )
     assert len(te_dataset) == len(flattened)
     return TextEmbeddingDataset(te_dataset, flattened)
@@ -611,6 +633,11 @@ class SizeBucketDataset:
             caching_batch_size=caching_batch_size,
             num_proc=cache_num_proc,
             keep_in_memory=cache_keep_in_memory,
+            # A latent is determined by its image_spec (which carries the augmentation variant
+            # key) within this size bucket, so excluding/adding images — which rekeys and
+            # reshuffles the whole bucket — reuses every image still present instead of
+            # re-encoding it. No sibling donors: another bucket is another resolution.
+            identity_columns=("image_spec",),
         )
         assert len(self.latent_dataset) == len(self.metadata_dataset)
 
@@ -1214,9 +1241,14 @@ class DirectoryDataset:
             )
 
         if self.use_size_buckets:
-            self.ars = np.array(
-                [w / h for w, h, _ in self.size_buckets_config]
-            )
+            # Parallel to size_buckets_config, and deliberately NOT deduped or sorted:
+            # _find_closest_size_bucket ranks the configured buckets by AR distance and indexes
+            # size_buckets_config with those same positions, so renumbering these would select the
+            # wrong bucket. Deduping is worse still — two buckets of the same aspect ratio
+            # (1024x1024 plus 512x512) collapse to one entry, leaving the second unreachable, so
+            # adding a resolution to a square-bucket folder silently did nothing.
+            self.ars = size_bucket_ars(self.size_buckets_config)
+            self.log_ars = np.log(self.ars)
         elif not self.enable_ar_bucket:
             self.ars = np.array([1.0])
         elif directory_config.get("ar_buckets") or dataset_config.get(
@@ -1241,8 +1273,12 @@ class DirectoryDataset:
                 "num_ar_buckets", dataset_config.get("num_ar_buckets", 12)
             )
             self.ars = np.geomspace(min_ar, max_ar, num=num_ar)
-        self.ars = dedup_and_sort(self.ars)
-        self.log_ars = np.log(self.ars)
+        if not self.use_size_buckets:
+            # AR buckets are matched by value (nearest AR), so collapsing duplicates and sorting
+            # is free here — unlike the size-bucket branch above, nothing indexes back into a
+            # parallel config array.
+            self.ars = dedup_and_sort(self.ars)
+            self.log_ars = np.log(self.ars)
         frame_buckets = directory_config.get(
             "frame_buckets", dataset_config.get("frame_buckets", [1])
         )
@@ -1811,6 +1847,14 @@ class DirectoryDataset:
         return (self.ars[i], self.frame_buckets[j])
 
     def _find_closest_size_bucket(self, log_ar, frames, is_video, width=None, height=None):
+        # The AR ranking below is used to index size_buckets_config, so the two must stay
+        # index-parallel. Guarded here rather than trusted: deduping/sorting the ARs renumbers the
+        # buckets and silently picks the wrong one (and drops same-AR buckets entirely).
+        if len(self.log_ars) != len(self.size_buckets_config):
+            raise AssertionError(
+                f"size bucket ARs ({len(self.log_ars)}) are not index-parallel to "
+                f"size_buckets_config ({len(self.size_buckets_config)}); see size_bucket_ars()"
+            )
         ar_diffs = np.abs(log_ar - self.log_ars)
         candidate = self.size_buckets_config[
             np.argsort(ar_diffs, kind="stable")

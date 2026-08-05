@@ -351,8 +351,13 @@ class PipelineDataLoader:
         self.num_batches_pulled = state_dict["num_batches_pulled"]
         # The pulled count includes the one-batch prefetch, so a checkpoint saved at the last
         # step of an epoch records a fully-consumed epoch. Skipping ALL of it would create an
-        # empty dataloader; roll straight into the next epoch instead.
-        if self.num_batches_pulled >= len(self.dataset):
+        # empty dataloader; roll straight into the next epoch instead. An unsized dataset gives
+        # nothing to compare against, so it keeps the recorded position as-is.
+        try:
+            epoch_batches = len(self.dataset)
+        except TypeError:
+            epoch_batches = None
+        if epoch_batches is not None and self.num_batches_pulled >= epoch_batches:
             self.epoch += 1
             self.num_batches_pulled = 0
             self._refresh_dataset_epoch()

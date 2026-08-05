@@ -339,6 +339,24 @@ Cache uses **v2 only** (mmap bf16 stacks). It is stored under **`cache_root`** /
 
 > **Note on invalidation:** the latent cache is keyed on each image's **path** (plus size bucket and augmentation settings), not its pixel bytes. Editing an image **in place** without renaming it will **not** invalidate its cached latent — pass **`--regenerate_cache`** after editing image files.
 
+### What is reused when the dataset changes
+
+Changing the set of images or resolutions does **not** rebuild the cache from scratch. Each cached
+row is matched by identity — the image (with its augmentation variant) for latents, the caption for
+text embeddings — and copied from disk instead of re-encoded:
+
+| Change | What gets encoded |
+|---|---|
+| **Excluding images** (e.g. a finetune phase on a subset) | Nothing. Every image still present is reused, even though dropping rows reorders the whole bucket. |
+| **Adding images** | Only the new images. |
+| **Adding a resolution** | Only the new bucket's latents. Its text embeddings are copied from a bucket that already has them — captions do not depend on resolution. |
+| **Editing captions** | Only the changed captions' embeddings; latents are untouched. |
+| **Changing augmentation** (`branches_per_image`, strategies, preset, seed mode) | All latents, by design — the augmentation seed feeds every variant, so the cached ones no longer match the config. Text embeddings are unaffected. |
+
+Reuse is safe because nothing cached depends on row position: augmentation seeds derive from the
+image's own path, so an image's latent is the same regardless of which other images are present.
+A cache built by an older version is upgraded in place the first time it is opened — no rebuild.
+
 ## Synthetic vs real data
 
 - If the main config has **`synthetic_num_batches`** set, training uses an in-memory synthetic dataset and **does not** use the dataset TOML for data (only for copying into the run directory). No cache is run.

@@ -270,6 +270,10 @@ def _cache_fn(
             )
             result = _from_pipe(parent_conn.recv())
             result["image_spec"] = example["image_spec"]
+            # The caption is the identity of a text embedding: stored per row so another
+            # bucket's cache can donate this row instead of re-encoding an identical caption
+            # (see _map_and_cache's salvage path). Negligible next to the embedding itself.
+            result["caption"] = captions
             return result
 
         with progress.stage(

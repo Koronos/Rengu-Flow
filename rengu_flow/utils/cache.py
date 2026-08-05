@@ -63,9 +63,14 @@ class Cache:
     ``get_many``, ``add``, ``clear``, ``finalize_current_shard``.
     """
 
-    def __init__(self, path: str | Path, fingerprint: str) -> None:
+    def __init__(self, path: str | Path, fingerprint: str, reuse_key: str | None = None) -> None:
         self.path = Path(path)
         self.fingerprint = fingerprint
+        # Identifies what the *rows* of this cache were computed with (augmentation config /
+        # text-encoder index), excluding which rows and in what order. A cache whose
+        # fingerprint changed but whose reuse_key still matches can donate its rows by
+        # identity instead of being thrown away — see `_map_and_cache`'s salvage path.
+        self.reuse_key = reuse_key
         self.count = 0
         self.tensor_specs: dict[str, dict] = {}
         self._meta_con: sqlite3.Connection | None = None
@@ -119,6 +124,12 @@ class Cache:
             count = committed
         self.count = count
         self.tensor_specs = tensor_specs
+        # Stamp the reuse key onto a cache that predates it (or drifted). The fingerprint already
+        # matched, so this cache was built with exactly these parameters and the key is correct by
+        # construction — recording it now lets a later row-set change salvage these rows instead of
+        # discarding them, without waiting for a full rebuild first.
+        if manifest.get("reuse_key") != self.reuse_key:
+            self._write_manifest()
         # SQLite + mmaps open lazily on first use — an opened-but-unread cache holds no
         # file handles, so many bucket caches can coexist without exhausting the fd limit.
 
@@ -126,13 +137,16 @@ class Cache:
         payload = {
             "format_version": FORMAT_VERSION,
             "fingerprint": self.fingerprint,
+            "reuse_key": self.reuse_key,
             "count": self.count,
             "tensors": self.tensor_specs,
         }
         # Atomic: a checkpoint manifest must never be left half-written (init() would
-        # then clear the whole cache). Write to a temp file and rename into place.
+        # then clear the whole cache). Write to a temp file and rename into place. The temp name
+        # carries the pid: several ranks can open the same cache at once, and a shared temp path
+        # would let their writes interleave into a corrupt manifest before the rename.
         final = self.path / MANIFEST_NAME
-        tmp = final.with_suffix(final.suffix + ".tmp")
+        tmp = final.with_suffix(f"{final.suffix}.{os.getpid()}.tmp")
         tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         os.replace(tmp, final)
 
@@ -612,6 +626,27 @@ class Cache:
                 out[idx] = bool(json.loads(payload).get("valid", True))
         return out
 
+    def identity_index(self, keys: tuple[str, ...]) -> dict[tuple, list[int]]:
+        """Map each row's identity (the *keys* values from its JSON meta) to its row indices.
+
+        The identity is what makes a row reusable across a row-set change: the image (and its
+        augmentation variant) for latents, the caption for text embeddings. Duplicate identities
+        keep every index (in row order) so a consumer can hand out one per occurrence. Meta-only
+        scan — no tensor mmap reads.
+        """
+        self._ensure_meta_for_read()
+        out: dict[tuple, list[int]] = {}
+        for idx, payload in self._meta_con.execute(
+            "SELECT idx, payload FROM item_meta ORDER BY idx"
+        ):
+            if not (0 <= idx < self.count):
+                continue
+            meta = json.loads(payload)
+            if any(k not in meta for k in keys):
+                continue
+            out.setdefault(freeze_identity(meta[k] for k in keys), []).append(idx)
+        return out
+
     def _build_item(self, idx: int) -> dict:
         self._ensure_meta_for_read()
         row = self._meta_con.execute(
@@ -647,6 +682,36 @@ class Cache:
         return [self._build_item(i) for i in indices]
 
 
+def freeze_identity(values) -> tuple:
+    """Hashable, JSON-round-trip-stable identity from *values*.
+
+    A tuple written to the meta comes back from JSON as a list, so both sides must be
+    normalized the same way before they can be compared as dict keys.
+    """
+
+    def _freeze(v):
+        if isinstance(v, (list, tuple)):
+            return tuple(_freeze(x) for x in v)
+        return v
+
+    return tuple(_freeze(v) for v in values)
+
+
+def peek_manifest(path: str | Path) -> dict | None:
+    """Read a cache's manifest without opening it (opening clears on fingerprint mismatch).
+
+    Returns None when there is no readable manifest.
+    """
+    manifest_path = Path(path) / MANIFEST_NAME
+    if not manifest_path.is_file():
+        return None
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, ValueError, OSError):
+        return None
+    return manifest if isinstance(manifest, dict) else None
+
+
 def reject_legacy_v1(path: str | Path) -> None:
     """Raise if *path* holds a legacy v1 (``metadata.db``) cache; no longer supported."""
     if (Path(path) / "metadata.db").is_file():
@@ -656,8 +721,8 @@ def reject_legacy_v1(path: str | Path) -> None:
         )
 
 
-def open_disk_cache(path: str | Path, fingerprint: str) -> Cache:
+def open_disk_cache(path: str | Path, fingerprint: str, reuse_key: str | None = None) -> Cache:
     """Return a ``Cache`` for *path* (raises on a legacy v1 cache)."""
     path = Path(path)
     reject_legacy_v1(path)
-    return Cache(path, fingerprint)
+    return Cache(path, fingerprint, reuse_key=reuse_key)
