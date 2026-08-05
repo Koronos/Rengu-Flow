@@ -92,6 +92,18 @@ def normalize_preview_prompts(preview_cfg: dict[str, Any]) -> list[tuple[str, st
     return out
 
 
+def _preview_seed(preview_cfg: dict[str, Any], step: int, prompt_index: int) -> int:
+    """Return the deterministic seed for one preview.
+
+    Previews default to a fixed seed across training steps so changes between images
+    reflect model progress.  Setting ``seed_stride`` explicitly opts into varying the
+    noise by step; prompt indices remain distinct in either mode.
+    """
+    base_seed = int(preview_cfg.get("seed", 0))
+    seed_stride = int(preview_cfg.get("seed_stride", 0))
+    return base_seed + step * seed_stride + prompt_index
+
+
 def should_run_previews(
     config: dict[str, Any],
     step: int,
@@ -287,8 +299,6 @@ def _run_sdxl_previews(
     height = int(preview_cfg.get("height", 1024))
     num_inference_steps = int(preview_cfg.get("num_inference_steps", 20))
     guidance_scale = float(preview_cfg.get("guidance_scale", 7.0))
-    base_seed = int(preview_cfg.get("seed", 0))
-    seed_stride = int(preview_cfg.get("seed_stride", 1))
 
     modules = (pipe.unet, pipe.vae, pipe.text_encoder, pipe.text_encoder_2)
     prev_training = [m.training for m in modules]
@@ -300,7 +310,9 @@ def _run_sdxl_previews(
     try:
         with torch.no_grad():
             for idx, (name, prompt) in enumerate(prompts):
-                generator = torch.Generator(device=device).manual_seed(base_seed + step * seed_stride + idx)
+                generator = torch.Generator(device=device).manual_seed(
+                    _preview_seed(preview_cfg, step, idx)
+                )
                 result = pipe(
                     prompt=prompt,
                     negative_prompt=negative_prompt or None,
@@ -333,16 +345,13 @@ def _run_cosmos_previews(
     sink: Any,
     step: int,
 ) -> None:
-    base_seed = int(preview_cfg.get("seed", 0))
-    seed_stride = int(preview_cfg.get("seed_stride", 1))
-
     if hasattr(model, "prepare_preview_memory"):
         model.prepare_preview_memory(preview_cfg)
 
     print(f"Running preview at step {step} ({len(prompts)} prompt(s))")
 
     for idx, (name, prompt) in enumerate(prompts):
-        seed = base_seed + step * seed_stride + idx
+        seed = _preview_seed(preview_cfg, step, idx)
         image = model.generate_preview_image(preview_cfg, prompt, step, seed)
         _log_preview_image(
             name=name,

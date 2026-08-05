@@ -16,6 +16,9 @@ User-facing options: `docs/user/previews.md`.
 | `_run_sdxl_previews(...)` | Calls `StableDiffusionXLPipeline.__call__` with `output_type="pil"`. |
 | `_run_cosmos_previews(...)` | `prepare_preview_memory` → `CosmosPredict2Pipeline.generate_preview_image` → TensorBoard. |
 
+Preview seeds default to `seed + prompt_index`; the training step has no effect unless
+the user explicitly sets a non-zero `preview.seed_stride`.
+
 ## Cosmos Predict2
 
 **`rengu_flow.model.cosmos_predict2.preview_sampling`**

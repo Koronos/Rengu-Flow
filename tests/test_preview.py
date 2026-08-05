@@ -3,11 +3,26 @@
 import toml
 
 from rengu_flow.utils.preview import (
+    _preview_seed,
     normalize_preview_prompts,
     previews_configured,
     reload_preview_config,
     should_run_previews,
 )
+
+
+def test_preview_seed_is_stable_across_steps_by_default():
+    cfg = {"seed": 42}
+
+    assert _preview_seed(cfg, step=0, prompt_index=0) == 42
+    assert _preview_seed(cfg, step=100, prompt_index=0) == 42
+    assert _preview_seed(cfg, step=100, prompt_index=2) == 44
+
+
+def test_preview_seed_stride_can_vary_noise_by_step_explicitly():
+    cfg = {"seed": 42, "seed_stride": 3}
+
+    assert _preview_seed(cfg, step=10, prompt_index=2) == 74
 
 
 def test_reload_preview_config_replaces_section_in_place(tmp_path):
@@ -82,7 +97,7 @@ def test_run_previews_cosmos_dispatches_to_generate_preview_image():
                 run_previews(model, config, sink, step=5)
 
     model.prepare_preview_memory.assert_called_once()
-    model.generate_preview_image.assert_called_once()
+    model.generate_preview_image.assert_called_once_with(config["preview"], "test scene", 5, 0)
     model.restore_after_preview.assert_called_once()
     sink.image.assert_called_once()
 

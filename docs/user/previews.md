@@ -26,6 +26,7 @@ height = 1024
 num_inference_steps = 20
 guidance_scale = 7.0
 seed = 42
+seed_stride = 0  # Keep the same noise for each prompt across training steps.
 preview_every_n_steps = 500
 # preview_every_n_epochs = 1
 # preview_before_first_step = false
@@ -50,7 +51,7 @@ prompt = "1woman, soft light, detailed face"
 | **`preview.num_inference_steps`** | Denoising steps per image. | Positive integer. | `20` |
 | **`preview.guidance_scale`** | Classifier-free guidance scale. | Positive number. | `7.0` |
 | **`preview.seed`** | Base RNG seed. | Integer. | `0` |
-| **`preview.seed_stride`** | Added per prompt index and per step (`seed + step * seed_stride + index`). | Integer. | `1` |
+| **`preview.seed_stride`** | Optional per-step offset (`seed + step * seed_stride + index`). Keep `0` to compare model evolution using the same noise; set a positive value to vary noise between previews. | Integer. | `0` |
 | **`preview.preview_every_n_steps`** | Generate previews every N training steps. | Positive integer. | Omitted (no step schedule) |
 | **`preview.preview_every_n_epochs`** | Generate at the end of every N epochs. | Positive integer. | Omitted |
 | **`preview.preview_before_first_step`** | Run once before step 1 (like eval). | `true` or `false`. | `false` |

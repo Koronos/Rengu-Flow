@@ -612,8 +612,8 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "doc": "docs/user/previews.md",
     },
     "preview.seed_stride": {
-        "summary": "Seed offset applied per prompt index and per training step.",
-        "detail": "Varies the noise across multiple prompts and steps so previews do not all look identical. Leave at default unless you have a specific reason to fix the per-step seed.",
+        "summary": "Optional seed offset applied per training step.",
+        "detail": "The default 0 keeps each prompt's noise fixed across steps so previews show model evolution. Set a positive value only when you intentionally want different noise at every preview.",
         "doc": "docs/user/previews.md",
     },
     "preview.preview_every_n_steps": {

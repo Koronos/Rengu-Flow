@@ -362,7 +362,7 @@ def _preview_section() -> dict[str, Any]:
             _field("preview.num_inference_steps", "Inference steps", "integer", default=20, when=when_preview),
             _field("preview.guidance_scale", "Guidance scale", "number", default=7.0, when=when_preview),
             _field("preview.seed", "Seed", "integer", default=0, when=when_preview),
-            _field("preview.seed_stride", "Seed stride", "integer", default=1, when=when_preview),
+            _field("preview.seed_stride", "Seed stride", "integer", default=0, when=when_preview),
             _field(
                 "preview.preview_offload_text_encoder",
                 "Offload text encoder during preview",

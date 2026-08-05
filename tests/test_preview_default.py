@@ -18,3 +18,9 @@ def test_preview_disabled_by_default(ui_data_tmp: Path) -> None:
     field = _find_field(get_schema(), "preview.enabled")
     assert field is not None, "preview.enabled field missing from schema"
     assert field.get("default") is False
+
+
+def test_preview_seed_is_fixed_across_steps_by_default(ui_data_tmp: Path) -> None:
+    field = _find_field(get_schema(), "preview.seed_stride")
+    assert field is not None, "preview.seed_stride field missing from schema"
+    assert field.get("default") == 0
