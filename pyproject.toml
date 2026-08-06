@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rengu-flow"
-version = "1.3.0"
+version = "1.4.0"
 description = "TOML-driven diffusion training: DeepSpeed, LoRA/LoKr/full finetune (SDXL, Cosmos Predict2), optional web UI."
 readme = "README.md"
 license = "GPL-3.0-or-later"
@@ -154,10 +154,15 @@ torch = { index = "pytorch-cu130" }
 torchvision = { index = "pytorch-cu130" }
 # Memory-efficient optimizers (Adakaon, AdaMuon, KProdigy, Lion, AdaPNM,
 # AdaBelief, AdamP, ADOPT, ScheduleFree, Lookahead, SAM, MSAM, Nekaon).
-# Kaon 0.7.7 keeps AutoLR quarantined and accelerates Adakaon/Nekaon fused 4-bit steps.
+# Kaon 0.7.9 fixes a bf16 weight drift in the Nekaon/MSAM lookahead (the climb round trip
+# random-walked the weights: 19% relative L2 after 4000 cycles, sqrt(N)-growing, fp32 unaffected)
+# and warns when the lookahead is too small to displace anything — at lr <= 1e-6 with the default
+# k=1.5 it is inert, i.e. Nekaon has been Adakaon plus rounding noise. Breaking: a checkpoint saved
+# in train mode is now rejected on load instead of baking one perturbation into the weights per
+# resume. Optimizer memory is unchanged (0.543 B/param of state with the defaults).
 # K-Optimizers (the `kaon` package) ships no release tags, so we pin an
 # exact commit — that SHA *is* kaon's version here: reproducible, and it only changes when this
 # `rev` is bumped (then committed to renga). Bump it to ship a newer kaon; users pick it up on
 # their next `rengu update` (only if the kaon extra is already installed). Only installed when
 # the `kaon` extra is selected (see rengu_flow/install/profiles.py).
-kaon = { git = "https://github.com/Koronos/K-Optimizers", rev = "4d980ee2a87d24cc8e6361fcfe3897a38988c8f9" }
+kaon = { git = "https://github.com/Koronos/K-Optimizers", rev = "265989f4a7d774ef74de9cab6b9477d90de1e9c4" }
