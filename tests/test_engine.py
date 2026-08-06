@@ -36,8 +36,15 @@ def _make_engine(gas=2):
     return TorchEngine(pipe, lambda p: torch.optim.SGD(p, lr=0.1), list(pipe.parameters()), ds_config)
 
 
-def _micro_batches(engine, gas, target):
-    feat = torch.randn(2, 4, device=engine.device)
+def _micro_batches(engine, gas, target, feat=None):
+    """Micro-batches for one train/eval step.
+
+    Pass *feat* to pin the inputs: a loss-decreases assertion has to compare the same batch
+    before and after training, otherwise it compares two different random draws and flips
+    whenever the later one happens to have a larger norm.
+    """
+    if feat is None:
+        feat = torch.randn(2, 4, device=engine.device)
     target = target.to(engine.device)
     return iter([((feat,), (target,)) for _ in range(gas)])
 
@@ -62,12 +69,17 @@ def test_build_pipe_accelerate_is_sequential_no_deepspeed():
 
 
 def test_train_batch_steps_and_loss_decreases():
+    # Seeded + one fixed batch reused every step: the claim is "training this batch lowers its
+    # loss", so the loss has to be measured on the same inputs throughout. Drawing fresh random
+    # inputs per step (as this did) compared unrelated batches and failed at random.
+    torch.manual_seed(0)
     gas = 2
     engine = _make_engine(gas)
     target = torch.zeros(2, 4)
-    first = engine.train_batch(_micro_batches(engine, gas, target)).item()
+    feat = torch.randn(2, 4, device=engine.device)
+    first = engine.train_batch(_micro_batches(engine, gas, target, feat)).item()
     for _ in range(20):
-        last = engine.train_batch(_micro_batches(engine, gas, target)).item()
+        last = engine.train_batch(_micro_batches(engine, gas, target, feat)).item()
     assert last < first, f"loss did not decrease ({first} -> {last})"
     assert engine.get_global_grad_norm() is not None  # grads flowed
 
@@ -76,6 +88,7 @@ def test_activation_checkpoint_interval_trains():
     from functools import partial
     import torch.utils.checkpoint as ckpt
 
+    torch.manual_seed(0)
     pipe = select_backend({"engine": "accelerate"}).build_pipe(
         layers=[_TupleLinear(), _TupleLinear()], num_stages=1,
         partition_method="parameters", manual_partition_split=None, loss_fn=_loss_fn,
@@ -89,9 +102,11 @@ def test_activation_checkpoint_interval_trains():
     ds_config = {"gradient_accumulation_steps": 1, "gradient_clipping": 1.0}
     engine = TorchEngine(pipe, lambda p: torch.optim.SGD(p, lr=0.1), list(pipe.parameters()), ds_config)
     target = torch.zeros(2, 4, device=engine.device)
-    first = engine.train_batch(_micro_batches(engine, 1, target)).item()
+    # Same fixed-batch requirement as test_train_batch_steps_and_loss_decreases.
+    feat = torch.randn(2, 4, device=engine.device)
+    first = engine.train_batch(_micro_batches(engine, 1, target, feat)).item()
     for _ in range(25):
-        last = engine.train_batch(_micro_batches(engine, 1, target)).item()
+        last = engine.train_batch(_micro_batches(engine, 1, target, feat)).item()
     assert last < first, f"checkpointed training did not reduce loss ({first} -> {last})"
     assert engine.get_global_grad_norm() and engine.get_global_grad_norm() > 0
 
