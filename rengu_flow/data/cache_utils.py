@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import queue as _queue_mod
 import shutil
@@ -131,6 +132,40 @@ def _ordered_parallel_map(executor, fn, iterable, *, max_inflight):
         except StopIteration:
             pass
         yield result
+
+
+def source_signature(dirs, config_parts) -> str:
+    """Cheap staleness key for a directory's metadata cache: file identity + config.
+
+    Building the metadata is expensive — it enumerates the folder, opens every tar member list and
+    reads every image's header — so it must only run when something actually changed. This is the
+    cheap check that decides: one ``os.scandir`` per directory (name, size, mtime; no file is
+    opened), plus the config, because bucketing decisions (resolutions, AR/size buckets,
+    no_upscale) change the metadata without any file changing.
+
+    Same tradeoff as make/rsync: a file rewritten with an identical size *and* mtime reads as
+    unchanged. ``--regenerate_cache`` is the escape hatch.
+    """
+    hasher = hashlib.md5()
+    for directory in dirs:
+        hasher.update(b"\x00dir\x00")
+        hasher.update(str(directory).encode())
+        if directory is None or not Path(directory).is_dir():
+            continue
+        # Non-recursive, matching the glob("*") the metadata build itself uses.
+        for entry in sorted(os.scandir(directory), key=lambda e: e.name):
+            try:
+                stat = entry.stat()
+            except OSError:
+                continue
+            hasher.update(
+                f"\x00{entry.name}\x00{stat.st_size}\x00{stat.st_mtime_ns}".encode()
+            )
+    hasher.update(b"\x00config\x00")
+    hasher.update(
+        json.dumps(config_parts, sort_keys=True, default=str, ensure_ascii=True).encode()
+    )
+    return hasher.hexdigest()[:16]
 
 
 def _stage_salvage(cache_dir: Path, salvage_dir: Path, new_fingerprint: str, reuse_key: str) -> None:

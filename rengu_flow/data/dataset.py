@@ -41,6 +41,7 @@ from rengu_flow.data.cache_utils import (
     dedup_and_sort,
     resolve_cache_num_proc,
     seed_from_hash,
+    source_signature,
 )
 from rengu_flow.data.tag_dropout import (
     TagDropoutConfig,
@@ -643,8 +644,11 @@ class SizeBucketDataset:
 
         # The iteration order embeds the caption strings and their caption_number slots, so
         # it must rebuild whenever the captions change — including when cached caption
-        # variants are (re)baked. trust_cache only guards the existence check, so key the
-        # rebuild on a content hash of the caption column stored in a sidecar file.
+        # variants are (re)baked. The sidecar content hash below is the authority: it covers the
+        # caption and image_spec columns in order, so it catches edited captions, a changed row
+        # set and a reordering alike. It is deliberately NOT gated on trust_cache — doing so
+        # rebuilt this on every launch (an O(N) HuggingFace build per bucket) even on a resume
+        # where nothing had changed.
         caption_fp = content_fingerprint(
             self.metadata_dataset,
             [
@@ -660,7 +664,6 @@ class SizeBucketDataset:
         if (
             regenerate_cache
             or not iteration_order_cache_dir.exists()
-            or not trust_cache
             or caption_fp_stale
         ):
             caching_progress.note("building iteration order")
@@ -1221,6 +1224,9 @@ class DirectoryDataset:
         self.grouping_keys_json_file = (
             self.cache_dir / "metadata/grouping_keys.json"
         )
+        # Records what the cached metadata was built from, so a resume can validate it cheaply
+        # instead of rebuilding (see cache_metadata).
+        self.source_signature_file = self.cache_dir / "metadata/source.sig"
 
         if not self.path.exists() or not self.path.is_dir():
             raise RuntimeError(f"Invalid path: {self.path}")
@@ -1357,6 +1363,26 @@ class DirectoryDataset:
                 "Many resolutions set in dataset config; ensure you understand the effect."
             )
 
+    def _source_signature(self) -> str:
+        """Staleness key for this directory's metadata cache (see ``source_signature``)."""
+        return source_signature(
+            [self.path, self.mask_path, self.control_path],
+            # The whole dataset config, not a curated subset: an over-broad signature costs one
+            # extra rebuild after a config edit, while a missing key would silently reuse metadata
+            # bucketed under different rules.
+            [self.directory_config, self.dataset_config],
+        )
+
+    def _write_source_signature(self, signature: str) -> None:
+        """Record the signature after a successful rebuild (atomic; ranks may write together)."""
+        try:
+            self.source_signature_file.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self.source_signature_file.with_suffix(f".{os.getpid()}.tmp")
+            tmp.write_text(signature)
+            os.replace(tmp, self.source_signature_file)
+        except OSError:
+            pass  # a missing signature only costs the next run a rebuild
+
     def cache_metadata(
         self,
         regenerate_cache: bool = False,
@@ -1392,16 +1418,43 @@ class DirectoryDataset:
             )
             return all_exist, keys
 
+        # Validate the metadata cache instead of rebuilding it blindly. Without this, the default
+        # (trust_cache=False) re-enumerated the folder and re-read every image header on EVERY
+        # launch — the "computing metadata" line users saw on every resume — even when nothing had
+        # changed. The signature is a scandir + config hash, orders of magnitude cheaper than the
+        # rebuild it guards, and unlike --trust_cache it still notices real changes.
+        signature = self._source_signature()
+        cached_signature = None
+        if self.source_signature_file.exists():
+            try:
+                cached_signature = self.source_signature_file.read_text().strip()
+            except OSError:
+                cached_signature = None
+        unchanged = cached_signature is not None and cached_signature == signature
+
         all_exist, unique_keys = check_grouped()
-        if regenerate_cache or not all_exist or not trust_cache:
-            caching_progress.note("grouped metadata not cached — computing and grouping")
+        if regenerate_cache or not all_exist or not (trust_cache or unchanged):
+            if regenerate_cache:
+                reason = "--regenerate_cache"
+            elif not all_exist:
+                reason = "no grouped metadata cached"
+            elif cached_signature is None:
+                reason = "no signature recorded yet"
+            else:
+                reason = "source files or dataset config changed"
+            caching_progress.note(f"computing and grouping metadata ({reason})")
             unique_keys = self._group_metadata_and_save_to_disk(
                 regenerate_cache=regenerate_cache,
-                trust_cache=trust_cache,
+                trust_cache=trust_cache or unchanged,
                 cache_num_proc=cache_num_proc,
             )
+            self._write_source_signature(signature)
         else:
-            caching_progress.note("grouped metadata cache found — loading")
+            caching_progress.note(
+                "metadata cache up to date — loading"
+                if unchanged
+                else "grouped metadata cache trusted (--trust_cache) — loading"
+            )
 
         for key in unique_keys:
             grouped_dir = (
@@ -1483,7 +1536,8 @@ class DirectoryDataset:
             or not metadata_cache_1.exists()
             or not trust_cache
         ):
-            caching_progress.note("intermediate metadata not cached — enumerating files")
+            # The reason was already reported by cache_metadata; this only marks the phase.
+            caching_progress.note("enumerating source files")
             files = sorted(self.path.glob("*"))
 
             mask_stems = {}

@@ -357,6 +357,20 @@ Reuse is safe because nothing cached depends on row position: augmentation seeds
 image's own path, so an image's latent is the same regardless of which other images are present.
 A cache built by an older version is upgraded in place the first time it is opened — no rebuild.
 
+### Startup on a resume
+
+The metadata (file list, dimensions, buckets) is **validated, not rebuilt**. A signature of the
+source folders (name, size, mtime — no file is opened) plus the dataset config decides:
+
+- Nothing changed → `[cache] metadata cache up to date — loading`, and the folder is never
+  enumerated, no image header is read, and the iteration order is not rebuilt.
+- Something changed → the log states why, e.g.
+  `[cache] computing and grouping metadata (source files or dataset config changed)`.
+
+**`--trust_cache` is no longer needed for this** and is best avoided: it skips the check entirely,
+so a folder whose images changed keeps training on the stale list. Use `--regenerate_cache` when a
+file was rewritten in place with the same size and timestamp.
+
 ## Synthetic vs real data
 
 - If the main config has **`synthetic_num_batches`** set, training uses an in-memory synthetic dataset and **does not** use the dataset TOML for data (only for copying into the run directory). No cache is run.
