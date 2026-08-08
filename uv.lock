@@ -1090,8 +1090,8 @@ wheels = [
 
 [[package]]
 name = "kaon"
-version = "0.7.9"
-source = { git = "https://github.com/Koronos/K-Optimizers?rev=265989f4a7d774ef74de9cab6b9477d90de1e9c4#265989f4a7d774ef74de9cab6b9477d90de1e9c4" }
+version = "0.7.10"
+source = { git = "https://github.com/Koronos/K-Optimizers?rev=60f4b617849145efacddc0c62e26b335e3b47f4e#60f4b617849145efacddc0c62e26b335e3b47f4e" }
 dependencies = [
     { name = "torch" },
 ]
@@ -2858,7 +2858,7 @@ wheels = [
 
 [[package]]
 name = "rengu-flow"
-version = "1.4.0"
+version = "1.5.0"
 source = { editable = "." }
 dependencies = [
     { name = "datasets" },
@@ -2943,7 +2943,7 @@ requires-dist = [
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.27.0" },
     { name = "huggingface-hub", marker = "extra == 'prep'", specifier = ">=0.23" },
     { name = "imageio", specifier = ">=2.31.0" },
-    { name = "kaon", marker = "extra == 'kaon'", git = "https://github.com/Koronos/K-Optimizers?rev=265989f4a7d774ef74de9cab6b9477d90de1e9c4" },
+    { name = "kaon", marker = "extra == 'kaon'", git = "https://github.com/Koronos/K-Optimizers?rev=60f4b617849145efacddc0c62e26b335e3b47f4e" },
     { name = "lazy-loader", specifier = ">=0.4" },
     { name = "lycoris-lora", marker = "extra == 'lycoris'" },
     { name = "multiprocess", specifier = ">=0.70.0" },

@@ -74,22 +74,17 @@ def test_nekaon_resume_is_bit_exact(tmp_path):
         )
 
 
-def test_nekaon_resume_train_mode_save_diverges(tmp_path):
+def test_nekaon_resume_train_mode_save_is_rejected(tmp_path):
     """Guard the reason for the eval-mode save: a checkpoint written in train mode (displaced
-    live weights) resumes off-point — so this proves the eval bracket above is load-bearing."""
+    live weights) used to resume off-point; since kaon 0.7.9 it is rejected outright on load.
+    Either way this proves the eval bracket above is load-bearing."""
     torch.manual_seed(0)
     eng = _build_engine()
     for k in range(6):
         _manual_step(eng, seed=100 + k)
 
     eng.save_checkpoint(str(tmp_path), client_state={"step": 6})  # NO eval bracket
-    _manual_step(eng, seed=999)
-    direct = _weights(eng)
 
     resumed_eng = _build_engine()
-    resumed_eng.load_checkpoint(str(tmp_path))
-    _manual_step(resumed_eng, seed=999)
-    resumed = _weights(resumed_eng)
-
-    diverged = any(not torch.equal(direct[n], resumed[n]) for n in direct)
-    assert diverged, "train-mode save unexpectedly matched — the eval bracket may be untested"
+    with pytest.raises(ValueError, match="train mode"):
+        resumed_eng.load_checkpoint(str(tmp_path))
