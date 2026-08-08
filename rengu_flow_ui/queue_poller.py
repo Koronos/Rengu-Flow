@@ -18,8 +18,9 @@ from __future__ import annotations
 
 import logging
 import threading
+from collections.abc import Callable
 
-from rengu_flow_ui import jobs
+from rengu_flow_ui import gpu_lease, jobs
 from rengu_flow_ui.settings import queue_poll_interval
 
 _logger = logging.getLogger("rengu_flow_ui.queue_poller")
@@ -29,12 +30,40 @@ _thread: threading.Thread | None = None
 _stop = threading.Event()
 
 
-def _tick() -> None:
-    """One reconciliation pass. Never raises — a transient failure must not kill the loop."""
+def _step(step: Callable[[], object], label: str) -> None:
+    """Run one tick step, swallowing whatever it raises. Only ``KeyboardInterrupt`` gets through.
+
+    ``BaseException``, not ``Exception``: ``ensure_profiles`` raises ``SystemExit`` when uv is
+    missing or a profile stays unimportable, and that used to kill this thread silently. This
+    thread owns ``reap_dead``, so a dead thread means no lease is ever freed again.
+    """
     try:
-        jobs.refresh_all_jobs()
-    except Exception:  # noqa: BLE001 - keep the poller alive across any single bad pass
-        _logger.exception("queue poller tick failed")
+        step()
+    except KeyboardInterrupt:
+        raise
+    except BaseException:  # noqa: BLE001 - keep the poller alive across any single bad pass
+        _logger.exception("queue poller step %s failed", label)
+
+
+def _tick() -> None:
+    """One reconciliation pass. Never raises — a transient failure must not kill the loop.
+
+    Each step is guarded **separately**. Sharing one block meant a failure in ``reap_dead``
+    (a ``sqlite3.OperationalError`` from a lock outliving ``busy_timeout``, say) aborted the
+    whole tick, taking down the reconciliation of active runs — which works today, and worked
+    long before any lease code existed.
+
+    There is deliberately no ``try_start_next()`` here: a bare tick must never start an idle
+    queue (see ``jobs.refresh_all_jobs`` and ``job_queue.enqueue_job``, and
+    ``docs/spec/workflows.md`` "Both lanes participate"). The queue advances on a terminal
+    transition, from the explicit Start endpoint, or from ``start_job_immediately``. The
+    unconditional retry belongs to Phase 1, where the workflow lane can hold the GPU while no
+    job is ``running`` and a failed acquire would otherwise have no retry path at all; in
+    Phase 0 the only possible holder is the running training job, and then
+    ``has_active_runner()`` already blocks.
+    """
+    _step(gpu_lease.reap_dead, "reap_dead")
+    _step(jobs.refresh_all_jobs, "refresh_all_jobs")
 
 
 def _run(interval: float) -> None:

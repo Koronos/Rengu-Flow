@@ -137,6 +137,22 @@ def init_library_tables(conn: sqlite3.Connection) -> None:
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_datasets_updated ON datasets(updated_at)"
     )
+    # GPU arbitration (see rengu_flow_ui/gpu_lease.py). `PRIMARY KEY (device)` IS the mutex:
+    # inserting over an occupied device raises IntegrityError, an atomic compare-and-swap that
+    # holds across processes. Additive table, healed by CREATE TABLE IF NOT EXISTS exactly as
+    # `datasets` was, so SCHEMA_VERSION does not move.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS gpu_leases (
+            device INTEGER PRIMARY KEY,
+            holder_kind TEXT NOT NULL,
+            holder_id TEXT NOT NULL,
+            pid INTEGER,
+            pid_create_time REAL,
+            acquired_at TEXT NOT NULL
+        )
+        """
+    )
     _migrate_datasets_name(conn)
 
 

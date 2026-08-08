@@ -2,7 +2,7 @@
 
 Canonical list of **not-yet-implemented** or **deferred** work for Rengu Flow. Developer specs may still use **`[TODO]`** inline; this file is the durable backlog.
 
-**Design context:** [developer/architecture.md](developer/architecture.md). **Specifications:** [spec/](spec/). **Last updated:** 2026-05-31 (P3-2 shipped: UI exposes `block_swap_prefetch` + full-model block swap).
+**Design context:** [developer/architecture.md](developer/architecture.md). **Specifications:** [spec/](spec/). **Last updated:** 2026-08-08 (P5-1 shipped: GPU lease + Workflows groundwork).
 
 ---
 
@@ -72,6 +72,27 @@ Canonical list of **not-yet-implemented** or **deferred** work for Rengu Flow. D
 - Remaining catalogue strategies ([dataset-augmentation.md](developer/dataset-augmentation.md)).
 - Video per-frame augmentation.
 - Enable deferred presets once strategies exist.
+
+---
+
+## P5 — Workflows and control plane
+
+**Spec:** [spec/workflows.md](spec/workflows.md). Phase order is a hard constraint: P5-1 (shipped) had to land
+before P5-3, or prep loses its only guarantee of not sharing the GPU with a training run
+(`prep_jobs.py:1-8`).
+
+**P5-1 (GPU lease + groundwork) shipped 2026-08-08** and is no longer listed here. What it left
+behind, for whoever picks up P5-2: `jobs.gpu_index` exists but nothing writes it and
+`CUDA_VISIBLE_DEVICES` is not applied anywhere yet, so `_devices_for_job` always returns `None`
+(host-exclusive); the unconditional `try_start_next()` in the poller tick belongs to P5-2, not
+here, and lands together with the two contract comments it invalidates (`jobs.py:254-256`,
+`job_queue.py:495-496`); `prep_jobs`' two `start_now` call sites still bypass the lease entirely
+(see Risk 14 in the spec).
+
+| ID | Item | Source | Notes |
+|----|------|--------|-------|
+| P5-2 | **Workflow engine and editor** | [spec/workflows.md](spec/workflows.md) | `workflow_{graph,db,nodes,runner,routes}.py` + tick in `queue_poller`; `/workflows` section with the vertical chain and node drawer; `PrepJobFormView.vue` split into per-stage components (`IndexStageForm.vue` is new — `index` has no form today). Coexists with `/prep`. |
+| P5-3 | **Retire `kind='prep'`** | [spec/workflows.md](spec/workflows.md) | Delete `prep_jobs.py`, `POST /prep/jobs`, the `kind=='prep'` branch in `jobs.start_job`; `/prep/new/:stage` becomes a one-node-workflow shortcut. Existing `kind='prep'` rows are left untouched (no `SCHEMA_VERSION` bump). Watch `QualityIndexView.vue:399` — the only `createPrepJob` caller outside the prep form. |
 
 ---
 

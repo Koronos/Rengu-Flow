@@ -14,7 +14,7 @@ from rengu_flow.cli.train_launcher import (
 from rengu_flow.cli.training_extras import ensure_training_extras
 from rengu_flow.control.progress_stream import strip_progress_markers
 from rengu_flow.platform_compat import pid_alive, terminate_process_tree
-from rengu_flow_ui import db
+from rengu_flow_ui import db, gpu_lease
 from rengu_flow_ui.subprocess_util import popen_repo_subprocess
 
 
@@ -145,6 +145,14 @@ def poll_job(job_id: str) -> db.JobRecord:
         final_state = "failed"
     else:
         final_state = "finished"
+    # Hand the GPU back the moment the run ends. This is a latency optimization, not the
+    # correctness mechanism — gpu_lease.reap_dead() frees this lease anyway once the row is
+    # terminal, which is what covers the terminal paths that never reach poll_job.
+    #
+    # The holder id comes from the ROW, never from the caller's job_id: that argument arrives
+    # straight off an HTTP path, and "05" or " 5" resolve to the same row while producing a
+    # holder id that matches nothing acquire ever wrote.
+    gpu_lease.release(f"job:{job.id}")
     db.update_job(
         job_id,
         state=final_state,
@@ -260,15 +268,25 @@ def read_raw_log(job_id: str) -> str:
     return _decode_log(path.read_bytes())
 
 
-def read_raw_log_tail(job_id: str, tail_bytes: int = 65536) -> str:
-    """Read only the last ``tail_bytes`` of the raw log (for progress-marker parsing).
+# WebSocket log streaming bounds. A multi-MB log dumped in one WS frame trips the 1 MB default
+# frame limit (close code 1009 "message too big"), which silently drops the client back to HTTP
+# polling. So: seek the initial catch-up to the recent tail (the UI only retains ~512 KB anyway),
+# and split every send into frames that stay under the limit.
+#
+# Defined here (ahead of the _path helpers below) because log_tail_start_offset_path's default
+# argument evaluates LOG_WS_TAIL_BYTES at import time.
+LOG_WS_TAIL_BYTES = 512 * 1024
+LOG_WS_FRAME_BYTES = 256 * 1024
 
-    Much cheaper than ``read_raw_log`` for long-running jobs whose logs grow to tens of
+
+def read_raw_log_tail_path(path: Path, tail_bytes: int = 65536) -> str:
+    """Read only the last ``tail_bytes`` of the raw log at ``path`` (for progress-marker parsing).
+
+    Much cheaper than reading the whole file for long-running jobs whose logs grow to tens of
     MB. The progress marker is emitted at most ~1/s and is <200 bytes, so 64 KB always
-    contains the most recent one.
+    contains the most recent one. No marker stripping here: ``live_stream._latest_marker``
+    needs the raw marker text.
     """
-    job = db.get_job(job_id)
-    path = Path(job.log_path)
     if not path.is_file():
         return ""
     size = path.stat().st_size
@@ -280,9 +298,8 @@ def read_raw_log_tail(job_id: str, tail_bytes: int = 65536) -> str:
     return _decode_log(data)
 
 
-def tail_log(job_id: str, offset: int = 0) -> tuple[str, int]:
-    job = db.get_job(job_id)
-    path = Path(job.log_path)
+def tail_log_path(path: Path, offset: int = 0) -> tuple[str, int]:
+    """Log text appended since ``offset`` at ``path``, with progress markers stripped."""
     if not path.is_file():
         return "", 0
     # Read only the bytes appended since `offset` instead of slurping the whole (growing,
@@ -301,12 +318,25 @@ def tail_log(job_id: str, offset: int = 0) -> tuple[str, int]:
     return strip_progress_markers(text), new_offset
 
 
-# WebSocket log streaming bounds. A multi-MB log dumped in one WS frame trips the 1 MB default
-# frame limit (close code 1009 "message too big"), which silently drops the client back to HTTP
-# polling. So: seek the initial catch-up to the recent tail (the UI only retains ~512 KB anyway),
-# and split every send into frames that stay under the limit.
-LOG_WS_TAIL_BYTES = 512 * 1024
-LOG_WS_FRAME_BYTES = 256 * 1024
+def log_tail_start_offset_path(path: Path, tail_bytes: int = LOG_WS_TAIL_BYTES) -> int:
+    """Byte offset ``tail_bytes`` before EOF (clamped to 0) for seeking a WS stream to the tail.
+
+    Returns 0 when ``path`` doesn't exist (missing/not-yet-created log).
+    """
+    if not path.is_file():
+        return 0
+    return max(0, path.stat().st_size - tail_bytes)
+
+
+def read_raw_log_tail(job_id: str, tail_bytes: int = 65536) -> str:
+    """Read only the last ``tail_bytes`` of the raw log (for progress-marker parsing)."""
+    job = db.get_job(job_id)
+    return read_raw_log_tail_path(Path(job.log_path), tail_bytes)
+
+
+def tail_log(job_id: str, offset: int = 0) -> tuple[str, int]:
+    job = db.get_job(job_id)
+    return tail_log_path(Path(job.log_path), offset)
 
 
 def log_tail_start_offset(job_id: str, tail_bytes: int = LOG_WS_TAIL_BYTES) -> int:
@@ -319,10 +349,7 @@ def log_tail_start_offset(job_id: str, tail_bytes: int = LOG_WS_TAIL_BYTES) -> i
         job = db.get_job(job_id)
     except KeyError:
         return 0
-    path = Path(job.log_path)
-    if not path.is_file():
-        return 0
-    return max(0, path.stat().st_size - tail_bytes)
+    return log_tail_start_offset_path(Path(job.log_path), tail_bytes)
 
 
 def iter_log_frames(text: str, limit_bytes: int = LOG_WS_FRAME_BYTES) -> list[str]:

@@ -42,3 +42,4 @@
   - [Full-model training](developer/full-model-training.md) — How full-model mode is chosen, save path, freeze_text_encoders, and future dataset/VAE note.
   - [VRAM optimization](developer/vram-optimization.md) — Low-VRAM levers (bf16+Kahan, checkpointing, gradient_release, frugal optimizers, freeze+cache, block swap, prefetch), how they interact, trade-offs, and a measured 8 GB curve.
   - [Spec: SDXL full fine-tune on low VRAM](spec/sdxl-full-finetune-low-vram.md) — Root causes (WSL allocator, version drift, save path, block-swap wiring), decisions, WSL conditionals, and Linux validation hand-off.
+  - [Spec: Workflows](spec/workflows.md) — Chainable prep/Toolbox/training nodes with one saved state per workflow; `DatasetHandle` payload, backward-only `from` links, GPU lease and device selection, and the migration of prep off the training queue.

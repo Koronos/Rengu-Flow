@@ -160,6 +160,47 @@ def test_uv_run_argv_shape(ui_data_tmp):
     assert argv[-1].endswith("_runner.py")
 
 
+def test_materialize_run_writes_into_foreign_run_dir(ui_data_tmp, tmp_path: Path):
+    from rengu_flow_ui import toolbox
+
+    toolbox.create_tool(
+        name="Foreign Dir Tool",
+        entrypoint="run",
+        script="def run():\n    return 1\n",
+    )
+    run_dir = tmp_path / "node-123"
+    argv = toolbox.materialize_run("foreign-dir-tool", {}, run_dir=run_dir)
+
+    assert (run_dir / "tool.py").is_file()
+    assert (run_dir / "inputs.json").is_file()
+    assert (run_dir / "_runner.py").is_file()
+    assert Path(argv[-1]).resolve() == (run_dir / "_runner.py").resolve()
+    assert Path(argv[-1]).parent.resolve() == run_dir.resolve()
+
+
+def test_materialize_run_same_as_tool_dir_does_not_raise(ui_data_tmp):
+    """Regression: shutil.copyfile(x, x) raises SameFileError when run_dir is tool_dir."""
+    from rengu_flow_ui import toolbox
+
+    toolbox.create_tool(
+        name="Same Dir Tool",
+        entrypoint="run",
+        script="def run():\n    return 1\n",
+    )
+    argv = toolbox.materialize_run(
+        "same-dir-tool", {}, run_dir=toolbox.tool_dir("same-dir-tool")
+    )
+    assert argv[-1].endswith("_runner.py")
+
+
+def test_build_runner_source_writes_result_json_and_exit_code_marker():
+    from rengu_flow_ui import toolbox
+
+    src = toolbox.build_runner_source("run", [])
+    assert 'result.json' in src
+    assert "tool exits with return code = " in src
+
+
 def test_run_status_reconciles_orphaned_running_record(ui_data_tmp):
     """I2 regression: run_status must not return 'running' when there is no live process."""
     import json
@@ -189,6 +230,39 @@ def test_run_status_reconciles_orphaned_running_record(ui_data_tmp):
         f"run_status returned 'running' for an orphaned record: {result}"
     )
     assert result["status"] in ("failed", "done")
+
+
+def test_runner_source_reports_real_exit_code_for_sys_exit(ui_data_tmp, tmp_path: Path):
+    """The exit-code marker must reflect sys.exit(N), not just uncaught exceptions.
+
+    ``except Exception`` does not catch ``SystemExit`` (it inherits from ``BaseException``),
+    so a tool calling ``sys.exit(3)`` used to leave ``code = 0`` and log a lying
+    "tool exits with return code = 0" marker while the process itself exited 3.
+    Runs the generated shim with the current interpreter directly (the PEP 723 header
+    is just comments to a plain ``python`` invocation) so this stays fast and doesn't
+    depend on uv being installed; test_toolbox_smoke.py covers the real ``uv run`` path.
+    """
+    import subprocess
+    import sys as _sys
+
+    from rengu_flow_ui import toolbox
+
+    toolbox.create_tool(
+        name="Exit Tool",
+        entrypoint="run",
+        script="import sys\n\n\ndef run():\n    sys.exit(3)\n",
+    )
+    run_dir = tmp_path / "exit-tool-run"
+    argv = toolbox.materialize_run("exit-tool", {}, run_dir=run_dir)
+    runner = run_dir / "_runner.py"
+    assert Path(argv[-1]).resolve() == runner.resolve()
+
+    proc = subprocess.run(
+        [_sys.executable, str(runner)], capture_output=True, text=True
+    )
+
+    assert proc.returncode == 3, proc.stderr
+    assert "tool exits with return code = 3" in proc.stdout, proc.stdout
 
 
 def test_tool_dir_rejects_traversal(ui_data_tmp):

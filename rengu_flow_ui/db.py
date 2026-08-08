@@ -78,6 +78,9 @@ class JobRecord:
     # 'train' or 'prep' (dataset preparation). Both kinds share the table and the
     # single-runner queue so a prep job never overlaps a training run on the GPU.
     kind: str = "train"
+    # Physical GPU this run is pinned to, or None for auto. Only meaningful with num_gpus == 1:
+    # a multi-GPU run is host-exclusive because DeepSpeed enumerates every device.
+    gpu_index: int | None = None
 
 
 def _apply_connection_pragmas(conn: sqlite3.Connection) -> None:
@@ -125,6 +128,7 @@ _JOBS_ADDITIVE_COLUMNS: dict[str, str] = {
     "trust_cache": "INTEGER NOT NULL DEFAULT 0",
     "regenerate_cache": "INTEGER NOT NULL DEFAULT 0",
     "kind": "TEXT NOT NULL DEFAULT 'train'",
+    "gpu_index": "INTEGER",
 }
 
 
@@ -167,7 +171,8 @@ def init_db() -> None:
                 cache_only INTEGER NOT NULL DEFAULT 0,
                 trust_cache INTEGER NOT NULL DEFAULT 0,
                 regenerate_cache INTEGER NOT NULL DEFAULT 0,
-                kind TEXT NOT NULL DEFAULT 'train'
+                kind TEXT NOT NULL DEFAULT 'train',
+                gpu_index INTEGER
             )
             """
         )
@@ -235,6 +240,7 @@ def _row_to_job(row: sqlite3.Row) -> JobRecord:
         trust_cache=bool(row["trust_cache"]) if "trust_cache" in keys else False,
         regenerate_cache=bool(row["regenerate_cache"]) if "regenerate_cache" in keys else False,
         kind=(row["kind"] if "kind" in keys and row["kind"] else "train"),
+        gpu_index=(row["gpu_index"] if "gpu_index" in keys else None),
     )
 
 
@@ -307,6 +313,7 @@ def create_job(
     trust_cache: bool = False,
     regenerate_cache: bool = False,
     kind: str = "train",
+    gpu_index: int | None = None,
 ) -> JobRecord:
     now = datetime.now(timezone.utc).isoformat()
     with _cursor() as cur:
@@ -316,8 +323,8 @@ def create_job(
                 config_path, state, pid, run_dir, output_dir,
                 num_gpus, resume_from, log_path, started_at, extra_args, queue_position,
                 source_run_dir, config_content, cache_only, trust_cache, regenerate_cache,
-                kind
-            ) VALUES (?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                kind, gpu_index
+            ) VALUES (?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 config_path,
@@ -335,6 +342,7 @@ def create_job(
                 int(trust_cache),
                 int(regenerate_cache),
                 kind,
+                gpu_index,
             ),
         )
         job_id = int(cur.lastrowid)
@@ -385,6 +393,7 @@ def update_job(job_id: str | int, **fields: Any) -> JobRecord:
         "cache_only",
         "trust_cache",
         "regenerate_cache",
+        "gpu_index",
     }
     parts = []
     values: list[Any] = []

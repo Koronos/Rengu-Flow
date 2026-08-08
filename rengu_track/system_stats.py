@@ -10,6 +10,9 @@ from typing import Any
 
 _GB = 1024**3
 
+# Module-level cache for GPU devices
+_GPU_DEVICES_CACHE: dict[str, Any] | None = None
+
 
 def _gb(n_bytes: float | int | None) -> float | None:
     if n_bytes is None:
@@ -275,3 +278,36 @@ def collect_system_stats(*, sample_cpu: bool = True) -> dict[str, Any]:
             "warnings": warnings,
         },
     }
+
+
+def list_gpu_devices() -> list[dict[str, Any]]:
+    """
+    List available GPU devices with essential metadata.
+
+    Returns a list of dicts with keys: index, name, vram_total_gb.
+    Returns empty list if nvidia-smi is unavailable or no devices detected.
+
+    Results are cached at module level; use reset_device_cache() to clear.
+    """
+    global _GPU_DEVICES_CACHE
+    if _GPU_DEVICES_CACHE is not None:
+        return [dict(d) for d in _GPU_DEVICES_CACHE]
+
+    gpu_info = _collect_gpus()
+    result: list[dict[str, Any]] = []
+    for device in gpu_info.get("devices", []):
+        result.append(
+            {
+                "index": device["index"],
+                "name": device["name"],
+                "vram_total_gb": device["vram_total_gb"],
+            }
+        )
+    _GPU_DEVICES_CACHE = result
+    return [dict(d) for d in result]
+
+
+def reset_device_cache() -> None:
+    """Clear the GPU device cache, forcing re-enumeration on next call."""
+    global _GPU_DEVICES_CACHE
+    _GPU_DEVICES_CACHE = None

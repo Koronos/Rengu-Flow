@@ -32,7 +32,7 @@ from rengu_flow_ui.dataset_schema import get_dataset_schema
 from rengu_flow_ui.config_form import coerce_preview_prompts_for_toml, form_to_toml, toml_to_form
 from rengu_flow_ui.config_schema import get_schema
 from rengu_flow_ui.docs_reader import DocNotFoundError, DocPathError, read_doc
-from rengu_flow_ui import queue_poller, tensorboard_server
+from rengu_flow_ui import gpu_lease, queue_poller, tensorboard_server
 from rengu_flow_ui.paths import PathError, resolve_example_path, resolve_repo_path
 from rengu_track.system_stats import collect_system_stats
 from rengu_flow_ui.settings import (
@@ -226,6 +226,9 @@ def create_app() -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
+        # Drop GPU leases left behind by the previous process: any lease whose holder is gone,
+        # plus every lease that never got a pid bound (its launch did not happen).
+        gpu_lease.reconcile_on_start()
         # Drain the queue independently of UI activity: without this background poller, a finished
         # run's successor only starts when an HTTP request triggers refresh_all_jobs.
         queue_poller.start_poller()

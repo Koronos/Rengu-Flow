@@ -258,17 +258,43 @@ def _write_last_run(tool_id: str, data: dict[str, Any]) -> dict[str, Any]:
     return data
 
 
-def uv_run_argv(tool_id: str) -> list[str]:
+def uv_argv_for_runner(runner: Path) -> list[str]:
     uv = shutil.which("uv")
     if not uv:
         raise FileNotFoundError(
             "uv is not on PATH. Install uv (https://docs.astral.sh/uv/) to run Toolbox tools."
         )
-    runner = tool_dir(tool_id) / "_runner.py"
     # PEP 723 inline-metadata scripts always run in an isolated ephemeral env, so
     # `--isolated` is a no-op here (uv warns about it); `--no-project` already keeps
     # rengu's venv out of the way.
     return [uv, "run", "--no-project", str(runner)]
+
+
+def uv_run_argv(tool_id: str) -> list[str]:
+    return uv_argv_for_runner(tool_dir(tool_id) / "_runner.py")
+
+
+def materialize_run(tool_id: str, kwargs: dict[str, Any], *, run_dir: Path) -> list[str]:
+    """Write ``tool.py`` + ``inputs.json`` + ``_runner.py`` into ``run_dir`` and return argv.
+
+    ``run_dir`` may be the tool's own directory (the interactive ``/toolbox`` path) or a
+    separate per-node directory (workflow runs). ``tool.py`` is copied into ``run_dir`` so
+    the generated shim — which resolves it relative to itself — can find it; the copy is
+    skipped when ``run_dir`` already *is* the tool's directory, since copying a file onto
+    itself raises ``SameFileError``.
+    """
+    data = _read_tool_json(tool_id)  # raises KeyError if missing
+    run_dir.mkdir(parents=True, exist_ok=True)
+    src_script = _script_path(tool_id)
+    dst_script = run_dir / "tool.py"
+    if src_script.resolve() != dst_script.resolve() and src_script.is_file():
+        shutil.copyfile(src_script, dst_script)
+    (run_dir / "inputs.json").write_text(json.dumps(kwargs), encoding="utf-8")
+    (run_dir / "_runner.py").write_text(
+        build_runner_source(data["entrypoint"], data.get("requirements", [])),
+        encoding="utf-8",
+    )
+    return uv_argv_for_runner(run_dir / "_runner.py")
 
 
 def run_tool(tool_id: str, values: dict[str, Any]) -> dict[str, Any]:
@@ -282,13 +308,7 @@ def run_tool(tool_id: str, values: dict[str, Any]) -> dict[str, Any]:
         raise RunActiveError("A run is already active for this tool")
 
     kwargs = cast_inputs(data.get("inputs", []), values)
-    d = tool_dir(tool_id)
-    (d / "inputs.json").write_text(json.dumps(kwargs), encoding="utf-8")
-    (d / "_runner.py").write_text(
-        build_runner_source(data["entrypoint"], data.get("requirements", [])),
-        encoding="utf-8",
-    )
-    argv = uv_run_argv(tool_id)  # raises FileNotFoundError if uv missing
+    argv = materialize_run(tool_id, kwargs, run_dir=tool_dir(tool_id))
     # Fresh log each run (single last-run record; overwrite).
     log_path = _log_path(tool_id)
     if log_path.exists():
@@ -375,7 +395,27 @@ mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
 
 kwargs = json.loads((here / "inputs.json").read_text(encoding="utf-8"))
-result = getattr(mod, {entry_quoted})(**kwargs)
-if result is not None:
-    print(result)
+code = 0
+try:
+    result = getattr(mod, {entry_quoted})(**kwargs)
+except SystemExit as e:
+    if e.code is None:
+        code = 0
+    elif isinstance(e.code, int):
+        code = e.code
+    else:
+        code = 1
+    raise
+except BaseException:
+    code = 1
+    raise
+else:
+    if result is not None:
+        print(result)
+    try:
+        (here / "result.json").write_text(json.dumps(result, default=str), encoding="utf-8")
+    except Exception as e:
+        (here / "result.json").write_text(json.dumps({{"_unserializable": str(e)}}), encoding="utf-8")
+finally:
+    print(f"tool exits with return code = {{code}}")
 '''
