@@ -538,6 +538,18 @@ DeepSpeed already running, within one poll interval.
 So Phase 1 adds the call **and** updates both contract comments and the user docs, with a test
 fixing the new semantics. Phase 0 leaves the poller's start behaviour exactly as it is.
 
+Two constraints on the Phase 1 version, because a tick that runs every three seconds must not
+cost anything or overlap anything:
+
+- **It must not add load that could degrade a training run.** `try_start_next` opens with
+  `has_active_runner()` → `db.list_jobs(limit=500)`, a full scan every tick. Guard it with a cheap
+  indexed `SELECT 1 FROM jobs WHERE state='pending' LIMIT 1` and return immediately when the
+  queue is empty — which is the common case, so the usual tick cost stays one trivial query.
+- **It cannot overlap.** `try_start_next` is already serialized by `_start_lock` and gated by
+  `has_active_runner()` **and** the GPU lease, so a periodic call adds a retry, never a second
+  runner. The regression test is that two ticks in a row with one pending job start exactly one
+  process.
+
 `has_active_runner()` is unchanged — "one training run at a time" is a separate rule from GPU
 ownership and stays true even on a multi-GPU host.
 
@@ -786,24 +798,52 @@ behaviour. This is **not optional** — the feature is incorrect without it.
 
 ## The `train` node
 
-Config: `config_content` (a training TOML), **`dataset_content` (a dataset TOML)**, `num_gpus`, and
-`override_dataset_path`. It calls `job_queue.enqueue_job` + `try_start_next` unchanged and marks
-the node `done` **immediately**. It never takes a lease — the training lane takes one when the job
-actually starts. If nothing can start (a run is active, or the workflow holds the GPU), the job
-stays `pending` and drains on its own; the workflow continues. Fire-and-forget with no extra code.
+**The node fires a run that is already registered. It does not build one.**
 
-**Why a separate `dataset_content`:** a training TOML does not contain `[[directory]]`. It carries
-`dataset = "path/to/dataset.toml"` — or a library ref `rengu-flow-dataset:<id>`, or a list of them
-(`rengu_flow_ui/run_staging.py:92-118`) — and `[[directory]]` lives inside *that* file, next to
-`resolutions` and `frame_buckets` that a synthesized stub would also have to invent. Rewriting
-"the first `[[directory]]` of the training config" would find nothing, no-op, and train on the
-pre-workflow folder with every card green — breaking the feature's guiding use case at the one
-node where it matters most.
+Config is a single field: `job_id`. The user picks an existing run from the queue — one they
+already configured, pointing at a dataset TOML that already points at the folder the workflow is
+treating. **No config is synthesized, no TOML is rewritten, no path is injected.**
 
-So the node materializes `<node_dir>/dataset.toml` from `dataset_content` with
-`[[directory]].path` set to the incoming handle (keeping the user's `resolutions` and
-`num_repeats`), and points the in-memory copy of `config_content` at that file. The library row is
-never mutated; if `dataset_content` is empty the node fails validation rather than guessing.
+This falls out of how prep actually works: `tag`, `caption`, `quality` and `index` all write **in
+place**, so the folder a workflow processes is the same folder the registered dataset already
+names. The workflow prepares the data; the run consumes it where it lies. Rewriting a dataset path
+would only be necessary if the chain moved the data, and by design it does not.
+
+An earlier draft had the node carry a `config_content` + `dataset_content` pair and rewrite the
+first `[[directory]].path`. That was wrong twice over: a training TOML contains no `[[directory]]`
+at all — it carries `dataset = "path/to/dataset.toml"`, a library ref `rengu-flow-dataset:<id>`,
+or a list of them (`rengu_flow_ui/run_staging.py:92-118`) — and even with the indirection followed,
+synthesizing a dataset stub means inventing `resolutions` and `frame_buckets` the user never
+chose.
+
+### Queueing semantics
+
+The node puts its run **at the front of the pending queue and starts the queue**, so a workflow
+that just spent forty minutes tagging is not stuck behind an unrelated run someone queued
+yesterday. Both primitives already exist and need no new code:
+
+- `job_queue.bump_pending_after(job_id)` — *"Ensure job_id is first in pending queue"*
+  (`job_queue.py:737`), which renumbers the other pending rows rather than colliding on
+  `queue_position`.
+- `job_queue.enqueue_existing(job_id)` first when the referenced run is still a `new` draft
+  (`job_queue.py:557`) — it refuses anything not in state `new`.
+- then `try_start_next()`.
+
+**Guards, so jumping the queue cannot wreck other workflows.** Front-of-queue is a privilege, and
+two workflows both claiming it would silently reorder each other:
+
+- If a run is already active, the node **does not preempt it** — `try_start_next` is a no-op and
+  the run simply waits its turn at the front. Nothing is killed, ever.
+- If another workflow already bumped a run that has not started yet, the second bump is refused
+  and the node lands its run *behind* it, in bump order, rather than displacing it. A workflow may
+  hold at most one front-of-queue claim.
+- If the referenced run is already `running`, `stopping`, or terminal, the node fails validation
+  with a readable error instead of re-queuing a run that is already underway.
+
+The node still takes **no GPU lease** — the training lane takes one when the run actually starts —
+and still marks `done` as soon as the run is queued and the start has been attempted. That is what
+fire-and-forget means here, and it is why the card must read `Queued run #123 →` rather than a
+bare green check.
 
 ---
 

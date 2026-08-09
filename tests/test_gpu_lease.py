@@ -231,3 +231,43 @@ def test_devices_for_job_pins_only_a_single_gpu_run(ui_data_tmp: Path) -> None:
 
     db.update_job(job.id, num_gpus=2)
     assert _devices_for_job(db.get_job(job.id)) is None
+
+
+@pytest.mark.skipif(os.name == "nt", reason="zombies are a POSIX-only process state")
+def test_reap_dead_frees_a_zombie_holder(ui_data_tmp: Path) -> None:
+    """A finished-but-unreaped child is alive to ``os.kill(pid, 0)``.
+
+    Node and job subprocesses are detached and nothing ever ``wait()``s them, so on POSIX a
+    completed process lingers as a zombie. ``pid_alive`` is ``os.kill(pid, 0)`` there and returns
+    True for one, so without an explicit STATUS_ZOMBIE check the lease would be held forever and
+    both lanes would be locked out. Verified against real Linux (WSL2), where the assertion on
+    ``pid_alive`` below holds; Windows has no such state, hence the skip.
+    """
+    import subprocess
+    import sys
+    import time
+
+    psutil = pytest.importorskip("psutil")
+
+    proc = subprocess.Popen([sys.executable, "-c", "pass"])  # noqa: S603
+    try:
+        for _ in range(100):
+            if psutil.Process(proc.pid).status() == psutil.STATUS_ZOMBIE:
+                break
+            time.sleep(0.05)
+        if psutil.Process(proc.pid).status() != psutil.STATUS_ZOMBIE:
+            pytest.skip("could not produce a zombie on this host")
+
+        # The trap this test exists for: the naive liveness check says the process is alive.
+        assert gpu_lease.pid_alive(proc.pid) is True
+
+        job = _pending_job()
+        holder = f"job:{job.id}"
+        db.update_job(job.id, state="running")
+        gpu_lease.acquire("train", holder, None)
+        gpu_lease.bind_pid(holder, proc.pid)
+
+        assert gpu_lease.reap_dead() == [holder]
+        assert gpu_lease.snapshot() == []
+    finally:
+        proc.wait()
