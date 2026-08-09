@@ -135,8 +135,29 @@ import type {
   QualityIndexApplyResult,
 } from "./types/api";
 import { withDefaultPagination } from "./types/api";
+import type {
+  WorkflowDetail,
+  WorkflowListResult,
+  WorkflowNodeLogResult,
+  WorkflowNodeReportResult,
+  WorkflowStartOptions,
+  WorkflowUpdatePayload,
+  WorkflowValidateResult,
+} from "./types/workflow";
 
 const API = "/api/v1";
+
+/** A non-2xx response, with the status code preserved so callers can distinguish an expected
+ *  outcome (e.g. 409 optimistic-concurrency conflict) from a generic failure. */
+export class ApiError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(`${API}${path}`, {
@@ -152,7 +173,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   }
   if (!res.ok) {
     const msg = errorMessageFromResponseBody(data, res.statusText);
-    throw new Error(msg || `HTTP ${res.status}`);
+    throw new ApiError(msg || `HTTP ${res.status}`, res.status);
   }
   return data as T;
 }
@@ -769,4 +790,79 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+
+  // --- Workflows ---
+
+  listWorkflows: () => request<WorkflowListResult>("/workflows"),
+
+  /** `PUT /workflows/{id}` is the only place a graph can be written — create only names the row. */
+  createWorkflow: (name = "") =>
+    request<WorkflowDetail>("/workflows", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    }),
+
+  getWorkflow: (id: number | string) =>
+    request<WorkflowDetail>(`/workflows/${encodeURIComponent(String(id))}`),
+
+  /**
+   * Save the graph under optimistic concurrency: `version` must match the server's current one.
+   *
+   * Throws `ApiError` with `status === 409` when it doesn't (another tab/save landed first) or
+   * while the workflow is `running`/`cancelling` — an EXPECTED outcome, not a generic failure.
+   * Catch it and offer to reload the workflow rather than showing a plain error toast.
+   */
+  updateWorkflow: (id: number | string, payload: WorkflowUpdatePayload) =>
+    request<WorkflowDetail>(`/workflows/${encodeURIComponent(String(id))}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+
+  /** Also 409s (`ApiError`) while the workflow is `running`/`cancelling` — stop it first. */
+  deleteWorkflow: (id: number | string) =>
+    request<{ ok: boolean }>(`/workflows/${encodeURIComponent(String(id))}`, {
+      method: "DELETE",
+    }),
+
+  cloneWorkflow: (id: number | string, name?: string) =>
+    request<WorkflowDetail>(`/workflows/${encodeURIComponent(String(id))}/clone`, {
+      method: "POST",
+      body: JSON.stringify(name != null ? { name } : {}),
+    }),
+
+  validateWorkflow: (id: number | string) =>
+    request<WorkflowValidateResult>(
+      `/workflows/${encodeURIComponent(String(id))}/validate`,
+      { method: "POST" }
+    ),
+
+  startWorkflow: (id: number | string, options?: WorkflowStartOptions) =>
+    request<WorkflowDetail>(`/workflows/${encodeURIComponent(String(id))}/start`, {
+      method: "POST",
+      body: JSON.stringify({
+        from_node: options?.from_node ?? null,
+        force: options?.force ?? false,
+        only: options?.only ?? false,
+      }),
+    }),
+
+  cancelWorkflow: (id: number | string) =>
+    request<WorkflowDetail>(`/workflows/${encodeURIComponent(String(id))}/cancel`, {
+      method: "POST",
+    }),
+
+  workflowNodeLog: (workflowId: number | string, nodeId: string, offset = 0) =>
+    request<WorkflowNodeLogResult>(
+      `/workflows/${encodeURIComponent(String(workflowId))}/nodes/${encodeURIComponent(
+        nodeId
+      )}/log?offset=${offset}`
+    ),
+
+  /** The node's `report.json` (prep stages) or `result.json` (tools) — the Output tab's data. */
+  workflowNodeReport: (workflowId: number | string, nodeId: string) =>
+    request<WorkflowNodeReportResult>(
+      `/workflows/${encodeURIComponent(String(workflowId))}/nodes/${encodeURIComponent(
+        nodeId
+      )}/report`
+    ),
 };

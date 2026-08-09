@@ -1,8 +1,10 @@
 # Spec: Workflows
 
-**Status:** Phase 0 (P5-1) **implemented** 2026-08-08; Phases 1–2 proposed. **Date:** 2026-08-08.
-**Backlog:** [P5-2, P5-3](../BACKLOG.md). **Scope:** control plane only (`rengu_flow_ui/` +
-`ui/web/`); the training core and the prep engine are not modified.
+**Status:** Phases 0–1 (P5-1, P5-2) **implemented** 2026-08-08/09; Phase 2 (P5-3, retiring
+`kind='prep'`) proposed. **Date:** 2026-08-09. **Backlog:** [P5-3](../BACKLOG.md).
+**Scope:** control plane (`rengu_flow_ui/` + `ui/web/`). The training core is untouched; the prep
+engine gained exactly one rule — `validate_for_stage` now refuses a `tag` stage with no models,
+which previously loaded nothing, wrote nothing and exited 0.
 
 Rengu Flow has two disconnected ways to act on a dataset folder. **Toolbox**
 ([user/toolbox.md](../user/toolbox.md)) runs user-authored Python functions but has no typed
@@ -193,6 +195,22 @@ library it never feeds the trainer.
   history** (see Non-goals), so a lost-update here is unrecoverable.
 - **Variable resolution is a single pass, no recursion** — a variable whose value contains
   `${other}` is left as-is.
+- **Pre-flight also asks "would this actually launch?"** For every enabled `prep.*` node,
+  `validate()` materializes the resolved config and runs the same
+  `PrepConfig.validate_for_stage(stage)` the launcher runs. Structure alone is not enough: a
+  `prep.index` node with an empty config — literally what "Add step" produces — passed a
+  structural check with zero errors and then died in `_build_prep_launch` *after* the earlier
+  nodes had already done their work, which is exactly the mid-run surprise this section promises
+  not to have. Two wrinkles: `validate_for_stage` also demands an existing `path`, which in a
+  workflow arrives from the edge and cannot be known until the upstream node has run, so a
+  placeholder directory is injected and path rules are left to the launch; and a node that already
+  reported an unknown variable is skipped, because the materialized config is not the one that
+  would run.
+- **A node is born with this app's form defaults, never an empty config.** With `config: {}` the
+  server materializes the *dataclass* defaults, which are not what the UI shows — a `prep.tag`
+  node would run two taggers at `max_tags: 255` while its card read "no tagger selected" and its
+  form showed 40. `createNode` writes the form's own defaults in at creation so that what the user
+  sees is what runs, whether or not they ever opened the step.
 
 ### Execution order
 
@@ -636,7 +654,7 @@ One additive table, registered from `library_db.init_library_tables` the same wa
 ```sql
 CREATE TABLE IF NOT EXISTS workflows (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    name       TEXT NOT NULL DEFAULT '',
+    name       TEXT NOT NULL DEFAULT '',   -- denormalized copy of the graph's own `name`
     content    TEXT NOT NULL,               -- graph JSON: nodes, variables, from
     state_json TEXT NOT NULL DEFAULT '{}',  -- the single state
     version    INTEGER NOT NULL DEFAULT 0,  -- optimistic concurrency on content
@@ -653,6 +671,15 @@ and progress cannot clobber an edit — which is precisely what makes "edit node
 A normalized `workflow_nodes` + `workflow_edges` schema was considered and rejected: with
 sequential execution and one active workflow, the tick reads one small row every 1–3 s.
 Normalizing buys a hot path that does not exist and costs graph↔row synchronization on every save.
+
+**The name lives in the graph; the column is a copy `PUT` keeps in step.** There is no rename
+route — the UI renames by saving a graph whose `name` changed — so `PUT /workflows/{id}` passes the
+parsed graph's name to `update_graph`, which writes it in the same compare-and-swap as `content`.
+The column exists only so the list view can sort and search N workflows without parsing N blobs;
+left to drift, a rename saved in the editor never reached the list and there was nothing that could
+ever correct it. `workflow_db` still treats `content` as an opaque string: it is handed the name,
+not made to parse it. `POST /clone` rewrites the graph's `name` to the copy's before the row lands,
+so the copy is not renamed back to its source's name by its own first save.
 
 ### `state_json`
 
@@ -901,6 +928,16 @@ Built on the existing `LibraryListPage.vue` + `LibrarySortControls` +
 `LibraryItemOverflowMenu` + `useLibraryCrudActions`, the same as `DatasetsListView.vue`. Overflow:
 Open · Duplicate · Rename · Delete.
 
+`GET /workflows` returns one row per workflow — `id`, `name`, `steps`, `status`, `updated_at` and
+**`chain`**, every node's type in list order. `chain` is what the row draws as
+`folder → tag → caption`, and it rides along because the route already parses the graph to count
+the steps. Without it the list issued a `GET /workflows/{id}` **per row** purely to learn the node
+types — an N+1 whose only defence was capping how many rows bothered to ask.
+
+Rename writes through the graph (`PUT /workflows/{id}` with a changed `graph.name`); there is no
+rename route, and the `name` this list sorts on is the column that write keeps in step — see
+Persistence.
+
 ### Editor — `/workflows/:id`
 
 ```
@@ -985,6 +1022,24 @@ step)* and *Validate only*. Per node, `⋮` offers *Run from here* and *Run only
 *"② has no saved output. Start from ① or earlier."* While running, the primary button becomes
 `[ ■ Stop ]`, which cancels the active node and leaves completed outputs intact.
 
+The two per-node entries are the same request with one flag:
+
+| Entry | Body of `POST /workflows/{id}/start` | Plan |
+|---|---|---|
+| *Run from here* | `{"from_node": "n3"}` | `n3` **and its descendants**, filtered to enabled |
+| *Run only this step* | `{"from_node": "n3", "only": true}` | `{n3}` |
+
+`only` is what makes the second entry mean what it says. Without it the menu offered *Run only this
+step* and then re-ran every step after it — which for a caption stage is hours of work thrown away
+to redo a tag stage. With it, the descendants are **neither reset nor re-run**: `n4` keeps its
+`done`, its saved handle and its `config_hash`, and the run finishes as soon as `n3` does.
+
+Two rules survive the narrowing. `only` **still requires the ancestors' saved outputs** — one step
+in isolation eats the folder the step before it produced, so the same *"② has no saved output"*
+refusal applies, just one node later. And `only` **without** `from_node` is refused outright
+(*"Run only this step needs a node to run."*) rather than quietly planning the whole workflow,
+which is precisely the lie the flag exists to remove.
+
 ### The node drawer
 
 `el-drawer`, rtl, 640 px (100 % on mobile), opened by clicking a card, with `?node=n2` in the URL
@@ -1000,6 +1055,16 @@ progress is visible while editing config, without a fifth tab.
 
 The **Input** tab is the antidote to getting lost among jumps: it is where the user confirms which
 folder actually goes in.
+
+**Where the Output tab's report comes from.** `GET /workflows/{id}/nodes/{node_id}/report` serves
+the node dir's `report.json` (prep stages) or `result.json` (tools), parsed, as
+`{"file": "report.json", "report": …}`. It reads **from disk**, not from `state_json`: the node
+dir is already the source of both files, and copying an unbounded per-run document into the one row
+every tick rewrites under compare-and-swap would be paying for it on every progress update.
+`_complete_node` reads those files to decide the handle and then drops them, so without this route
+the tab had nothing to show for either family. The failures are all 404 with the reason spelled
+out: a `folder` or `train` node writes neither file (`train`'s job id is in `state_json`), a node
+that never ran has not written one yet, and a node killed mid-write left one that will not parse.
 
 Field hint for the queue toggle, per
 [documentation-conventions.md](../developer/documentation-conventions.md): *"Runs only when no

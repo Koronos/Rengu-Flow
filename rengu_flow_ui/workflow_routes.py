@@ -21,7 +21,7 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
 from rengu_flow.control.progress_stream import parse_last_progress_marker
-from rengu_flow_ui import jobs, workflow_db, workflow_graph
+from rengu_flow_ui import jobs, workflow_db, workflow_graph, workflow_nodes
 from rengu_flow_ui._http_util import http_errors
 from rengu_flow_ui.settings import ui_token
 
@@ -59,18 +59,34 @@ def _reject_while_running(record: workflow_db.WorkflowRecord, action: str) -> No
         raise HTTPException(409, f"Workflow is running; stop it before {action}")
 
 
-def _require_node(workflow_id: str, node_id: str) -> workflow_db.WorkflowRecord:
-    """Fetch the workflow and confirm ``node_id`` is one of its nodes, else ``KeyError``.
+def _require_node(workflow_id: str, node_id: str) -> workflow_graph.WorkflowNode:
+    """Fetch the workflow and return its ``node_id`` node, else ``KeyError``.
 
     A single check for both "workflow missing" and "node missing" — the routes that read a node's
     log or drive its progress have no other way to tell a typo'd node id from a real one, and both
-    cases are a 404 to the caller.
+    cases are a 404 to the caller. The node itself is returned because ``/report`` needs its type
+    to know which file the node writes.
     """
     record = workflow_db.get_workflow(workflow_id)
     graph = workflow_graph.parse_graph(json.loads(record.content or "{}"))
-    if not any(node.id == node_id for node in graph.nodes):
-        raise KeyError(node_id)
-    return record
+    for node in graph.nodes:
+        if node.id == node_id:
+            return node
+    raise KeyError(node_id)
+
+
+def _report_name(node_type: str) -> str | None:
+    """The file a node of this type leaves in its node dir, or ``None`` when it leaves none.
+
+    Prep stages write ``report.json`` on every exit path and tools write ``result.json``;
+    ``folder`` never runs a process and ``train`` hands its work to the training queue, so for
+    those two the node dir holds nothing to serve (the job id lives in ``state_json``).
+    """
+    if node_type.startswith("prep."):
+        return workflow_nodes.REPORT_NAME
+    if node_type == "tool":
+        return workflow_nodes.RESULT_NAME
+    return None
 
 
 def _workflow_detail(record: workflow_db.WorkflowRecord) -> dict[str, Any]:
@@ -91,12 +107,19 @@ def _workflow_detail(record: workflow_db.WorkflowRecord) -> dict[str, Any]:
 
 
 def _workflow_summary(record: workflow_db.WorkflowRecord) -> dict[str, Any]:
-    """id/name/step-count/status/updated_at — the list view's row, without the full graph."""
+    """id/name/chain/step-count/status/updated_at — the list view's row, without the full graph.
+
+    ``chain`` is every node's type in list order, which is what the row draws as
+    ``folder → tag → caption``. It rides along because this function already parses the graph to
+    count the steps: without it the list view had to issue one ``GET /workflows/{id}`` **per row**
+    just to learn the node types, an N+1 whose only defence was a cap on how many rows bothered.
+    """
     graph = workflow_graph.parse_graph(json.loads(record.content or "{}"))
     state = json.loads(record.state_json or "{}")
     return {
         "id": record.id,
         "name": record.name,
+        "chain": [node.type for node in graph.nodes],
         "steps": len(graph.nodes),
         "status": state.get("status", "idle"),
         "updated_at": record.updated_at,
@@ -119,6 +142,8 @@ class CloneWorkflowBody(BaseModel):
 class StartWorkflowBody(BaseModel):
     from_node: str | None = None
     force: bool = False
+    #: With ``from_node``: run *that node alone*, leaving its descendants exactly as they are.
+    only: bool = False
 
 
 def register_workflow_routes(app: FastAPI) -> None:
@@ -144,8 +169,12 @@ def register_workflow_routes(app: FastAPI) -> None:
             _reject_while_running(workflow_db.get_workflow(workflow_id), "editing")
             graph = workflow_graph.parse_graph(body.graph)
             content = json.dumps(workflow_graph.graph_to_dict(graph))
+            # The name goes with the graph: this is the only write path for either, and there is
+            # no rename route — the UI renames by saving a graph with a new `name`. Passing it
+            # here is what keeps the `name` column (which the list reads, to avoid parsing every
+            # blob) from showing the old name forever after a rename.
             updated = workflow_db.update_graph(
-                workflow_id, content, expected_version=body.version
+                workflow_id, content, expected_version=body.version, name=graph.name
             )
             return _workflow_detail(updated)
 
@@ -161,8 +190,22 @@ def register_workflow_routes(app: FastAPI) -> None:
         workflow_id: str, body: CloneWorkflowBody | None = None
     ) -> dict[str, Any]:
         with _workflow_http_errors():
+            record = workflow_db.get_workflow(workflow_id)
+            # The name is carried in two places, and now that a save syncs the column *from* the
+            # graph, a clone whose blob still says the source's name would rename itself back on
+            # its first edit. Rewrite the blob here, where the graph's schema is known, so the
+            # copy is born consistent.
+            name = (
+                body.name
+                if body is not None and body.name is not None
+                else workflow_db.copy_name(record.name)
+            )
+            graph = workflow_graph.parse_graph(json.loads(record.content or "{}"))
+            graph.name = name
             cloned = workflow_db.clone_workflow(
-                workflow_id, name=(body.name if body else None)
+                workflow_id,
+                name=name,
+                content=json.dumps(workflow_graph.graph_to_dict(graph)),
             )
             return _workflow_detail(cloned)
 
@@ -185,6 +228,7 @@ def register_workflow_routes(app: FastAPI) -> None:
                 workflow_id,
                 from_node=(body.from_node if body else None),
                 force=bool(body and body.force),
+                only=bool(body and body.only),
             )
         # Synchronous tick so the UI sees the effect immediately, without waiting for the
         # poller's interval — same pattern as job_queue.start_job_immediately.
@@ -210,6 +254,32 @@ def register_workflow_routes(app: FastAPI) -> None:
         raw_tail = jobs.read_raw_log_tail_path(path)
         progress = parse_last_progress_marker(raw_tail) if raw_tail else None
         return {"chunk": chunk, "offset": new_offset, "progress": progress}
+
+    @app.get(f"{API_PREFIX}/workflows/{{workflow_id}}/nodes/{{node_id}}/report")
+    def node_report_route(workflow_id: str, node_id: str) -> dict[str, Any]:
+        """The node's structured result, read from the node dir — the drawer's Output tab.
+
+        Served from disk rather than copied into ``state_json``: the node dir is already the
+        source (the spec's "Node directory" lists both files), and duplicating a prep report into
+        the state blob would put an unbounded, per-run document inside the one row every tick
+        rewrites under compare-and-swap.
+        """
+        with _workflow_http_errors():
+            node = _require_node(workflow_id, node_id)
+        name = _report_name(node.type)
+        if name is None:
+            raise HTTPException(404, f"A {node.type!r} step does not write a report.")
+        path = workflow_db.node_dir(workflow_id, node_id) / name
+        try:
+            raw = path.read_text(encoding="utf-8")
+        except OSError:
+            raise HTTPException(404, f"This step has not written {name} yet.")
+        try:
+            return {"file": name, "report": json.loads(raw)}
+        except ValueError as exc:
+            # Truncated because the process died mid-write. Saying so beats a 500 and beats
+            # pretending the step produced nothing.
+            raise HTTPException(404, f"{name} is not readable JSON ({exc}).")
 
     @app.websocket(f"{API_PREFIX}/workflows/{{workflow_id}}/nodes/{{node_id}}/log/ws")
     async def workflow_node_log_ws(websocket: WebSocket, workflow_id: str, node_id: str) -> None:

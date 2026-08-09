@@ -51,8 +51,8 @@ def fake_workflow_runner(monkeypatch: pytest.MonkeyPatch) -> dict:
     def tick() -> None:
         calls["tick"] += 1
 
-    def start_workflow(workflow_id, *, from_node=None, force=False) -> None:
-        calls["start"].append((workflow_id, from_node, force))
+    def start_workflow(workflow_id, *, from_node=None, force=False, only=False) -> None:
+        calls["start"].append((workflow_id, from_node, force, only))
 
     def cancel_workflow(workflow_id) -> None:
         calls["cancel"].append(workflow_id)
@@ -89,7 +89,7 @@ def test_create_get_workflow(ui_client) -> None:
 
 def test_list_workflows_summary(ui_client) -> None:
     a = _create(ui_client, "A")
-    _put_graph(ui_client, a["id"], [_node("n1")], version=0)
+    _put_graph(ui_client, a["id"], [_node("n1")], version=0, name="A")
 
     resp = ui_client.get("/api/v1/workflows")
     assert resp.status_code == 200
@@ -101,6 +101,45 @@ def test_list_workflows_summary(ui_client) -> None:
     assert row["steps"] == 1
     assert row["status"] == "idle"
     assert "updated_at" in row
+
+
+def test_list_workflows_summary_carries_the_node_chain(ui_client) -> None:
+    """The row draws ``folder → tag → caption``, and gets the types from the row itself.
+
+    Without ``chain`` the list had to fetch the full graph once **per row** just to label it — an
+    N+1 whose only defence was a cap on how many rows bothered to ask.
+    """
+    created = _create(ui_client, "A")
+    _put_graph(
+        ui_client,
+        created["id"],
+        [
+            _node("n1", "folder"),
+            _node("n2", "prep.tag", **{"from": "n1"}),
+            _node("n3", "prep.caption", **{"from": "n2"}),
+        ],
+        version=0,
+        name="A",
+    )
+
+    row = ui_client.get("/api/v1/workflows").json()["workflows"][0]
+    assert row["chain"] == ["folder", "prep.tag", "prep.caption"]
+    assert row["steps"] == len(row["chain"])
+
+
+def test_saving_a_renamed_graph_renames_the_row(ui_client) -> None:
+    """The UI renames by saving a graph with a new ``name``; there is no rename route.
+
+    The list reads the ``name`` **column** (so it never parses N blobs), so a save that left the
+    column behind meant a rename that appeared to work in the editor and never took anywhere else.
+    """
+    created = _create(ui_client, "Old name")
+    saved = _put_graph(ui_client, created["id"], [_node("n1")], version=0, name="New name")
+    assert saved.status_code == 200
+    assert saved.json()["name"] == "New name"
+
+    row = ui_client.get("/api/v1/workflows").json()["workflows"][0]
+    assert row["name"] == "New name"
 
 
 def test_delete_workflow(ui_client) -> None:
@@ -238,6 +277,39 @@ def test_clone_does_not_carry_state(ui_client) -> None:
     assert original["state"]["status"] == "done"
 
 
+def test_clone_names_the_graph_and_the_row_the_same(ui_client) -> None:
+    """A clone's blob must carry its *own* name, not the source's.
+
+    A save now syncs the ``name`` column from the graph, so a clone born with the source's name in
+    its blob would rename itself back to "Original" the first time the user touched it.
+    """
+    created = _create(ui_client, "Original")
+    assert _put_graph(
+        ui_client, created["id"], [_node("n1")], version=0, name="Original"
+    ).status_code == 200
+
+    cloned = ui_client.post(f"/api/v1/workflows/{created['id']}/clone").json()
+    assert cloned["name"] == "Original (copy)"
+    assert cloned["graph"]["name"] == "Original (copy)"
+
+    # The proof: an untouched save of what the clone just handed back keeps the name.
+    resaved = ui_client.put(
+        f"/api/v1/workflows/{cloned['id']}",
+        json={"graph": cloned["graph"], "version": cloned["version"]},
+    )
+    assert resaved.status_code == 200
+    assert resaved.json()["name"] == "Original (copy)"
+
+
+def test_clone_with_an_explicit_name_names_the_graph_too(ui_client) -> None:
+    created = _create(ui_client, "Original")
+    cloned = ui_client.post(
+        f"/api/v1/workflows/{created['id']}/clone", json={"name": "Mine"}
+    ).json()
+    assert cloned["name"] == "Mine"
+    assert cloned["graph"]["name"] == "Mine"
+
+
 def test_clone_missing_workflow_404(ui_client) -> None:
     assert ui_client.post("/api/v1/workflows/999/clone").status_code == 404
 
@@ -304,6 +376,97 @@ def test_node_log_missing_node_404(ui_client) -> None:
     assert resp.status_code == 404
 
 
+# ------------------------------------------------------------------------------ node report
+
+
+def _write_node_file(workflow_id, node_id: str, name: str, text: str) -> Path:
+    node_dir = workflow_db.node_dir(workflow_id, node_id)
+    node_dir.mkdir(parents=True, exist_ok=True)
+    path = node_dir / name
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+def test_node_report_serves_a_prep_stage_report(ui_client, ui_data_tmp: Path) -> None:
+    """The drawer's Output tab reads the stage report from the node dir, not from ``state_json``.
+
+    ``_complete_node`` reads ``report.json`` to decide the handle and then drops it, so before this
+    route the tab had nothing to show for prep at all.
+    """
+    created = _create(ui_client)
+    assert _put_graph(
+        ui_client, created["id"], [_node("n1", "prep.tag")], version=0
+    ).status_code == 200
+    _write_node_file(
+        created["id"], "n1", "report.json", json.dumps({"tagged": 41, "stopped": False})
+    )
+
+    resp = ui_client.get(f"/api/v1/workflows/{created['id']}/nodes/n1/report")
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {"file": "report.json", "report": {"tagged": 41, "stopped": False}}
+
+
+def test_node_report_serves_a_tool_result(ui_client, ui_data_tmp: Path) -> None:
+    """A tool's raw return value is the other half of that tab, and it lives in ``result.json``."""
+    created = _create(ui_client)
+    assert _put_graph(
+        ui_client, created["id"], [_node("n1", "tool")], version=0
+    ).status_code == 200
+    _write_node_file(created["id"], "n1", "result.json", json.dumps(["a", "b"]))
+
+    resp = ui_client.get(f"/api/v1/workflows/{created['id']}/nodes/n1/report")
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {"file": "result.json", "report": ["a", "b"]}
+
+
+def test_node_report_404_when_the_node_never_ran(ui_client, ui_data_tmp: Path) -> None:
+    created = _create(ui_client)
+    assert _put_graph(
+        ui_client, created["id"], [_node("n1", "prep.tag")], version=0
+    ).status_code == 200
+
+    resp = ui_client.get(f"/api/v1/workflows/{created['id']}/nodes/n1/report")
+    assert resp.status_code == 404
+    assert "report.json" in resp.json()["detail"]
+
+
+def test_node_report_404_for_a_type_that_writes_none(ui_client, ui_data_tmp: Path) -> None:
+    """``folder`` runs no process and ``train`` hands off to the queue: no file to serve."""
+    created = _create(ui_client)
+    assert _put_graph(
+        ui_client, created["id"], [_node("n1", "folder")], version=0
+    ).status_code == 200
+
+    resp = ui_client.get(f"/api/v1/workflows/{created['id']}/nodes/n1/report")
+    assert resp.status_code == 404
+    assert "folder" in resp.json()["detail"]
+
+
+def test_node_report_404_when_the_file_is_truncated(ui_client, ui_data_tmp: Path) -> None:
+    """A process killed mid-write leaves half a JSON document; say so instead of 500-ing."""
+    created = _create(ui_client)
+    assert _put_graph(
+        ui_client, created["id"], [_node("n1", "tool")], version=0
+    ).status_code == 200
+    _write_node_file(created["id"], "n1", "result.json", '{"path": "D:/out')
+
+    resp = ui_client.get(f"/api/v1/workflows/{created['id']}/nodes/n1/report")
+    assert resp.status_code == 404
+    assert "not readable JSON" in resp.json()["detail"]
+
+
+def test_node_report_missing_workflow_404(ui_client) -> None:
+    assert ui_client.get("/api/v1/workflows/999/nodes/n1/report").status_code == 404
+
+
+def test_node_report_missing_node_404(ui_client) -> None:
+    created = _create(ui_client)
+    assert _put_graph(ui_client, created["id"], [_node("n1")], version=0).status_code == 200
+    assert (
+        ui_client.get(f"/api/v1/workflows/{created['id']}/nodes/nope/report").status_code == 404
+    )
+
+
 # ------------------------------------------------------------------------------ start / cancel
 
 
@@ -313,7 +476,7 @@ def test_start_calls_runner_and_ticks(ui_client, fake_workflow_runner: dict) -> 
         f"/api/v1/workflows/{created['id']}/start", json={"from_node": "n1", "force": True}
     )
     assert resp.status_code == 200, resp.text
-    assert fake_workflow_runner["start"] == [(str(created["id"]), "n1", True)]
+    assert fake_workflow_runner["start"] == [(str(created["id"]), "n1", True, False)]
     assert fake_workflow_runner["tick"] == 1
 
 
@@ -323,8 +486,22 @@ def test_start_without_body_calls_runner_with_defaults(
     created = _create(ui_client)
     resp = ui_client.post(f"/api/v1/workflows/{created['id']}/start")
     assert resp.status_code == 200, resp.text
-    assert fake_workflow_runner["start"] == [(str(created["id"]), None, False)]
+    assert fake_workflow_runner["start"] == [(str(created["id"]), None, False, False)]
     assert fake_workflow_runner["tick"] == 1
+
+
+def test_start_forwards_only_to_the_runner(ui_client, fake_workflow_runner: dict) -> None:
+    """*Run only this step* is a plan decision, so the flag has to reach the planner.
+
+    Dropped here, the button silently becomes *Run from here* and re-runs every step after the
+    one the user pointed at — which is exactly the behaviour it exists to avoid.
+    """
+    created = _create(ui_client)
+    resp = ui_client.post(
+        f"/api/v1/workflows/{created['id']}/start", json={"from_node": "n2", "only": True}
+    )
+    assert resp.status_code == 200, resp.text
+    assert fake_workflow_runner["start"] == [(str(created["id"]), "n2", False, True)]
 
 
 def test_start_value_error_maps_to_400_and_skips_tick(

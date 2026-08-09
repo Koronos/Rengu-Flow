@@ -24,6 +24,10 @@
             <el-icon><MagicStick /></el-icon>
             <span>Studio</span>
           </el-menu-item>
+          <el-menu-item index="/workflows">
+            <el-icon><Share /></el-icon>
+            <span>Workflows</span>
+          </el-menu-item>
           <el-menu-item index="/toolbox">
             <el-icon><Tools /></el-icon>
             <span>Toolbox</span>
@@ -107,6 +111,10 @@
             <el-icon><MagicStick /></el-icon>
             <span>Studio</span>
           </el-menu-item>
+          <el-menu-item index="/workflows">
+            <el-icon><Share /></el-icon>
+            <span>Workflows</span>
+          </el-menu-item>
           <el-menu-item index="/toolbox">
             <el-icon><Tools /></el-icon>
             <span>Toolbox</span>
@@ -141,7 +149,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { useRoute } from "vue-router";
-import { Document, Files, MagicStick, Menu, Setting, Tools, TrendCharts, VideoPlay } from "@element-plus/icons-vue";
+import { Document, Files, MagicStick, Menu, Setting, Share, Tools, TrendCharts, VideoPlay } from "@element-plus/icons-vue";
 import { api } from "./api";
 import { useBreakpoint } from "./composables/useBreakpoint";
 import DatasetGalleryHost from "./components/DatasetGalleryHost.vue";
@@ -184,6 +192,7 @@ const activeMenu = computed(() => {
   if (name === "run-comparison") return "/compare";
   if (name.startsWith("datasets-")) return "/datasets";
   if (name.startsWith("prep-")) return "/prep";
+  if (name.startsWith("workflow")) return "/workflows";
   if (name.startsWith("toolbox")) return "/toolbox";
   return "/runs";
 });
@@ -203,6 +212,8 @@ const pageTitle = computed(() => {
     "prep-jobs": "Dataset Studio",
     "prep-new": "Dataset Studio · New job",
     "prep-tags": "Dataset Studio · Tag editor",
+    "workflows-list": "Workflows",
+    "workflow-editor": "Workflows · Editor",
     toolbox: "Toolbox",
     "toolbox-new": "Toolbox · New tool",
     "toolbox-edit": "Toolbox · Edit tool",

@@ -5,7 +5,10 @@ One row per workflow, two columns that are never written by the same caller:
 * ``content`` — the graph JSON (nodes, variables, ``from``). Written only by the editor via
   :func:`update_graph`, under optimistic concurrency (a ``version`` column). This module never
   parses or validates ``content``; it is an opaque string to everything here — parsing the graph
-  is ``workflow_graph``'s job, not this one's.
+  is ``workflow_graph``'s job, not this one's. The ``name`` column is a **denormalized copy** of
+  the name inside that blob, kept so the list view can sort and search without parsing N graphs;
+  :func:`update_graph` takes it as a parameter so the sync happens in the same transaction as the
+  write it derives from, without this module learning the graph's schema.
 * ``state_json`` — the single saved run state (per-node status, output handle, exit code). Written
   only by :func:`mutate_state`, which does a compare-and-swap read-modify-write so the poller tick,
   ``/start`` and ``/cancel`` — three different threads — never lose each other's write.
@@ -168,7 +171,11 @@ def delete_workflow(workflow_id: str | int) -> None:
 
 
 def update_graph(
-    workflow_id: str | int, content: str, *, expected_version: int
+    workflow_id: str | int,
+    content: str,
+    *,
+    expected_version: int,
+    name: str | None = None,
 ) -> WorkflowRecord:
     """Optimistically-concurrent write of ``content``. Never touches ``state_json``.
 
@@ -176,6 +183,15 @@ def update_graph(
     lands atomically, or matches zero rows and changes nothing. On a mismatch we look the current
     version up to report it and raise :class:`StaleWorkflowError` — the caller (an open second tab)
     gets a 409 instead of silently winning a race against the first tab's edit.
+
+    ``name`` writes the **denormalized copy** of the graph's name in the same transaction. The name
+    a user edits lives in the graph blob, and the graph blob is only ever written here; the column
+    exists so the list view can sort and search N workflows without parsing N blobs. Left to drift
+    — which is what happened before this parameter existed — a rename saved through the editor
+    updated the blob and the list kept showing the old name forever, with no way to ever correct it
+    (there is no rename route). Passed as a parameter rather than parsed out of ``content`` on
+    purpose: this module treats the graph as an opaque string, and the caller has it parsed already.
+    ``None`` leaves the column alone, which is what a caller that has no opinion should do.
     """
     wid = _coerce_workflow_id(workflow_id)
     conn = _connect()
@@ -184,10 +200,10 @@ def update_graph(
             cur = conn.execute(
                 """
                 UPDATE workflows
-                SET content = ?, version = version + 1, updated_at = ?
+                SET content = ?, name = COALESCE(?, name), version = version + 1, updated_at = ?
                 WHERE id = ? AND version = ?
                 """,
-                (content, now_utc_iso(), wid, int(expected_version)),
+                (content, name, now_utc_iso(), wid, int(expected_version)),
             )
             if cur.rowcount == 0:
                 row = conn.execute(
@@ -202,19 +218,31 @@ def update_graph(
     return get_workflow(wid)
 
 
-def clone_workflow(workflow_id: str | int, *, name: str | None = None) -> WorkflowRecord:
+def copy_name(name: str) -> str:
+    """The name a clone gets when its caller supplies none. Public so the caller can *pre*-compute
+    it: the graph blob carries the name too, and whoever rewrites the blob has to know the answer
+    before :func:`clone_workflow` picks it."""
+    return f"{name} (copy)" if name else ""
+
+
+def clone_workflow(
+    workflow_id: str | int, *, name: str | None = None, content: str | None = None
+) -> WorkflowRecord:
     """Copy ``content`` into a new row; discard ``state_json`` and reset ``version`` to 0.
 
     Precedent: ``library_db.duplicate_dataset``. A clone must never be born already "done" with
     another workflow's outputs, so it always goes through :func:`create_workflow`, which is the
     only path that starts ``state_json`` at ``'{}'`` and ``version`` at ``0``.
+
+    ``content`` overrides the copied blob. The one caller that needs it is the clone route, which
+    rewrites the graph's own ``name`` to match the new row's — otherwise the clone's blob keeps
+    saying "Re-tag characters" while its column says "Re-tag characters (copy)", and the clone's
+    very first save (which syncs the column *from* the blob, see :func:`update_graph`) silently
+    renames it back.
     """
     row = get_workflow(workflow_id)
-    if name is not None:
-        new_name = name
-    else:
-        new_name = f"{row.name} (copy)" if row.name else ""
-    return create_workflow(new_name, row.content)
+    new_name = copy_name(row.name) if name is None else name
+    return create_workflow(new_name, row.content if content is None else content)
 
 
 # ------------------------------------------------------------------------------ state (state_json)

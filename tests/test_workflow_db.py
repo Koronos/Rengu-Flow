@@ -127,6 +127,52 @@ def test_update_graph_missing_workflow_raises_keyerror(ui_data_tmp: Path) -> Non
         workflow_db.update_graph(404, "{}", expected_version=0)
 
 
+def test_update_graph_syncs_the_name_column(ui_data_tmp: Path) -> None:
+    """The name lives in the graph blob; the column is the copy the list view reads.
+
+    Nothing else writes it — there is no rename route — so a save that skipped the column left the
+    list showing the old name forever, with no way to correct it.
+    """
+    row = workflow_db.create_workflow("Old name", '{"name": "Old name"}')
+
+    updated = workflow_db.update_graph(
+        row.id, '{"name": "New name"}', expected_version=row.version, name="New name"
+    )
+
+    assert updated.name == "New name"
+    assert workflow_db.get_workflow(row.id).name == "New name"
+
+
+def test_update_graph_without_a_name_leaves_the_column_alone(ui_data_tmp: Path) -> None:
+    """``None`` means "no opinion", not "blank it" — a caller that only rewrites content keeps it."""
+    row = workflow_db.create_workflow("Keep me", "{}")
+
+    updated = workflow_db.update_graph(row.id, '{"nodes": []}', expected_version=row.version)
+
+    assert updated.name == "Keep me"
+
+
+def test_update_graph_can_clear_the_name(ui_data_tmp: Path) -> None:
+    """An empty string is a value, not an absence: a user may genuinely erase the name."""
+    row = workflow_db.create_workflow("Old name", "{}")
+
+    updated = workflow_db.update_graph(row.id, "{}", expected_version=row.version, name="")
+
+    assert updated.name == ""
+
+
+def test_update_graph_stale_version_does_not_write_the_name_either(ui_data_tmp: Path) -> None:
+    """The name rides the same compare-and-swap; a refused save must not half-land."""
+    row = workflow_db.create_workflow("Original", "{}")
+
+    with pytest.raises(workflow_db.StaleWorkflowError):
+        workflow_db.update_graph(
+            row.id, '{"x": 1}', expected_version=row.version + 1, name="Intruder"
+        )
+
+    assert workflow_db.get_workflow(row.id).name == "Original"
+
+
 def test_update_graph_never_touches_state_json(ui_data_tmp: Path) -> None:
     row = workflow_db.create_workflow("A", '{"nodes": []}')
     workflow_db.mutate_state(row.id, lambda s: {**s, "status": "running"})
@@ -270,6 +316,28 @@ def test_clone_workflow_with_empty_base_name(ui_data_tmp: Path) -> None:
     row = workflow_db.create_workflow("", "{}")
     clone = workflow_db.clone_workflow(row.id)
     assert clone.name == ""
+
+
+def test_clone_workflow_accepts_a_content_override(ui_data_tmp: Path) -> None:
+    """The clone route rewrites the graph's own ``name`` before the copy lands.
+
+    Without this hook the copy is born with its blob naming the *source*, and its first save —
+    which syncs the column from the blob — silently renames it back.
+    """
+    row = workflow_db.create_workflow("Source", '{"name": "Source"}')
+
+    clone = workflow_db.clone_workflow(
+        row.id, name="Source (copy)", content='{"name": "Source (copy)"}'
+    )
+
+    assert clone.name == "Source (copy)"
+    assert clone.content == '{"name": "Source (copy)"}'
+    assert workflow_db.get_workflow(row.id).content == '{"name": "Source"}'
+
+
+def test_copy_name_appends_the_suffix_and_keeps_blank_blank(ui_data_tmp: Path) -> None:
+    assert workflow_db.copy_name("Source") == "Source (copy)"
+    assert workflow_db.copy_name("") == ""
 
 
 def test_clone_missing_workflow_raises_keyerror(ui_data_tmp: Path) -> None:

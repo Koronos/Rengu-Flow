@@ -375,8 +375,50 @@ def collect_refs(graph: WorkflowGraph) -> dict[str, list[str]]:
 # ------------------------------------------------------------------------------ validation
 
 
+def _preflight_path() -> str:
+    """A stand-in for the ``path`` the executor injects from the incoming handle.
+
+    :meth:`PrepConfig.validate_for_stage` demands a ``path`` that is an existing directory, but in
+    a workflow **no node owns its path** — the edge does, and it is only known once the upstream
+    node has run (a ``prep.clean`` may not have created its ``output_dir`` yet). Judging the graph
+    on it would make every pre-flight a guaranteed false positive, so the check is fed a directory
+    that trivially exists and the path rules are left to the launch, which has the real handle.
+    The working directory is the cheapest such value and needs no cleanup.
+    """
+    return str(Path.cwd())
+
+
+def _prep_config_errors(node: WorkflowNode, graph: WorkflowGraph, where: str) -> list[str]:
+    """``validate_for_stage`` for one ``prep.*`` node — the *launch* check, run at pre-flight.
+
+    Structure alone does not make a graph runnable: a ``prep.index`` with an empty config is what
+    "Add step" creates, and it used to pass pre-flight clean and then die inside
+    ``workflow_nodes._build_prep_launch`` — mid-run, after the earlier nodes had already done their
+    work. Running the identical check here is the only way the docstring above stays true.
+    """
+    stage = node.type.split(".", 1)[1]
+    # Imported lazily, like :func:`materialize_config`: routes that only read a graph must not pay
+    # for the prep package on import.
+    from rengu_flow.prep import config as prep_config
+
+    if stage not in prep_config.STAGES:
+        return []
+    try:
+        parsed = prep_config.parse_prep_config(
+            {"path": _preflight_path(), stage: materialize_config(node, graph.variables)}
+        )
+        parsed.validate_for_stage(stage)
+    except (ValueError, OSError) as exc:
+        return [f"{where} · {exc}"]
+    return []
+
+
 def validate(graph: WorkflowGraph) -> list[str]:
     """Every error in the graph, at once — pre-flight promises no mid-run surprises.
+
+    Structure *and* substance: each enabled ``prep.*`` node's config is materialized and put
+    through :func:`_prep_config_errors`, the same gate the launch runs, so "pre-flight passed"
+    means the run will not stop on a config the editor let the user save.
 
     Cycles are not checked: ``from`` pointing only backwards makes them impossible to express.
     """
@@ -414,9 +456,17 @@ def validate(graph: WorkflowGraph) -> list[str]:
                 "from an earlier node"
             )
 
+        unresolved = False
         for path, name in _node_refs(node):
             if name not in defined:
                 errors.append(f"{where} · {path} → unknown variable ${{{name}}}")
+                unresolved = True
+
+        # A node whose variables do not resolve is already reported; running the stage check on a
+        # config still carrying a literal ``${name}`` would pile a second, derived error on top of
+        # the one the user actually has to fix.
+        if node.enabled and spec is not None and node.type.startswith("prep.") and not unresolved:
+            errors.extend(_prep_config_errors(node, graph, where))
     return errors
 
 

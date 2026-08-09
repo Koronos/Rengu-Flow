@@ -119,6 +119,12 @@ class PrepConfig:
             raise ValueError(f"Unknown caption_format {self.caption_format!r}")
         if stage == "index" and not self.index.models:
             raise ValueError("index stage needs at least one model in [index].models")
+        # A tag run with no models loads nothing, writes nothing, and exits 0 — it reports success
+        # for work it never did. The web form guards this client-side; the engine did not, so a
+        # config assembled anywhere else (a hand-written TOML, a workflow node whose model picker
+        # was never opened) failed silently instead of up front.
+        if stage == "tag" and not self.tag.models:
+            raise ValueError("tag stage needs at least one model in [tag].models")
 
 
 def _fill_dataclass(instance, data: dict, *, context: str):

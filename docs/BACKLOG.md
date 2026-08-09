@@ -77,22 +77,30 @@ Canonical list of **not-yet-implemented** or **deferred** work for Rengu Flow. D
 
 ## P5 — Workflows and control plane
 
-**Spec:** [spec/workflows.md](spec/workflows.md). Phase order is a hard constraint: P5-1 (shipped) had to land
+**Spec:** [spec/workflows.md](spec/workflows.md). Phase order is a hard constraint: P5-1 and P5-2 (both shipped) had to land
 before P5-3, or prep loses its only guarantee of not sharing the GPU with a training run
 (`prep_jobs.py:1-8`).
 
-**P5-1 (GPU lease + groundwork) shipped 2026-08-08** and is no longer listed here. What it left
-behind, for whoever picks up P5-2: `jobs.gpu_index` exists but nothing writes it and
-`CUDA_VISIBLE_DEVICES` is not applied anywhere yet, so `_devices_for_job` always returns `None`
-(host-exclusive); the unconditional `try_start_next()` in the poller tick belongs to P5-2, not
-here, and lands together with the two contract comments it invalidates (`jobs.py:254-256`,
-`job_queue.py:495-496`); `prep_jobs`' two `start_now` call sites still bypass the lease entirely
-(see Risk 14 in the spec).
+**P5-1 (GPU lease + groundwork) and P5-2 (engine + editor) shipped 2026-08-08/09** and are no
+longer listed here. What they left behind for P5-3:
+
+- `jobs.gpu_index` exists but nothing writes it and `CUDA_VISIBLE_DEVICES` is not applied
+  anywhere, so `_devices_for_job` always returns `None` (host-exclusive). Per-node GPU pinning is
+  specced and plumbed but not yet wired end to end.
+- The unconditional `try_start_next()` in the poller tick is still **not** there: it belongs with
+  the workflow lane and lands together with the two contract comments it invalidates
+  (`jobs.py:254-256`, `job_queue.py:495-496`) and a test fixing the new semantics.
+- `prep_jobs`' two `start_now` call sites still bypass the lease entirely (Risk 14 in the spec) —
+  a prep job can start on a GPU a training run already holds, in the window where that run's row
+  is still `pending` during its own `uv sync`. Close this before P5-3 removes the shared queue.
+- No "Accept current configuration" action yet (spec, Staleness): after a release that changes a
+  stage default, every saved node goes amber with no way to accept them in bulk.
+- `/prep/new/index` has a form now but no entry point — `PrepJobsView.vue` offers buttons for
+  tag/caption/clean/quality only.
 
 | ID | Item | Source | Notes |
 |----|------|--------|-------|
-| P5-2 | **Workflow engine and editor** | [spec/workflows.md](spec/workflows.md) | `workflow_{graph,db,nodes,runner,routes}.py` + tick in `queue_poller`; `/workflows` section with the vertical chain and node drawer; `PrepJobFormView.vue` split into per-stage components (`IndexStageForm.vue` is new — `index` has no form today). Coexists with `/prep`. |
-| P5-3 | **Retire `kind='prep'`** | [spec/workflows.md](spec/workflows.md) | Delete `prep_jobs.py`, `POST /prep/jobs`, the `kind=='prep'` branch in `jobs.start_job`; `/prep/new/:stage` becomes a one-node-workflow shortcut. Existing `kind='prep'` rows are left untouched (no `SCHEMA_VERSION` bump). Watch `QualityIndexView.vue:399` — the only `createPrepJob` caller outside the prep form. |
+| P5-3 | **Retire `kind='prep'`** | [spec/workflows.md](spec/workflows.md) | Delete `prep_jobs.py`, `POST /prep/jobs`, the `kind=='prep'` branch in `jobs.start_job`; `/prep/new/:stage` becomes a one-node-workflow shortcut. Add `kind == "train"` to `_pending_sorted()` and `has_active_runner()` plus a startup sweep, or a queued prep row left over from an upgrade launches DeepSpeed against `prep.toml`. Existing `kind='prep'` rows are left untouched (no `SCHEMA_VERSION` bump). Watch `QualityIndexView.vue:399` — the only `createPrepJob` caller outside the prep form. |
 
 ---
 

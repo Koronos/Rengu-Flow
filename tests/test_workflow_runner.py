@@ -705,6 +705,98 @@ def test_run_from_here_keeps_ancestors_done_with_their_output(
     assert rt.launch_inputs["n3"].path == str(other)  # it consumed n2's saved handle
 
 
+def test_run_only_this_step_leaves_the_descendants_alone(
+    rt: FakeRuntime, src: Path, tmp_path: Path
+) -> None:
+    """*Run only this step* re-runs one node; "run from here" re-runs the tail behind it.
+
+    The difference is the point of the button: redoing step 3 must not throw away step 4's saved
+    output, which is often hours of captioning.
+    """
+    tagged = tmp_path / "tagged"
+    tagged.mkdir()
+    captioned = tmp_path / "captioned"
+    captioned.mkdir()
+    workflow_id = _make(
+        [
+            _node("n1", "folder", config={"path": str(src)}),
+            _node("n2", "prep.tag", source="n1", config={"models": ["pixai-v0.9"]}),
+            _node("n3", "prep.caption", source="n2", config={"model": "joycaption-beta-one"}),
+        ]
+    )
+    _seed_done(workflow_id, "n1", src)
+    _seed_done(workflow_id, "n2", tagged)
+    _seed_done(workflow_id, "n3", captioned)
+
+    _start(workflow_id, from_node="n2", only=True)
+
+    nodes = _nodes(workflow_id)
+    assert nodes["n2"]["status"] == "running"
+    assert [s.node_id for s in rt.spawns] == ["n2"]
+    # n3 keeps its verdict AND its handle: nothing about it was replanned.
+    assert nodes["n3"]["status"] == "done"
+    assert nodes["n3"]["output"]["path"] == str(captioned)
+
+
+def test_run_only_this_step_finishes_without_touching_the_tail(
+    rt: FakeRuntime, src: Path, tmp_path: Path
+) -> None:
+    """And when the single step ends, the run ends — it does not fall through into step 3."""
+    tagged = tmp_path / "tagged"
+    tagged.mkdir()
+    captioned = tmp_path / "captioned"
+    captioned.mkdir()
+    workflow_id = _make(
+        [
+            _node("n1", "folder", config={"path": str(src)}),
+            _node("n2", "prep.tag", source="n1", config={"models": ["pixai-v0.9"]}),
+            _node("n3", "prep.caption", source="n2", config={"model": "joycaption-beta-one"}),
+        ]
+    )
+    _seed_done(workflow_id, "n1", src)
+    _seed_done(workflow_id, "n2", tagged)
+    _seed_done(workflow_id, "n3", captioned)
+
+    _start(workflow_id, from_node="n2", only=True)
+    rt.finish("n2", 0)
+    wr.tick()
+
+    assert _state(workflow_id)["status"] == "done"
+    assert [s.node_id for s in rt.spawns] == ["n2"]
+
+
+def test_run_only_this_step_still_needs_the_ancestor_output(
+    rt: FakeRuntime, src: Path
+) -> None:
+    """One step in isolation still eats the folder the step before it produced."""
+    workflow_id = _make(
+        [
+            _node("n1", "folder", config={"path": str(src)}),
+            _node("n2", "prep.tag", source="n1", config={"models": ["pixai-v0.9"]}),
+            _node("n3", "prep.caption", source="n2", config={"model": "joycaption-beta-one"}),
+        ]
+    )
+    _seed_done(workflow_id, "n1", src)  # n2 has still never run
+
+    with pytest.raises(ValueError) as excinfo:
+        _start(workflow_id, from_node="n3", only=True)
+
+    assert str(excinfo.value) == "② has no saved output. Start from ① or earlier."
+    assert rt.spawns == []
+
+
+def test_run_only_this_step_without_a_node_is_refused(rt: FakeRuntime, src: Path) -> None:
+    """``only`` with no ``from_node`` would silently run the whole workflow — the exact opposite."""
+    workflow_id = _make(_chain(src))
+
+    with pytest.raises(ValueError) as excinfo:
+        _start(workflow_id, only=True)
+
+    assert "needs a node" in str(excinfo.value)
+    assert rt.spawns == []
+    assert _state(workflow_id).get("status") is None
+
+
 def test_a_fresh_done_node_is_skipped_but_a_stale_one_is_not(
     rt: FakeRuntime, src: Path
 ) -> None:

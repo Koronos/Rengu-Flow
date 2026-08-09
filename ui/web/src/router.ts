@@ -52,6 +52,16 @@ const router = createRouter({
       name: "prep-quality-index",
       component: () => import("./views/QualityIndexView.vue"),
     },
+    {
+      path: "/workflows",
+      name: "workflows-list",
+      component: () => import("./views/WorkflowsListView.vue"),
+    },
+    {
+      path: "/workflows/:id",
+      name: "workflow-editor",
+      component: () => import("./views/WorkflowEditorView.vue"),
+    },
     { path: "/toolbox", name: "toolbox", component: () => import("./views/ToolboxView.vue") },
     {
       path: "/toolbox/new",

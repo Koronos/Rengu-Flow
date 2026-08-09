@@ -997,15 +997,27 @@ def _plan(
     *,
     from_node: str | None,
     force: bool,
+    only: bool = False,
 ) -> set[str]:
     nodes = state.get("nodes") or {}
     enabled = {n.id for n in graph.nodes if n.enabled}
+    if only and from_node is None:
+        # "Run only this step" without naming the step would silently run the *whole* workflow,
+        # which is the opposite of what the button says. Refuse instead of guessing.
+        raise ValueError("Run only this step needs a node to run.")
     if from_node is not None:
         if from_node not in {n.id for n in graph.nodes}:
             raise ValueError(f"No node {from_node!r} in this workflow.")
         if from_node not in enabled:
             raise ValueError(f"{_label(graph, from_node)} is disabled; enable it first.")
+        # The ancestor check applies to `only` too: a single step still eats the folder the step
+        # before it produced, so running it without that saved output is the same failure, just
+        # one node later.
         _require_saved_ancestors(graph, nodes, from_node)
+        if only:
+            # Descendants keep whatever they were. That is the whole difference from "run from
+            # here": re-running step 3 alone leaves step 4's `done` and its saved handle intact.
+            return {from_node}
         return _with_descendants(graph, from_node) & enabled
 
     # Run runs everything that is not done-and-fresh: idle + stale + failed + STOPPED. `stopped`
@@ -1025,13 +1037,22 @@ def _plan(
 
 
 def start_workflow(
-    workflow_id: Any, *, from_node: str | None = None, force: bool = False
+    workflow_id: Any,
+    *,
+    from_node: str | None = None,
+    force: bool = False,
+    only: bool = False,
 ) -> dict:
     """Plan a run. Raises ``ValueError`` with everything wrong, all at once.
 
     With ``from_node`` the named node and its descendants are reset to ``pending`` while its
     ancestors keep their ``done`` status **and their saved output** — which is what makes resuming
     from step 4 reuse steps 1-3 without re-running or re-typing anything.
+
+    ``only`` narrows that to the named node alone (the UI's *Run only this step*): the descendants
+    are neither reset nor re-run, so a step redone in isolation does not invalidate the work after
+    it. It still requires ``from_node``'s ancestors to have saved outputs — the node has to eat
+    something.
 
     **Planning only: the caller ticks.** Every caller already does (the route ticks synchronously
     so the response carries the effect), and ticking here as well only bought a second full pass
@@ -1053,7 +1074,7 @@ def start_workflow(
             f"Workflow {other} is already running; one workflow runs at a time."
         )
 
-    plan = _plan(graph, state, from_node=from_node, force=force)
+    plan = _plan(graph, state, from_node=from_node, force=force, only=only)
 
     def _apply(current: dict) -> None:
         nodes = current.setdefault("nodes", {})

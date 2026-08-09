@@ -204,6 +204,103 @@ def test_every_error_is_reported_at_once() -> None:
     assert any("unknown variable ${x}" in e for e in errors)
 
 
+# ------------------------------------- validation: the stage config, not just the wiring
+
+
+def _indexable() -> list[wg.WorkflowNode]:
+    return [_node("n1", "folder", config={"path": "D:/datasets/aoi"})]
+
+
+def test_a_prep_stage_that_cannot_launch_fails_preflight() -> None:
+    """``prep.index`` with the config "Add step" creates used to die mid-run, not at pre-flight."""
+    graph = wg.WorkflowGraph(nodes=[*_indexable(), _node("n2", "prep.index", source="n1")])
+    errors = wg.validate(graph)
+    assert len(errors) == 1
+    assert errors[0].startswith("node n2 · ")
+    assert "[index].models" in errors[0]
+
+
+def test_a_prep_stage_with_workable_defaults_passes_preflight() -> None:
+    graph = wg.WorkflowGraph(nodes=[*_indexable(), _node("n2", "prep.tag", source="n1")])
+    assert wg.validate(graph) == []
+
+
+def test_a_prep_stage_config_is_judged_after_variable_resolution() -> None:
+    """``models: ["${scorer}"]`` is a *filled* index config once the variable is known."""
+    graph = wg.WorkflowGraph(
+        variables=[wg.Variable(name="scorer", value="clipiqa")],
+        nodes=[
+            *_indexable(),
+            _node("n2", "prep.index", source="n1", config={"models": ["${scorer}"]}),
+        ],
+    )
+    assert wg.validate(graph) == []
+
+
+def test_a_prep_stage_is_judged_on_the_resolved_config_not_the_written_one() -> None:
+    """``workflow_runner._resolved`` substitutes before the launch, so pre-flight must too.
+
+    A variable defined as empty leaves the stage unconfigured; reading the config as written would
+    see a truthy ``"${scorers}"`` and wave through a node that cannot start.
+    """
+    graph = wg.WorkflowGraph(
+        variables=[wg.Variable(name="scorers", value="")],
+        nodes=[
+            *_indexable(),
+            _node("n2", "prep.index", source="n1", config={"models": "${scorers}"}),
+        ],
+    )
+    errors = wg.validate(graph)
+    assert len(errors) == 1
+    assert errors[0].startswith("node n2 · ")
+    assert "[index].models" in errors[0]
+
+
+def test_a_disabled_prep_stage_is_not_judged() -> None:
+    """A step the user switched off does not run, so its config cannot stop the workflow."""
+    graph = wg.WorkflowGraph(
+        nodes=[*_indexable(), _node("n2", "prep.index", source="n1", enabled=False)]
+    )
+    assert wg.validate(graph) == []
+
+
+def test_the_missing_path_of_a_workflow_node_is_never_reported() -> None:
+    """The executor injects ``path`` from the edge; the graph never carries one to check."""
+    graph = wg.WorkflowGraph(
+        nodes=[*_indexable(), _node("n2", "prep.clean", source="n1", config={"in_place": True})]
+    )
+    errors = wg.validate(graph)
+    assert errors == []
+    assert not any("path" in e for e in errors)
+
+
+def test_an_unresolved_variable_does_not_also_fail_the_stage_check() -> None:
+    """One problem, one error.
+
+    While any ``${name}`` is unresolved the materialized config is not the config that will run, so
+    the stage verdict would be about a document that does not exist. The user is told about the
+    variable; the next pre-flight — after they define it — judges the stage.
+    """
+    graph = wg.WorkflowGraph(
+        variables=[wg.Variable(name="scorers", value="")],
+        nodes=[
+            *_indexable(),
+            _node(
+                "n2",
+                "prep.index",
+                source="n1",
+                config={"models": "${scorers}", "note": "${missing}"},
+            ),
+        ],
+    )
+    assert wg.validate(graph) == ["node n2 · index.note → unknown variable ${missing}"]
+
+
+def test_an_unknown_prep_stage_is_reported_once_as_an_unknown_type() -> None:
+    graph = wg.WorkflowGraph(nodes=[*_indexable(), _node("n2", "prep.frobnicate", source="n1")])
+    assert wg.validate(graph) == ["node n2 · unknown node type 'prep.frobnicate'"]
+
+
 # ------------------------------------------------------------------------------ variables
 
 
@@ -596,3 +693,41 @@ def test_train_is_terminal() -> None:
 def test_an_unknown_type_is_fatal_at_execution() -> None:
     with pytest.raises(wg.NodeOutputError, match="Unknown node type"):
         wg.effective_output(_node("n1", "prep.frobnicate"), _handle())
+
+
+def test_a_tag_node_with_no_models_fails_preflight() -> None:
+    """A tagger with no models loads nothing, writes nothing, and exits 0.
+
+    The node is born with the form's defaults, and the model list starts empty until the registry
+    is opened — so "add a Tag step, press Run" must be refused up front rather than reporting
+    success for work it never did.
+    """
+    graph = wg.parse_graph(
+        {
+            "version": 1,
+            "nodes": [
+                {"id": "n1", "type": "folder", "from": None, "config": {"path": "."}},
+                {"id": "n2", "type": "prep.tag", "from": "n1", "config": {"models": []}},
+            ],
+        }
+    )
+    errors = wg.validate(graph)
+    assert any("n2" in e and "[tag].models" in e for e in errors), errors
+
+
+def test_a_tag_node_with_a_model_passes_preflight() -> None:
+    graph = wg.parse_graph(
+        {
+            "version": 1,
+            "nodes": [
+                {"id": "n1", "type": "folder", "from": None, "config": {"path": "."}},
+                {
+                    "id": "n2",
+                    "type": "prep.tag",
+                    "from": "n1",
+                    "config": {"models": ["pixai-v0.9"]},
+                },
+            ],
+        }
+    )
+    assert wg.validate(graph) == []
