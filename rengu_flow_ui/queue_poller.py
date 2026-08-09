@@ -20,7 +20,7 @@ import logging
 import threading
 from collections.abc import Callable
 
-from rengu_flow_ui import gpu_lease, jobs
+from rengu_flow_ui import gpu_lease, jobs, workflow_runner
 from rengu_flow_ui.settings import queue_poll_interval
 
 _logger = logging.getLogger("rengu_flow_ui.queue_poller")
@@ -64,6 +64,10 @@ def _tick() -> None:
     """
     _step(gpu_lease.reap_dead, "reap_dead")
     _step(jobs.refresh_all_jobs, "refresh_all_jobs")
+    # The workflow lane, guarded on its own: it is the newest code here and must not be able to
+    # take down the run reconciliation that worked long before it existed. ``tick`` takes a
+    # non-blocking lock, so a ``/start`` or ``/cancel`` running concurrently simply wins the pass.
+    _step(workflow_runner.tick, "workflow tick")
 
 
 def _run(interval: float) -> None:

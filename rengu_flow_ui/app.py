@@ -32,7 +32,7 @@ from rengu_flow_ui.dataset_schema import get_dataset_schema
 from rengu_flow_ui.config_form import coerce_preview_prompts_for_toml, form_to_toml, toml_to_form
 from rengu_flow_ui.config_schema import get_schema
 from rengu_flow_ui.docs_reader import DocNotFoundError, DocPathError, read_doc
-from rengu_flow_ui import gpu_lease, queue_poller, tensorboard_server
+from rengu_flow_ui import gpu_lease, queue_poller, tensorboard_server, workflow_runner
 from rengu_flow_ui.paths import PathError, resolve_example_path, resolve_repo_path
 from rengu_track.system_stats import collect_system_stats
 from rengu_flow_ui.settings import (
@@ -229,6 +229,12 @@ def create_app() -> FastAPI:
         # Drop GPU leases left behind by the previous process: any lease whose holder is gone,
         # plus every lease that never got a pid bound (its launch did not happen).
         gpu_lease.reconcile_on_start()
+        # Then the workflow lane, AFTER the lease sweep so a node whose launch never happened has
+        # already lost its unbound lease: adopt the node processes that survived the restart
+        # (own process group, stdout to a file) and finalize the ones that did not. A `launching`
+        # node is never auto-started here — a second `prep.tag` on the same folder is silent,
+        # dataset-wide corruption.
+        workflow_runner.reconcile_on_start()
         # Drain the queue independently of UI activity: without this background poller, a finished
         # run's successor only starts when an HTTP request triggers refresh_all_jobs.
         queue_poller.start_poller()
@@ -289,9 +295,11 @@ def create_app() -> FastAPI:
 
     from rengu_flow_ui.prep_routes import register_prep_routes
     from rengu_flow_ui.toolbox_routes import register_toolbox_routes
+    from rengu_flow_ui.workflow_routes import register_workflow_routes
 
     register_prep_routes(app)
     register_toolbox_routes(app)
+    register_workflow_routes(app)
 
     # --- Training config TOML: validation + export (no standalone library) ---
     def _training_export_response(content: str, bundle_stem: str) -> Response:

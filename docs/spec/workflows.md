@@ -314,9 +314,31 @@ never overlap a training run, because the shared queue is what prevents it — t
 this feature removes. A first-ever `prep.quality` node advertised as "CPU-only, runs alongside
 training" would rewrite `site-packages` under a live DeepSpeed process and hand it an `ImportError`
 hours in, at checkpoint time; on POSIX it also reinstalls the editable project the trainer is
-running from. So `_launch_node` runs `ensure_profiles(["prep"])` **in the UI process, with the node
-in `launching`, and refuses while `has_active_runner()`**. The claim that device selection needs no
-change to the prep engine still holds; the claim that *nothing* about prep changes does not.
+running from.
+
+So `_launch_node` runs `ensure_profiles(["prep"])` **in the UI process, with the node in
+`launching`** — and refuses **only when the profiles are actually missing and a run is active**.
+The condition matters: the hazard is the `uv sync` write, not the node. Refusing on
+`has_active_runner()` alone would mean no prep node ever runs during a training run, which is the
+exact opposite of Goal 3 — a CPU-only `quality` node is supposed to run *while* training holds the
+GPU. Once the extras are installed there is no write, no hazard, and no reason to wait.
+
+A node refused this way returns to `waiting_gpu` with a readable reason **and releases its lease
+while it waits** — holding a GPU token to wait on a dependency install would deadlock the very
+lane it is queuing behind.
+
+**"A run is active" must be read from the lease, not from `has_active_runner()`.** This looks like
+a detail and is not: `try_start_next` acquires the lease and *then* calls `jobs.start_job` →
+`ensure_training_extras` → its own `uv sync`, so for the minutes that install takes the job row is
+still `pending` and `has_active_runner()` returns `False`. Checking the rows would therefore green-
+light a `uv sync --extra prep` at exactly the moment a training run is inside its own — the precise
+collision the guard exists to prevent, reproduced in review. Query `gpu_lease.snapshot()` for a
+`holder_kind == "train"` holder instead: the lease is taken *before* `ensure_training_extras`, so
+it covers the blind window. Keep the row check too — a run whose lease was reaped is still running,
+and then the rows are the only witness.
+
+The claim that device selection needs no change to the prep engine still holds; the claim that
+*nothing* about prep changes does not.
 
 `_launch_node` validates *before* spawning — `PrepConfig.validate_for_stage(stage)` turns "folder
 does not exist" into a clean `error` on the node row instead of a traceback buried in `node.log`.
@@ -617,6 +639,7 @@ CREATE TABLE IF NOT EXISTS workflows (
     name       TEXT NOT NULL DEFAULT '',
     content    TEXT NOT NULL,               -- graph JSON: nodes, variables, from
     state_json TEXT NOT NULL DEFAULT '{}',  -- the single state
+    version    INTEGER NOT NULL DEFAULT 0,  -- optimistic concurrency on content
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -640,15 +663,22 @@ Normalizing buys a hot path that does not exist and costs graph↔row synchroniz
   "started_at": null, "finished_at": null,
   "nodes": {
     "n2": {
-      "status": "pending|waiting_gpu|running|stopping|done|failed|stopped|skipped",
+      "status": "pending|waiting_gpu|launching|running|stopping|done|failed|stopped|skipped",
       "pid": 4231, "pid_create_time": 1754689201.4, "exit_code": 0,
       "started_at": "...", "finished_at": "...",
       "output": { "path": "...", "caption_format": "sidecar", "caption_ext": ".txt" },
-      "config_hash": "…", "error": ""
+      "saved_input": { "path": "...", "caption_format": "sidecar", "caption_ext": ".txt" },
+      "config_hash": "…", "error": "",
+      "adopted": false, "log_size": 0, "stop_requested_at": null, "result": null
     }
-  }
+  },
+  "queue_claim": { "job_id": 42, "node_id": "n5" }
 }
 ```
+
+`saved_input` is not decoration: the staleness rule compares it, and a node finalized without it
+makes every input comparison read `None != handle` and marks the whole chain stale. `queue_claim`
+is what stops two workflows from reordering each other's front-of-queue run.
 
 The output handle is stored **resolved**, not as a reference to the upstream node. That is what
 makes starting from an intermediate step possible without re-running anything.
@@ -784,6 +814,14 @@ Return value → emitted handle:
 declaring an input named `path` (optionally `caption_format` / `caption_ext`). If it declares
 none, it receives no handle and the node passes through. No mapping UI.
 
+**`[toolbox].enabled` gates tool nodes too.** That switch exists because running a tool executes
+arbitrary user Python, and it defaults to `false`. A workflow node runs the same code by the same
+mechanism, so exempting it would turn Workflows into a way around the gate — authoring is always
+allowed, execution never is until the user opts in. A `tool` node on a host with the gate off
+fails at launch with the same message `run_tool` raises, naming
+`rengu.local.toml → [toolbox].enabled`. The consequence is intended: tool nodes do not run out of
+the box, exactly like the Toolbox page they come from.
+
 ### Required fix: concurrent tool runs
 
 `toolbox._active` is keyed by `tool_id` (`toolbox.py:235`) and `last_run.json` is one per tool
@@ -834,9 +872,14 @@ two workflows both claiming it would silently reorder each other:
 
 - If a run is already active, the node **does not preempt it** — `try_start_next` is a no-op and
   the run simply waits its turn at the front. Nothing is killed, ever.
-- If another workflow already bumped a run that has not started yet, the second bump is refused
-  and the node lands its run *behind* it, in bump order, rather than displacing it. A workflow may
-  hold at most one front-of-queue claim.
+- If another workflow already bumped a run that has not started yet, the second node lands its run
+  *behind* it, in bump order, rather than displacing it. A workflow may hold at most one
+  front-of-queue claim, tracked as `queue_claim` in its state.
+  **The claim has to be settled before the bump, not after.** `bump_pending_after` displaces
+  unconditionally and is immediately followed by `try_start_next`, so a runner that bumps first and
+  restores the previous claimant afterwards has already started the wrong run — deterministically,
+  whenever the queue is idle, which is the normal state. The runner therefore drains the queue for
+  the standing claimant *before* the second node bumps, then re-reads the claim.
 - If the referenced run is already `running`, `stopping`, or terminal, the node fails validation
   with a readable error instead of re-queuing a run that is already underway.
 

@@ -7,8 +7,8 @@ using the GPU*), and a lock file would mean re-inventing ``O_EXCL``, parsing and
 SQLite already provides.
 
 **Reaping is by holder validity, not by timing.** A lease is never freed because a timer expired;
-it is freed because its holder is provably gone — the job row is missing or terminal, or the bound
-pid is dead, a zombie, or reused. There is deliberately no timeout on a ``pid IS NULL`` lease: the
+it is freed because its holder is provably gone — the job row is missing or terminal, the workflow
+row was deleted, or the bound pid is dead, a zombie, or reused. There is deliberately no timeout on a ``pid IS NULL`` lease: the
 window between :func:`acquire` and :func:`bind_pid` contains ``ensure_training_extras`` ->
 ``uv sync``, which on a cold extra takes minutes. A timer there would free the lease mid-install and
 let training spawn with no lease at all — the exact regression this table exists to prevent. An
@@ -21,7 +21,7 @@ from __future__ import annotations
 import sqlite3
 
 from rengu_flow.platform_compat import pid_alive
-from rengu_flow_ui import db
+from rengu_flow_ui import db, workflow_db
 from rengu_flow_ui._time import now_utc_iso
 
 #: Sentinel device for a host with no enumerable GPU. Arbitration still works there: every holder
@@ -34,6 +34,9 @@ HOST_DEVICE = -1
 _LEASE_HOLDING_STATES = frozenset({"pending", "running", "stopping"})
 
 _JOB_PREFIX = "job:"
+
+#: ``wf:<workflow_id>:<node_id>`` — the workflow lane's holder id (``workflow_runner._holder_id``).
+_WF_PREFIX = "wf:"
 
 _devices_cache: list[int] | None = None
 
@@ -208,8 +211,34 @@ def _job_row_is_gone(job_id: str) -> bool:
     return job.state not in _LEASE_HOLDING_STATES
 
 
+def _workflow_row_is_gone(holder_id: str) -> bool:
+    """True when the workflow a ``wf:`` lease belongs to no longer exists.
+
+    Same reconciliation the training lane gets from :func:`_job_row_is_gone`, and for the same
+    reason: ``DELETE /workflows/{id}`` guards on ``running``/``cancelling``, but a lease taken in
+    the window before the node's status is written — or a row removed by any path that never goes
+    through the route — would otherwise be freed by nothing. ``reconcile_on_start`` cannot help:
+    it walks ``list_workflows()``, so a deleted row is never visited, and a lease still inside the
+    ``acquire`` -> ``bind_pid`` window (minutes, on a cold extras install) has ``pid IS NULL`` and
+    is deliberately never timed out. Without this, restarting the server is the only thing that
+    frees it, and the training lane cannot acquire until then.
+
+    **Existence only, never the run status.** A node's status lives in ``state_json`` and is
+    written around the launch, so reaping on "not running" would free the lease of a node that is
+    mid-spawn — the exact regression the no-timeout rule exists to prevent.
+    """
+    workflow_id = holder_id[len(_WF_PREFIX):].split(":", 1)[0]
+    try:
+        workflow_db.get_workflow(workflow_id)
+    except KeyError:  # deleted, or an unparseable id that can never match a row
+        return True
+    return False
+
+
 def _holder_is_gone(holder_id: str, pid: int | None, pid_create_time: float | None) -> bool:
     if holder_id.startswith(_JOB_PREFIX) and _job_row_is_gone(holder_id[len(_JOB_PREFIX):]):
+        return True
+    if holder_id.startswith(_WF_PREFIX) and _workflow_row_is_gone(holder_id):
         return True
     if pid is None:
         return False  # unbound but still legitimate: the launch has not reached bind_pid yet

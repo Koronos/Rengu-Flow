@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from rengu_flow_ui import db, gpu_lease
+from rengu_flow_ui import db, gpu_lease, workflow_db
 
 
 @pytest.fixture(autouse=True)
@@ -172,12 +172,48 @@ def test_reap_dead_frees_a_reused_pid(ui_data_tmp: Path) -> None:
     assert gpu_lease.reap_dead() == [holder]
 
 
-def test_reap_dead_ignores_a_workflow_holder_with_a_live_pid(ui_data_tmp: Path) -> None:
-    """Only `job:` holders are reconciled against the jobs table; others go by pid alone."""
-    gpu_lease.acquire("workflow", "wf:1:n1", None)
-    gpu_lease.bind_pid("wf:1:n1", os.getpid())
+def test_reap_dead_keeps_a_workflow_holder_whose_workflow_still_exists(ui_data_tmp: Path) -> None:
+    workflow = workflow_db.create_workflow("wf", "{}")
+    holder = f"wf:{workflow.id}:n1"
+    gpu_lease.acquire("workflow", holder, None)
+    gpu_lease.bind_pid(holder, os.getpid())
     assert gpu_lease.reap_dead() == []
     assert _held_devices() == [0]
+
+
+def test_reap_dead_frees_a_workflow_holder_whose_row_was_deleted(ui_data_tmp: Path) -> None:
+    """Delete the workflow and its node's lease has no owner left — reap it on the next tick.
+
+    ``DELETE /workflows/{id}`` refuses while the run is live, but a lease is taken *before* the
+    node's status is written and stays ``pid IS NULL`` for as long as the launch takes (minutes,
+    on a cold extras install), so the guard alone cannot be the only defence. Nothing else would
+    free this one: ``reconcile_on_start`` iterates ``list_workflows()``, so a deleted row is never
+    visited, and there is deliberately no timeout on an unbound lease. Without this the training
+    lane is locked out until the server restarts.
+    """
+    workflow = workflow_db.create_workflow("wf", "{}")
+    holder = f"wf:{workflow.id}:n1"
+    gpu_lease.acquire("workflow", holder, None)
+    assert gpu_lease.reap_dead() == []  # mid-launch, unbound, workflow alive: keep it
+
+    workflow_db.delete_workflow(workflow.id)
+    assert gpu_lease.reap_dead() == [holder]
+    assert gpu_lease.snapshot() == []
+
+
+def test_reap_dead_frees_a_deleted_workflow_even_with_a_live_pid(ui_data_tmp: Path) -> None:
+    """Same rule as a deleted job row: the holder is gone whatever the pid says.
+
+    The child is orphaned — nothing will ever poll it, finish the node or release the lease — so
+    keeping the GPU reserved for it just leaks the device.
+    """
+    workflow = workflow_db.create_workflow("wf", "{}")
+    holder = f"wf:{workflow.id}:n1"
+    gpu_lease.acquire("workflow", holder, None)
+    gpu_lease.bind_pid(holder, os.getpid())
+
+    workflow_db.delete_workflow(workflow.id)
+    assert gpu_lease.reap_dead() == [holder]
 
 
 # ------------------------------------------------------------------------------ startup sweep

@@ -153,6 +153,25 @@ def init_library_tables(conn: sqlite3.Connection) -> None:
         )
         """
     )
+    # Workflows persistence (see rengu_flow_ui/workflow_db.py and docs/spec/workflows.md,
+    # "Persistence"). `content` (the graph JSON) and `state_json` (the single saved run state) are
+    # deliberately separate columns written by different callers, so an editor save can never
+    # clobber live run progress and vice versa. `version` is optimistic concurrency over `content`
+    # only. Additive table via CREATE TABLE IF NOT EXISTS, same as `datasets`/`gpu_leases`, so
+    # SCHEMA_VERSION does not move.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS workflows (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL DEFAULT '',
+            content TEXT NOT NULL,
+            state_json TEXT NOT NULL DEFAULT '{}',
+            version INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
     _migrate_datasets_name(conn)
 
 

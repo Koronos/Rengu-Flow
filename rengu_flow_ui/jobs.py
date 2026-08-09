@@ -17,6 +17,10 @@ from rengu_flow.platform_compat import pid_alive, terminate_process_tree
 from rengu_flow_ui import db, gpu_lease
 from rengu_flow_ui.subprocess_util import popen_repo_subprocess
 
+# Prep argv lives in workflow_nodes now — this module is training. The import stays until the
+# legacy ``kind == 'prep'`` branch of start_job goes away with prep_jobs (spec, Phase 2).
+from rengu_flow_ui.workflow_nodes import build_prep_command  # noqa: F401  (re-export)
+
 
 def build_train_command(
     config_path: Path,
@@ -32,28 +36,6 @@ def build_train_command(
         cmd.extend(["--resume_from_checkpoint", resume_from])
     cmd.extend(extra)
     return cmd
-
-
-def build_prep_command(config_path: Path, *, stage: str, job_dir: Path) -> list[str]:
-    """Argv for a dataset-prep job: the same `rengu prep <stage>` the CLI runs.
-
-    The prep CLI installs its own extras on demand (uv sync --extra prep), so no
-    ensure_training_extras here. ``--job-dir`` points signals + report.json at the
-    job's own folder.
-    """
-    import sys
-
-    return [
-        sys.executable,
-        "-m",
-        "rengu_flow.cli",
-        "prep",
-        stage,
-        "--config",
-        str(config_path),
-        "--job-dir",
-        str(job_dir),
-    ]
 
 
 def start_job(
