@@ -2,7 +2,7 @@
 
 Canonical list of **not-yet-implemented** or **deferred** work for Rengu Flow. Developer specs may still use **`[TODO]`** inline; this file is the durable backlog.
 
-**Design context:** [developer/architecture.md](developer/architecture.md). **Specifications:** [spec/](spec/). **Last updated:** 2026-08-08 (P5-1 shipped: GPU lease + Workflows groundwork).
+**Design context:** [developer/architecture.md](developer/architecture.md). **Specifications:** [spec/](spec/). **Last updated:** 2026-08-09 (P5-2 shipped: Workflows engine, API and editor).
 
 ---
 

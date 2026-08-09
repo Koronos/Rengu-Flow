@@ -10,6 +10,8 @@
   - [Dataset configuration](user/dataset-config.md) — Dataset TOML, resolutions, directories, and eval datasets.
   - [Dataset augmentation](user/dataset-augmentation.md) — Diversity presets (MVP), cache interaction, references (Kohya, OneTrainer).
   - [Dataset Studio (`rengu prep`)](user/dataset-prep.md) — Tagging, captioning, watermark cleanup, and the bulk tag editor.
+  - [Toolbox](user/toolbox.md) — Authoring and running your own Python tools; inputs, dependencies via PEP 723, and the `[toolbox].enabled` gate.
+  - [Workflows](user/workflows.md) — Chaining prep, Toolbox and training steps over one folder; the eight step types and the folder each emits, variables, staleness, GPU sharing.
   - [Optimizer and scheduler](user/optimizer-and-scheduler.md) — Choosing optimizer and LR scheduler in TOML, built-in names, qualified path, runtime tokens, warmup.
   - [Training loop, evaluation, and logging](user/training-loop-and-eval.md) — Eval datasets, TensorBoard/WandB, resume from checkpoint, activation checkpointing.
   - [Checkpoints, model export, and retention](user/checkpoint-and-save.md) — Resume checkpoints vs inference export, `max_checkpoints_to_keep`, scheduled saves.
@@ -39,6 +41,7 @@
   - [CLI (`rengu`)](developer/cli.md) — Dispatcher, local config, train launcher, install profiles.
   - [Dependency installer](developer/dependency-installer.md) — Additive, on-demand `rengu_flow/install/` package; profiles, runners, self-heal, git packages.
   - [Web UI](developer/web-ui.md) — Control server layout, API, config/dataset libraries, field help, job queue, host metrics, staging, signals bridge, status file hook.
+  - [Workflows](developer/workflows.md) — Module map, the backward-only `from` invariant, `content`/`state_json` split, `mutate_state` CAS, GPU lease and holder-validity reaping, node lifecycle, the normative output contract, adding a node type.
   - [Full-model training](developer/full-model-training.md) — How full-model mode is chosen, save path, freeze_text_encoders, and future dataset/VAE note.
   - [VRAM optimization](developer/vram-optimization.md) — Low-VRAM levers (bf16+Kahan, checkpointing, gradient_release, frugal optimizers, freeze+cache, block swap, prefetch), how they interact, trade-offs, and a measured 8 GB curve.
   - [Spec: SDXL full fine-tune on low VRAM](spec/sdxl-full-finetune-low-vram.md) — Root causes (WSL allocator, version drift, save path, block-swap wiring), decisions, WSL conditionals, and Linux validation hand-off.

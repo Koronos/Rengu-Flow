@@ -129,7 +129,7 @@
 
     <el-form-item v-if="model.move">
       <template #label>
-        Output directory <FieldHelpIcon :field="help('Where to move flagged images. Defaults to &lt;path&gt;/low_quality.')" />
+        Quarantine folder <FieldHelpIcon :field="help('Where flagged images are moved out to. Defaults to &lt;path&gt;/low_quality. This is not the result of the step — the surviving dataset stays in the input folder.')" />
         <FieldPathTag path="quality.output_dir" />
       </template>
       <PathFieldControl

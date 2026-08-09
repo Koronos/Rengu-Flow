@@ -2,6 +2,13 @@
 
 **Status:** Phases 0–1 (P5-1, P5-2) **implemented** 2026-08-08/09; Phase 2 (P5-3, retiring
 `kind='prep'`) proposed. **Date:** 2026-08-09. **Backlog:** [P5-3](../BACKLOG.md).
+
+> **Shipped behaviour is documented elsewhere.** This page is the design and the rejected
+> alternatives — *why* each rule exists. For what the feature does today, read
+> **[user/workflows.md](../user/workflows.md)**; for the technical contract and where the code
+> lives, **[developer/workflows.md](../developer/workflows.md)**. Where this spec and those two
+> disagree, the code is the source of truth and those two follow it.
+
 **Scope:** control plane (`rengu_flow_ui/` + `ui/web/`). The training core is untouched; the prep
 engine gained exactly one rule — `validate_for_stage` now refuses a `tag` stage with no models,
 which previously loaded nothing, wrote nothing and exited 0.
