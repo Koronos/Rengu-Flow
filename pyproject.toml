@@ -154,16 +154,17 @@ torch = { index = "pytorch-cu130" }
 torchvision = { index = "pytorch-cu130" }
 # Memory-efficient optimizers (Adakaon, AdaMuon, KProdigy, Lion, AdaPNM,
 # AdaBelief, AdamP, ADOPT, ScheduleFree, Lookahead, SAM, MSAM, Nekaon).
-# Kaon 0.7.10 batches 0-D scalar params through the foreach/fused paths in all 9 optimizers
-# (LyCORIS `use_scalar` gates went one-by-one through the per-param loop: 448 scalars drop from
-# 330 to 6.4 ms/step native, 0.45 ms fused) and speeds up the non-factored foreach bucket
-# (per-param cast kernels removed, 2-4x; view cache; retuned fused tile crossover). Also fixes a
-# pre-existing int8 momentum corruption in AdaBelief/AdamP/AdaPNM/Lion when a conv param crossed
-# from the batched to the per-param path. No breaking changes: existing checkpoints load and
-# continue bit-exact; optimizer memory unchanged (measured peak byte-identical).
+# Kaon 0.7.11 stops baking the LR into Adakaon's momentum EMA (every path: per-param,
+# foreach, and all fused Triton kernels). The buffer now stores the LR-independent
+# direction and lr scales the final delta, so under an LR schedule (warmup/cosine) the
+# current step is driven by the CURRENT lr instead of a mix of historical ones;
+# MSAM/Nekaon convert the direction back to step units, making Nekaon's `k` exactly
+# "k lookahead steps at the current lr". Algebraically identical at constant LR.
+# No breaking changes: pre-0.7.11 checkpoints are migrated on load (m -> m/lr through
+# the codec's exact scale, no requant error for int8/4bit); optimizer memory unchanged.
 # K-Optimizers (the `kaon` package) ships no release tags, so we pin an
 # exact commit — that SHA *is* kaon's version here: reproducible, and it only changes when this
 # `rev` is bumped (then committed to renga). Bump it to ship a newer kaon; users pick it up on
 # their next `rengu update` (only if the kaon extra is already installed). Only installed when
 # the `kaon` extra is selected (see rengu_flow/install/profiles.py).
-kaon = { git = "https://github.com/Koronos/K-Optimizers", rev = "60f4b617849145efacddc0c62e26b335e3b47f4e" }
+kaon = { git = "https://github.com/Koronos/K-Optimizers", rev = "f52cdd00124dc9bb950c5fd2b16d4efffb8364aa" }
