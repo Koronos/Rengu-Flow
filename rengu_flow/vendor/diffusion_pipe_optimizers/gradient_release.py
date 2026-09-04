@@ -25,3 +25,27 @@ class GradientReleaseOptimizerWrapper(torch.optim.Optimizer):
 
     def zero_grad(self, set_to_none=True):
         pass
+
+    def eval(self):  # noqa: A003 - mirrors lookahead optimizer API (not nn.Module.eval)
+        """Restore the true iterate on inner optimizers that support eval/train.
+
+        ``gradient_release`` builds one optimizer per trainable parameter; lookahead-style
+        optimizers (MSAM/Nekaon, ScheduleFree, Lookahead) keep live weights displaced in
+        train mode. ``Saver._persist_at_true_iterate`` calls ``eval()`` before checkpoint /
+        export reads. Forward to every inner optimizer that exposes ``eval``; no-op when none
+        do (plain AdamW/SGD), which preserves the previous behaviour for non-lookahead types.
+        Returns ``self`` for chaining (kaon optimizers return ``self``).
+        """
+        for opt in self.optimizers:
+            fn = getattr(opt, "eval", None)
+            if callable(fn):
+                fn()
+        return self
+
+    def train(self):
+        """Re-apply train-mode displacement on inner optimizers that support eval/train."""
+        for opt in self.optimizers:
+            fn = getattr(opt, "train", None)
+            if callable(fn):
+                fn()
+        return self

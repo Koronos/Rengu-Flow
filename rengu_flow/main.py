@@ -1798,13 +1798,18 @@ def run_prepared(args) -> None:
     try:
         validate_config(config, for_script=True)
         from rengu_flow.config.preflight import collect_preflight_issues
-        from rengu_flow.config.validation import format_validation_issues
+        from rengu_flow.config.validation import collect_validation_warnings, format_validation_issues
 
         preflight = collect_preflight_issues(config)
         if preflight:
             raise ConfigValidationError(format_validation_issues(preflight))
     except ConfigValidationError as e:
         raise SystemExit(f"Config validation failed: {e}") from e
+
+    from rengu_flow.utils.logging import logger
+
+    for warning in collect_validation_warnings(config):
+        logger.warning(warning)
 
     if args.validate_only:
         return

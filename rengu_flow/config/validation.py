@@ -13,6 +13,14 @@ class ConfigValidationError(ValueError):
     """Raised when required config keys are missing."""
 
 
+# Kaon lookahead-style optimizers (and any class that mirrors their eval/train API).
+_LOOKAHEAD_STYLE_OPTIMIZER_TYPES = frozenset({
+    "msam",
+    "nekaon",
+    "schedulefree",
+    "lookahead",
+})
+
 _REQUIRED_TOP_LEVEL = ("model", "optimizer", "dataset")
 
 _SECTION_HINTS: dict[str, str] = {
@@ -36,6 +44,40 @@ def format_validation_issues(issues: list[str]) -> str:
     if len(issues) == 1:
         return issues[0]
     return "Fix the following:\n" + "\n".join(f"• {line}" for line in issues)
+
+
+def _optimizer_type_has_eval_train(optim_type: str) -> bool:
+    key = optim_type.strip().lower()
+    if key in _LOOKAHEAD_STYLE_OPTIMIZER_TYPES:
+        return True
+    if not optim_type.strip():
+        return False
+    try:
+        from rengu_flow.registry.optimizers import get_optimizer_class
+
+        cls = get_optimizer_class(optim_type)
+    except (ImportError, ValueError):
+        return False
+    return callable(getattr(cls, "eval", None)) and callable(getattr(cls, "train", None))
+
+
+def collect_validation_warnings(config: dict[str, Any]) -> list[str]:
+    """Non-blocking advisories for sensitive but allowed config combinations."""
+    warnings: list[str] = []
+    optimizer = config.get("optimizer")
+    if not isinstance(optimizer, dict) or not optimizer.get("gradient_release"):
+        return warnings
+    optim_type = str(optimizer.get("type") or "").strip()
+    if not optim_type or not _optimizer_type_has_eval_train(optim_type):
+        return warnings
+    warnings.append(
+        f"optimizer.gradient_release with lookahead-style optimizer {optim_type!r}: "
+        "resume checkpoints and exports must read weights at the optimizer's true iterate "
+        "(eval mode, not the displaced train-mode weights). "
+        "GradientReleaseOptimizerWrapper forwards eval/train to each per-parameter optimizer — "
+        "verify resume after upgrading if you used an older build without that forwarding."
+    )
+    return warnings
 
 
 def collect_validation_errors(

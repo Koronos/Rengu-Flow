@@ -39,6 +39,21 @@ way, which is why a run can *preview* fine yet *resume* broken. The adapter tens
 round-trip correctly through DeepSpeed `exclude_frozen_parameters` — the bug was the weight
 *values*, not the keys. New save paths added to the `Saver` must reuse `_persist_at_true_iterate()`.
 
+### `gradient_release` and per-parameter optimizers
+
+With `optimizer.gradient_release = true`, `main.py` builds one inner optimizer per trainable
+parameter and wraps them in `GradientReleaseOptimizerWrapper`
+(`vendor/diffusion_pipe_optimizers/gradient_release.py`). Grad hooks call each inner
+`step()` / `zero_grad()`; the wrapper's own `step()` / `zero_grad()` are no-ops.
+
+`Saver._persist_at_true_iterate()` toggles `model_engine.optimizer.eval()` / `.train()`. The
+wrapper must expose those methods and forward them to every inner optimizer that implements
+them (MSAM/Nekaon, ScheduleFree, Lookahead, or any custom type with the same API). Inner
+optimizers without eval/train are skipped — a no-op forward on the wrapper, same as plain
+optimizers without those methods. Without forwarding, the Saver sees callable methods on the
+wrapper but they never reach the per-parameter lookahead instances, so checkpoints silently
+store displaced train-mode weights.
+
 ## Export retention (`_prune_old_exports`)
 
 1. Eligible dirs: `step*`, `epoch*` only (`signal_step*` exempt).

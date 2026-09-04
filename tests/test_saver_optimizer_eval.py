@@ -14,6 +14,9 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from rengu_flow.utils.saver import Saver
+from rengu_flow.vendor.diffusion_pipe_optimizers.gradient_release import (
+    GradientReleaseOptimizerWrapper,
+)
 
 
 class _SpyOptimizer:
@@ -122,4 +125,25 @@ def test_export_runs_in_optimizer_eval_mode(tmp_path: Path):
     assert mode_at_export == ["eval"], "export read live weights while the optimizer was perturbed"
     assert spy.events and spy.events[0] == "eval"
     assert spy.events[-1] == "train"
+    assert spy.mode == "train"
+
+
+def test_checkpoint_saved_through_gradient_release_wrapper(tmp_path: Path):
+    """Per-parameter optimizers inside the wrapper must receive eval/train on save."""
+    spy = _SpyOptimizer()
+    wrapper = GradientReleaseOptimizerWrapper([spy])
+    model_engine = MagicMock()
+    model_engine.optimizer = wrapper
+    mode_at_save: list[str] = []
+    model_engine.save_checkpoint.side_effect = lambda *a, **k: mode_at_save.append(spy.mode)
+
+    saver = _make_saver(tmp_path, model_engine)
+    with patch("rengu_flow.utils.saver.dist") as mock_dist:
+        mock_dist.barrier = MagicMock()
+        with patch("rengu_flow.utils.saver.is_main_process", return_value=True):
+            ok = saver.save_checkpoint(5, 50)
+
+    assert ok is True
+    assert mode_at_save == ["eval"]
+    assert spy.events == ["eval", "train"]
     assert spy.mode == "train"

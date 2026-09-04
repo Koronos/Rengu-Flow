@@ -19,6 +19,7 @@ from rengu_flow.config import set_config_defaults
 from rengu_flow.config.dataset_merge import merge_dataset_configs
 from rengu_flow.config.validation import (
     collect_validation_errors,
+    collect_validation_warnings,
     format_validation_issues,
     section_hints_for_empty_config,
 )
@@ -79,7 +80,15 @@ def validate_toml_text(content: str) -> dict[str, Any]:
             config=_config_json_safe(config),
             resolution=resolution,
         )
-    return {"ok": True, "config": _config_json_safe(config), "resolution": resolution}
+    out: dict[str, Any] = {
+        "ok": True,
+        "config": _config_json_safe(config),
+        "resolution": resolution,
+    }
+    warnings = collect_validation_warnings(config)
+    if warnings:
+        out["warnings"] = warnings
+    return out
 
 
 def _copy_dataset_file_if_outside_staging(ds_file: Path, job_staging: Path) -> None:

@@ -174,3 +174,15 @@ def test_validate_accepts_minimal(ui_data_tmp: Path, minimal_config: dict) -> No
     assert r["ok"] is True
     assert "config" in r
     assert isinstance(r["config"]["model"]["dtype"], str)
+
+
+def test_validate_returns_gradient_release_lookahead_warning(
+    ui_data_tmp: Path, minimal_config: dict
+) -> None:
+    did = datasets_store.insert_dataset(DATASET_TOML)
+    minimal_config["dataset"] = library_db.dataset_library_ref(did)
+    minimal_config["optimizer"]["type"] = "nekaon"
+    minimal_config["optimizer"]["gradient_release"] = True
+    r = run_staging.validate_toml_text(toml.dumps(minimal_config))
+    assert r["ok"] is True
+    assert any("gradient_release" in w for w in r.get("warnings", []))

@@ -2,7 +2,11 @@
 
 import pytest
 
-from rengu_flow.config.validation import ConfigValidationError, validate_config
+from rengu_flow.config.validation import (
+    ConfigValidationError,
+    collect_validation_warnings,
+    validate_config,
+)
 
 
 def test_validate_config_minimal_passes(minimal_config):
@@ -65,3 +69,69 @@ def test_validate_config_gradient_release_requires_pipeline_stages_one(minimal_c
 def test_validate_config_adapter_valid_passes(minimal_config, adapter):
     minimal_config["adapter"] = adapter
     validate_config(minimal_config)
+
+
+@pytest.mark.parametrize("optim_type", ["msam", "nekaon", "schedulefree", "lookahead"])
+def test_gradient_release_lookahead_optimizer_emits_warning(minimal_config, optim_type):
+    minimal_config["optimizer"]["gradient_release"] = True
+    minimal_config["optimizer"]["type"] = optim_type
+    warnings = collect_validation_warnings(minimal_config)
+    assert len(warnings) == 1
+    assert "gradient_release" in warnings[0]
+    assert optim_type in warnings[0]
+    assert "true iterate" in warnings[0]
+
+
+def test_gradient_release_plain_optimizer_no_warning(minimal_config):
+    minimal_config["optimizer"]["gradient_release"] = True
+    assert collect_validation_warnings(minimal_config) == []
+
+
+def test_gradient_release_without_flag_no_warning(minimal_config):
+    minimal_config["optimizer"]["type"] = "nekaon"
+    assert collect_validation_warnings(minimal_config) == []
+
+
+def test_run_prepared_logs_gradient_release_lookahead_warning(tmp_path):
+    """CLI validate-only must emit config advisories through the project logger."""
+    try:
+        from rengu_flow.main import parse_args, run_prepared
+    except ImportError as e:
+        import pytest
+
+        pytest.skip(f"Cannot import rengu_flow.main: {e}")
+
+    config_file = tmp_path / "train.toml"
+    config_file.write_text(
+        "\n".join(
+            [
+                'dataset = "examples/minimal_dataset.toml"',
+                'output_dir = "output"',
+                "[model]",
+                'type = "sdxl"',
+                'dtype = "bfloat16"',
+                'checkpoint_path = "/tmp/x.safetensors"',
+                "[optimizer]",
+                'type = "nekaon"',
+                "lr = 1e-4",
+                "gradient_release = true",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    import io
+    import logging
+
+    from rengu_flow.utils.logging import logger
+
+    # The project logger binds sys.stdout at import time, so capsys cannot see it:
+    # attach a temporary handler instead.
+    buf = io.StringIO()
+    handler = logging.StreamHandler(buf)
+    handler.setLevel(logging.WARNING)
+    logger.addHandler(handler)
+    try:
+        run_prepared(parse_args(["--config", str(config_file), "--validate-only"]))
+    finally:
+        logger.removeHandler(handler)
+    assert "gradient_release" in buf.getvalue()
