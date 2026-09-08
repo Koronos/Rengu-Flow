@@ -154,20 +154,21 @@ torch = { index = "pytorch-cu130" }
 torchvision = { index = "pytorch-cu130" }
 # Memory-efficient optimizers (Adakaon, AdaMuon, KProdigy, Lion, AdaPNM,
 # AdaBelief, AdamP, ADOPT, ScheduleFree, Lookahead, SAM, MSAM, Nekaon).
-# Kaon 0.7.12 is a full correctness/performance audit of the fused Triton path
-# (the route rengu's Adakaon/AdaPNM/Nekaon presets use): pointer-table caches are now
-# validated per step (fixes use-after-free / stale-pointer hazards after param rebinding),
-# BR is forced to a power of two, m_scale keeps its real capacity, non-contiguous grads are
-# handled every step, and momentum codecs store in place. Uniform "propagate" policy for
-# non-finite values (native and fused agree), bf16 momentum codec runs its EMA in fp32,
-# exact resume with bf16/fp16 params, stochastic rounding preserves NaN and uses its own
-# generator + Triton kernel (kaon.reseed_stochastic_rounding() for bit-reproducible runs).
-# Measured on UNet/DiT shapes vs 0.7.11: fused 3.1x bf16 / 7.5x 4bit with zero transient
-# peak, Nekaon 5.4x, SR weight write 4-6.6x, KProdigy 2.1x, foreach paths 1.1-1.3x.
-# Checkpoints from 0.7.11 load unchanged (param_groups are backfilled from defaults).
+# Kaon 0.7.13 is the second audit round on top of 0.7.12, fourteen batches each reviewed
+# with execution and mutation testing. Adakaon runs on the shared foreach plan and the
+# codec's cached views (int8 momentum: hundreds of views/copies per step down to single
+# digits), Lion and KProdigy migrate too; the fused pointer caches validate the state's
+# geometry and identity (closes a real out-of-bounds WRITE in main and the retired-buffer
+# writes after `del opt.state[p]`); Gradient Centralization skips fan-in-1 params (rank-1
+# LoRA up-projections trained frozen before); every optimizer and wrapper owns its stochastic
+# rounding stream and persists it, so a resume in a fresh process is bit-identical on the
+# native bf16 path too; wrappers migrate their per-param state to the param's device on load
+# (Lookahead loaded with map_location="cpu" crashed); Lookahead + kahan fixed; ADOPT's
+# 0/0 NaN fixed. Behaviour changes documented in kaon's CHANGELOG: fan-in-1 params under GC
+# now train; runs with two rounding optimizers, Lookahead and SAM take a new noise stream.
 # K-Optimizers (the `kaon` package) ships no release tags, so we pin an
 # exact commit — that SHA *is* kaon's version here: reproducible, and it only changes when this
 # `rev` is bumped (then committed to renga). Bump it to ship a newer kaon; users pick it up on
 # their next `rengu update` (only if the kaon extra is already installed). Only installed when
 # the `kaon` extra is selected (see rengu_flow/install/profiles.py).
-kaon = { git = "https://github.com/Koronos/K-Optimizers", rev = "54bd887db9acd362755c002e5dd4b34c9ff52bcf" }
+kaon = { git = "https://github.com/Koronos/K-Optimizers", rev = "aa4cc3a6627a0c511dd5068051f24559ea220554" }
