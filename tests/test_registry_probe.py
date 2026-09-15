@@ -112,3 +112,14 @@ def test_probe_resolution_minimal_config() -> None:
     assert res["optimizer"]["available"]
     assert res["scheduler"]["available"]
     assert resolution_errors(res) == []
+
+
+def test_rakaon_resolves_and_uses_kaon_profile() -> None:
+    from rengu_flow.install.manager import _kaon_optimizer_types
+    from rengu_flow.registry.optimizers import get_optimizer_class
+    from rengu_flow_ui.optim_kv_defaults import OPTIMIZER_REGISTRY_KV_DEFAULTS
+    from kaon import Rakaon
+
+    assert get_optimizer_class("rakaon") is Rakaon
+    assert "rakaon" in _kaon_optimizer_types()
+    assert OPTIMIZER_REGISTRY_KV_DEFAULTS["rakaon"]["shrinkage"] == 1.0

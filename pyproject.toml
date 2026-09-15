@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rengu-flow"
-version = "1.5.0"
+version = "1.5.1"
 description = "TOML-driven diffusion training: DeepSpeed, LoRA/LoKr/full finetune (SDXL, Cosmos Predict2), optional web UI."
 readme = "README.md"
 license = "GPL-3.0-or-later"
@@ -153,8 +153,9 @@ explicit = true
 torch = { index = "pytorch-cu130" }
 torchvision = { index = "pytorch-cu130" }
 # Memory-efficient optimizers (Adakaon, AdaMuon, KProdigy, Lion, AdaPNM,
-# AdaBelief, AdamP, ADOPT, ScheduleFree, Lookahead, SAM, MSAM, Nekaon).
-# Kaon 0.7.13 is the second audit round on top of 0.7.12, fourteen batches each reviewed
+# AdaBelief, AdamP, ADOPT, ScheduleFree, Lookahead, SAM, MSAM, Nekaon, Rakaon).
+# Kaon 0.7.14 adds experimental Rakaon and samples Nekaon's inactivity diagnostic.
+# The 0.7.13 audit on top of 0.7.12 included fourteen reviewed batches
 # with execution and mutation testing. Adakaon runs on the shared foreach plan and the
 # codec's cached views (int8 momentum: hundreds of views/copies per step down to single
 # digits), Lion and KProdigy migrate too; the fused pointer caches validate the state's
@@ -171,4 +172,4 @@ torchvision = { index = "pytorch-cu130" }
 # `rev` is bumped (then committed to renga). Bump it to ship a newer kaon; users pick it up on
 # their next `rengu update` (only if the kaon extra is already installed). Only installed when
 # the `kaon` extra is selected (see rengu_flow/install/profiles.py).
-kaon = { git = "https://github.com/Koronos/K-Optimizers", rev = "aa4cc3a6627a0c511dd5068051f24559ea220554" }
+kaon = { git = "https://github.com/Koronos/K-Optimizers", rev = "0814c7025d6a4a5707940d17ca14878f79235674" }
