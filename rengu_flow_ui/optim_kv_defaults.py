@@ -259,6 +259,16 @@ OPTIMIZER_REGISTRY_KV_DEFAULTS: dict[str, dict[str, Any]] = {
         "fused": True,
         "bf16_method": "stochastic_rounding",
     },
+    # Rakaon is experimental. The isotropic scalar-variance recipe uses minimal
+    # optimizer state; Pets/Anima pilots did not establish a quality advantage over Nekaon.
+    "rakaon": {
+        "lr": 1e-4,
+        "beta2": 0.999,
+        "shrinkage": 1.0,
+        "clip_threshold": 1.0,
+        "weight_decay": 0.0,
+        "stochastic_rounding": True,
+    },
 }
 
 # Built-in lr_scheduler registry names -> default scheduler KV ([lr_scheduler_args] only).

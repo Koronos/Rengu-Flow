@@ -290,3 +290,17 @@ To add a short linear warmup before the main scheduler, set **`warmup_steps`** a
 This applies to **built-in** schedulers and **fully-qualified** PyTorch classes: warmup is a trainer-level wrap (`SequentialLR`), not a constructor argument under `[lr_scheduler_args]`. Custom schedulers do **not** receive `warmup_steps` in `**kwargs`; if your class has its own warmup parameter, use a different name in `[lr_scheduler_args]` or rely on this top-level wrap.
 
 This has no effect if `lr_scheduler` is `"none"` or if `warmup_steps` is 0.
+
+
+### Rakaon (experimental)
+
+`type = "rakaon"` selects Kaon's low-state variance optimizer after installing
+the `kaon` profile. Rengu proposes constant LR `1e-4`, scalar variance per tensor
+(`shrinkage = 1.0`) and no first-moment buffer. This recipe reduces optimizer
+state, but the published Anima/Pets pilots did not show better validation quality
+than Nekaon. Judge it with fixed train/validation evaluations and saved previews
+for your dataset before relying on it for a long run.
+
+Use `type = "nekaon"` for the existing Nekaon recipe. Kaon 0.7.14 samples its
+inactivity warning every ten climbs by default; set `inert_check_interval = 1`
+in `[optimizer]` to recover the old per-step diagnostic frequency.
