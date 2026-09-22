@@ -58,7 +58,13 @@ def _lokr_forward_quantized(self, x):
 
 
 def _lokr_forward_plain(self, x):
-    return F.linear(x, self.weight, self.bias) + _lokr_delta_forward(self, x).to(x.dtype)
+    # Cast to the base weight's dtype first, like PEFT's LoRA base_layer call does. Without it,
+    # an upstream float32 activation (e.g. Qwen-Image 2.1's img_in latents, cached in float32)
+    # hitting a bf16 weight silently type-promotes to float32 on torch >= 2.x instead of erroring
+    # (matmul dtype mismatches used to raise) — the module then emits float32 into an otherwise
+    # bf16 graph, breaking the next bf16-typed index_put/cat downstream.
+    base = F.linear(x.to(self.weight.dtype), self.weight, self.bias)
+    return base + _lokr_delta_forward(self, x).to(base.dtype)
 
 
 def _inject_lokr_into_linear(module, rank, alpha, factor=-1, decompose_both=False, full_matrix=False, dtype=torch.float32):

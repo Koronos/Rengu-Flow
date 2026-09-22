@@ -65,7 +65,8 @@ These use DeepSpeed's pipeline engine and **raise a clear error** on the `accele
 
 - **Multi-GPU** and **`pipeline_stages > 1`** — Windows has no NCCL.
 - **`optimizer.gradient_release`** — rewrites DeepSpeed's pipeline instruction map.
-- **`blocks_to_swap`** (block swapping) — patches the DeepSpeed engine.
+- **`blocks_to_swap` for full-model training** — needs `gradient_release`. Block swap with an
+  adapter (LoRA/LoKr/LyCORIS) works on `accelerate`.
 
 If you need any of these, use Linux or WSL2 with `engine = "deepspeed"`.
 
