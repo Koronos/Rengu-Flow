@@ -172,4 +172,6 @@ class LazyStreamedEncoder(nn.Module):
         for handle in self._handles:
             handle.remove()
         self._handles.clear()
+        # Params keep pointing at the masters; dropping the dict lets a later .to() free the pinned copies.
+        self._masters.clear()
         self._stream_device = None
