@@ -160,6 +160,79 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         ),
         "doc": "docs/user/training-krea2.md",
     },
+    "model.diffusers_path@qwen_image21": {
+        "summary": "The downloaded Qwen/Qwen-Image-2.1 folder (diffusers layout).",
+        "detail": (
+            "Point at the folder that holds transformer/, vae/, text_encoder/ and processor/ (e.g. "
+            "the Hugging Face cache snapshot). Each component resolves to <folder>/<subfolder>; a "
+            "per-component path you set explicitly always wins. Never a repo id; nothing is downloaded."
+        ),
+        "doc": "docs/user/training-qwen-image21.md",
+    },
+    "model.transformer_path@qwen_image21": {
+        "summary": "Optional DiT override — folder or single .safetensors.",
+        "detail": (
+            "A diffusers transformer/ folder, or one file: diffusers keys or ComfyUI's "
+            "qwen_image_2.1_bf16.safetensors (its fused img_mlp.gate_up is split on load). "
+            "Pre-quantized int8_convrot / fp8 files cannot be trained."
+        ),
+        "doc": "docs/user/training-qwen-image21.md",
+    },
+    "model.vae_path@qwen_image21": {
+        "summary": "Optional VAE override — the diffusers vae/ folder.",
+        "detail": (
+            "AutoencoderKLQwenImage21 (RGBA, 16x, 64 latent channels) as a diffusers folder or a "
+            "diffusers-layout .safetensors. ComfyUI's qwen_image_2.1_vae_bf16.safetensors uses the "
+            "original layout and is not converted."
+        ),
+        "doc": "docs/user/training-qwen-image21.md",
+    },
+    "model.text_encoder_path@qwen_image21": {
+        "summary": "Optional text-encoder override — Qwen3-VL-8B folder or single file.",
+        "detail": (
+            "The transformers text_encoder/ folder or ComfyUI's qwen3vl_8b_bf16.safetensors. Only the "
+            "text decoder is loaded; captions are encoded once into the cache and the encoder never "
+            "runs during training steps. int8 / w4a8 files are refused."
+        ),
+        "doc": "docs/user/training-qwen-image21.md",
+    },
+    "model.processor_path@qwen_image21": {
+        "summary": "Optional tokenizer folder (the processor/ subfolder).",
+        "detail": (
+            "Defaults to <diffusers_path>/processor, else the Qwen3-VL tokenizer bundled with rengu "
+            "(identical tokenization of the Qwen-Image 2.1 prompt template)."
+        ),
+        "doc": "docs/user/training-qwen-image21.md",
+    },
+    "model.text_encoder_offload@qwen_image21": {
+        "summary": "Where the 17.5 GB Qwen3-VL-8B encoder runs while captions are cached.",
+        "detail": (
+            "auto (default): stream the 36 decoder layers one at a time from pinned host RAM when the "
+            "encoder does not fit in free VRAM (~2 GB VRAM, ~16 GB host RAM); stream: always; none: load "
+            "it whole onto the GPU (needs ~20 GB free). The encoder loads only when captions still need "
+            "encoding and is unloaded after caching."
+        ),
+        "doc": "docs/user/training-qwen-image21.md",
+    },
+    "model.transformer_4bit@qwen_image21": {
+        "summary": "QLoRA-style 4-bit base: frozen DiT block linears stored as NF4 (bitsandbytes).",
+        "detail": (
+            "Adapter training only — the quantized base stays frozen while the adapter trains in full "
+            "precision on top. The 7B DiT drops from ~14 GB bf16 to ~4 GB. Mutually exclusive with "
+            "model.transformer_fp8_matmul. Use adapter type LoKr: the LyCORIS kinds reject a "
+            "quantized base."
+        ),
+        "doc": "docs/user/training-qwen-image21.md",
+    },
+    "model.fp8_grad_mode@qwen_image21": {
+        "summary": "Input-gradient GEMM precision through the frozen fp8 base (transformer_fp8_matmul only).",
+        "detail": (
+            "'bf16' (default) keeps the backward's input-gradient GEMM unquantized; 'fp8' runs it "
+            "through the same e4m3 tensorwise kernel as the forward (faster). Only takes effect when "
+            "model.transformer_fp8_matmul is true."
+        ),
+        "doc": "docs/user/training-qwen-image21.md",
+    },
     "model.transformer_path": {
         "summary": "Main image model — one .safetensors file (the big checkpoint you train).",
         "detail": (

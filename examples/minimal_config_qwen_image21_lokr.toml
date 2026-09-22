@@ -1,0 +1,30 @@
+# Minimal Qwen-Image 2.1 LoKr training (text-to-image), sized for an 8 GB card.
+
+output_dir = 'output'
+dataset = 'examples/minimal_qwen_image21_dataset.toml'
+
+epochs = 1
+micro_batch_size_per_gpu = 1
+pipeline_stages = 1
+gradient_accumulation_steps = 1
+activation_checkpointing = true
+save_every_n_epochs = 1
+caching_batch_size = 1
+# 8 GB: stream 24 of the 32 DiT blocks from CPU (lower it on bigger cards).
+blocks_to_swap = 24
+
+[model]
+type = 'qwen_image21'
+dtype = 'bfloat16'
+diffusers_path = 'path/to/Qwen-Image-2.1'
+# fp8 tensorwise frozen base (sm89+); on older GPUs use transformer_4bit = true instead.
+transformer_fp8_matmul = true
+
+[adapter]
+type = 'lokr'
+rank = 6
+factor = -1
+
+[optimizer]
+type = 'adamw'
+lr = 3e-5

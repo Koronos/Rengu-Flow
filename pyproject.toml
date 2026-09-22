@@ -123,6 +123,8 @@ include = ["rengu_flow*", "rengu_flow_ui*", "rengu_track*"]
 
 [tool.setuptools.package-data]
 "rengu_flow.model.cosmos_predict2" = ["assets/**/*"]
+"rengu_flow.model.krea2" = ["assets/**/*"]
+"rengu_flow.model.qwen_image21" = ["assets/**/*"]
 
 [tool.pytest.ini_options]
 # Run in parallel by default (pytest-xdist). 4 workers is the measured sweet spot: the suite is

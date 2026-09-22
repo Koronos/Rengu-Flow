@@ -12,6 +12,9 @@ from __future__ import annotations
 
 import torch
 
+# Re-exported: the ragged cache helpers live in dit_common (shared with qwen_image21).
+from rengu_flow.model.dit_common.text import compact_text_embeddings, pad_text_embeddings  # noqa: F401
+
 PROMPT_PREFIX = (
     "<|im_start|>system\nDescribe the image by detailing the color, shape, size, texture, "
     "quantity, text, spatial relationships of the objects and background:<|im_end|>\n"
@@ -72,42 +75,3 @@ def encode_prompts(
     hidden_states = torch.stack([outputs.hidden_states[i] for i in select_layers], dim=2)
 
     return hidden_states[:, PREFIX_IDX:], attention_mask[:, PREFIX_IDX:]
-
-
-def compact_text_embeddings(
-    hidden_states: torch.Tensor, attention_mask: torch.Tensor
-) -> tuple[torch.Tensor, torch.Tensor]:
-    """Drop padded token lanes, keeping only each sample's valid tokens (left-compacted).
-
-    The transformer gives text tokens zero RoPE indices and masks padded keys, so removing the
-    padding lanes is mathematically equivalent — and the cached embedding shrinks from the fixed
-    512-token block (~30 MB/caption at bf16) to the actual caption length. Samples are re-padded
-    (zeros / False) to the longest valid length in the batch; ``prepare_inputs`` pads again at
-    collate time when lengths differ across cached samples.
-    """
-    lengths = attention_mask.sum(dim=1)
-    max_len = max(int(lengths.max().item()), 1)
-    b, _, num_layers, dim = hidden_states.shape
-    out = hidden_states.new_zeros((b, max_len, num_layers, dim))
-    out_mask = attention_mask.new_zeros((b, max_len))
-    for i in range(b):
-        n = int(lengths[i].item())
-        out[i, :n] = hidden_states[i][attention_mask[i]]
-        out_mask[i, :n] = True
-    return out, out_mask
-
-
-def pad_text_embeddings(
-    embeds: list[torch.Tensor] | torch.Tensor, masks: list[torch.Tensor] | torch.Tensor
-) -> tuple[torch.Tensor, torch.Tensor]:
-    """Stack per-sample cached embeddings of varying token length into one padded batch."""
-    if torch.is_tensor(embeds):
-        return embeds, masks
-    max_len = max(e.shape[0] for e in embeds)
-    first = embeds[0]
-    out = first.new_zeros((len(embeds), max_len, *first.shape[1:]))
-    out_mask = torch.zeros((len(embeds), max_len), dtype=torch.bool)
-    for i, (e, m) in enumerate(zip(embeds, masks)):
-        out[i, : e.shape[0]] = e
-        out_mask[i, : m.shape[0]] = m.bool()
-    return out, out_mask

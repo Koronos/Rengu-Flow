@@ -183,6 +183,44 @@ class DiTPipeline(BasePipeline):
         swap_trainable = getattr(train_offloader, "_swap_trainable", True)
         return BlockSwapOffloader(blocks, blocks_to_swap, device=device, swap_trainable=swap_trainable)
 
+    def _prepare_blocks_preview_memory(self, preview_cfg: dict, blocks_attr: str = "transformer_blocks") -> None:
+        """``prepare_preview_memory`` for a DiT whose blocks are ``transformer.<blocks_attr>``
+        (krea2, qwen_image21): park the training offloader, then either stream the blocks through
+        a preview offloader (``preview_blocks_to_swap > 0``; only the small shared modules move to
+        the GPU) or make the whole DiT resident."""
+        if self.transformer is None:
+            self.load_diffusion_model()
+        target = torch.device("cuda", torch.cuda.current_device()) if torch.cuda.is_available() else torch.device("cpu")
+        state: dict = {"transformer_was_training": self.transformer.training}
+        # Park the training offloader so the preview offloader manages the blocks alone and the
+        # preview text encoder has room. resume() in restore_after_preview.
+        train_offloader = self._suspend_training_block_swap()
+        blocks_swap = int(preview_cfg.get("preview_blocks_to_swap", 0))
+        if blocks_swap > 0:
+            # Blocks stream from CPU during the Euler loop; only the small shared modules move.
+            for name, module in self.transformer.named_children():
+                if name != blocks_attr:
+                    module.to(target)
+            self._preview_offloader = self._make_preview_offloader(
+                getattr(self.transformer, blocks_attr), blocks_swap, target, train_offloader
+            )
+        else:
+            self._preview_offloader = None
+            # When block swap is active, suspend() parked the frozen block weights on CPU. The first
+            # parameter is a never-swapped top-level module, so `param.device` can't reveal that —
+            # the old `!= target` short-circuit then skipped the move and left every block's fp8
+            # weight (and scale buffer) on CPU → a cuda/cpu mismatch in the preview forward. So force
+            # the whole-transformer move when swapping; `.to()` carries params AND buffers back.
+            # Without block swap the DiT is already resident, so keep the skip to avoid a needless
+            # `.to()` (which reassigns param storage on a DeepSpeed/compiled module). If the full DiT
+            # doesn't fit for a no-swap preview, set preview_blocks_to_swap > 0.
+            if self._training_block_swap_active() or next(self.transformer.parameters()).device != target:
+                if is_main_process():
+                    print(f"rengu_flow: moving DiT to {target} for preview...", flush=True)
+                self.transformer.to(target)
+        self.transformer.eval()
+        self._preview_restore_state = state
+
     def restore_after_preview(self) -> None:
         state = getattr(self, "_preview_restore_state", None) or {}
         offloader = getattr(self, "_preview_offloader", None)

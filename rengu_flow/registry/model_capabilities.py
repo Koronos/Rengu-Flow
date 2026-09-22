@@ -739,5 +739,180 @@ def _register_builtin_capabilities() -> None:
         )
     )
 
+    # Qwen-Image 2.1 (Qwen/Qwen-Image-2.1): 7B single-stream block-causal DiT (~14 GB bf16) +
+    # Qwen3-VL-8B text encoder (~17.5 GB, cached + layer-streamed) + RGBA 16x VAE. Text-to-image.
+    register_model_capability(
+        ModelCapability(
+            type_id="qwen_image21",
+            display_name="Qwen-Image 2.1",
+            adapters=["lora", "lokr", *LYCORIS_ADAPTER_TYPES],
+            full_finetune=True,
+            preview=True,
+            features={"preview": True, "block_swap": True},
+            branding_note=(
+                "Use the Qwen/Qwen-Image-2.1 diffusers download (transformer/, vae/, text_encoder/, "
+                "processor/). Text-to-image training only; image-conditioned editing is not supported."
+            ),
+            model_validation={
+                "one_of": [
+                    ["transformer_path", "diffusers_path"],
+                    ["vae_path", "diffusers_path"],
+                    ["text_encoder_path", "diffusers_path"],
+                ],
+            },
+            adapter_layer_groups=[
+                "attention",
+                "feedforward",
+                "modulation",
+                "text_projection",
+                "image_in_out",
+            ],
+            adapter_module_roots=[
+                "transformer_blocks",
+                "modulation",
+                "time_text_embed",
+                "txt_in",
+                "img_in",
+                "norm_out",
+                "proj_out",
+                "pos_embed",
+            ],
+            model_fields=[
+                {
+                    "path": "model.diffusers_path",
+                    "label": "Qwen-Image-2.1 folder (diffusers)",
+                    "type": "path",
+                    "required": True,
+                    "placeholder": "path/to/Qwen-Image-2.1",
+                    "description": (
+                        "The downloaded Qwen/Qwen-Image-2.1 folder (transformer/, vae/, text_encoder/, "
+                        "processor/). Each component resolves to its subfolder unless overridden below."
+                    ),
+                },
+                {
+                    "path": "model.transformer_path",
+                    "label": "Main model override",
+                    "type": "path",
+                    "show_if_set": True,
+                    "placeholder": "path/to/qwen_image_2.1_bf16.safetensors",
+                    "description": "DiT folder or single file (diffusers or ComfyUI bf16 layout); defaults to <folder>/transformer.",
+                },
+                {
+                    "path": "model.vae_path",
+                    "label": "VAE override",
+                    "type": "path",
+                    "show_if_set": True,
+                    "description": "Diffusers VAE folder or diffusers-layout file; defaults to <folder>/vae.",
+                },
+                {
+                    "path": "model.text_encoder_path",
+                    "label": "Text encoder override (Qwen3-VL-8B)",
+                    "type": "path",
+                    "show_if_set": True,
+                    "placeholder": "path/to/qwen3vl_8b_bf16.safetensors",
+                    "description": "Transformers folder or ComfyUI qwen3vl_8b_bf16.safetensors; defaults to <folder>/text_encoder.",
+                },
+                {
+                    "path": "model.processor_path",
+                    "label": "Processor / tokenizer override",
+                    "type": "path",
+                    "show_if_set": True,
+                    "description": "Folder with the tokenizer files; defaults to <folder>/processor, else the bundled Qwen3-VL tokenizer.",
+                },
+                {
+                    "path": "model.text_encoder_offload",
+                    "label": "Text encoder placement",
+                    "type": "select",
+                    "options": ["auto", "stream", "none"],
+                    "default": "auto",
+                    "description": (
+                        "How the 17.5 GB Qwen3-VL-8B encoder runs while captions are cached: auto "
+                        "(default) streams its 36 decoder layers from pinned host RAM when it does not "
+                        "fit in free VRAM, stream always does, none loads it whole onto the GPU."
+                    ),
+                },
+                {
+                    "path": "model.transformer_fp8_matmul",
+                    "label": "Quantize base to fp8 (tensorwise scaled matmul)",
+                    "type": "boolean",
+                    "default": False,
+                    "when_model_has_adapter": True,
+                    "description": (
+                        "Tensorwise-scaled e4m3 quantization of the frozen DiT's block linears (mutually "
+                        "exclusive with transformer_4bit): the base drops from ~14.2 to ~7.3 GB. Needs an "
+                        "sm89+ GPU (RTX 40xx / Ada); pair with blocks_to_swap on 8-16 GB cards."
+                    ),
+                },
+                {
+                    "path": "model.transformer_4bit",
+                    "label": "Quantize base to 4-bit (NF4)",
+                    "type": "boolean",
+                    "default": False,
+                    "when_model_has_adapter": True,
+                    "description": (
+                        "Stores the frozen DiT block linears as 4-bit NF4 (~4 GB instead of ~14 GB bf16); "
+                        "the adapter trains on top at full precision. Pair with adapter type LoKr "
+                        "(LyCORIS kinds refuse a quantized base)."
+                    ),
+                },
+                {
+                    "path": "model.fp8_grad_mode",
+                    "label": "fp8 backward gradient precision",
+                    "type": "select",
+                    "options": ["bf16", "fp8"],
+                    "default": "bf16",
+                    "visibility": {
+                        "all": [
+                            {"when_model_has_adapter": True},
+                            {"field": "model.transformer_fp8_matmul", "equals": True},
+                        ],
+                    },
+                    "description": (
+                        "Input-gradient GEMM precision through the frozen fp8 base, only used when "
+                        "transformer_fp8_matmul is on: fp8 is faster, bf16 (default) keeps the clean gradient."
+                    ),
+                },
+                {
+                    "path": "model.transformer_dtype",
+                    "label": "Main model load dtype",
+                    "type": "select",
+                    "options_key": "dtypes",
+                    "description": "DiT checkpoint load only; defaults to Model dtype. VAE/text unchanged.",
+                },
+                {
+                    "path": "model.shift",
+                    "label": "Fixed timestep shift",
+                    "type": "number",
+                    "placeholder": "empty = resolution-aware dynamic shift",
+                    "description": (
+                        "Fixed timestep shift, overriding the resolution-aware dynamic shift of the "
+                        "reference scheduler (exponential, mu 0.5 at 256 latent tokens to 0.9 at 8192; "
+                        "1024x1024 = 4096 tokens). Empty keeps the dynamic default."
+                    ),
+                },
+                {
+                    "path": "model.sigmoid_scale",
+                    "label": "Logit-normal sigmoid scale",
+                    "type": "number",
+                    "default": 1.0,
+                    "description": (
+                        "Scale applied to the logit-normal sample before sigmoid, only used when "
+                        "timestep_sample_method is logit_normal."
+                    ),
+                },
+                {
+                    "path": "model.timestep_sample_method",
+                    "label": "Timestep sample method",
+                    "type": "select",
+                    "options": ["logit_normal", "uniform"],
+                    "default": "logit_normal",
+                    "description": (
+                        "How training timesteps are sampled per step: logit_normal (default) or uniform."
+                    ),
+                },
+            ],
+        )
+    )
+
 
 _register_builtin_capabilities()

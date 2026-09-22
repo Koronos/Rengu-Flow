@@ -252,3 +252,70 @@ def test_schema_offers_layer_groups_for_krea2():
         )
     )
     assert "text_fusion" in krea2_variant["options"]
+
+
+# --- qwen_image21 -----------------------------------------------------------------
+
+
+def _tiny_qwen_image21():
+    from rengu_flow.model.qwen_image21.dit import QwenImage21Transformer2DModel
+
+    torch.manual_seed(0)
+    return QwenImage21Transformer2DModel(
+        in_channels=8,
+        out_channels=8,
+        num_layers=2,
+        attention_head_dim=8,
+        num_attention_heads=2,
+        context_in_dim=12,
+        mlp_ratio=3,
+        axes_dims_rope=(2, 2, 4),
+    )
+
+
+def test_qwen_image21_groups_match_real_modules_and_partition_the_linears():
+    """Every group selects something, and together the groups cover each target linear
+    exactly once (no overlap, nothing left out)."""
+    from rengu_flow.model.qwen_image21.pipeline import (
+        ADAPTER_LAYER_GROUPS as QWEN21_GROUPS,
+        ADAPTER_TARGET_MODULES as QWEN21_TARGETS,
+    )
+    from rengu_flow.registry.model_capabilities import get_capability
+
+    names = adapter_dit._collect_target_linears(_tiny_qwen_image21(), QWEN21_TARGETS)
+    seen: list[str] = []
+    for group, patterns in QWEN21_GROUPS.items():
+        matched = filter_target_names(names, list(patterns), None)
+        assert matched, f"layer group {group!r} matched no module (patterns {patterns})"
+        seen.extend(matched)
+    assert sorted(seen) == sorted(names)
+    assert sorted(get_capability("qwen_image21").adapter_layer_groups) == sorted(QWEN21_GROUPS)
+
+
+def test_qwen_image21_lokr_attention_only():
+    from rengu_flow.model.qwen_image21.pipeline import (
+        ADAPTER_LAYER_GROUPS as QWEN21_GROUPS,
+        ADAPTER_TARGET_MODULES as QWEN21_TARGETS,
+    )
+
+    model = _tiny_qwen_image21()
+    adapter_dit.configure(
+        model, _lokr_config(layer_groups=["attention"]), targets=QWEN21_TARGETS, layer_groups=QWEN21_GROUPS
+    )
+    adapted = {n for n, m in model.named_modules() if hasattr(m, "_lokr_scale")}
+    assert adapted and all(".attn." in n for n in adapted), adapted
+
+
+def test_schema_offers_layer_groups_for_qwen_image21():
+    from rengu_flow_ui.config_schema import get_sections
+
+    fields = [f for s in get_sections() for f in s["fields"] if f["path"] == "adapter.layer_groups"]
+    variant = next(
+        f
+        for f in fields
+        if any(
+            cond.get("field") == "model.type" and cond.get("in") == ["qwen_image21"]
+            for cond in (f.get("when") or {}).get("all", [])
+        )
+    )
+    assert "modulation" in variant["options"] and "attention" in variant["options"]

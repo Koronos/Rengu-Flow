@@ -13,13 +13,18 @@ from rengu_flow.model.dit_common.flow_matching import (
 )
 from rengu_flow.model.dit_common.pipeline import DiTPipeline
 from rengu_flow.model.dit_common.preview import preview_autocast, preview_compute_dtype
+from rengu_flow.model.dit_common.quantize import quantize_frozen_dit
+from rengu_flow.model.dit_common.text import compact_text_embeddings, pad_text_embeddings
 
 __all__ = [
     "DiTPipeline",
     "add_flow_noise",
     "calculate_shift",
+    "compact_text_embeddings",
+    "pad_text_embeddings",
     "preview_autocast",
     "preview_compute_dtype",
+    "quantize_frozen_dit",
     "sample_timesteps",
     "shift_timesteps",
     "time_shift",

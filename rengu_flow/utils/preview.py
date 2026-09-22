@@ -200,7 +200,7 @@ def run_previews(
     if model.name == "sdxl":
         preview_runner = _run_sdxl_previews
         use_block_swap_hooks = True
-    elif model.name in ("cosmos_predict2", "anima", "krea2"):
+    elif model.name in ("cosmos_predict2", "anima", "krea2", "qwen_image21"):
         if config.get("pipeline_stages", 1) != 1:
             if is_main_process():
                 print(

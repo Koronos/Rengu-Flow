@@ -27,7 +27,6 @@ from rengu_flow.model.krea2.text import (
 )
 from rengu_flow.model.krea2 import loading
 from rengu_flow.registry.models import register_model
-from rengu_flow.utils.common import is_main_process
 from rengu_flow.utils.save_io import atomic_save_safetensors
 
 # The model authors' recommended LoRA scope is every Linear in the DiT (per-block
@@ -159,32 +158,13 @@ class Krea2Pipeline(dit_common.DiTPipeline):
         """Optionally quantize the frozen DiT's matmul linears (same knobs as cosmos):
         ``model.transformer_fp8_matmul`` / ``model.transformer_4bit`` (mutually exclusive).
         The base stays frozen; the quantization-aware ``lokr`` adapter composes on top."""
-        fp8_matmul = bool(self.model_config.get("transformer_fp8_matmul", False))
-        four_bit = bool(self.model_config.get("transformer_4bit", False))
-        if not fp8_matmul and not four_bit:
-            return
-
-        from rengu_flow.training import quantize_dit
-
-        scope = {"leaf_names": QUANT_LEAF_NAMES, "skip_substrings": QUANT_SKIP_SUBSTRINGS}
-        if four_bit:
-            n = quantize_dit.convert_dit_to_4bit(
-                self.transformer, compute_dtype=torch.bfloat16, **scope
-            )
-            if is_main_process():
-                print(f"rengu_flow: quantized {n} frozen Krea2 DiT linears to 4-bit NF4 (bnb).")
-        else:
-            # Tensorwise e4m3 (the sm89-viable scheme): 2x GEMM throughput under
-            # block-scope compile AND 1 byte/param storage (no hi-precision copy).
-            grad_mode = str(self.model_config.get("fp8_grad_mode", "bf16"))
-            n = quantize_dit.convert_dit_to_fp8_tensorwise(
-                self.transformer, grad_mode=grad_mode, **scope
-            )
-            if is_main_process():
-                print(
-                    f"rengu_flow: converted {n} frozen Krea2 DiT linears to fp8 tensorwise "
-                    f"matmul (grad_mode={grad_mode})."
-                )
+        dit_common.quantize_frozen_dit(
+            self.transformer,
+            self.model_config,
+            leaf_names=QUANT_LEAF_NAMES,
+            skip_substrings=QUANT_SKIP_SUBSTRINGS,
+            label="Krea2",
+        )
 
     # ---- caching hooks -------------------------------------------------------------------
 
@@ -324,38 +304,7 @@ class Krea2Pipeline(dit_common.DiTPipeline):
         )
 
     def prepare_preview_memory(self, preview_cfg: dict) -> None:
-        if self.transformer is None:
-            self.load_diffusion_model()
-        target = torch.device("cuda", torch.cuda.current_device()) if torch.cuda.is_available() else torch.device("cpu")
-        state: dict = {"transformer_was_training": self.transformer.training}
-        # Park the training offloader so the preview offloader manages the blocks alone and the
-        # preview text encoder has room. resume() in restore_after_preview.
-        train_offloader = self._suspend_training_block_swap()
-        blocks_swap = int(preview_cfg.get("preview_blocks_to_swap", 0))
-        if blocks_swap > 0:
-            # Blocks stream from CPU during the Euler loop; only the small shared modules move.
-            for name, module in self.transformer.named_children():
-                if name != "transformer_blocks":
-                    module.to(target)
-            self._preview_offloader = self._make_preview_offloader(
-                self.transformer.transformer_blocks, blocks_swap, target, train_offloader
-            )
-        else:
-            self._preview_offloader = None
-            # When block swap is active, suspend() parked the frozen block weights on CPU. The first
-            # parameter is a never-swapped top-level module, so `param.device` can't reveal that —
-            # the old `!= target` short-circuit then skipped the move and left every block's fp8
-            # weight (and scale buffer) on CPU → a cuda/cpu mismatch in the preview forward. So force
-            # the whole-transformer move when swapping; `.to()` carries params AND buffers back.
-            # Without block swap the DiT is already resident, so keep the skip to avoid a needless
-            # `.to()` (which reassigns param storage on a DeepSpeed/compiled module). If the full DiT
-            # doesn't fit for a no-swap preview, set preview_blocks_to_swap > 0.
-            if self._training_block_swap_active() or next(self.transformer.parameters()).device != target:
-                if is_main_process():
-                    print(f"rengu_flow: moving DiT to {target} for preview...", flush=True)
-                self.transformer.to(target)
-        self.transformer.eval()
-        self._preview_restore_state = state
+        self._prepare_blocks_preview_memory(preview_cfg)
 
     def generate_preview_image(self, preview_cfg: dict, prompt: str, step: int, seed: int):
         from rengu_flow.model.krea2.preview_sampling import generate_preview_image as _gen

@@ -195,25 +195,10 @@ def load_text_encoder(path: str | Path, dtype: torch.dtype):
 
         from safetensors.torch import load_file
 
-        state_dict = load_file(path)
-        # ComfyUI "scaled fp8" files store each quantized Linear as an fp8 `.weight` plus a
-        # scalar `.weight_scale` and a `.comfy_quant` marker: dequantize to compute dtype.
-        scales = {
-            k[: -len(".weight_scale")]: v.float()
-            for k, v in state_dict.items()
-            if k.endswith(".weight_scale")
-        }
-        remapped = {}
-        for k, v in state_dict.items():
-            base = k[: -len(".weight")] if k.endswith(".weight") else None
-            k = re.sub(r"^model\.", "", k)
-            if k.startswith(("visual.", "lm_head.")) or k.endswith((".weight_scale", ".comfy_quant")):
-                continue
-            if k.startswith("language_model."):
-                k = k[len("language_model.") :]
-            if v.dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
-                v = v.float() * scales.get(base, torch.tensor(1.0))
-            remapped[k] = v.to(dtype)
+        from rengu_flow.model.dit_common.qwen3vl import remap_qwen3vl_text_state_dict
+
+        # Text-decoder keys only; ComfyUI "scaled fp8" entries are dequantized (shared helper).
+        remapped = remap_qwen3vl_text_state_dict(load_file(path), dtype)
         config = AutoConfig.from_pretrained(QWEN3VL_ASSETS).text_config
         from accelerate import init_empty_weights
 

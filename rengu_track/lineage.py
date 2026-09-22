@@ -35,7 +35,7 @@ def _git(args: list[str], cwd: str | None = None) -> str | None:
         return None
     try:
         out = subprocess.run(
-            [git, *args], cwd=cwd, capture_output=True, text=True, timeout=5
+            [git, *args], cwd=cwd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5
         )
     except (OSError, subprocess.TimeoutExpired):
         return None

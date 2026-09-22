@@ -2,7 +2,7 @@
 
 During training you can generate **sample images** from fixed prompts and view them in **TensorBoard** (similar to OneTrainer). This helps you judge quality without waiting for a full `save_every_n_*` export. Kohya-style “sample every N steps” is covered by the schedule options below; on-demand runs use a **signal file**.
 
-Previews are supported for **SDXL** (`model.type = "sdxl"`), **Cosmos Predict2** (`model.type = "cosmos_predict2"` or `anima`), and **Krea 2** (`model.type = "krea2"`, defaults 28 steps / CFG 4.5 — see [Training Krea 2](training-krea2.md)). Cosmos and Krea 2 require **`pipeline_stages = 1`** (single-GPU DiT path).
+Previews are supported for **SDXL** (`model.type = "sdxl"`), **Cosmos Predict2** (`model.type = "cosmos_predict2"` or `anima`), **Krea 2** (`model.type = "krea2"`, defaults 28 steps / CFG 4.5 — see [Training Krea 2](training-krea2.md)), and **Qwen-Image 2.1** (`model.type = "qwen_image21"`, defaults 28 steps / no CFG — see [Training Qwen-Image 2.1](training-qwen-image21.md#previews)). Cosmos, Krea 2 and Qwen-Image 2.1 require **`pipeline_stages = 1`** (single-GPU DiT path).
 
 > **Previews are off by default** (`preview.enabled = false`). Generating samples during training costs extra VRAM and time — a 1024×1024 SDXL preview can OOM on small GPUs (e.g. 8 GB). Enable it only when you want in-training samples, and lower `width`/`height` if you are tight on VRAM.
 
@@ -70,7 +70,7 @@ Recommended for **Anima** previews: **`num_inference_steps = 20`**, **`guidance_
 | **`preview.guidance_scale`** | CFG scale for preview sampling. | `4.0` |
 | **`preview.negative_prompt`** | Unconditional caption for CFG. | `""` |
 | **`preview.preview_offload_text_encoder`** | Move LLM/T5 to CPU during the Euler loop to save VRAM. | `true` |
-| **`preview.preview_blocks_to_swap`** | Cosmos only: DiT blocks kept on CPU between Euler preview steps. `0` disables. Uses the same offloader as training `blocks_to_swap` ([Training loop — block swap](training-loop-and-eval.md#block-swap-vram-adapter-training)). | `0` |
+| **`preview.preview_blocks_to_swap`** | Cosmos, Krea 2 and Qwen-Image 2.1: DiT blocks kept on CPU between Euler preview steps. `0` disables. Uses the same offloader as training `blocks_to_swap` ([Training loop — block swap](training-loop-and-eval.md#block-swap-vram-adapter-training)). | `0` |
 | **`preview.preview_offload_dit_for_decode`** | Cosmos only: move the DiT to CPU during the VAE decode. **Unsafe on DeepSpeed/compiled runs** (the CPU↔GPU round-trip invalidates parameter storage the engine still points at, crashing the next NCCL op). Rarely needed — the decode is tiled (see note below). | `false` |
 | **`preview.preview_save_png`** | Also write `preview/{name}_step{N}.png` under the run directory (same folder as TensorBoard logs). **The web UI run page's preview gallery reads these PNGs, so enable this to see previews in the UI** — TensorBoard's IMAGES tab shows them either way. | `false` |
 

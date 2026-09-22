@@ -9,6 +9,7 @@ __all__ = [
     "SDXLPipeline",
     "CosmosPredict2Pipeline",
     "Krea2Pipeline",
+    "QwenImage21Pipeline",
 ]
 
 
@@ -25,4 +26,8 @@ def __getattr__(name: str):
         from rengu_flow.model.krea2 import Krea2Pipeline
 
         return Krea2Pipeline
+    if name == "QwenImage21Pipeline":
+        from rengu_flow.model.qwen_image21 import QwenImage21Pipeline
+
+        return QwenImage21Pipeline
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

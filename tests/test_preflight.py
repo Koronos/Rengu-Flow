@@ -153,3 +153,30 @@ def test_module_roots_match_real_krea2_dit():
     }
     missing = with_params - roots
     assert not missing, f"capability adapter_module_roots is missing: {sorted(missing)}"
+
+
+def test_module_roots_match_real_qwen_image21_dit():
+    import torch  # noqa: F401  (model import needs torch)
+
+    from rengu_flow.registry.model_capabilities import get_capability
+    from test_adapter_layer_groups import _tiny_qwen_image21
+
+    roots = set(get_capability("qwen_image21").adapter_module_roots)
+    model = _tiny_qwen_image21()
+    real_roots = {name for name, _ in model.named_children()}
+    with_params = {n for n in real_roots if any(True for _ in getattr(model, n).parameters())}
+    assert with_params <= roots, f"missing: {sorted(with_params - roots)}"
+    assert roots <= real_roots, f"stale: {sorted(roots - real_roots)}"
+
+
+def test_qwen_image21_diffusers_path_is_checked(tmp_path):
+    cfg = _config(tmp_path)
+    cfg["model"] = {"type": "qwen_image21", "dtype": "bfloat16", "diffusers_path": str(tmp_path / "nope")}
+    issues = collect_preflight_issues(cfg)
+    assert any("model.diffusers_path does not exist" in i for i in issues)
+    (tmp_path / "Qwen-Image-2.1").mkdir()
+    cfg["model"]["diffusers_path"] = str(tmp_path / "Qwen-Image-2.1")
+    cfg["adapter"] = {"type": "lora", "rank": 4, "target_include": ["transformer_blocks.*.attn.*", "modulation.*"]}
+    assert collect_preflight_issues(cfg) == []
+    cfg["adapter"]["target_include"] = ["text_fusion.*"]  # a krea2 root: not in this DiT
+    assert any("text_fusion" in i and "Roots:" in i for i in collect_preflight_issues(cfg))

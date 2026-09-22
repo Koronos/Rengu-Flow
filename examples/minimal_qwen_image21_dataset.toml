@@ -1,0 +1,13 @@
+# Minimal dataset for Qwen-Image 2.1 text-to-image training (frame_buckets = [1]).
+# Bucket sides are rounded to multiples of 32 (16x VAE, 2x2 latent groups).
+
+resolutions = [1024]
+enable_ar_bucket = true
+min_ar = 0.5
+max_ar = 2.0
+num_ar_buckets = 4
+frame_buckets = [1]
+
+[[directory]]
+path = 'path/to/images'
+num_repeats = 1

@@ -75,11 +75,11 @@ def set_config_defaults(config: dict[str, Any]) -> None:
         if str(model_config.get("type", "")).lower() in ("cosmos_predict2", "anima"):
             model_config.setdefault("transformer_dtype", model_config["diffusion_model_dtype"])
     model_config.setdefault("guidance", 1.0)
-    if str(model_config.get("type", "")).lower() in ("cosmos_predict2", "sdxl", "krea2"):
+    if str(model_config.get("type", "")).lower() in ("cosmos_predict2", "sdxl", "krea2", "qwen_image21"):
         model_config.setdefault("cache_text_embeddings", True)
 
 
-    if str(model_config.get("type", "")).lower() in ("cosmos_predict2", "anima", "krea2"):
+    if str(model_config.get("type", "")).lower() in ("cosmos_predict2", "anima", "krea2", "qwen_image21"):
         # Frozen-base quantization knobs (A/B; default-off, mutually exclusive).
         model_config.setdefault("transformer_fp8_matmul", False)
         model_config.setdefault("transformer_4bit", False)
@@ -99,13 +99,17 @@ def set_config_defaults(config: dict[str, Any]) -> None:
                 "model.fp8_grad_mode must be 'bf16' (default) or 'fp8'."
             )
 
-    if str(model_config.get("type", "")).lower() in ("cosmos_predict2", "anima", "krea2"):
+    if str(model_config.get("type", "")).lower() in ("cosmos_predict2", "anima", "krea2", "qwen_image21"):
         preview_cfg = config.get("preview")
         if isinstance(preview_cfg, dict):
-            is_krea2 = str(model_config.get("type", "")).lower() == "krea2"
+            model_type = str(model_config.get("type", "")).lower()
             # Krea 2 reference settings: 28 steps, CFG 4.5 (cond + g*(cond - uncond)).
-            preview_cfg.setdefault("num_inference_steps", 28 if is_krea2 else 20)
-            preview_cfg.setdefault("guidance_scale", 4.5 if is_krea2 else 4.0)
+            # Qwen-Image 2.1 samples without CFG (reference true_cfg_scale = 1.0); its reference
+            # 40 steps are trimmed to 28 for previews.
+            preview_steps = {"krea2": 28, "qwen_image21": 28}.get(model_type, 20)
+            preview_guidance = {"krea2": 4.5, "qwen_image21": 1.0}.get(model_type, 4.0)
+            preview_cfg.setdefault("num_inference_steps", preview_steps)
+            preview_cfg.setdefault("guidance_scale", preview_guidance)
             preview_cfg.setdefault("negative_prompt", "")
             preview_cfg.setdefault("width", 1024)
             preview_cfg.setdefault("height", 1024)

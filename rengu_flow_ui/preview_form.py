@@ -7,8 +7,8 @@ from typing import Any
 WHEN_COSMOS_PREVIEW = {"field": "model.type", "in": ["cosmos_predict2"]}
 # Preview memory knobs honored by every DiT preview runner (prepare_preview_memory /
 # offload_text_encoder_after_encode exist on both pipelines); dit-for-decode stays
-# cosmos-only — krea2's preview never reads it.
-WHEN_DIT_PREVIEW = {"field": "model.type", "in": ["cosmos_predict2", "krea2"]}
+# cosmos-only — the krea2 / qwen_image21 previews never read it.
+WHEN_DIT_PREVIEW = {"field": "model.type", "in": ["cosmos_predict2", "krea2", "qwen_image21"]}
 
 
 def _entry_field(

@@ -1,0 +1,32 @@
+# Minimal Qwen-Image 2.1 LoRA training (text-to-image), sized for an 8 GB card:
+# fp8 frozen base + block swap. Captions are cached once with the Qwen3-VL-8B encoder
+# streamed layer by layer from host RAM (model.text_encoder_offload = "auto").
+
+output_dir = 'output'
+dataset = 'examples/minimal_qwen_image21_dataset.toml'
+
+epochs = 1
+micro_batch_size_per_gpu = 1
+pipeline_stages = 1
+gradient_accumulation_steps = 1
+activation_checkpointing = true
+save_every_n_epochs = 1
+caching_batch_size = 1
+# 8 GB: stream 24 of the 32 DiT blocks from CPU (lower it on bigger cards, 0 on 24 GB+).
+blocks_to_swap = 24
+
+[model]
+type = 'qwen_image21'
+dtype = 'bfloat16'
+# The Qwen/Qwen-Image-2.1 download (transformer/, vae/, text_encoder/, processor/).
+diffusers_path = 'path/to/Qwen-Image-2.1'
+# 14.2 GB bf16 -> ~7.3 GB: tensorwise fp8 frozen base (sm89+ GPU, e.g. RTX 40xx / Ada).
+transformer_fp8_matmul = true
+
+[adapter]
+type = 'lora'
+rank = 16
+
+[optimizer]
+type = 'adamw'
+lr = 1e-4

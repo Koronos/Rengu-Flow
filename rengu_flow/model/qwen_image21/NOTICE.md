@@ -22,3 +22,7 @@ file headers. Module and parameter names are unchanged for checkpoint compatibil
 
 The Qwen-Image 2.1 model weights are distributed by the Qwen team under the Qwen Research
 License (see the `Qwen/Qwen-Image-2.1` repository); rengu-flow does not redistribute them.
+
+`assets/transformer_config.json`, `assets/vae_config.json` and `assets/qwen3vl_8b/config.json` are
+the component `config.json` files of the `Qwen/Qwen-Image-2.1` release (architecture metadata
+only, no weights), bundled so single-file checkpoints can be loaded without the full download.
