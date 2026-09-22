@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 from pathlib import Path
 
 import safetensors
@@ -14,7 +13,7 @@ from accelerate.utils import set_module_tensor_to_device
 
 from rengu_flow.config.validation import ConfigValidationError
 from rengu_flow.data.preprocess_media import PreprocessMediaFile
-from rengu_flow.model.base import BasePipeline, make_contiguous
+from rengu_flow.model import dit_common
 from rengu_flow.model.cosmos_predict2.config import get_dit_config
 from rengu_flow.model.cosmos_predict2.dit import MiniTrainDIT
 from rengu_flow.model.cosmos_predict2.layers import (
@@ -25,7 +24,6 @@ from rengu_flow.model.cosmos_predict2.layers import (
 )
 from rengu_flow.model.cosmos_predict2.text import compute_text_embeddings, load_text_stack, tokenize
 from rengu_flow.model.cosmos_predict2.vae import WanVAE, vae_encode
-from rengu_flow.networks import adapter_dit
 from rengu_flow.registry.models import register_model
 from rengu_flow.registry.models import register_model_alias
 from rengu_flow.utils.save_io import atomic_save_safetensors
@@ -34,14 +32,11 @@ from rengu_flow.utils.common import is_main_process, load_state_dict
 KEEP_IN_HIGH_PRECISION = ["x_embedder", "t_embedder", "t_embedding_norm", "final_layer"]
 
 
-def time_shift(mu: float, sigma: float, t: torch.Tensor):
-    return math.exp(mu) / (math.exp(mu) + (1 / t - 1) ** sigma)
+time_shift = dit_common.time_shift
 
 
 def get_lin_function(x1: float = 256, y1: float = 0.5, x2: float = 4096, y2: float = 1.15):
-    m = (y2 - y1) / (x2 - x1)
-    b = y1 - m * x1
-    return lambda x: m * x + b
+    return lambda x: dit_common.calculate_shift(x, x1, x2, y1, y2)
 
 
 # Named layer groups for adapter.layer_groups (globs over Block module paths).
@@ -53,24 +48,21 @@ ADAPTER_LAYER_GROUPS = {
 
 
 @register_model("cosmos_predict2")
-class CosmosPredict2Pipeline(BasePipeline):
+class CosmosPredict2Pipeline(dit_common.DiTPipeline):
     name = "cosmos_predict2"
     framerate = 16
     checkpointable_layers = ["TransformerLayer"]
     adapter_target_modules = ["Block", "TransformerBlock"]
+    adapter_layer_groups = ADAPTER_LAYER_GROUPS
     pixels_round_to_multiple = 16
 
     def __init__(self, config):
         self.config = config
         self.model_config = config["model"]
         self._init_block_swap_state()
-        dtype = self.model_config["dtype"]
         self.cache_text_embeddings = self.model_config.get("cache_text_embeddings", True)
 
-        self.vae = WanVAE(vae_pth=self.model_config["vae_path"], device="cpu", dtype=dtype)
-        self.vae.mean = self.vae.mean.to("cuda")
-        self.vae.std = self.vae.std.to("cuda")
-        self.vae.scale = [self.vae.mean, 1.0 / self.vae.std]
+        self.vae = self._load_vae()
 
         (
             self.tokenizer,
@@ -81,6 +73,13 @@ class CosmosPredict2Pipeline(BasePipeline):
         ) = load_text_stack(self.model_config)
         self.text_encoder.requires_grad_(False)
         self.transformer = None
+
+    def _load_vae(self) -> WanVAE:
+        vae = WanVAE(vae_pth=self.model_config["vae_path"], device="cpu", dtype=self.model_config["dtype"])
+        vae.mean = vae.mean.to("cuda")
+        vae.std = vae.std.to("cuda")
+        vae.scale = [vae.mean, 1.0 / vae.std]
+        return vae
 
     def load_diffusion_model(self, *, force: bool = False) -> None:
         if self.transformer is not None and not force:
@@ -208,30 +207,6 @@ class CosmosPredict2Pipeline(BasePipeline):
             return [self.text_encoder]
         return []
 
-    def configure_adapter(self, adapter_config):
-        self.peft_config, self.adapter_type = adapter_dit.configure(
-            self.transformer, adapter_config, layer_groups=ADAPTER_LAYER_GROUPS
-        )
-        self.adapter_config = adapter_config
-        for name, p in self.transformer.named_parameters():
-            p.original_name = name
-            if p.requires_grad:
-                p.data = p.data.to(adapter_config["dtype"])
-
-    def save_adapter(self, save_dir, state_dict):
-        adapter_dit.save(
-            save_dir, state_dict, self.adapter_config, getattr(self, "peft_config", None)
-        )
-
-    def load_adapter_weights(self, adapter_path):
-        adapter_type = getattr(self, "adapter_type", None) or (self.config.get("adapter") or {}).get("type")
-        if adapter_type and adapter_type.startswith("lycoris_"):
-            from rengu_flow.networks import lycoris_dit
-
-            lycoris_dit.load(self.transformer, adapter_path)
-        else:
-            adapter_dit.load_weights(self.transformer, adapter_path)
-
     def load_and_fuse_adapter(self, path):
         raise NotImplementedError("load_and_fuse_adapter is not implemented for cosmos_predict2")
 
@@ -302,35 +277,12 @@ class CosmosPredict2Pipeline(BasePipeline):
             mask = F.interpolate(mask, size=(h, w), mode="nearest-exact")
             mask = mask.unsqueeze(2)
 
-        timestep_sample_method = self.model_config.get("timestep_sample_method", "logit_normal")
-        if timestep_sample_method == "logit_normal":
-            dist = torch.distributions.normal.Normal(0, 1)
-        elif timestep_sample_method == "uniform":
-            dist = torch.distributions.uniform.Uniform(0, 1)
-        else:
-            raise NotImplementedError()
-
-        if timestep_quantile is not None:
-            t = dist.icdf(torch.full((bs,), timestep_quantile, device=latents.device))
-        else:
-            t = dist.sample((bs,)).to(latents.device)
-
-        if timestep_sample_method == "logit_normal":
-            sigmoid_scale = self.model_config.get("sigmoid_scale", 1.0)
-            t = t * sigmoid_scale
-            t = torch.sigmoid(t)
-
-        if shift := self.model_config.get("shift", None):
-            t = (t * shift) / (1 + (shift - 1) * t)
-        elif self.model_config.get("flux_shift", False):
+        t = dit_common.sample_timesteps(self.model_config, bs, latents.device, timestep_quantile)
+        mu = None
+        if self.model_config.get("flux_shift", False):
             mu = get_lin_function(y1=0.5, y2=1.15)((h // 2) * (w // 2))
-            t = time_shift(mu, 1.0, t)
-
-        noise = torch.randn_like(latents)
-        t_expanded = t.view(-1, 1, 1, 1, 1)
-        noisy_latents = (1 - t_expanded) * latents + t_expanded * noise
-        target = noise - latents
-        t = t.view(-1, 1)
+        t = dit_common.shift_timesteps(t, self.model_config.get("shift", None), mu)
+        noisy_latents, target, t = dit_common.add_flow_noise(latents, t)
 
         return (noisy_latents, t, *prompt_data), (target, mask)
 
@@ -412,92 +364,23 @@ class CosmosPredict2Pipeline(BasePipeline):
                 param_groups.append({"params": params, "lr": lr})
         return param_groups
 
-    def get_loss_fn(self):
-        def loss_fn(output, label):
-            target, mask = label
-            with torch.autocast("cuda", enabled=False):
-                output = output.to(torch.float32)
-                target = target.to(output.device, torch.float32)
-                from rengu_flow.model.loss_utils import compute_diffusion_loss_per_element
-
-                loss = compute_diffusion_loss_per_element(output, target, self.config)
-                if mask is not None and mask.numel() > 0:
-                    mask = mask.to(output.device, torch.float32)
-                    loss *= mask
-                loss = loss.mean()
-            return loss
-
-        return loss_fn
-
     def freeze_text_encoders(self):
         pass
 
-    def ensure_vae_for_preview(self) -> None:
-        """Reload Wan VAE weights when dataset caching left ``vae.model`` on ``meta``."""
-        try:
-            param = next(self.vae.model.parameters())
-        except StopIteration:
-            return
-        if param.device.type != "meta":
-            return
+    # ---- previews (VAE/TE lifecycle and restore come from DiTPipeline) ---------------------
+
+    def _preview_vae_module(self) -> nn.Module:
+        return self.vae.model
+
+    def _reload_vae_for_preview(self) -> None:
+        self.vae = self._load_vae()
+
+    def _reload_text_encoder_for_preview(self) -> nn.Module:
+        _, _, text_encoder, _, _ = load_text_stack(self.model_config)
+        text_encoder.requires_grad_(False)
         if is_main_process():
-            print("rengu_flow: loading VAE weights for preview...", flush=True)
-        dtype = self.model_config["dtype"]
-        self.vae = WanVAE(vae_pth=self.model_config["vae_path"], device="cpu", dtype=dtype)
-        self.vae.mean = self.vae.mean.to("cuda")
-        self.vae.std = self.vae.std.to("cuda")
-        self.vae.scale = [self.vae.mean, 1.0 / self.vae.std]
-        state = getattr(self, "_preview_restore_state", None)
-        if state is None:
-            self._preview_restore_state = {}
-            state = self._preview_restore_state
-        state["vae_was_meta"] = True
-
-    def ensure_text_encoder_for_preview(self, device: str | torch.device = "cuda") -> None:
-        """Make the text encoder available on *device* for a preview.
-
-        When caching freed it to ``meta`` it is loaded from disk the *first* time, but we then
-        keep it resident on CPU between previews (see ``restore_after_preview``), so later
-        previews only pay a CPU->GPU copy instead of re-reading ~1.2 GB from disk each time.
-        """
-        try:
-            param = next(self.text_encoder.parameters())
-        except StopIteration:
-            return
-        if param.device.type == "meta":
-            if is_main_process():
-                print("rengu_flow: loading text encoder weights for preview...", flush=True)
-            _, _, text_encoder, _, _ = load_text_stack(self.model_config)
-            text_encoder.requires_grad_(False)
-            self.text_encoder = text_encoder
-            # Freed by caching: its home between previews is CPU (host RAM), not meta/GPU.
-            self._preview_te_rest_device = torch.device("cpu")
-            if is_main_process():
-                print("rengu_flow: text encoder ready for preview.", flush=True)
-        elif getattr(self, "_preview_te_rest_device", None) is None:
-            # Resident (e.g. used during training): remember where to put it back afterwards.
-            self._preview_te_rest_device = param.device
-        self.text_encoder.to(device)
-
-    def offload_text_encoder_after_encode(self, preview_cfg: dict) -> None:
-        """Move LLM/T5 to CPU after prompts are encoded (Euler loop only needs cross-attn)."""
-        if not preview_cfg.get("preview_offload_text_encoder", True):
-            return
-        if not self.cache_text_embeddings:
-            # Training-resident TE (on-the-fly encoding / LLM adapter): a CPU round-trip
-            # reassigns every param's .data to fresh storage while the fused optimizer and the
-            # compiled training graph still hold the old GPU addresses — empty_cache then frees
-            # them and the post-preview optimizer.train() swap dereferences dangling pointers
-            # (cudaErrorIllegalAddress at the next step). Same hazard documented on
-            # offload_transformer_for_decode; it fits on GPU anyway since training keeps it there.
-            return
-        try:
-            param = next(self.text_encoder.parameters())
-        except StopIteration:
-            return
-        if param.device.type == "meta":
-            return
-        self.text_encoder.to("cpu")
+            print("rengu_flow: text encoder ready for preview.", flush=True)
+        return text_encoder
 
     def ensure_transformer_for_preview(self, device: str | torch.device = "cuda") -> None:
         """Use in-memory DiT on GPU for Euler (do not reload weights from disk)."""
@@ -520,21 +403,13 @@ class CosmosPredict2Pipeline(BasePipeline):
         """Prepare DiT for preview sampling (eval mode; optional block swap)."""
         # Park the training offloader (if any) so its hooks don't fight the preview offloader
         # over block placement and its retained GPU copies are released. resume() on restore.
-        train_offloader = getattr(self, "_block_swap_offloader", None)
-        if train_offloader is not None and getattr(train_offloader, "enabled", False):
-            train_offloader.suspend()
+        train_offloader = self._suspend_training_block_swap()
         self.ensure_transformer_for_preview("cuda")
         state: dict = {}
         blocks_swap = int(preview_cfg.get("preview_blocks_to_swap", 0))
         if blocks_swap > 0:
-            from rengu_flow.training.block_swap import BlockSwapOffloader
-
-            # Mirror the training offloader's frozen/trainable split (swap_trainable=False keeps
-            # adapters GPU-resident), else resume() leaves them stranded on CPU after a preview.
-            swap_trainable = getattr(train_offloader, "_swap_trainable", True)
-            self._preview_offloader = BlockSwapOffloader(
-                self.transformer.blocks, blocks_swap, device="cuda",
-                swap_trainable=swap_trainable,
+            self._preview_offloader = self._make_preview_offloader(
+                self.transformer.blocks, blocks_swap, "cuda", train_offloader
             )
         else:
             self._preview_offloader = None
@@ -572,41 +447,6 @@ class CosmosPredict2Pipeline(BasePipeline):
         if state is not None:
             state["transformer_offloaded_for_decode"] = True
         empty_cuda_cache()
-
-    def restore_after_preview(self) -> None:
-        state = getattr(self, "_preview_restore_state", None) or {}
-        offloader = getattr(self, "_preview_offloader", None)
-        train_offloader = getattr(self, "_block_swap_offloader", None)
-        if train_offloader is not None and getattr(train_offloader, "enabled", False):
-            # Training streams the blocks itself: re-park on the CPU masters and re-arm the hooks
-            # (the preview offloader's teardown would pull every block onto the GPU instead).
-            train_offloader.resume()
-        elif offloader is not None:
-            offloader.teardown()
-        self._preview_offloader = None
-        # If a decode offloaded the DiT to CPU (no block swap path), put it back on GPU for training.
-        if state.get("transformer_offloaded_for_decode") and self.transformer is not None:
-            self.transformer.to("cuda")
-        if state.get("vae_was_meta"):
-            self.vae.model.to("meta")
-        # Park the text encoder on its resting device (CPU when caching freed it, else its
-        # original device) — never back to meta, so the next preview skips the disk reload.
-        rest = getattr(self, "_preview_te_rest_device", None) or torch.device("cpu")
-        try:
-            next(self.text_encoder.parameters())
-            if rest.type == "cuda":
-                # Release the decode's cached blocks first: this restore also runs from the
-                # preview's finally-path after an OOM, where moving ~GBs back onto a full
-                # allocator would OOM again and turn a failed preview into a dead process.
-                from rengu_flow.utils.common import empty_cuda_cache
-
-                empty_cuda_cache()
-            self.text_encoder.to(rest)
-        except StopIteration:
-            pass
-        if state.get("transformer_was_training"):
-            self.transformer.train()
-        self._preview_restore_state = None
 
     def generate_preview_image(self, preview_cfg: dict, prompt: str, step: int, seed: int):
         from rengu_flow.model.cosmos_predict2.preview_sampling import generate_preview_image as _gen

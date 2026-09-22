@@ -21,6 +21,13 @@ Rengu Flow combines original code with material adapted from other projects. **T
 - **License:** Apache License 2.0 — Copyright 2026 Krea AI and The HuggingFace Team  
 - **Notice:** [rengu_flow/model/krea2/NOTICE.md](rengu_flow/model/krea2/NOTICE.md)
 
+## Qwen-Image 2.1 modeling (Hugging Face diffusers)
+
+- **Files:** `rengu_flow/model/qwen_image21/dit.py`, `vae.py`  
+- **License:** Apache License 2.0 — Copyright 2026 Qwen-Image Team / The Qwen Team and The HuggingFace Team  
+- **Origin:** diffusers `main` commit `6256aa7` (PR #14804)  
+- **Notice:** [rengu_flow/model/qwen_image21/NOTICE.md](rengu_flow/model/qwen_image21/NOTICE.md)
+
 ## Alibaba Wan VAE
 
 - **File:** `rengu_flow/model/cosmos_predict2/wan_vae.py`  

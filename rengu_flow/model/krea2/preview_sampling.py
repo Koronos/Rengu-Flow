@@ -3,23 +3,14 @@
 from __future__ import annotations
 
 import math
-from contextlib import nullcontext
 
 import torch
 import torch.nn.functional as F
 
+from rengu_flow.model.dit_common import preview_autocast as _autocast
 from rengu_flow.model.krea2.dit import pack_latents, prepare_position_ids, unpack_latents
 from rengu_flow.model.krea2.text import compact_text_embeddings, encode_prompts
 from rengu_flow.utils.common import round_to_nearest_multiple
-
-
-def _autocast(pipeline):
-    if torch.cuda.is_available():
-        dtype = pipeline.model_config.get("dtype", torch.bfloat16)
-        if isinstance(dtype, str):
-            dtype = getattr(torch, dtype)
-        return torch.autocast("cuda", dtype=dtype)
-    return nullcontext()
 
 
 def _shifted_sigmas(num_steps: int, image_seq_len: int, device) -> torch.Tensor:

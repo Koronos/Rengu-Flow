@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import math
-from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Any
 
 import torch
 
+from rengu_flow.model import dit_common
 from rengu_flow.model.cosmos_predict2.layers import NoopOffloader
 from rengu_flow.model.cosmos_predict2.text import compute_text_embeddings, tokenize
 from rengu_flow.model.cosmos_predict2.vae import vae_decode_tiled
@@ -18,14 +17,11 @@ from rengu_flow.utils.common import round_to_nearest_multiple
 WAN_VAE_SPATIAL_FACTOR = 8
 
 
-def time_shift(mu: float, sigma: float, t: torch.Tensor) -> torch.Tensor:
-    return math.exp(mu) / (math.exp(mu) + (1 / t - 1) ** sigma)
+time_shift = dit_common.time_shift
 
 
 def get_lin_function(x1: float = 256, y1: float = 0.5, x2: float = 4096, y2: float = 1.15):
-    m = (y2 - y1) / (x2 - x1)
-    b = y1 - m * x1
-    return lambda x: m * x + b
+    return lambda x: dit_common.calculate_shift(x, x1, x2, y1, y2)
 
 
 @dataclass
@@ -36,17 +32,8 @@ class PreviewPromptData:
     t5_attn_mask: torch.Tensor
 
 
-def _model_compute_dtype(pipeline) -> torch.dtype:
-    dtype = pipeline.model_config.get("dtype", torch.bfloat16)
-    if isinstance(dtype, str):
-        dtype = getattr(torch, dtype)
-    return dtype
-
-
-def _preview_autocast(pipeline):
-    if torch.cuda.is_available():
-        return torch.autocast("cuda", dtype=_model_compute_dtype(pipeline))
-    return nullcontext()
+_model_compute_dtype = dit_common.preview_compute_dtype
+_preview_autocast = dit_common.preview_autocast
 
 
 def round_preview_pixels(value: int, multiple: int = 16) -> int:

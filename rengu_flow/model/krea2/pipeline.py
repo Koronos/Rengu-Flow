@@ -9,7 +9,6 @@ stack is far too heavy to keep in the training graph).
 from __future__ import annotations
 
 import json
-import math
 from pathlib import Path
 
 import torch
@@ -18,7 +17,7 @@ from torch import nn
 
 from rengu_flow.config.validation import ConfigValidationError
 from rengu_flow.data.preprocess_media import PreprocessMediaFile
-from rengu_flow.model.base import BasePipeline
+from rengu_flow.model import dit_common
 from rengu_flow.model.krea2.layers import FinalLayer, InitialLayer, TransformerLayer
 from rengu_flow.model.krea2.text import (
     DEFAULT_SELECT_LAYERS,
@@ -27,7 +26,6 @@ from rengu_flow.model.krea2.text import (
     pad_text_embeddings,
 )
 from rengu_flow.model.krea2 import loading
-from rengu_flow.networks import adapter_dit
 from rengu_flow.registry.models import register_model
 from rengu_flow.utils.common import is_main_process
 from rengu_flow.utils.save_io import atomic_save_safetensors
@@ -76,20 +74,22 @@ SHIFT_MAX = 1.15
 
 
 def calculate_shift(image_seq_len: int) -> float:
-    m = (SHIFT_MAX - SHIFT_BASE) / (SHIFT_MAX_SEQ_LEN - SHIFT_BASE_SEQ_LEN)
-    b = SHIFT_BASE - m * SHIFT_BASE_SEQ_LEN
-    return image_seq_len * m + b
+    return dit_common.calculate_shift(
+        image_seq_len, SHIFT_BASE_SEQ_LEN, SHIFT_MAX_SEQ_LEN, SHIFT_BASE, SHIFT_MAX
+    )
 
 
 def time_shift(mu: float, t: torch.Tensor) -> torch.Tensor:
-    return math.exp(mu) / (math.exp(mu) + (1 / t - 1))
+    return dit_common.time_shift(mu, 1.0, t)
 
 
 @register_model("krea2")
-class Krea2Pipeline(BasePipeline):
+class Krea2Pipeline(dit_common.DiTPipeline):
     name = "krea2"
     checkpointable_layers = ["TransformerLayer"]
     adapter_target_modules = list(ADAPTER_TARGET_MODULES)
+    adapter_layer_groups = ADAPTER_LAYER_GROUPS
+    adapter_export_prefix = EXPORT_PREFIX
     pixels_round_to_multiple = 16  # VAE f8 x patch_size 2
 
     def __init__(self, config):
@@ -244,36 +244,13 @@ class Krea2Pipeline(BasePipeline):
             mask = mask.unsqueeze(1)
             mask = F.interpolate(mask, size=(h, w), mode="nearest-exact")
 
-        timestep_sample_method = self.model_config.get("timestep_sample_method", "logit_normal")
-        if timestep_sample_method == "logit_normal":
-            dist = torch.distributions.normal.Normal(0, 1)
-        elif timestep_sample_method == "uniform":
-            dist = torch.distributions.uniform.Uniform(0, 1)
-        else:
-            raise NotImplementedError()
-
-        if timestep_quantile is not None:
-            t = dist.icdf(torch.full((bs,), timestep_quantile, device=latents.device))
-        else:
-            t = dist.sample((bs,)).to(latents.device)
-
-        if timestep_sample_method == "logit_normal":
-            sigmoid_scale = self.model_config.get("sigmoid_scale", 1.0)
-            t = torch.sigmoid(t * sigmoid_scale)
-
+        t = dit_common.sample_timesteps(self.model_config, bs, latents.device, timestep_quantile)
         # Krea 2 trains with a resolution-aware exponential time shift; a fixed model.shift
         # overrides the dynamic default.
-        if shift := self.model_config.get("shift", None):
-            t = (t * shift) / (1 + (shift - 1) * t)
-        else:
-            mu = calculate_shift((h // 2) * (w // 2))
-            t = time_shift(mu, t)
-
-        noise = torch.randn_like(latents)
-        t_expanded = t.view(-1, 1, 1, 1)
-        noisy_latents = (1 - t_expanded) * latents + t_expanded * noise
-        target = noise - latents
-        t = t.view(-1, 1)
+        t = dit_common.shift_timesteps(
+            t, self.model_config.get("shift", None), calculate_shift((h // 2) * (w // 2))
+        )
+        noisy_latents, target, t = dit_common.add_flow_noise(latents, t)
 
         return (noisy_latents, t, prompt_embeds, text_mask), (target, mask)
 
@@ -307,23 +284,6 @@ class Krea2Pipeline(BasePipeline):
         layers.append(FinalLayer(self.transformer))
         return layers
 
-    def get_loss_fn(self):
-        def loss_fn(output, label):
-            target, mask = label
-            with torch.autocast("cuda", enabled=False):
-                output = output.to(torch.float32)
-                target = target.to(output.device, torch.float32)
-                from rengu_flow.model.loss_utils import compute_diffusion_loss_per_element
-
-                loss = compute_diffusion_loss_per_element(output, target, self.config)
-                if mask is not None and mask.numel() > 0:
-                    mask = mask.to(output.device, torch.float32)
-                    loss *= mask
-                loss = loss.mean()
-            return loss
-
-        return loss_fn
-
     def freeze_text_encoders(self):
         pass
 
@@ -337,38 +297,7 @@ class Krea2Pipeline(BasePipeline):
     def _block_swap_root_modules(self) -> list:
         return [self.transformer]
 
-    # ---- adapters ----------------------------------------------------------------------------
-
-    def configure_adapter(self, adapter_config):
-        self.peft_config, self.adapter_type = adapter_dit.configure(
-            self.transformer,
-            adapter_config,
-            targets=ADAPTER_TARGET_MODULES,
-            layer_groups=ADAPTER_LAYER_GROUPS,
-        )
-        self.adapter_config = adapter_config
-        for name, p in self.transformer.named_parameters():
-            p.original_name = name
-            if p.requires_grad:
-                p.data = p.data.to(adapter_config["dtype"])
-
-    def save_adapter(self, save_dir, state_dict):
-        adapter_dit.save(
-            save_dir,
-            state_dict,
-            self.adapter_config,
-            getattr(self, "peft_config", None),
-            export_prefix=EXPORT_PREFIX,
-        )
-
-    def load_adapter_weights(self, adapter_path):
-        adapter_type = getattr(self, "adapter_type", None) or (self.config.get("adapter") or {}).get("type")
-        if adapter_type and adapter_type.startswith("lycoris_"):
-            from rengu_flow.networks import lycoris_dit
-
-            lycoris_dit.load(self.transformer, adapter_path)
-        else:
-            adapter_dit.load_weights(self.transformer, adapter_path)
+    # ---- adapters (configure/save/load come from DiTPipeline) ------------------------------
 
     def load_and_fuse_adapter(self, path):
         raise NotImplementedError("load_and_fuse_adapter is not implemented for krea2")
@@ -386,78 +315,30 @@ class Krea2Pipeline(BasePipeline):
 
     # ---- previews --------------------------------------------------------------------------
 
-    def ensure_vae_for_preview(self) -> None:
-        """Reload the VAE when dataset caching parked it on ``meta``."""
-        try:
-            param = next(self.vae.parameters())
-        except StopIteration:
-            return
-        if param.device.type != "meta":
-            return
-        if is_main_process():
-            print("rengu_flow: loading VAE weights for preview...", flush=True)
+    def _reload_vae_for_preview(self) -> None:
         self.vae = loading.load_vae(self._component_path("vae"), self.model_config["dtype"])
-        state = getattr(self, "_preview_restore_state", None)
-        if state is None:
-            self._preview_restore_state = {}
-            state = self._preview_restore_state
-        state["vae_was_meta"] = True
 
-    def ensure_text_encoder_for_preview(self, device: str | torch.device = "cuda") -> None:
-        """Make the text encoder available on *device*; reload from disk only the first time
-        after caching freed it to ``meta``, then keep it parked on CPU between previews."""
-        try:
-            param = next(self.text_encoder.parameters())
-        except StopIteration:
-            return
-        if param.device.type == "meta":
-            if is_main_process():
-                print("rengu_flow: loading text encoder weights for preview...", flush=True)
-            self.text_encoder = loading.load_text_encoder(
-                self._component_path("text_encoder"), self.model_config["dtype"]
-            )
-            self._preview_te_rest_device = torch.device("cpu")
-        elif getattr(self, "_preview_te_rest_device", None) is None:
-            self._preview_te_rest_device = param.device
-        self.text_encoder.to(device)
-
-    def offload_text_encoder_after_encode(self, preview_cfg: dict) -> None:
-        if not preview_cfg.get("preview_offload_text_encoder", True):
-            return
-        try:
-            param = next(self.text_encoder.parameters())
-        except StopIteration:
-            return
-        if param.device.type == "meta":
-            return
-        self.text_encoder.to("cpu")
+    def _reload_text_encoder_for_preview(self) -> nn.Module:
+        return loading.load_text_encoder(
+            self._component_path("text_encoder"), self.model_config["dtype"]
+        )
 
     def prepare_preview_memory(self, preview_cfg: dict) -> None:
         if self.transformer is None:
             self.load_diffusion_model()
         target = torch.device("cuda", torch.cuda.current_device()) if torch.cuda.is_available() else torch.device("cpu")
         state: dict = {"transformer_was_training": self.transformer.training}
-        # The training offloader's hooks fire on any forward (previews included) and its retained
-        # residents/pending buffers hold several GB; park it so the preview offloader manages the
-        # blocks alone and the preview text encoder has room. resume() in restore_after_preview.
-        train_offloader = getattr(self, "_block_swap_offloader", None)
-        if train_offloader is not None and getattr(train_offloader, "enabled", False):
-            train_offloader.suspend()
+        # Park the training offloader so the preview offloader manages the blocks alone and the
+        # preview text encoder has room. resume() in restore_after_preview.
+        train_offloader = self._suspend_training_block_swap()
         blocks_swap = int(preview_cfg.get("preview_blocks_to_swap", 0))
         if blocks_swap > 0:
-            from rengu_flow.training.block_swap import BlockSwapOffloader
-
             # Blocks stream from CPU during the Euler loop; only the small shared modules move.
             for name, module in self.transformer.named_children():
                 if name != "transformer_blocks":
                     module.to(target)
-            # Mirror the training offloader's frozen/trainable split: if it keeps the (small) adapter
-            # params GPU-resident (swap_trainable=False), the preview offloader must too, or resume()
-            # finds them stranded on CPU. Default True when there is no training offloader.
-            swap_trainable = getattr(train_offloader, "_swap_trainable", True)
-            self._preview_offloader = BlockSwapOffloader(
-                self.transformer.transformer_blocks, blocks_swap, device=target,
-                swap_trainable=swap_trainable,
+            self._preview_offloader = self._make_preview_offloader(
+                self.transformer.transformer_blocks, blocks_swap, target, train_offloader
             )
         else:
             self._preview_offloader = None
@@ -469,41 +350,12 @@ class Krea2Pipeline(BasePipeline):
             # Without block swap the DiT is already resident, so keep the skip to avoid a needless
             # `.to()` (which reassigns param storage on a DeepSpeed/compiled module). If the full DiT
             # doesn't fit for a no-swap preview, set preview_blocks_to_swap > 0.
-            swap_active = train_offloader is not None and getattr(train_offloader, "enabled", False)
-            if swap_active or next(self.transformer.parameters()).device != target:
+            if self._training_block_swap_active() or next(self.transformer.parameters()).device != target:
                 if is_main_process():
                     print(f"rengu_flow: moving DiT to {target} for preview...", flush=True)
                 self.transformer.to(target)
         self.transformer.eval()
         self._preview_restore_state = state
-
-    def restore_after_preview(self) -> None:
-        state = getattr(self, "_preview_restore_state", None) or {}
-        offloader = getattr(self, "_preview_offloader", None)
-        train_offloader = getattr(self, "_block_swap_offloader", None)
-        if train_offloader is not None and getattr(train_offloader, "enabled", False):
-            # Training streams the blocks itself: resume() re-parks them on the CPU masters and
-            # re-arms the hooks. The preview offloader's teardown would instead pull ALL blocks
-            # onto the GPU — an instant OOM with an unquantized 12B base.
-            train_offloader.resume()
-        elif offloader is not None:
-            offloader.teardown()
-        self._preview_offloader = None
-        if state.get("vae_was_meta"):
-            self.vae.to("meta")
-        rest = getattr(self, "_preview_te_rest_device", None) or torch.device("cpu")
-        try:
-            next(self.text_encoder.parameters())
-            if rest.type == "cuda":
-                from rengu_flow.utils.common import empty_cuda_cache
-
-                empty_cuda_cache()
-            self.text_encoder.to(rest)
-        except StopIteration:
-            pass
-        if state.get("transformer_was_training") and self.transformer is not None:
-            self.transformer.train()
-        self._preview_restore_state = None
 
     def generate_preview_image(self, preview_cfg: dict, prompt: str, step: int, seed: int):
         from rengu_flow.model.krea2.preview_sampling import generate_preview_image as _gen
