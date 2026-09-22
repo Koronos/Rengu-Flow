@@ -97,7 +97,10 @@ def load_transformer(path: str | Path, dtype: torch.dtype):
             "diffusers keys or ComfyUI's qwen_image_2.1 keys, e.g. transformer_blocks.0.attn.to_q)."
         )
     state_dict = split_fused_mlp(state_dict)
-    with torch.device("meta"):
+    from accelerate import init_empty_weights
+
+    # include_buffers=False: the rope/timestep freqs are not in the checkpoint and must stay real.
+    with init_empty_weights(include_buffers=False):
         transformer = QwenImage21Transformer2DModel(**_config_kwargs(TRANSFORMER_CONFIG_PATH))
     state_dict = {k: v.to(dtype) for k, v in state_dict.items()}
     transformer.load_state_dict(state_dict, strict=True, assign=True)

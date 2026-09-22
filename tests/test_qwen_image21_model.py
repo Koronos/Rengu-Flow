@@ -610,6 +610,26 @@ def test_split_fused_mlp_matches_comfy_gate_up_layout(tiny_model):
         assert torch.equal(_monolithic(rebuilt, latents, text, mask, t), _monolithic(tiny_model, latents, text, mask, t))
 
 
+def test_single_file_dit_loads_and_runs(tiny_model, tmp_path, monkeypatch):
+    """Regression: the meta-device build left the non-checkpoint rope/timestep freqs on meta."""
+    from safetensors.torch import save_file
+
+    sd = tiny_model.state_dict()
+    comfy = {}
+    for k, v in sd.items():
+        if ".img_mlp.gate_layer." in k:
+            comfy[k.replace(".gate_layer.", ".gate_up.")] = torch.cat([v, sd[k.replace(".gate_layer.", ".proj.")]])
+        elif ".img_mlp.proj." not in k:
+            comfy["model.diffusion_model." + k] = v
+    f = tmp_path / "qwen_image_2.1_bf16.safetensors"
+    save_file({k: v.contiguous() for k, v in comfy.items()}, str(f))
+    monkeypatch.setattr(loading, "_config_kwargs", lambda _path: dict(tiny_model.config))
+    loaded = loading.load_transformer(f, torch.float32).eval()
+    latents, text, mask, t = _batch((5, 3))
+    with torch.no_grad():
+        assert torch.equal(_monolithic(loaded, latents, text, mask, t), _monolithic(tiny_model, latents, text, mask, t))
+
+
 def test_prequantized_dit_is_refused():
     with pytest.raises(ConfigValidationError, match="pre-quantized"):
         loading._guard_not_prequantized({"transformer_blocks.0.attn.to_q.weight": torch.zeros(2, dtype=torch.int8)}, "transformer_path")
