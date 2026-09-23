@@ -90,6 +90,22 @@ def _load_control_tensors(files, dims, resolution: int, multiple: int):
     return tensors, valid
 
 
+def _load_control_images(files, dims, resolution: int, multiple: int) -> list:
+    """PIL control images of one edit row for the text encoder. A corrupt one (already tombstoned
+    by the latent pass, so its row is never sampled) becomes a gray placeholder at the size its
+    header promised instead of aborting the caching run."""
+    from PIL import Image
+
+    images = []
+    for path, (w, h) in zip(files, dims):
+        try:
+            images.append(load_control_image(path, resolution, multiple))
+        except (OSError, SyntaxError) as e:  # UnidentifiedImageError is an OSError subclass
+            print(f"[cache] corrupt control image, placeholder for its text embedding: {path} ({e})", flush=True)
+            images.append(Image.new("RGB", control_size(w, h, resolution, multiple), (127, 127, 127)))
+    return images
+
+
 def _stack_control_slot(tensors: list) -> torch.Tensor:
     """Stack one control slot across a batch; RGB rows get an opaque alpha if any row is RGBA."""
     channels = max(t.shape[0] for t in tensors)
@@ -321,11 +337,10 @@ def _cache_fn(
             # the same helper as the latent pass — or None for a text-to-image row.
             if "control_file" in example:
                 control_images = [
-                    [
-                        load_control_image(p, int(res), control_round_to_multiple)
-                        for p in files
-                    ]
-                    for files, res in zip(example["control_file"], example["control_resolution"])
+                    _load_control_images(files, dims, int(res), control_round_to_multiple)
+                    for files, dims, res in zip(
+                        example["control_file"], example["control_dims"], example["control_resolution"]
+                    )
                 ]
             else:
                 control_images = [None] * len(captions)

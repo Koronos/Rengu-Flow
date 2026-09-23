@@ -87,7 +87,7 @@ class InitialLayer(nn.Module):
                 img_mask = build_t2i_img_mask(text_len, h, w, bs, device=noisy_latents.device)
             else:
                 img_mask, control_latents, control_layout = inputs[4:]
-                grids = control_layout.shape[:-1]
+                grids = control_layout.shape[1:-1]  # (B, h_0, w_0, ..., 0)
                 control_shapes = [(1, grids[i], grids[i + 1]) for i in range(0, len(grids), 2)]
                 hidden = torch.cat([control_latents.to(noisy_latents.dtype), pack_latents(noisy_latents)], dim=1)
                 img_shapes = [[*control_shapes, (1, h, w)]] * bs

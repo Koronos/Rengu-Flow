@@ -99,8 +99,10 @@ def _edit_inputs(inputs: dict, text_len: int, h: int, w: int):
       one slot per 2x2 group of target latents — the reference's ``append_target_slots``.
     - ``control_latents`` ``(B, sum h_i*w_i, 64)``: the N condition latents packed and joined in
       order (they precede the target in the DiT sequence).
-    - ``control_layout``: a zero-storage tensor of shape ``(h_0, w_0, ..., h_{N-1}, w_{N-1}, 0)``
+    - ``control_layout``: a zero-storage tensor of shape ``(B, h_0, w_0, ..., h_{N-1}, w_{N-1}, 0)``
       carrying the per-image latent grids as host shape metadata (the pipe tuple is tensors-only).
+      Batch-major like every other feature: the loader's ``split_batch`` slices dim 0 into
+      micro-batches, which must leave the grids intact.
     """
     keys = sorted(
         (k for k in inputs if k.startswith("control_latents_")), key=lambda k: int(k.rsplit("_", 1)[1])
@@ -134,7 +136,7 @@ def _edit_inputs(inputs: dict, text_len: int, h: int, w: int):
         raise ValueError("qwen_image21: the samples of an edit batch must share one condition-image layout.")
     img_mask = torch.cat([image_pad_mask, torch.ones((bs, h * w // 4), dtype=torch.bool)], dim=1)
     control_latents = torch.cat([pack_latents(c) for c in controls], dim=1)
-    control_layout = control_latents.new_empty((*[d for g in grids for d in g], 0))
+    control_layout = control_latents.new_empty((bs, *[d for g in grids for d in g], 0))
     return img_mask, control_latents, control_layout
 
 

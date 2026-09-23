@@ -314,6 +314,30 @@ def test_cache_variable_dim0_3d_and_1d(tmp_path):
     assert emb_bytes == sum(n * 12 * 32 * 2 for n in lengths)
 
 
+def test_cache_image_pad_mask_is_ragged_like_the_embeddings(tmp_path):
+    """qwen_image21 edit rows: the (L,) image_pad_mask has the embeddings' per-row length. A
+    fixed-width stack refused a row longer than the first and padded a shorter one past its
+    embeddings."""
+    cache = Cache(tmp_path / "te_edit", "fp-pad-mask")
+    lengths = [10, 14, 6]
+    for i, n in enumerate(lengths):
+        pad = torch.zeros(n, dtype=torch.bool)
+        pad[2:6] = True
+        cache.add(
+            {
+                "prompt_embeds": torch.randn(n, 8),
+                "text_mask": torch.ones(n, dtype=torch.bool),
+                "image_pad_mask": pad,
+                "caption": f"c{i}",
+            }
+        )
+    cache.finalize_current_shard()
+    for i, n in enumerate(lengths):
+        assert tuple(cache[i]["image_pad_mask"].shape) == (n,)
+        assert cache[i]["image_pad_mask"].tolist() == [False] * 2 + [True] * 4 + [False] * (n - 6)
+    assert cache.tensor_specs["image_pad_mask"]["ragged"] is True
+
+
 def test_cache_ragged_resume_appends_correctly(tmp_path):
     """Reopen a ragged cache and append more rows: offsets/truncate must keep every row readable."""
     d = tmp_path / "te_resume"

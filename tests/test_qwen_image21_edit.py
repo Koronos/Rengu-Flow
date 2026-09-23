@@ -532,7 +532,7 @@ def test_edit_prepare_inputs_noises_only_the_target_with_the_target_shift():
     # Condition latents are clean, packed in order.
     expected = torch.cat([pack_latents(inputs["control_latents_0"]), pack_latents(inputs["control_latents_1"])], 1)
     assert torch.equal(control_latents, expected)
-    assert layout.shape == (2, 4, 4, 2, 0) and layout.numel() == 0
+    assert layout.shape == (2, 2, 4, 4, 2, 0) and layout.numel() == 0  # (B, grids..., 0)
     # Shift from the target's own sequence length (the reference's latents.shape[1]).
     import math
 
@@ -565,7 +565,7 @@ def test_layout_round_trips_the_model_segments(tiny_model):
     # The model's own prefill structure for the same inputs.
     b, _, h, w = features[0].shape
     hidden = torch.cat([features[5], pack_latents(features[0])], 1)
-    grids = features[6].shape[:-1]
+    grids = features[6].shape[1:-1]
     shapes = [[(1, grids[0], grids[1]), (1, grids[2], grids[3]), (1, h, w)]] * b
     prepared = tiny_model.prepare_inputs(hidden, features[2], features[1].view(-1), shapes, features[4], features[3])
     assert segments == prepared.segments and prefix_len == prepared.prefix_len
@@ -681,7 +681,7 @@ def test_denoise_step_edit_matches_forward_and_kv_cache(tiny_model):
     features, _ = _stub_pipeline().prepare_inputs(inputs)
     noisy, t, text, text_mask, img_mask, controls, layout = features
     b, _, h, w = noisy.shape
-    grids = layout.shape[:-1]
+    grids = layout.shape[1:-1]
     shapes = [[(1, grids[0], grids[1]), (1, grids[2], grids[3]), (1, h, w)]] * b
     target = pack_latents(noisy)
     n = target.shape[1]
@@ -803,3 +803,124 @@ def test_run_previews_passes_control_images_only_to_edit_prompts(monkeypatch):
     cfg = {"prompts": ["a cat", {"prompt": "make it snowy", "control_images": ["x.png"]}]}
     preview_mod._run_cosmos_previews(_Model(), cfg, preview_mod.normalize_preview_prompts(cfg), None, 0)
     assert calls == [("a cat", None), ("make it snowy", ["x.png"])]
+
+
+# ---- dataset -> model seam ------------------------------------------------------------------
+
+SEAM_RES = 320  # smallest bucket whose 4:3 / 3:4 controls stay >= 256x256 at 32-px multiples
+SEAM_Z = 8
+
+
+def _seam_tree(root):
+    """Mixed dataset like the smoke run: t2i (N=0), edit with one square control (N=1), and edit
+    with two controls of distinct aspect ratios (N=2)."""
+
+    def img(path, size, seed):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        g = torch.Generator().manual_seed(seed)
+        Image.fromarray((torch.rand(size[1], size[0], 3, generator=g) * 255).to(torch.uint8).numpy()).save(path)
+
+    for i, stem in enumerate(("a", "b")):
+        img(root / "t2i" / f"{stem}.png", (SEAM_RES, SEAM_RES), i)
+        (root / "t2i" / f"{stem}.txt").write_text(f"t2i {stem}", encoding="utf-8")
+    # Edit captions of different token lengths in one bucket, cached one row at a time: a row
+    # longer than the first one (edit1) and one shorter (edit2) — image_pad_mask must be ragged.
+    for i, (stem, caption) in enumerate((("p", "red"), ("q", "make q a much longer red instruction"))):
+        img(root / "edit1" / "targets" / f"{stem}.png", (SEAM_RES, SEAM_RES), 10 + i)
+        (root / "edit1" / "targets" / f"{stem}.txt").write_text(caption, encoding="utf-8")
+        img(root / "edit1" / "controls" / f"{stem}.png", (SEAM_RES, SEAM_RES), 20 + i)
+    for i, (stem, caption) in enumerate((("u", "merge u with the second image, keep the light"), ("v", "merge"))):
+        img(root / "edit2" / "targets" / f"{stem}.png", (SEAM_RES, SEAM_RES), 30 + i)
+        (root / "edit2" / "targets" / f"{stem}.txt").write_text(caption, encoding="utf-8")
+        img(root / "edit2" / "controls" / f"{stem}_0.png", (400, 300), 40 + i)  # 4:3
+        img(root / "edit2" / "controls" / f"{stem}_1.png", (300, 400), 50 + i)  # 3:4
+
+
+def _seam_pipeline(monkeypatch) -> QwenImage21Pipeline:
+    """The real pipeline (VAE fn, text-encoder fn, prepare_inputs, to_layers) over tiny models:
+    a tiny RGBA 16x VAE, a tiny Qwen3-VL with vision tower and the release processor geometry,
+    and a tiny DiT whose widths match both."""
+    from rengu_flow.model.qwen_image21.vae import AutoencoderKLQwenImage21
+
+    encoder = _tiny_qwen3vl()
+    monkeypatch.setattr(loading, "load_qwen3vl_config", lambda _path: encoder.config)
+    p = _te_pipeline(encoder, [])
+    p.model_config["diffusers_path"] = "unused"
+    p.config["tread"] = None
+    p._init_block_swap_state()
+    torch.manual_seed(0)
+    p.vae = AutoencoderKLQwenImage21(
+        base_dim=8, decoder_base_dim=12, z_dim=SEAM_Z, latents_mean=[0.0] * SEAM_Z, latents_std=[1.0] * SEAM_Z
+    ).eval().requires_grad_(False)
+    p.transformer = QwenImage21Transformer2DModel(
+        in_channels=SEAM_Z,
+        out_channels=SEAM_Z,
+        num_layers=2,
+        attention_head_dim=8,
+        num_attention_heads=2,
+        context_in_dim=encoder.config.text_config.hidden_size,
+        mlp_ratio=3,
+        axes_dims_rope=(2, 2, 4),
+    ).eval()
+    return p
+
+
+@pytest.mark.parametrize("accumulation", [1, 2])
+def test_mixed_dataset_batches_run_through_the_layers(tmp_path, monkeypatch, accumulation):
+    """Every batch of a real mixed dataset (N = 0, 1, 2 with distinct control aspects), cached by
+    the real DatasetManager through the real VAE / text-encoder fns, survives the loader's
+    micro-batch split and runs ``InitialLayer`` -> blocks -> ``FinalLayer``. Regressions: the
+    edit ``control_layout`` had no batch dim, so ``split_batch`` sliced the first control grid
+    (smoke: "img_shapes accounts for 1040 image tokens but image_pad_mask marks 2032"); and the
+    per-row ``image_pad_mask`` was cached as a fixed-width stack, not ragged like the embeddings."""
+    import gc
+
+    from rengu_flow.data.dataset import Dataset
+    from rengu_flow.data.loader import split_batch
+    from rengu_flow.data.manager import DatasetManager
+    from rengu_flow.engine import select_backend
+
+    _seam_tree(tmp_path)
+    gc.collect()
+    p = _seam_pipeline(monkeypatch)
+    cfg = {
+        "resolutions": [SEAM_RES],
+        "enable_ar_bucket": False,
+        "directory": [
+            {"path": str(tmp_path / "t2i"), "num_repeats": 1},
+            *(
+                {
+                    "path": str(tmp_path / name / "targets"),
+                    "control_path": str(tmp_path / name / "controls"),
+                    "num_repeats": 1,
+                }
+                for name in ("edit1", "edit2")
+            ),
+        ],
+    }
+    ds = Dataset(cfg, p, training_config={"cache_root": str(tmp_path / "cache")})
+    manager = DatasetManager(p, backend=select_backend({"engine": "accelerate"}))
+    manager.register(ds)
+    manager.cache(unload_models=False)
+    ds.post_init(0, 1, {None: 2}, 1, {None: 2})
+
+    layers = p.to_layers()
+    seen = set()
+    for i in range(len(ds)):
+        batch = ds[i]
+        grids = tuple(
+            tuple(batch[f"control_latents_{j}"].shape[-2:])
+            for j in range(sum(k.startswith("control_latents_") for k in batch))
+        )
+        seen.add(grids)
+        torch.manual_seed(i)
+        features, label = p.prepare_inputs(batch)
+        for micro_features, (target, _mask) in split_batch((features, label), accumulation):
+            x = micro_features
+            with torch.no_grad():
+                for layer in layers:
+                    x = layer(x)
+            assert x.shape == target.shape and torch.isfinite(x).all()
+
+    square = (SEAM_RES // 16, SEAM_RES // 16)
+    assert seen == {(), (square,), ((256 // 16, 352 // 16), (352 // 16, 256 // 16))}

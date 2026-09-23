@@ -288,3 +288,46 @@ def test_control_resolution_default_follows_each_bucket(tmp_path, overrides, exp
         if c["controls"] is not None and len(c["controls"]) == 1 and c["controls"][0][-1] > c["controls"][0][-2]
     }
     assert vae_sizes == expected
+
+
+def test_dropping_control_path_never_reuses_edit_text_embeddings(tmp_path):
+    """The edit caches (per size bucket, ``cache_*_ctl_*``) sit next to the text-to-image ones and
+    are offered as sibling donors. A t2i row's identity (caption, image) matches the edit row of
+    the same target, so without a filter a directory whose ``control_path`` was removed trained
+    on embeddings encoded WITH its old control images."""
+    _build_tree(tmp_path)
+    d = {"path": str(tmp_path / "edit1" / "targets"), "num_repeats": 1}
+
+    def run(with_control):
+        gc.collect()
+        model = StubPipeline()
+        directory = {**d, "control_path": str(tmp_path / "edit1" / "controls")} if with_control else dict(d)
+        cfg = {"resolutions": [RES], "enable_ar_bucket": False, "directory": [directory]}
+        ds = Dataset(cfg, model, training_config={"cache_root": str(tmp_path / "cache")})
+        manager = DatasetManager(model, backend=select_backend({"engine": "accelerate"}))
+        manager.register(ds)
+        manager.cache(unload_models=False)
+        ds.post_init(0, 1, {None: 2}, 1, {None: 2})
+        return model, [ds[i] for i in range(len(ds))]
+
+    run(True)
+    model, batches = run(False)
+    encoded = sorted(cap for call in model.te_calls for cap in call["captions"] if cap)
+    assert encoded == ["make p red", "make q red", "make r red", "make s red"], encoded
+    for batch in batches:
+        assert not any(k.startswith("control_latents_") for k in batch)
+        # The stub fills each embedding with its row's control-image count: 0 for t2i.
+        assert all(float(e.abs().max()) == 0.0 for e in batch["prompt_embeds"])
+
+
+def test_corrupt_control_is_tombstoned_on_both_passes(tmp_path):
+    """A control whose header reads but whose pixels do not (truncated file) tombstones its row
+    in the latent pass; the text-embedding pass must not abort the whole caching run on it."""
+    _build_tree(tmp_path)
+    ctrl = tmp_path / "edit1" / "controls" / "p.png"
+    ctrl.write_bytes(ctrl.read_bytes()[:60])  # PNG header + IHDR survive, the pixel data does not
+    model, _ds = _cache_and_batches(tmp_path)
+    captions = [c for batch in model.prepared for c in batch["caption"]]
+    assert "make p red" not in captions
+    # q is p's only bucket-mate (a lone row does not fill a batch of 2); the other bucket trains.
+    assert {"make r red", "make s red"} <= set(captions)

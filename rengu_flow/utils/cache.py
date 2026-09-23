@@ -25,8 +25,9 @@ CHECKPOINT_EVERY = 128  # items between resume checkpoints (flush + commit + man
 # length in a flat append-only .bin, with the byte offset in the row's meta — instead of a
 # fixed-width stack padded to the shard's longest caption (which wasted most of the disk and
 # forced O(n^2) whole-file rewrites as longer captions appeared). Fixed-shape tensors (latents)
-# keep the mmap stack layout.
-_SEQUENCE_TENSOR_KEYS = frozenset({"prompt_embeds", "text_mask"})
+# keep the mmap stack layout. ``image_pad_mask`` (qwen_image21 edit rows) is the (L,) vision-slot
+# mask of the prompt, one entry per embedding position.
+_SEQUENCE_TENSOR_KEYS = frozenset({"prompt_embeds", "text_mask", "image_pad_mask"})
 
 
 def _is_sequence_key(key: str, shape) -> bool:

@@ -228,11 +228,17 @@ def _cache_text_embeddings(
     # A text embedding depends only on the caption and the encoder — never on the size bucket —
     # but each bucket keeps its own cache directory. Offer the sibling buckets' caches as donors so
     # adding a resolution copies the embeddings it needs instead of re-encoding every caption.
+    # Edit buckets (``_ctl`` dirs) only donate to edit buckets: a text-to-image row's identity
+    # (caption, image) also matches the edit row of the same target, whose embedding was encoded
+    # with the control images (a directory whose control_path was removed).
     te_prefix = f"text_embeddings_{i}_"
+    is_edit = "_ctl" in Path(cache_dir).name
     sibling_donors = sorted(
         sibling / te_prefix.strip("_")
         for sibling in Path(cache_dir).parent.glob("cache_*")
-        if sibling != Path(cache_dir) and (sibling / te_prefix.strip("_")).is_dir()
+        if sibling != Path(cache_dir)
+        and ("_ctl" in sibling.name) == is_edit
+        and (sibling / te_prefix.strip("_")).is_dir()
     )
     te_dataset = _map_and_cache(
         flattened,
