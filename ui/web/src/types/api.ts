@@ -700,6 +700,82 @@ export interface LocalSettingsPatch {
   ui?: Partial<{ public: boolean; token: string | null }>;
 }
 
+// --- Dataset prep: caption editor ----------------------------------------------
+
+/** `auto` = the trainer's rule: captions.json when the folder has one, else sidecar files. */
+export type CaptionFormat = "sidecar" | "json" | "auto";
+export type CaptionListFilter = "all" | "uncaptioned" | "unpaired";
+
+export interface CaptionControlRef {
+  name: string;
+  /** Signed token for `GET /datasets/preview-image`. */
+  token: string;
+}
+
+export interface CaptionItem {
+  key: string;
+  lines: string[];
+  token: string;
+  /** Paired control images, in order (image 1, image 2, …); empty without a control folder. */
+  controls: CaptionControlRef[];
+  /** Why the target did not pair with its controls, or null. */
+  unpaired: string | null;
+}
+
+export interface CaptionActiveWriter {
+  kind: "job" | "workflow";
+  id: string;
+  stage: string;
+  label: string;
+}
+
+export interface CaptionListResult {
+  path: string;
+  format: "sidecar" | "json";
+  ext: string;
+  control_path: string | null;
+  image_count: number;
+  uncaptioned_count: number;
+  unpaired_count: number;
+  total: number;
+  offset: number;
+  limit: number;
+  /** A prep job or workflow step is writing this folder: saves are refused (409). */
+  read_only: boolean;
+  active: CaptionActiveWriter[];
+  items: CaptionItem[];
+}
+
+export interface CaptionListParams {
+  path: string;
+  format?: CaptionFormat;
+  ext?: string;
+  control_path?: string;
+  q?: string;
+  filter?: CaptionListFilter;
+  limit?: number;
+  offset?: number;
+}
+
+export interface CaptionSaveBody {
+  path: string;
+  key: string;
+  lines: string[];
+  format?: CaptionFormat;
+  ext?: string;
+  /** The lines the editor loaded; the server answers 409 if the file no longer holds them. */
+  expected?: string[] | null;
+  /** Snapshot every caption file of the folder first (a tag-editor backup). */
+  backup?: boolean;
+}
+
+export interface CaptionSaveResult {
+  key: string;
+  lines: string[];
+  written: string[];
+  backup: string | null;
+}
+
 // --- Dataset prep: tag editor -------------------------------------------------
 
 export interface TagEditOpDto {

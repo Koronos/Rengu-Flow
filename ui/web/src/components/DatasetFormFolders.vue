@@ -73,6 +73,7 @@
           :gallery-disabled="item.warning"
           :stats-disabled="item.warning"
           @gallery="openGallery(item)"
+          @captions="reviewCaptions(item)"
           @delete="removeAt(item.index)"
         />
         <DatasetPreviewActions
@@ -82,6 +83,16 @@
           @gallery="openGallery(item)"
           @delete="removeAt(item.index)"
         >
+          <el-tooltip content="Review captions" :show-after="300">
+            <el-button
+              size="small"
+              circle
+              :icon="Document"
+              :disabled="item.warning"
+              v-bind="ariaLabel(`Review captions of ${item.title}`)"
+              @click="reviewCaptions(item)"
+            />
+          </el-tooltip>
           <DatasetFolderDetailsButton
             :path="item.dir?.path || ''"
             :disabled="item.warning"
@@ -114,7 +125,10 @@
 import { computed, ref } from "vue";
 import { storeToRefs } from "pinia";
 import { ElMessageBox } from "element-plus";
-import { Plus, Search } from "@element-plus/icons-vue";
+import { Document, Plus, Search } from "@element-plus/icons-vue";
+import { useRouter } from "vue-router";
+import { ariaLabel } from "../lib/aria";
+import { captionEditorLocation } from "../lib/captionEditor";
 import DatasetDirectoryOverflowMenu from "./DatasetDirectoryOverflowMenu.vue";
 import DatasetFolderDialog from "./DatasetFolderDialog.vue";
 import DatasetFolderDetailsButton from "./DatasetFolderDetailsButton.vue";
@@ -144,6 +158,7 @@ type FolderPreviewItem = DatasetPreviewItem & {
 };
 
 const editor = useDatasetEditorStore();
+const router = useRouter();
 const { form, schema, uiNotes, content } = storeToRefs(editor);
 const { viewMode } = useDatasetViewMode(DATASET_DIRECTORY_VIEW_KEY);
 const { showFromContent } = useDatasetGalleryStore();
@@ -224,6 +239,21 @@ function openGallery(item: FolderPreviewItem) {
     content: content.value,
     directoryIndex: item.index,
   });
+}
+
+/**
+ * The caption editor on this directory (and its control folder, for an edit dataset). A new tab:
+ * the dataset form is a modal whose unsaved edits a navigation would drop. `auto` reads captions
+ * the way the trainer does (captions.json when present, else .txt sidecars).
+ */
+function reviewCaptions(item: FolderPreviewItem) {
+  const path = (item.dir.path || "").trim();
+  if (!path) return;
+  const controlPath = typeof item.dir.control_path === "string" ? item.dir.control_path.trim() : "";
+  const href = router.resolve(
+    captionEditorLocation({ path, control_path: controlPath, format: "auto" })
+  ).href;
+  window.open(href, "_blank", "noopener");
 }
 
 function openAdd() {

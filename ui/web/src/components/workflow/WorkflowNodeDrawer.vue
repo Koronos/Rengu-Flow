@@ -335,6 +335,16 @@
             </div>
           </dl>
 
+          <!-- Prep writes in place: the emitted folder is the one whose captions this step wrote. -->
+          <el-card v-if="captionReviewHref" shadow="never" class="node-drawer__queued">
+            <a :href="captionReviewHref" target="_blank" rel="noopener" class="node-drawer__link">
+              Review captions &rarr;
+            </a>
+            <el-text size="small" type="info" class="node-drawer__hint">
+              Opens the caption editor on this folder in a new tab, controls beside each target.
+            </el-text>
+          </el-card>
+
           <el-card v-if="queuedJobId != null" shadow="never" class="node-drawer__queued">
             <router-link :to="`/runs/jobs/${queuedJobId}`" class="node-drawer__link">
               Queued run #{{ queuedJobId }} &rarr;
@@ -431,6 +441,7 @@ import { computed, ref, watch } from "vue";
 import type { PropType } from "vue";
 import { CaretRight, Close, MoreFilled } from "@element-plus/icons-vue";
 import { ElMessage, ElMessageBox } from "element-plus";
+import { useRouter } from "vue-router";
 
 import NodeRuntimeFields from "./nodeforms/NodeRuntimeFields.vue";
 import FolderNodeForm from "./nodeforms/FolderNodeForm.vue";
@@ -449,6 +460,7 @@ import PathValidationFeedback from "../PathValidationFeedback.vue";
 
 import { api } from "../../api";
 import { ariaLabel } from "../../lib/aria";
+import { captionEditorLocation } from "../../lib/captionEditor";
 import { formatError } from "../../lib/formatError";
 import { ordinalGlyph, ordinals } from "../../lib/workflowGraph";
 import {
@@ -705,6 +717,25 @@ const summaryEditCaptionForm = computed(() => ({
   ...editCaptionForm.value,
   control_path: inputHandle.value?.control_path || editCaptionForm.value.control_path,
 }));
+
+const router = useRouter();
+
+/** Caption editor link once a caption/edit_caption step has actually run (its output is saved). */
+const captionReviewHref = computed(() => {
+  const handle = outputHandle.value;
+  if (!handle?.path || !outputIsSaved.value) return "";
+  if (prepStage.value !== "caption" && prepStage.value !== "edit_caption") return "";
+  const controlPath =
+    prepStage.value === "edit_caption" ? summaryEditCaptionForm.value.control_path : handle.control_path ?? "";
+  return router.resolve(
+    captionEditorLocation({
+      path: handle.path,
+      control_path: controlPath,
+      format: handle.caption_format === "json" ? "json" : "sidecar",
+      ext: handle.caption_ext,
+    })
+  ).href;
+});
 
 const queuedJobId = computed(() => {
   const result = nodeState.value?.result;

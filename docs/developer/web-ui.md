@@ -17,6 +17,8 @@ User guide: **`docs/user/web-ui.md`**.
 | `rengu_flow_ui/datasets_store.py` | Dataset CRUD (via library_db), `compose_datasets()`, picker refs |
 | `rengu_flow_ui/dataset_scan.py` | `scan_folder()`, `preview_dataset_config()` for UI previews |
 | `rengu_flow_ui/dataset_image_preview.py` | Signed tokens, list/serve images under `[[directory]]` paths |
+| `rengu_flow_ui/prep_routes.py` | Studio routes: prep jobs, tag-editor sessions, backups/quarantine, caption editor |
+| `rengu_flow_ui/caption_review.py` | Caption editor: stateless per-folder listing (`list_captions`), one-image save (`save_caption`), `active_writers()` (running prep jobs / workflow prep steps on a folder) |
 | `rengu_flow_ui/dataset_schema.py` | Dataset form schema (`get_dataset_schema`) |
 | `rengu_flow_ui/dataset_form.py` | Parse/render dataset TOML ↔ form (`_directories` rows) |
 | `rengu_flow_ui/config_schema.py` | Training form schema (`get_schema`), model capabilities |
@@ -68,11 +70,30 @@ Authentication: optional `RENGU_FLOW_UI_TOKEN` middleware checks `X-Rengu-Flow-T
 | `/datasets`, `/datasets/{id}`, `/datasets/schema`, `/datasets/compose`, `/datasets/preview`, `/datasets/preview-images`, `/datasets/preview-image`, `/datasets/scan-path` | Dataset TOML library, merge, folder scan, image gallery |
 | `/jobs`, `/jobs/{id}`, `/jobs/import`, `/jobs/import/preview`, `/jobs/import/candidates`, `/jobs/{id}/queue/*`, `/jobs/{id}/logs`, `/jobs/{id}/metrics` | Job queue, launch, import script runs, tail logs |
 | `/runs`, `/runs/{name}`, `/runs/{name}/signals`, `/runs/{name}/metrics` | Filesystem runs (no DB) |
+| `/prep/captions` (GET), `/prep/captions/save` (POST) | Caption editor (`CaptionEditorView`, route `/prep/captions?path=&control_path=&format=&ext=`): list one page of a folder's captions with preview tokens and paired controls; save one image. See below |
 | `/docs?path=...` | Markdown for help drawer (repo-relative under `docs/`) |
 | `/registry/probe` | Optimizer/scheduler import probe |
 | `/system/stats` | Host metrics for header bar |
 | `/tensorboard/status`, `/tensorboard/start`, `/tensorboard/stop` | Local TensorBoard subprocess (`uv`, `--logdir=<output_dir>`) |
 | `/health` | Liveness for `start-ui.sh` browser open |
+
+### Caption editor routes
+
+Both go through `rengu_flow.prep.caption_store` (`CaptionStore.open(..., control_path=...)`), so
+`format` (`sidecar` \| `json` \| `auto` = captions.json when present) and `ext` mean what they mean
+for the prep stages. No server-side session: every call re-opens the folder.
+
+| Route | Parameters | Result / errors |
+|---|---|---|
+| `GET /prep/captions` | `path`, `format`, `ext`, `control_path`, `q` (substring over lines and file name), `filter` (`all` \| `uncaptioned` \| `unpaired`), `limit` (≤ 200), `offset` | `items[]` (`key`, all `lines`, preview `token`, `controls[]` in order with tokens, `unpaired` reason), folder-wide counts, `total` after the filter, `read_only` + `active[]`. 404 missing folder/control folder, 400 bad filter/extension |
+| `POST /prep/captions/save` | `path`, `key`, `lines`, `format`, `ext`, `expected` (the loaded lines), `backup` | `lines` as written, `written`, `backup` (snapshot name or null). 404 when `key` is not an image of the folder (no `../`, no subfolders — the key must be one the store discovered), 400 unsafe `ext` (one plain suffix only), 409 when a prep job/workflow prep step is writing the folder or the caption on disk differs from `expected` |
+
+Images are served by the existing signed `GET /datasets/preview-image?t=…` tokens, scoped to the
+target folder and the control folder. `active_writers()` matches the folder against the `path` of
+running/stopping prep jobs (`config_content`) and of active workflow nodes' `prep.toml` in their
+node directory (workflow steps have no job row). Frontend: `ui/web/src/composables/useCaptionEditor.ts`
+(autosave-before-leave, cross-page navigation) and `ui/web/src/lib/captionEditor.ts` (pure helpers,
+route query); tests `tests/test_prep_caption_review.py`, `useCaptionEditor.test.ts`, `captionEditor.test.ts`.
 
 ## Config staging
 

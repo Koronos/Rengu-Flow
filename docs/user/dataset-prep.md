@@ -254,9 +254,9 @@ unless `overwrite` is on, so a stopped job resumes where it left off. Both capti
 > **Review the output before training on it.** VLMs describing the difference between two images
 > hallucinate: they name changes that are not there, miss the real one, or describe the whole
 > picture instead of the edit (EditCaption, [arXiv 2604.08213](https://arxiv.org/abs/2604.08213)).
-> Open the target folder in Studio → Tag editor (its grid shows each image's line 1 next to the
-> thumbnail) and fix the wrong ones in their `.txt` (or `captions.json`) — a wrong instruction
-> teaches the wrong edit. There is no per-image text editor in the UI yet.
+> Finished jobs have a **Review captions** button in Studio that opens the
+> [caption editor](#caption-editor-web-ui--studio--caption-editor) on the target folder with its
+> controls beside each target: fix the wrong ones there — a wrong instruction teaches the wrong edit.
 
 **Models** (llama.cpp GGUF, same auto-install as ToriiGate's `gguf` engine below: the pinned
 Vulkan binary plus the weights, downloaded to the Hugging Face cache on first use):
@@ -400,7 +400,7 @@ output_dir = ""                 # empty = <path>/cleaned
 
 Bulk tag operations over a whole folder with a **staged → diff → commit** safety
 model: nothing touches disk until you commit, and every commit first snapshots all
-caption files to `<dataset>/.rengu_prep/backups/<timestamp>/` (one-click restore).
+caption files to `<data_dir>/prep/<folder-id>/backups/<timestamp>/` (one-click restore).
 
 - **Filters**: has all / has any / lacks — combine to select images.
 - **Ops**: add tags (start/end), remove, rename (deduping), prune low-frequency tags,
@@ -412,6 +412,40 @@ caption files to `<dataset>/.rengu_prep/backups/<timestamp>/` (one-click restore
   heuristically and left alone under "tag lines"; the diff preview is the final
   safety net before commit.
 - Undo pops staged ops; closing the session without commit discards everything.
+
+## Caption editor (web UI → Studio → Caption editor)
+
+Per-image review and editing of captions — the counterpart of the tag editor's bulk ops. Made for
+checking what the captioning stages wrote, above all the edit instructions of `edit_caption`: for an
+edit dataset each target is shown **next to its control images, in order** (*Image 1 (source)*,
+*Image 2 (source)*, …, or a single *Control*), so a hallucinated instruction is easy to spot.
+
+Open it from:
+
+| Where | What it opens |
+|---|---|
+| Studio → **Caption editor** | An empty form: dataset folder, optional control folder, caption format and extension |
+| Studio job list → **Review captions** (finished/stopped `caption` and `edit_caption` jobs) | The job's folder, caption layout and (edit jobs) control folder |
+| Dataset form → a directory's **Review captions** (row button, or the ⋯ menu in card view) | That `[[directory]]` and its `control_path`, in a new tab; the format is **Auto** (captions.json when the folder has one, else `.txt` sidecars — the trainer's rule) |
+| Workflow step drawer → Output → **Review captions** (Captioning / Edit instructions steps that ran) | The step's folder, layout and control folder, in a new tab |
+
+- **Editing:** the text box holds the whole caption, **one variant per line** (line 1 is what an
+  edit dataset trains on). Blank lines are dropped on save, as the trainer drops them when it reads.
+  Saving an empty caption deletes the sidecar (or empties the image's `captions.json` entry).
+- **Saving:** *Save* or **Ctrl+Enter** saves now; moving to another image, page, search or filter
+  **autosaves** first. An unsaved draft is flagged (*Unsaved changes*, and a dot on the list row);
+  if a save fails you stay on the image with your text intact.
+- **Backup:** the first save after opening a folder snapshots every caption file first — the same
+  backups as the tag editor, restorable from Tag editor → **Backups**.
+- **Conflicts:** a save is refused if the caption on disk changed since it was loaded (another tab,
+  a job that finished meanwhile). *Reload from disk* discards your edit and shows the current text.
+- **Keyboard:** **Alt+↑ / Alt+↓** previous/next image (anywhere; plain ↑/↓ outside the text box),
+  crossing pages; **Ctrl+Enter** saves.
+- **Finding images:** search (case-insensitive, over every caption line and the file name) and the
+  filters **No caption** and **Unpaired** (targets that do not pair with the control folder, with the
+  reason). The list is paginated (60 per page), so large folders stay responsive.
+- **Read-only while a job runs:** when a prep job — or a workflow's prep step — is writing the
+  folder, the editor says so and refuses saves until it finishes (*Check again* reloads).
 
 ## Stopping jobs
 

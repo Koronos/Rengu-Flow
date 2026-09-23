@@ -9,6 +9,7 @@ from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from rengu_flow.prep.caption_store import CaptionStore
+from rengu_flow_ui import caption_review
 from rengu_flow_ui._http_util import http_errors
 from rengu_flow_ui.dataset_image_preview import issue_image_token
 from rengu_flow_ui.tag_sessions import TagSessionStore
@@ -59,6 +60,17 @@ class RestoreBackupBody(BaseModel):
 class RestoreQuarantineBody(BaseModel):
     path: str
     batch: str
+
+
+class SaveCaptionBody(BaseModel):
+    path: str
+    key: str
+    lines: list[str] = Field(default_factory=list)
+    format: str = "sidecar"
+    ext: str = ".txt"
+    # The lines the editor loaded; a different caption on disk is a 409, not an overwrite.
+    expected: list[str] | None = None
+    backup: bool = False  # snapshot every caption file first (the editor asks once per folder)
 
 
 class CreatePrepJobBody(BaseModel):
@@ -325,6 +337,37 @@ def register_prep_routes(app: FastAPI) -> None:
     def tag_session_close(session_id: str):
         tag_sessions.close(session_id)
         return {"ok": True}
+
+    # --- caption editor: per-image review/edit (rengu_flow_ui/caption_review.py) ---
+    @app.get(f"{API_PREFIX}/prep/captions")
+    def prep_captions_list(
+        path: str = Query(...),
+        format: str = Query("sidecar"),
+        ext: str = Query(".txt"),
+        control_path: str = Query(""),
+        q: str = Query(""),
+        filter: str = Query("all"),
+        limit: int = Query(60, ge=1, le=caption_review.MAX_PAGE_SIZE),
+        offset: int = Query(0, ge=0),
+    ):
+        with _prep_http_errors():
+            return caption_review.list_captions(
+                path, fmt=format, ext=ext, control_path=control_path or None,
+                q=q, filter=filter, limit=limit, offset=offset,
+            )
+
+    @app.post(f"{API_PREFIX}/prep/captions/save")
+    def prep_captions_save(body: SaveCaptionBody):
+        with http_errors("Image not found in this folder"):
+            try:
+                return caption_review.save_caption(
+                    body.path, body.key, body.lines, fmt=body.format, ext=body.ext,
+                    expected=body.expected, backup=body.backup,
+                )
+            except FileNotFoundError as e:
+                raise HTTPException(404, str(e))
+            except (caption_review.FolderBusyError, caption_review.CaptionConflictError) as e:
+                raise HTTPException(409, str(e))
 
     @app.get(f"{API_PREFIX}/prep/tags/backups")
     def tag_backups(path: str = Query(...)):

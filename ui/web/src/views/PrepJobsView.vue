@@ -22,6 +22,7 @@
         <el-button :icon="Filter" @click="goNewJob('quality')">New quality job</el-button>
         <el-button :icon="Files" @click="goNewJob('index')">New index job</el-button>
         <el-button :icon="Edit" @click="$router.push('/prep/tags')">Tag editor</el-button>
+        <el-button :icon="Document" @click="$router.push('/prep/captions')">Caption editor</el-button>
         <el-button @click="$router.push('/prep/quality')">Quality index</el-button>
       </el-space>
     </div>
@@ -98,6 +99,17 @@
                 :icon="CopyDocument"
                 @click.stop="cloneJob(job)"
               >New from this</el-button>
+            </el-tooltip>
+            <el-tooltip
+              v-if="isTerminal(job) && canReviewCaptions(job)"
+              content="Review and fix the captions this job wrote, image by image"
+              :show-after="300"
+            >
+              <el-button
+                size="small"
+                :icon="View"
+                @click.stop="reviewCaptions(job)"
+              >Review captions</el-button>
             </el-tooltip>
             <el-tooltip content="Create a training dataset from this folder" :show-after="300">
               <el-button
@@ -198,6 +210,7 @@ import {
   EditPen,
   CopyDocument,
   Delete,
+  Document,
   Edit,
   Files,
   Filter,
@@ -206,12 +219,14 @@ import {
   RefreshRight,
   VideoPause,
   VideoPlay,
+  View,
 } from "@element-plus/icons-vue";
 import { api } from "../api";
 import PrepJobLivePanel from "../components/PrepJobLivePanel.vue";
 import { useBreakpoint } from "../composables/useBreakpoint";
 import { useDatasetFormModalStore } from "../stores/datasetFormModal";
 import { useJobsEvents } from "../composables/useJobsEvents";
+import { captionEditorLocation } from "../lib/captionEditor";
 import { formatError } from "../lib/formatError";
 import { runStateTag as stateTag } from "../lib/runState";
 import { DEFAULT_DATASET_TOML } from "../stores/datasetEditor";
@@ -464,6 +479,31 @@ async function openDatasetFromJob(job: JobRecord): Promise<void> {
     folder = datasetPathFromConfig(job.config_content);
   }
   modal.openCreate({ initialToml: buildDatasetToml(folder || "") });
+}
+
+function canReviewCaptions(job: JobRecord): boolean {
+  const stage = jobStage(job);
+  return stage === "caption" || stage === "edit_caption";
+}
+
+/** Open the caption editor on the job's folder, with its layout and (edit jobs) its controls. */
+async function reviewCaptions(job: JobRecord): Promise<void> {
+  try {
+    const { config } = await api.prepJobConfig(String(job.id));
+    const editSection = (config.edit_caption ?? {}) as Record<string, unknown>;
+    const path = String(config.path ?? "") || datasetPathFromConfig(job.config_content);
+    if (!path) throw new Error("This job's config names no dataset folder");
+    await router.push(
+      captionEditorLocation({
+        path,
+        control_path: String(editSection.control_path ?? ""),
+        format: config.caption_format === "json" ? "json" : "sidecar",
+        ext: String(config.caption_ext ?? ".txt"),
+      })
+    );
+  } catch (e) {
+    ElMessage.error(formatError(e));
+  }
 }
 
 function goNewJob(stage: PrepStage): void {

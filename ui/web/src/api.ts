@@ -113,6 +113,10 @@ import type {
   TagDiffResult,
   TagEditOpDto,
   TagQueryResult,
+  CaptionListParams,
+  CaptionListResult,
+  CaptionSaveBody,
+  CaptionSaveResult,
   TagSessionSummary,
   TagStatsResult,
   VersionInfo,
@@ -570,6 +574,24 @@ export const api = {
     request<LocalSettings>("/settings", {
       method: "PUT",
       body: JSON.stringify(patch),
+    }),
+
+  // --- Dataset prep: caption editor ---
+
+  /** One page of a folder's captions (every line), with each target's controls in an edit set. */
+  prepCaptions: (params: CaptionListParams) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) {
+      if (v !== undefined && v !== null && v !== "") qs.set(k, String(v));
+    }
+    return request<CaptionListResult>(`/prep/captions?${qs.toString()}`);
+  },
+
+  /** Write one image's caption lines (409 if a prep run is writing the folder, or on conflict). */
+  prepSaveCaption: (body: CaptionSaveBody) =>
+    request<CaptionSaveResult>("/prep/captions/save", {
+      method: "POST",
+      body: JSON.stringify(body),
     }),
 
   // --- Dataset prep: tag editor ---

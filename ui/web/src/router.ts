@@ -48,6 +48,12 @@ const router = createRouter({
     },
     { path: "/prep/tags", name: "prep-tags", component: () => import("./views/TagEditorView.vue") },
     {
+      // ?path=&control_path=&format=&ext= (lib/captionEditor.ts builds and parses it)
+      path: "/prep/captions",
+      name: "prep-captions",
+      component: () => import("./views/CaptionEditorView.vue"),
+    },
+    {
       path: "/prep/quality",
       name: "prep-quality-index",
       component: () => import("./views/QualityIndexView.vue"),

@@ -17,6 +17,12 @@
               <span>Image gallery</span>
             </span>
           </el-dropdown-item>
+          <el-dropdown-item command="captions" :disabled="galleryDisabled">
+            <span class="rf-dropdown-item-label">
+              <el-icon><Document /></el-icon>
+              <span>Review captions</span>
+            </span>
+          </el-dropdown-item>
           <el-dropdown-item command="stats" :disabled="statsDisabled">
             <span class="rf-dropdown-item-label">
               <el-icon><DataAnalysis /></el-icon>
@@ -54,7 +60,7 @@
 
 <script setup lang="ts">
 import { computed, ref, shallowRef } from "vue";
-import { DataAnalysis, Delete, MoreFilled, Picture } from "@element-plus/icons-vue";
+import { DataAnalysis, Delete, Document, MoreFilled, Picture } from "@element-plus/icons-vue";
 import DatasetFolderStatsPanel from "./DatasetFolderStatsPanel.vue";
 import { useDatasetFolderStats } from "../composables/useDatasetFolderStats";
 
@@ -67,6 +73,7 @@ const props = defineProps({
 
 const emit = defineEmits<{
   gallery: [];
+  captions: [];
   delete: [];
 }>();
 
@@ -82,6 +89,7 @@ const virtualTrigger = computed<Record<string, unknown>>(() => ({
 
 function onCommand(command: string | number) {
   if (command === "gallery") emit("gallery");
+  else if (command === "captions" && !props.galleryDisabled) emit("captions");
   else if (command === "delete") emit("delete");
   else if (command === "stats" && !props.statsDisabled) {
     statsVisible.value = true;
