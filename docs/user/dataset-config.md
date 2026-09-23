@@ -40,7 +40,8 @@ Use **`[[directory]]`** (array of tables). Each entry must have:
 |-----|-------------|--------|---------|
 | **`directory_caption`** | Single string used for captions in this directory. **When an image has no caption** (no `.txt` or `captions.json` entry): used as the full caption. **When an image has a caption**: prepended as a prefix (e.g. `"style: "` + image caption). | Any string. Use `""` (or omit) for no prefix / no fallback. | `""` |
 | **`mask_path`** | Folder of per-image **mask** files paired with images in **`path`** (see [Masks and control images](#masks-and-control-images-optional-paired-folders)). | Absolute or relative path string; omit if unused. | Not set. |
-| **`control_path`** | Folder of per-image **control/source** images paired with images in **`path`** for edit-style training (see [Masks and control images](#masks-and-control-images-optional-paired-folders)). **Not** for SD ControlNet-style adapters. | Absolute or relative path string; omit for normal image+caption training. | Not set. |
+| **`control_path`** | Folder of per-image **control/condition** images paired with images in **`path`** for **edit training** (see [Control images](#control-images-control_path-edit-training)). **Not** for SD ControlNet-style adapters. | Absolute or relative path string; omit for normal image+caption training. | Not set. |
+| **`control_resolution`** | Edit training only: size of each control image, as the side of its target **area** (`area = control_resolution²`). Each control keeps its own aspect ratio. Per `[[directory]]` only. | Integer > 0, e.g. `1024`. | The resolution of the bucket the target lands in (e.g. `1024` for `resolutions = [1024]`). |
 | **`default_mask_file`** | Single mask file used for all images when no per-image mask is found in **`mask_path`**. | Path to a file, or omit. | Not set. |
 | **`resolutions`** | Override global resolutions for this directory only. | List of numbers, e.g. `[512, 768, 1024]`. | From global `resolutions`. |
 | **`frame_buckets`** | Override global frame counts (1 = image, &gt;1 = video). | List of integers, e.g. `[1]` or `[1, 16, 24]`. | From global `frame_buckets`. |
@@ -97,7 +98,7 @@ These keys are **independent folder paths**. They are not joined automatically �
 ```text
 my_dataset/
   targets/     ← path
-  sources/     ← control_path (optional)
+  controls/    ← control_path (optional, edit training)
   masks/       ← mask_path (optional)
 ```
 
@@ -109,29 +110,38 @@ Use these only when your training recipe needs extra files per image. For standa
 
 Optional grayscale masks for loss weighting or masked training. Each mask is matched to an image in **`path`** by **base filename** (stem): `targets/photo.png` looks for `masks/photo.png`, `masks/photo.jpg`, etc. The extension may differ. If **`mask_path`** is set but an image has no matching file, training continues **without** a mask for that image (a warning is logged). **`default_mask_file`** is a single fallback mask used when no per-image match exists.
 
-#### Control images (`control_path`)
+#### Control images (`control_path`, edit training)
 
-Optional **paired source/control images** for edit-style datasets (target image in **`path`**, control image in **`control_path`**). This is **not** the same as loading a ControlNet adapter in the model config — it is a dataset pairing used when the model pipeline expects a control image alongside each target during caching.
+Setting **`control_path`** turns a folder into an **edit dataset**: each target image in **`path`** is paired with one or more **condition (control) images** in **`control_path`**, and the model learns to produce the target from the controls plus an instruction. This is **not** the same as loading a ControlNet adapter in the model config. Only models that support edit training use the controls (today: `qwen_image21`, see [Qwen-Image 2.1 training](training-qwen-image21.md)); omit **`control_path`** for normal image+caption runs.
 
-- **When to set:** only when your model recipe documents paired control+target training. Omit for normal image+caption runs.
-- **Pairing:** same rule as masks — match by stem. `targets/0001.png` requires `sources/0001.png` (or `0001.jpg`, etc.) inside **`control_path`**.
-- **Strict:** if **`control_path`** is set, **every** image in **`path`** must have a matching control file; missing pairs raise an error at metadata build time.
+- **The caption is the instruction.** The target's `.txt` (or `captions.json` entry) holds the **edit instruction** ("make the sky red", "put the person from image 1 in the room of image 2"). Captions follow the same rules as any folder (one per line, `directory_caption`, caption variants).
+- **Pairing — one control:** `targets/0001.png` → `controls/0001.<ext>`. The extension may differ; the stem must match.
+- **Pairing — several controls:** `targets/0001.png` → `controls/0001_0.<ext>`, `controls/0001_1.<ext>`, … They are used **in numeric order** (`_2` before `_10`) and must be numbered **from 0 without gaps**. Every target of the folder may have a different number of controls.
+- **Strict:** every image in **`path`** must have its controls. A missing control, a gap in the numbering (`_0`, `_2`), both forms at once (`0001.png` **and** `0001_0.png`), or two files for the same slot (`0001.png` and `0001.jpg`) is an error. The pre-training checks (`rengu validate`, the start of `rengu train`, the UI's validation) report it before any model loads; the cache build rejects it too.
+- **Size of each control:** controls are **not** cropped to the target's bucket. Each one keeps its **own aspect ratio** and is resized to the area `control_resolution²`, rounded **down** to the model's pixel multiple (32 for `qwen_image21`). By default `control_resolution` is the resolution of the bucket the target lands in, so a 1024 run conditions on ~1024² controls; set it lower to save memory and sequence length (e.g. `control_resolution = 768`).
+- **Mixed runs:** a dataset may mix folders **with** and **without** `control_path` — that trains text-to-image and edit together. Batches are never mixed: each batch holds only text-to-image rows, or only edit rows whose controls have the same count and sizes.
+- **Not supported on an edit folder:** [augmentation](dataset-augmentation.md) (the controls would not receive the same flip/crop as the target) and `uncond_fraction > 0` (the empty-caption embedding carries no control images). Both are rejected with a clear error. Video files are not supported in edit folders.
+- **Cache:** replacing or editing a control file (new size or modification time) re-encodes that row's latents and text embeddings on the next run; the rest of the cache is reused.
 - **Relation to masks:** independent. You can use masks only, control images only, both, or neither.
 
 Example:
 
 ```toml
 [[directory]]
-path = "datasets/edit_set/targets"
-control_path = "datasets/edit_set/sources"
+path = "datasets/edit_set/targets"      # target image + .txt with the edit instruction
+control_path = "datasets/edit_set/controls"
+control_resolution = 1024               # optional; default = the bucket resolution
 num_repeats = 1
 ```
 
 ```text
-targets/0001.png  ← train on this
-sources/0001.png  ← paired control image (same stem)
-targets/0002.jpg
-sources/0002.png  ← extension can differ; stem must match
+targets/0001.png   ← target (what the model should produce)
+targets/0001.txt   ← "make the car blue"
+controls/0001.jpg  ← its single control image (extension can differ)
+targets/0002.png
+targets/0002.txt   ← "put the dog from the first image on the sofa of the second"
+controls/0002_0.png  ← control #0
+controls/0002_1.png  ← control #1 (own aspect ratio; sized independently)
 ```
 
 ### Captions: `.txt` vs `captions.json`

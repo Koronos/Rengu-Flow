@@ -9,6 +9,8 @@ WHEN_COSMOS_PREVIEW = {"field": "model.type", "in": ["cosmos_predict2"]}
 # offload_text_encoder_after_encode exist on both pipelines); dit-for-decode stays
 # cosmos-only — the krea2 / qwen_image21 previews never read it.
 WHEN_DIT_PREVIEW = {"field": "model.type", "in": ["cosmos_predict2", "krea2", "qwen_image21"]}
+# Edit previews (condition images per prompt): only qwen_image21 renders them.
+WHEN_EDIT_PREVIEW = {"field": "model.type", "in": ["qwen_image21"]}
 
 
 def _entry_field(
@@ -69,6 +71,19 @@ def get_preview_entry_fields() -> list[dict[str, Any]]:
             "string",
             description="Overrides the global negative prompt for this preview only.",
         ),
+        _entry_field(
+            "control_images",
+            "Condition images (edit preview)",
+            "string_list",
+            when=WHEN_EDIT_PREVIEW,
+            placeholder="path/to/source.png",
+            description=(
+                "Image paths to edit: the prompt becomes the edit instruction and the preview edits "
+                "these images (in order) instead of generating from text. Each is resized like a "
+                "training control image (own aspect, area preview.control_resolution²); the output "
+                "keeps the last image's aspect at the width × height area."
+            ),
+        ),
         _entry_field("width", "Width", "integer", min_value=1),
         _entry_field("height", "Height", "integer", min_value=1),
         _entry_field("num_inference_steps", "Inference steps", "integer", min_value=1),
@@ -114,6 +129,7 @@ PREVIEW_GLOBAL_PATHS: frozenset[str] = frozenset(
         "preview.negative_prompt",
         "preview.width",
         "preview.height",
+        "preview.control_resolution",
         "preview.num_inference_steps",
         "preview.guidance_scale",
         "preview.seed",

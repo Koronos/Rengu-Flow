@@ -16,6 +16,7 @@ export type PreviewEntryTable = {
   preview_offload_text_encoder?: boolean;
   preview_blocks_to_swap?: number;
   preview_save_png?: boolean;
+  control_images?: string[];
   [key: string]: unknown;
 };
 
@@ -34,6 +35,7 @@ const ENTRY_OVERRIDE_KEYS: (keyof PreviewEntryTable)[] = [
   "preview_offload_text_encoder",
   "preview_blocks_to_swap",
   "preview_save_png",
+  "control_images",
 ];
 
 export function normalizePreviewEntries(raw: unknown): PreviewEntry[] {
@@ -76,7 +78,7 @@ export function countPreviewEntryOverrides(entry: PreviewEntry): number {
   let n = 0;
   for (const key of ENTRY_OVERRIDE_KEYS) {
     const v = entry[key];
-    if (v !== undefined && v !== null && v !== "") n += 1;
+    if (!isEmptyValue(v)) n += 1;
   }
   return n;
 }
@@ -108,7 +110,7 @@ export function duplicatePreviewEntry(entry: PreviewEntry): PreviewEntry {
 }
 
 function isEmptyValue(v: unknown): boolean {
-  return v === undefined || v === null || v === "";
+  return v === undefined || v === null || v === "" || (Array.isArray(v) && v.length === 0);
 }
 
 export function serializePreviewEntry(draft: PreviewEntryTable): PreviewEntry {

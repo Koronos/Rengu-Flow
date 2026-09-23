@@ -8,12 +8,9 @@ modulation shared by every block, a **Qwen3-VL-8B** text encoder and a new **RGB
 
 - `type = "qwen_image21"`
 
-Rengu trains it **text-to-image**: LoRA, LoKr, every LyCORIS type, and full finetune of the
-DiT. The VAE and the text encoder are always frozen.
-
-> **Not supported:** image-conditioned (edit) training — the reference pipeline's condition
-> images, which the text encoder reads as vision context and the DiT receives as extra latent
-> blocks. Every training sample is a caption plus its target image.
+Rengu trains it **text-to-image** and **image editing** (image-conditioned, see
+[Image editing](#image-editing-edit-training)), also mixed in one run: LoRA, LoKr, every LyCORIS
+type, and full finetune of the DiT. The VAE and the text encoder are always frozen.
 
 ## Getting the checkpoint
 
@@ -180,8 +177,10 @@ supported for this model.
 
 ## Text encoder and the embedding cache
 
-Captions are encoded once with Qwen3-VL-8B (only its text decoder is loaded; t2i never runs the
-vision tower) and cached; training steps never touch the encoder. The encoder follows the
+Captions are encoded once with Qwen3-VL-8B (only its text decoder is loaded for text-to-image
+captions; the vision tower is added only for edit captions, see
+[Image editing](#image-editing-edit-training)) and cached; training steps never touch the
+encoder. The encoder follows the
 reference pipeline exactly: the raw t2i chat template with the system prompt *"Comprehend and
 analyze the provided prompt."*, left padding within an encoding batch, the hidden state that
 enters the decoder's final RMSNorm, and the 14 system-prompt tokens dropped. Each cached caption
@@ -225,6 +224,106 @@ Measured on an RTX 3000 Ada laptop GPU (8 GB), fp8 base, `preview_blocks_to_swap
 1024×1024, 28 steps: first preview ~145 s including ~30 s to load and stream the text encoder
 (1.8 GB VRAM peak while encoding).
 
+## Image editing (edit training)
+
+Qwen-Image 2.1 is also an instruction-based editor: given one or more **condition images** and an
+instruction ("make it snowy", "put the hat from picture 2 on the dog in picture 1"), it generates
+the edited image. Rengu trains this the way the reference pipeline samples it:
+
+- the instruction and the condition images are encoded **together** by Qwen3-VL-8B (its vision
+  tower reads the images; each one becomes a block of vision slots inside the prompt, in the
+  reference's `<image1>…<image2>…` template, RGBA images composited over white);
+- each condition image is VAE-encoded (clean, the distribution's mode) and its latents fill that
+  block of the DiT sequence: `[prompt with condition images 1 … N | target]`;
+- **noise, the loss and the timestep shift involve the target only** (the shift uses the
+  target's own token count, like the reference); the prompt and the condition blocks are
+  modulated at `t = 0`.
+
+### Dataset format
+
+An edit folder is a normal `[[directory]]` plus `control_path`: targets (the edited results) with
+a `.txt` holding the **instruction**, and a sibling folder of condition images paired by file
+stem:
+
+```text
+edit_set/
+  targets/    house.png  house.txt ("make it snowy")   dog.png  dog.txt
+  controls/   house.png                                dog_0.png  dog_1.png
+```
+
+`stem.<ext>` gives one condition image; `stem_0.<ext>, stem_1.<ext>, …` give several, in order
+(contiguous from 0). Pairing is strict: a target without a valid control set is an error.
+
+```toml
+[[directory]]
+path = "edit_set/targets"
+control_path = "edit_set/controls"
+# control_resolution = 1024   # optional: side of each condition image's target area
+
+[[directory]]                  # optional: text-to-image data in the same run
+path = "t2i_images"
+```
+
+Each condition image **keeps its own aspect ratio** (it is not cropped to the target's bucket):
+it is resized to the area `control_resolution²`, floored to 32 px. The default is the target's
+bucket resolution; condition images must end up at least 256×256 in area (the vision encoder's
+minimum). Image augmentations cannot be combined with `control_path`. Full details (naming rules,
+batching, caching): [Dataset config — Control images](dataset-config.md#control-images-control_path-edit-training).
+
+### Mixed text-to-image + edit runs
+
+Folders with and without `control_path` can share one dataset: batches never mix the two kinds
+(nor edit rows with different condition counts or sizes), so each step is either a text-to-image
+step or an edit step, weighted by the folders' `num_repeats`. Keeping some text-to-image data in
+an edit run (and some edit pairs in a style run) is the simplest guard against losing the other
+skill: an adapter trained only on edits drifts the shared weights that text-to-image also uses.
+
+### Cost of the text encoder with vision
+
+Edit captions add the Qwen3-VL vision tower (~0.6B params, ~1.2 GB bf16) and the condition
+images' vision tokens to the encoder pass: a 1024×1024 condition image is 1024 extra prompt
+tokens (`(W/32)·(H/32)`). The vision tower is loaded the first time a caption with images is
+encoded and stays resident next to the (streamed) text decoder until caching ends; text-to-image
+captions never load it. Measured on an RTX 3000 Ada laptop GPU (8 GB), streamed decoder, one
+1024×1024 condition image: **~2.7 s per edit caption vs ~1.2 s per text-to-image caption**
+once loaded (the first one also pays ~21-26 s to load the encoder and the vision tower), and
+**3.25 GB VRAM peak vs 2.6 GB**. Host RAM while caching: ~20 GB (the pinned
+decoder layers plus the vision tower). A lower `control_resolution` (e.g. 768) cuts the extra
+tokens roughly in half.
+
+In training the condition blocks lengthen the DiT sequence the same way (a 1024² condition image
+adds 4096 latent tokens to a 1024² target's 4096), so an edit step costs roughly twice a
+text-to-image step at the same resolution in attention/activations; keep `blocks_to_swap` and
+`activation_checkpointing` at least as aggressive as for text-to-image.
+
+### Rank and steps
+
+Starting points, not tuned results: **LoRA/LoKr rank 16–32**, `lr = 1e-4` (AdamW), a few
+thousand steps for a focused edit (one kind of transformation), and preview both an edit prompt
+and a text-to-image prompt (see below) to catch the adapter overwriting the other skill early.
+Raise the rank only if a varied edit set underfits; a higher rank with long training on edits
+alone is the fastest way to degrade text-to-image. For a mixed run, 20–30 % text-to-image steps
+(via `num_repeats`) is a reasonable first split.
+
+### Edit previews
+
+A preview prompt can carry `control_images` (paths, in order); the prompt is then the
+instruction, and the preview encodes the images exactly like training (same resize helper,
+vision tower, clean latents) and keeps them in the KV-cache prefix:
+
+```toml
+[[preview.prompts]]
+name = "snow"
+prompt = "make it snowy"
+control_images = ["edit_set/controls/house.png"]
+```
+
+The output takes the last condition image's aspect ratio at the `width × height` area;
+`preview.control_resolution` (default: the side of `width × height`) sizes the condition images.
+See [Previews — Edit previews](previews.md#edit-previews-qwen-image-21). Measured (8 GB RTX 3000
+Ada, fp8 base, `preview_blocks_to_swap = 32`, one 1024×1024 condition image, 1024×1024 output,
+28 steps): ~114 s with the prompt already encoded (the edit sequence is twice a text-to-image one), 4.4 GB VRAM peak allocated.
+
 ## Export formats
 
 **Adapters** are saved as `adapter_model.safetensors` with the `transformer.` key prefix over the
@@ -244,6 +343,8 @@ only has the fused key.) `adapter.init_from_existing` accepts the same format.
 ```
 
 Example configs: [`minimal_config_qwen_image21_lora.toml`](../../examples/minimal_config_qwen_image21_lora.toml),
+[`minimal_config_qwen_image21_edit_lora.toml`](../../examples/minimal_config_qwen_image21_edit_lora.toml) (edit + text-to-image, with an edit preview),
 [`minimal_config_qwen_image21_lokr.toml`](../../examples/minimal_config_qwen_image21_lokr.toml),
 [`minimal_config_qwen_image21_finetune.toml`](../../examples/minimal_config_qwen_image21_finetune.toml),
-dataset [`minimal_qwen_image21_dataset.toml`](../../examples/minimal_qwen_image21_dataset.toml).
+datasets [`minimal_qwen_image21_dataset.toml`](../../examples/minimal_qwen_image21_dataset.toml) and
+[`minimal_qwen_image21_edit_dataset.toml`](../../examples/minimal_qwen_image21_edit_dataset.toml) (edit pairs + text-to-image).

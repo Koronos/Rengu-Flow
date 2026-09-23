@@ -76,20 +76,32 @@ def reload_preview_config(
     return True
 
 
-def normalize_preview_prompts(preview_cfg: dict[str, Any]) -> list[tuple[str, str]]:
-    """Return (tag_name, prompt) pairs for TensorBoard image tags."""
+def preview_prompt_entries(preview_cfg: dict[str, Any]) -> list[tuple[str, str, list[str]]]:
+    """Return ``(tag_name, prompt, control_images)`` per preview prompt.
+
+    ``control_images`` is the optional list of condition-image paths of a table entry
+    (``[[preview.prompts]] prompt = "..." control_images = ["a.png"]``; a single string is
+    accepted too) — an edit preview on models that support it; ``[]`` otherwise."""
     raw = preview_cfg.get("prompts") or []
-    out: list[tuple[str, str]] = []
+    out: list[tuple[str, str, list[str]]] = []
     for i, item in enumerate(raw):
         if isinstance(item, str):
-            out.append((f"prompt_{i}", item))
+            out.append((f"prompt_{i}", item, []))
         elif isinstance(item, dict):
             prompt = item.get("prompt") or item.get("text")
             if not prompt:
                 continue
             name = item.get("name") or f"prompt_{i}"
-            out.append((str(name), str(prompt)))
+            controls = item.get("control_images") or []
+            if isinstance(controls, str):
+                controls = [controls]
+            out.append((str(name), str(prompt), [str(c) for c in controls if str(c).strip()]))
     return out
+
+
+def normalize_preview_prompts(preview_cfg: dict[str, Any]) -> list[tuple[str, str]]:
+    """Return (tag_name, prompt) pairs for TensorBoard image tags."""
+    return [(name, prompt) for name, prompt, _controls in preview_prompt_entries(preview_cfg)]
 
 
 def _preview_seed(preview_cfg: dict[str, Any], step: int, prompt_index: int) -> int:
@@ -196,6 +208,13 @@ def run_previews(
     prompts = normalize_preview_prompts(preview_cfg)
     if not prompts:
         return
+
+    if model.name != "qwen_image21" and any(c for _, _, c in preview_prompt_entries(preview_cfg)):
+        if is_main_process():
+            print(
+                f"rengu_flow: preview control_images are ignored for {model.name} "
+                "(only qwen_image21 renders edit previews); those prompts render text-to-image."
+            )
 
     if model.name == "sdxl":
         preview_runner = _run_sdxl_previews
@@ -350,9 +369,13 @@ def _run_cosmos_previews(
 
     print(f"Running preview at step {step} ({len(prompts)} prompt(s))")
 
+    controls = [c for _, _, c in preview_prompt_entries(preview_cfg)]
     for idx, (name, prompt) in enumerate(prompts):
         seed = _preview_seed(preview_cfg, step, idx)
-        image = model.generate_preview_image(preview_cfg, prompt, step, seed)
+        if controls[idx] and model.name == "qwen_image21":
+            image = model.generate_preview_image(preview_cfg, prompt, step, seed, control_images=controls[idx])
+        else:
+            image = model.generate_preview_image(preview_cfg, prompt, step, seed)
         _log_preview_image(
             name=name,
             image=image,

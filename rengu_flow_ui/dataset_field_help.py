@@ -123,7 +123,24 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "doc": "docs/user/dataset-config.md",
     },
     "directory.control_path": {
-        "summary": "Control images folder for this directory.",
+        "summary": "Edit training: folder with the condition (control) images of each target.",
+        "detail": (
+            "Turns this folder into an edit dataset. For each target image stem.ext in path, the "
+            "control folder holds either stem.<ext> (one control image) or stem_0.<ext>, "
+            "stem_1.<ext>, … (several, in order, numbered from 0 without gaps). Every target needs "
+            "its controls — a missing one fails validation. The target's .txt holds the edit "
+            "instruction. Not compatible with augmentation or uncond_fraction on the same folder."
+        ),
+        "doc": "docs/user/dataset-config.md",
+    },
+    "directory.control_resolution": {
+        "summary": "Edit training: size of each control image, as the side of its target area.",
+        "detail": (
+            "Each control image keeps its own aspect ratio and is resized to an area of "
+            "control_resolution² (rounded down to the model's pixel multiple), independently of "
+            "the target's bucket. Leave empty to use the resolution of the bucket the target "
+            "lands in. The same size is used for the VAE latents and for the text encoder."
+        ),
         "doc": "docs/user/dataset-config.md",
     },
     "directory.default_mask_file": {

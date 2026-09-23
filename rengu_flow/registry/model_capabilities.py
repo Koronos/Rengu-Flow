@@ -742,7 +742,8 @@ def _register_builtin_capabilities() -> None:
     )
 
     # Qwen-Image 2.1 (Qwen/Qwen-Image-2.1): 7B single-stream block-causal DiT (~14 GB bf16) +
-    # Qwen3-VL-8B text encoder (~17.5 GB, cached + layer-streamed) + RGBA 16x VAE. Text-to-image.
+    # Qwen3-VL-8B text encoder (~17.5 GB, cached + layer-streamed) + RGBA 16x VAE. Text-to-image and
+    # image-conditioned editing (dataset control_path; preview control_images).
     register_model_capability(
         ModelCapability(
             type_id="qwen_image21",
@@ -750,10 +751,13 @@ def _register_builtin_capabilities() -> None:
             adapters=["lora", "lokr", *LYCORIS_ADAPTER_TYPES],
             full_finetune=True,
             preview=True,
-            features={"preview": True, "block_swap": True},
+            # edit: trains on [[directory]] control_path (condition images) and renders previews
+            # with control_images.
+            features={"preview": True, "block_swap": True, "edit": True},
             branding_note=(
                 "Use the Qwen/Qwen-Image-2.1 diffusers download (transformer/, vae/, text_encoder/, "
-                "processor/). Text-to-image training only; image-conditioned editing is not supported."
+                "processor/). Trains text-to-image and image editing (dataset control_path), also "
+                "mixed in one run."
             ),
             model_validation={
                 "one_of": [

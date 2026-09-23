@@ -56,6 +56,11 @@ def validate_dataset_config_for_real_data(dataset_config: dict) -> None:
         _validate_sampler_exclusivity(
             d, f"dataset_config['directory'][{i}]"
         )
+        _validate_positive_int(
+            d,
+            "control_resolution",
+            f"dataset_config['directory'][{i}]['control_resolution']",
+        )
         try:
             validate_augmentation_for_directory(d, dataset_config)
         except (AugmentationConfigError, AugmentationStrategyNotImplementedError) as e:

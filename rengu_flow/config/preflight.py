@@ -185,4 +185,50 @@ def _dataset_directory_issues(ds_path: Path) -> list[str]:
                 issues.append(
                     f"dataset [[directory]] #{i + 1} {key} is not a directory: {folder}"
                 )
+        issues.extend(_control_pairing_issues(i, directory))
     return issues
+
+
+# Reported per directory before the rest is summarized as a count.
+_MAX_CONTROL_ISSUES = 5
+
+
+def _control_pairing_issues(index: int, directory: dict) -> list[str]:
+    """Edit datasets: every target must pair with a valid control set (one listdir per folder).
+
+    Same rule the metadata build enforces (rengu_flow/data/control.py), surfaced before any model
+    loads: a missing control, both naming forms, or a gap in ``stem_0..N`` fails here instead of
+    minutes into caching.
+    """
+    from rengu_flow.data.control import (
+        CONTROL_IMAGE_EXTENSIONS,
+        ControlPairingError,
+        index_control_dir,
+        pair_control_files,
+    )
+
+    target_dir = _path_value(directory.get("path"))
+    control_dir = _path_value(directory.get("control_path"))
+    if target_dir is None or control_dir is None:
+        return []
+    if not target_dir.is_dir() or not control_dir.is_dir():
+        return []  # already reported as "not a directory"
+    control_index = index_control_dir(control_dir)
+    problems: list[str] = []
+    for target in sorted(target_dir.iterdir()):
+        if not target.is_file() or target.suffix.lower() not in CONTROL_IMAGE_EXTENSIONS:
+            continue
+        try:
+            pair_control_files(target.stem, control_index, target=target.name)
+        except ControlPairingError as e:
+            problems.append(str(e))
+    if not problems:
+        return []
+    label = f"dataset [[directory]] #{index + 1} control_path"
+    out = [f"{label}: {p}" for p in problems[:_MAX_CONTROL_ISSUES]]
+    if len(problems) > _MAX_CONTROL_ISSUES:
+        out.append(
+            f"{label}: … and {len(problems) - _MAX_CONTROL_ISSUES} more target image(s) "
+            "without a valid control set."
+        )
+    return out

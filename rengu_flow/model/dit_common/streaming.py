@@ -75,8 +75,9 @@ class LazyStreamedEncoder(nn.Module):
         return self.module
 
     def unload(self) -> None:
-        self._stop_streaming()
+        # Read before _stop_streaming(), which clears the masters dict.
         had_pinned = bool(self._masters)
+        self._stop_streaming()
         self.module = None
         self._masters.clear()
         self._placeholder = nn.Parameter(torch.empty(0, device="meta"), requires_grad=False)
@@ -175,3 +176,66 @@ class LazyStreamedEncoder(nn.Module):
         # Params keep pointing at the masters; dropping the dict lets a later .to() free the pinned copies.
         self._masters.clear()
         self._stream_device = None
+
+
+class LazyStreamedEncoderWithCompanion(LazyStreamedEncoder):
+    """A ``LazyStreamedEncoder`` plus a small frozen *companion* module (e.g. a vision tower)
+    that is only needed for some inputs.
+
+    The companion is loaded on the first :meth:`load_companion` call — never by ``.to()`` or
+    ``load()`` — so runs that never need it never read its weights. Once loaded it is always
+    resident (never streamed) and follows the encoder's placement: ``.to(<cuda>)`` /
+    ``.to("cpu")`` move it along, ``.to("meta")`` (unload) drops it. It is kept out of
+    ``parameters()`` so the placement probes (``next(parameters()).device``) see only the encoder.
+    """
+
+    def __init__(
+        self,
+        loader: Callable[[], nn.Module],
+        layers_of: Callable[[nn.Module], Sequence[nn.Module]],
+        companion_loader: Callable[[], nn.Module],
+        offload: str = "auto",
+        name: str = "text encoder",
+        companion_name: str = "companion",
+    ):
+        super().__init__(loader, layers_of, offload=offload, name=name)
+        self._companion_loader = companion_loader
+        self._companion_name = companion_name
+        # A plain list keeps the companion out of the registered submodules / parameters().
+        self._companion: list[nn.Module] = []
+
+    @property
+    def companion(self) -> nn.Module | None:
+        return self._companion[0] if self._companion else None
+
+    def _resident_device(self) -> torch.device:
+        if self._stream_device is not None:
+            return self._stream_device
+        return next(self.load().parameters()).device
+
+    def load_companion(self) -> nn.Module:
+        """Load the companion (once) and place it next to the encoder's resident parts."""
+        if not self._companion:
+            from rengu_flow.utils.common import is_main_process
+
+            if is_main_process():
+                print(f"rengu_flow: loading {self._companion_name} weights...", flush=True)
+            module = self._companion_loader()
+            module.eval().requires_grad_(False)
+            self._companion.append(module)
+        module = self._companion[0]
+        device = self._resident_device()
+        if next(module.parameters()).device != device:
+            module.to(device)
+        return module
+
+    def unload(self) -> None:
+        super().unload()
+        self._companion.clear()
+
+    def to(self, *args, **kwargs):
+        super().to(*args, **kwargs)
+        device, _dtype, _non_blocking, _fmt = torch._C._nn._parse_to(*args, **kwargs)
+        if device is not None and device.type != "meta" and self._companion:
+            self._companion[0].to(device)
+        return self

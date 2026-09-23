@@ -29,6 +29,7 @@ DATASET_EXAMPLES = frozenset(
         "minimal_cosmos_predict2_dataset.toml",
         "minimal_krea2_dataset.toml",
         "minimal_qwen_image21_dataset.toml",
+        "minimal_qwen_image21_edit_dataset.toml",
         "dataset_augmentation_research.toml",
         "staged_multires_dataset.toml",
     }

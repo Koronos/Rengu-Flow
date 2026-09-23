@@ -284,6 +284,16 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         ),
         "doc": "docs/user/training-qwen-image21.md",
     },
+    "preview.control_resolution": {
+        "summary": "Side of the target area of edit-preview condition images (Qwen-Image 2.1).",
+        "detail": (
+            "Only used by preview prompts with control_images: each condition image keeps its aspect "
+            "and is resized to an area of control_resolution² (floored to 32 px), like training "
+            "control images. Empty uses the side of the preview width × height (1024 by default). "
+            "At least 256 (the vision encoder's minimum area)."
+        ),
+        "doc": "docs/user/training-qwen-image21.md",
+    },
     "preview.guidance_scale@qwen_image21": {
         "summary": "CFG scale for previews; Qwen-Image 2.1 samples without CFG (default 1.0).",
         "detail": (

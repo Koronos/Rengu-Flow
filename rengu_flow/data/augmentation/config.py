@@ -218,6 +218,13 @@ def validate_augmentation_for_directory(
     """Resolve and validate augmentation (images only; deterministic cache)."""
     resolved = resolve_augmentation_config(directory_config, dataset_config)
     if is_augmentation_enabled(resolved):
+        if directory_config.get("control_path"):
+            raise AugmentationConfigError(
+                f"Directory {directory_config.get('path')!r}: image augmentation is not "
+                "supported together with control_path (edit datasets): the control images "
+                "would not receive the same flip/crop as the target. Disable augmentation for "
+                "this [[directory]] (augmentation.enabled = false, or preset = \"none\")."
+            )
         if resolved.get("seed_mode") == "stochastic":
             raise AugmentationConfigError(
                 f"Directory {directory_config.get('path')!r}: seed_mode 'stochastic' is not "

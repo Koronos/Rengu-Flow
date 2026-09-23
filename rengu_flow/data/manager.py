@@ -17,6 +17,9 @@ except ImportError:
 
 from rengu_flow.control.progress_stream import ProgressEmitter
 from rengu_flow.data import caching_progress
+from rengu_flow.data.control import control_size, load_control_image
+from rengu_flow.data.dataset import CONTROL_IDENTITY_COLUMNS as _CONTROL_IDENTITY_COLUMNS
+from rengu_flow.data.dataset import control_round_to_multiple
 from rengu_flow.distributed import is_main_process
 from rengu_flow import distributed as dist
 
@@ -55,6 +58,47 @@ def _from_pipe(obj):
     if isinstance(obj, list):
         return [_from_pipe(v) for v in obj]
     return obj
+
+
+def _control_pil_to_tensor(img) -> torch.Tensor:
+    """PIL control image -> (C, 1, H, W) float in [-1, 1] (C = 3 for RGB, 4 for RGBA)."""
+    import numpy as np
+
+    arr = torch.from_numpy(np.asarray(img, dtype=np.uint8).copy())
+    if arr.ndim == 2:
+        arr = arr.unsqueeze(-1)
+    t = arr.permute(2, 0, 1).float().div_(127.5).sub_(1.0)
+    return t.unsqueeze(1)
+
+
+def _load_control_tensors(files, dims, resolution: int, multiple: int):
+    """``([tensor (C, 1, H_i, W_i), ...], valid)`` for one edit row's control images.
+
+    A control whose pixels fail to decode (truncated file) tombstones the row like a corrupt
+    target: a zero placeholder at the size its header promised, marked invalid (never sampled).
+    """
+    tensors = []
+    valid = True
+    for path, (w, h) in zip(files, dims):
+        try:
+            tensors.append(_control_pil_to_tensor(load_control_image(path, resolution, multiple)))
+        except (OSError, SyntaxError) as e:  # UnidentifiedImageError is an OSError subclass
+            print(f"[cache] corrupt control image tombstoned: {path} ({e})", flush=True)
+            cw, ch = control_size(w, h, resolution, multiple)
+            tensors.append(torch.zeros((3, 1, ch, cw)))
+            valid = False
+    return tensors, valid
+
+
+def _stack_control_slot(tensors: list) -> torch.Tensor:
+    """Stack one control slot across a batch; RGB rows get an opaque alpha if any row is RGBA."""
+    channels = max(t.shape[0] for t in tensors)
+    if channels == 4:
+        tensors = [
+            t if t.shape[0] == 4 else torch.cat([t, torch.ones_like(t[:1])], dim=0)
+            for t in tensors
+        ]
+    return torch.stack(tensors)
 
 
 def _count_latent_units(datasets_list) -> int:
@@ -121,8 +165,13 @@ def _cache_fn(
     cache_num_proc: int | None,
     cache_keep_in_memory: bool,
     single_process_channel: bool = False,
+    control_round_to_multiple: int = 32,
 ) -> None:
-    """Worker process: run cache_metadata, cache_latents, cache_text_embeddings; send GPU work via queue."""
+    """Worker process: run cache_metadata, cache_latents, cache_text_embeddings; send GPU work via queue.
+
+    ``control_round_to_multiple`` is the pixel multiple control images of edit datasets are
+    floored to (see rengu_flow/data/control.py).
+    """
     torch.set_num_threads(1)
     # HF datasets renders its own tqdm bars ("Saving the dataset (x/y shards)", map descs).
     # In a captured log (web UI) they are pure noise between our phase lines; keep them on a
@@ -168,7 +217,10 @@ def _cache_fn(
         first_size_bucket = example["size_bucket"][0]
         tensors_and_masks = []
         image_specs = []
-        control_tensors_and_masks = []
+        # Edit rows: per row, (list of N control tensors (C, 1, H_i, W_i), valid). Each control
+        # keeps its own aspect ratio (NOT the target's bucket): control.load_control_image is the
+        # single sizing rule, shared with the text-encoder pass below.
+        control_rows = []
         # Captions are intentionally not read or stored here: a latent is shared across an
         # image's N captions, and the caption that reaches the model is resolved per
         # (image, caption_number) at sample time (see SizeBucketDataset._sample_from_entry).
@@ -186,14 +238,15 @@ def _cache_fn(
             tensors_and_masks.extend(items)
             image_specs.extend([image_spec] * len(items))
             if is_edit:
-                control_file = example["control_file"][i]
-                control_items = preprocess_media_file_fn(
-                    (None, control_file), None, size_bucket
+                assert len(items) == 1, "edit datasets are images only"
+                control_rows.append(
+                    _load_control_tensors(
+                        example["control_file"][i],
+                        example["control_dims"][i],
+                        int(example["control_resolution"][i]),
+                        control_round_to_multiple,
+                    )
                 )
-                assert len(control_items) == 1 and len(items) == 1
-                control_tensors_and_masks.append(control_items[0])
-            else:
-                control_tensors_and_masks.append(None)
 
         if len(tensors_and_masks) == 0:
             assert not is_edit
@@ -210,18 +263,20 @@ def _cache_fn(
             tensor = torch.stack(
                 [t[0] for t in tensors_and_masks[i : i + batch_size]]
             )
-            c_tensor = None
+            c_tensors = None
             if is_edit:
-                c_tensor = torch.stack(
-                    [
-                        t[0]
-                        for t in control_tensors_and_masks[i : i + batch_size]
-                    ]
-                )
+                # One (B, C, 1, H_j, W_j) tensor per control slot j. Rows of one map batch share a
+                # size bucket AND a control signature (Dataset groups buckets by it), so every
+                # slot stacks.
+                chunk = [r[0] for r in control_rows[i : i + batch_size]]
+                c_tensors = [
+                    _stack_control_slot([row[j] for row in chunk])
+                    for j in range(len(chunk[0]))
+                ]
             if rank not in pipes:
                 pipes[rank] = _make_channel(single_process_channel)
             parent_conn, child_conn = pipes[rank]
-            queue.put((0, _to_pipe(tensor), _to_pipe(c_tensor), child_conn))
+            queue.put((0, _to_pipe(tensor), _to_pipe(c_tensors), child_conn))
             result = _from_pipe(parent_conn.recv())
             for k, v in result.items():
                 results[k].append(v)
@@ -234,9 +289,13 @@ def _cache_fn(
         # it's never sampled at train time — while the cache stays strictly 1:1.
         if is_edit:
             results["valid"] = [
-                bool(t[2]) and bool(c[2])
-                for t, c in zip(tensors_and_masks, control_tensors_and_masks)
+                bool(t[2]) and bool(c[1])
+                for t, c in zip(tensors_and_masks, control_rows)
             ]
+            # Stored per row: the salvage identity of an edit latent (see SizeBucketDataset
+            # cache_latents), so a replaced control is re-encoded instead of copied.
+            for col in _CONTROL_IDENTITY_COLUMNS:
+                results[col] = list(example[col])
         else:
             results["valid"] = [bool(t[2]) for t in tensors_and_masks]
         return results
@@ -258,13 +317,24 @@ def _cache_fn(
             if rank not in pipes:
                 pipes[rank] = _make_channel(single_process_channel)
             parent_conn, child_conn = pipes[rank]
-            control_file = example.get("control_file")
+            # Contract point 6: one entry per caption — the row's control images as PIL, sized by
+            # the same helper as the latent pass — or None for a text-to-image row.
+            if "control_file" in example:
+                control_images = [
+                    [
+                        load_control_image(p, int(res), control_round_to_multiple)
+                        for p in files
+                    ]
+                    for files, res in zip(example["control_file"], example["control_resolution"])
+                ]
+            else:
+                control_images = [None] * len(captions)
             queue.put(
                 (
                     text_encoder_idx + 1,
                     captions,
                     example["is_video"],
-                    control_file,
+                    control_images,
                     child_conn,
                 )
             )
@@ -274,6 +344,10 @@ def _cache_fn(
             # bucket's cache can donate this row instead of re-encoding an identical caption
             # (see _map_and_cache's salvage path). Negligible next to the embedding itself.
             result["caption"] = captions
+            # Edit rows: the control images are part of that identity too.
+            for col in _CONTROL_IDENTITY_COLUMNS:
+                if col in example:
+                    result[col] = list(example[col])
             return result
 
         with progress.stage(
@@ -331,7 +405,9 @@ class DatasetManager:
         self.call_text_encoder_fns = [
             model.get_call_text_encoder_fn(te) for te in self.text_encoders
         ]
-        self.te_fn_requires_control_file = [
+        # A 3-parameter text-encoder fn is edit-aware: it receives the rows' control images
+        # (contract point 6). 2-parameter fns keep the text-only call.
+        self.te_fn_accepts_control_images = [
             len(signature(fn).parameters) == 3
             for fn in self.call_text_encoder_fns
         ]
@@ -382,6 +458,7 @@ class DatasetManager:
                 # Single-device worker is a thread: use the in-memory Queue channel (no pickling).
                 # Multi-GPU worker is a real process: keep mp.Pipe (cross-process IPC).
                 not self.backend.is_distributed,
+                control_round_to_multiple(self.model),
             ]
             worker, queue = self.backend.make_cache_worker(_run_cache_worker, cache_args)
             cache_args[1] = queue  # inject the real queue so _cache_fn can enqueue GPU tasks
@@ -438,19 +515,21 @@ class DatasetManager:
                 submodel.load_model_if_needed()
 
         if task_id == 0:
-            tensor, control_tensor, pipe = task[1:]
+            tensor, control_tensors, pipe = task[1:]
             tensor = _from_pipe(tensor)
-            control_tensor = _from_pipe(control_tensor)
-            if control_tensor is not None:
-                results = self.call_vae_fn(tensor, control_tensor)
+            control_tensors = _from_pipe(control_tensors)
+            if control_tensors is not None:
+                # Edit rows: list of N (B, C, 1, H_i, W_i) tensors; the fn adds
+                # control_latents_0 .. control_latents_{N-1} to its result.
+                results = self.call_vae_fn(tensor, control_tensors)
             else:
                 results = self.call_vae_fn(tensor)
         elif task_id > 0:
-            caption, is_video, control_file, pipe = task[1:]
+            caption, is_video, control_images, pipe = task[1:]
             args = [caption, is_video]
             idx = task_id - 1
-            if self.te_fn_requires_control_file[idx]:
-                args.append(control_file)
+            if self.te_fn_accepts_control_images[idx]:
+                args.append(control_images)
             results = self.call_text_encoder_fns[idx](*args)
         else:
             raise RuntimeError("Invalid task id")

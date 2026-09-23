@@ -31,6 +31,13 @@ from rengu_flow.data.augmentation import (
 from rengu_flow.data.augmentation.names import AUG_MVP_VERSION
 from rengu_flow.data.augmentation.spec_utils import image_spec_base
 from rengu_flow.data.cache_paths import resolve_directory_cache_dir
+from rengu_flow.data.control import (
+    control_signature,
+    control_stamp,
+    index_control_dir,
+    pair_control_files,
+    read_control_dims,
+)
 from rengu_flow.data.sampling import RoundRobinCursor
 from rengu_flow.platform_compat import PLATFORM
 from rengu_flow.data import caching_progress
@@ -56,6 +63,13 @@ from rengu_flow.utils.paths import path_is_under
 logger = logging.getLogger(__name__)
 
 CAPTIONS_JSON_FILE = "captions.json"
+
+# Per-row columns that identify an edit row's control images in the caches: the paired files, a
+# cheap content stamp of each (so replacing a control re-encodes it) and the resolution they are
+# resized to. Part of the latent AND text-embedding cache keys and of their salvage identities.
+CONTROL_IDENTITY_COLUMNS = ("control_file", "control_stamp", "control_resolution")
+# Control columns of the per-directory metadata (control_resolution is added per bucket).
+_CONTROL_METADATA_COLUMNS = ("control_file", "control_stamp", "control_dims")
 
 # Video extensions from imageio (same as diffusion-pipe utils.common)
 VIDEO_EXTENSIONS = set()
@@ -206,10 +220,11 @@ def _cache_text_embeddings(
     # Text embeddings depend only on the caption text (and which encoder, via i); image_spec
     # keys the per-image lookup. Decoupling from the chained fingerprint means a latent-only
     # change never invalidates the text-embedding cache and vice versa.
-    te_fp_override = content_fingerprint(
-        flattened,
-        [c for c in ("caption", "image_spec") if c in flattened.column_names],
+    # Edit rows: the text encoder also sees the control images, so they key the cache too.
+    te_identity = tuple(
+        c for c in ("caption", "image_spec", *CONTROL_IDENTITY_COLUMNS) if c in flattened.column_names
     )
+    te_fp_override = content_fingerprint(flattened, list(te_identity))
     # A text embedding depends only on the caption and the encoder — never on the size bucket —
     # but each bucket keeps its own cache directory. Offer the sibling buckets' caches as donors so
     # adding a resolution copies the embeddings it needs instead of re-encoding every caption.
@@ -230,7 +245,7 @@ def _cache_text_embeddings(
         caching_batch_size=caching_batch_size,
         num_proc=cache_num_proc,
         keep_in_memory=cache_keep_in_memory,
-        identity_columns=("caption", "image_spec"),
+        identity_columns=te_identity,
         donor_dirs=sibling_donors,
     )
     assert len(te_dataset) == len(flattened)
@@ -477,6 +492,16 @@ def maybe_expand_caption_variants(metadata_dataset, directory_dataset, *, warn: 
     return expanded, True
 
 
+def _control_suffix(signature: tuple) -> str:
+    """Cache-dir suffix for an edit bucket's control signature ('' for text-to-image)."""
+    if not signature:
+        return ""
+    readable = "-".join(f"{w}x{h}" for w, h in signature)
+    if len(signature) <= 4:
+        return f"_ctl_{readable}"
+    return f"_ctl{len(signature)}_{hashlib.md5(readable.encode()).hexdigest()[:10]}"
+
+
 class SizeBucketDataset:
     """Single size bucket from one directory: latents + text embeddings cache, iteration order."""
 
@@ -488,6 +513,7 @@ class SizeBucketDataset:
         cache_base: Path,
         directory_dataset=None,
         resolution: int | None = None,
+        control_signature: tuple = (),
     ) -> None:
         # Per-bucket shuffle mixes multi-resolution training better (diffusion-pipe).
         # SKIPPED for parquet-backed metadata: shuffling here randomizes the CACHING
@@ -518,7 +544,11 @@ class SizeBucketDataset:
             else int(round(math.sqrt(size_bucket[-3] * size_bucket[-2])))
         )
         self.path = Path(directory_config["path"])
-        self.cache_dir = cache_base / f"cache_{bucket_suffix(size_bucket)}"
+        # Edit rows: the (w, h) of each control image. Part of the batch-grouping key (see
+        # Dataset.post_init) so a batch never mixes t2i with edit or different control shapes;
+        # () for text-to-image buckets.
+        self.control_signature = tuple(tuple(int(v) for v in wh) for wh in control_signature)
+        self.cache_dir = cache_base / f"cache_{bucket_suffix(size_bucket)}{_control_suffix(self.control_signature)}"
         self.captions_dict = (
             directory_dataset.captions_dict if directory_dataset is not None else None
         )
@@ -541,7 +571,7 @@ class SizeBucketDataset:
             )
         )
 
-        if len(size_bucket) == 4:
+        if len(size_bucket) == 4 and not self.control_signature:
             old_cache_dir = cache_base / f"cache_{bucket_suffix(size_bucket[1:])}"
             if old_cache_dir.exists() and not self.cache_dir.exists():
                 old_cache_dir.rename(self.cache_dir)
@@ -601,9 +631,17 @@ class SizeBucketDataset:
             self.metadata_dataset,
             [
                 c
-                for c in ("image_spec", "mask_file", "size_bucket", "is_video", "control_file")
+                for c in (
+                    "image_spec", "mask_file", "size_bucket", "is_video", *CONTROL_IDENTITY_COLUMNS
+                )
                 if c in self.metadata_dataset.column_names
             ],
+        )
+        # Salvage identity: the image (plus its augmentation variant key) — and, for edit rows,
+        # its control images, so a replaced control is re-encoded instead of copied from a donor.
+        latent_identity = tuple(
+            c for c in ("image_spec", *CONTROL_IDENTITY_COLUMNS)
+            if c in self.metadata_dataset.column_names
         )
         if map_fn is None:
             self.latent_dataset = _map_and_cache(
@@ -638,7 +676,7 @@ class SizeBucketDataset:
             # key) within this size bucket, so excluding/adding images — which rekeys and
             # reshuffles the whole bucket — reuses every image still present instead of
             # re-encoding it. No sibling donors: another bucket is another resolution.
-            identity_columns=("image_spec",),
+            identity_columns=latent_identity,
         )
         assert len(self.latent_dataset) == len(self.metadata_dataset)
 
@@ -908,6 +946,37 @@ class SizeBucketDataset:
         return int(self._effective_len * self.num_repeats)
 
 
+def split_by_control_signature(metadata_dataset, directory_dataset, resolution: int) -> list:
+    """Split one bucket's metadata into ``[(control_signature, metadata), ...]``.
+
+    Text-to-image directories return ``[((), metadata_dataset)]`` untouched. For an edit directory
+    (``control_path``) each row's control sizes at this bucket's control resolution form its
+    signature (see :func:`rengu_flow.data.control.control_signature`); rows are grouped by it so
+    every batch drawn from a group stacks cleanly. Each group also gets a ``control_resolution``
+    column: what the latent and text-embedding workers resize the controls to, and part of both
+    cache keys.
+    """
+    if (
+        getattr(directory_dataset, "control_path", None) is None
+        or "control_dims" not in metadata_dataset.column_names
+        or len(metadata_dataset) == 0
+    ):
+        return [((), metadata_dataset)]
+    control_res = directory_dataset.control_resolution_for(resolution)
+    multiple = directory_dataset.control_round_to_multiple
+    groups: dict[tuple, list[int]] = {}
+    for idx, dims in enumerate(metadata_dataset["control_dims"]):
+        groups.setdefault(control_signature(dims, control_res, multiple), []).append(idx)
+    out = []
+    for signature in sorted(groups):
+        group = metadata_dataset.select(groups[signature], keep_in_memory=True).flatten_indices(
+            keep_in_memory=True
+        )
+        group = group.add_column("control_resolution", [int(control_res)] * len(group))
+        out.append((signature, group))
+    return out
+
+
 class ConcatenatedBatchedDataset:
     """Concatenation of multiple SizeBucketDatasets (same size bucket); returns batches."""
 
@@ -1035,6 +1104,7 @@ class ARBucketDataset:
         cache_num_proc: int | None = None,
         cache_keep_in_memory: bool = False,
     ) -> None:
+        by_resolution: list[list[SizeBucketDataset]] = []
         for res in self.resolutions:
             area = res**2
             w = math.sqrt(area * self.ar_frames[0])
@@ -1052,26 +1122,40 @@ class ARBucketDataset:
                 load_from_cache_file=(not regenerate_cache and trust_cache),
                 desc="Adding size bucket",
             )
-            self.size_buckets.append(
-                SizeBucketDataset(
-                    metadata_with_size,
-                    self.directory_config,
-                    naming_size_bucket,
-                    self.cache_base,
-                    self.directory_dataset,
-                    resolution=int(res),
-                )
+            # Edit directories split each bucket by control signature (one SizeBucketDataset per
+            # distinct set of control sizes); text-to-image yields the bucket unchanged.
+            groups = split_by_control_signature(
+                metadata_with_size, self.directory_dataset, int(res)
             )
-        for ds in self.size_buckets:
-            with caching_progress.unit(f"latents {bucket_suffix(ds.size_bucket)}"):
-                ds.cache_latents(
-                    map_fn,
-                    regenerate_cache=regenerate_cache,
-                    trust_cache=trust_cache,
-                    caching_batch_size=caching_batch_size,
-                    cache_num_proc=cache_num_proc,
-                    cache_keep_in_memory=cache_keep_in_memory,
-                )
+            by_resolution.append(
+                [
+                    SizeBucketDataset(
+                        group_metadata,
+                        self.directory_config,
+                        naming_size_bucket,
+                        self.cache_base,
+                        self.directory_dataset,
+                        resolution=int(res),
+                        control_signature=signature,
+                    )
+                    for signature, group_metadata in groups
+                ]
+            )
+        for group in by_resolution:
+            self.size_buckets.extend(group)
+            if not group:
+                continue
+            # One progress unit per (ar, resolution) bucket, as counted by the manager.
+            with caching_progress.unit(f"latents {bucket_suffix(group[0].size_bucket)}"):
+                for ds in group:
+                    ds.cache_latents(
+                        map_fn,
+                        regenerate_cache=regenerate_cache,
+                        trust_cache=trust_cache,
+                        caching_batch_size=caching_batch_size,
+                        cache_num_proc=cache_num_proc,
+                        cache_keep_in_memory=cache_keep_in_memory,
+                    )
 
     def cache_text_embeddings(
         self,
@@ -1085,6 +1169,20 @@ class ARBucketDataset:
         # Expand caption variants to match each size bucket's iteration order, which expands
         # them too (maybe_expand_caption_variants in SizeBucketDataset). Without this the te
         # cache holds only the base captions while caption_number runs 0..K-1 -> IndexError.
+        if getattr(self.directory_dataset, "control_path", None) is not None:
+            # Edit rows: the text encoder sees the control images at the bucket's control
+            # resolution, which (by default) differs per resolution — so the embeddings are no
+            # longer shared across this AR bucket's resolutions. Cache them per size bucket.
+            for sb in self.size_buckets:
+                sb.cache_text_embeddings(
+                    map_fn,
+                    i,
+                    regenerate_cache=regenerate_cache,
+                    caching_batch_size=caching_batch_size,
+                    cache_num_proc=cache_num_proc,
+                    cache_keep_in_memory=cache_keep_in_memory,
+                )
+            return
         metadata, _ = maybe_expand_caption_variants(
             self.metadata_dataset, self.directory_dataset
         )
@@ -1115,6 +1213,7 @@ class DirectoryDataset:
         skip_dataset_validation: bool = False,
         cache_text_embeddings: bool = False,
         training_config: dict | None = None,
+        control_round_to_multiple: int | None = None,
     ) -> None:
         self._set_defaults(directory_config, dataset_config)
         self.directory_config = directory_config
@@ -1147,6 +1246,13 @@ class DirectoryDataset:
         self.model_name = model_name
         self.framerate = framerate
         self.round_to_multiple = round_to_multiple
+        # Pixel multiple control images are floored to (model.control_round_to_multiple, falling
+        # back to pixels_round_to_multiple); see rengu_flow/data/control.py.
+        self.control_round_to_multiple = int(control_round_to_multiple or round_to_multiple)
+        # Side of the target area of each control image (area = r**2). None -> the resolution of
+        # the bucket the target lands in (control_resolution_for).
+        _control_res = directory_config.get("control_resolution")
+        self.control_resolution = int(_control_res) if _control_res is not None else None
         self.enable_ar_bucket = directory_config.get(
             "enable_ar_bucket",
             dataset_config.get("enable_ar_bucket", False),
@@ -1313,9 +1419,23 @@ class DirectoryDataset:
             )
             or 0.0
         )
+        if self.control_path is not None and self.uncond_fraction > 0:
+            # The shared unconditional embedding is encoded without control images, so an edit
+            # row swapped to it would reach the model with a text-only embedding next to its
+            # control latents (and a different set of embedding keys than its batch-mates).
+            raise ValueError(
+                f"Directory {self.path}: uncond_fraction > 0 is not supported with control_path "
+                "(edit datasets). Set uncond_fraction = 0 on this [[directory]]."
+            )
         self.tag_dropout = build_tag_dropout_config(
             directory_config, dataset_config, tags_file_base=self.path
         )
+
+    def control_resolution_for(self, bucket_resolution: int) -> int:
+        """Control resolution for a bucket: ``control_resolution`` if set, else the bucket's."""
+        if self.control_resolution is not None:
+            return self.control_resolution
+        return int(bucket_resolution)
 
     def _set_defaults(
         self, directory_config: dict, dataset_config: dict
@@ -1365,12 +1485,18 @@ class DirectoryDataset:
 
     def _source_signature(self) -> str:
         """Staleness key for this directory's metadata cache (see ``source_signature``)."""
+        config_parts = [self.directory_config, self.dataset_config]
+        if self.control_path is not None:
+            # Edit metadata layout (control_file as a list + control_stamp/control_dims). Only
+            # edit directories carry the tag, so text-to-image signatures are unchanged; an edit
+            # cache built with the older single-control layout is rebuilt instead of reused.
+            config_parts.append({"control_metadata": 2})
         return source_signature(
             [self.path, self.mask_path, self.control_path],
             # The whole dataset config, not a curated subset: an over-broad signature costs one
             # extra rebuild after a config edit, while a missing key would silently reuse metadata
             # bucketed under different rules.
-            [self.directory_config, self.dataset_config],
+            config_parts,
         )
 
     def _write_source_signature(self, signature: str) -> None:
@@ -1467,15 +1593,18 @@ class DirectoryDataset:
             metadata = datasets.load_from_disk(str(grouped_dir), keep_in_memory=PLATFORM.metadata_keep_in_memory)
             if self.use_size_buckets:
                 assert len(key) == 3
-                self.size_bucket_datasets.append(
-                    SizeBucketDataset(
-                        metadata,
-                        self.directory_config,
-                        key,
-                        self.cache_dir,
-                        self,
+                bucket_res = int(round(math.sqrt(key[0] * key[1])))
+                for signature, group in split_by_control_signature(metadata, self, bucket_res):
+                    self.size_bucket_datasets.append(
+                        SizeBucketDataset(
+                            group,
+                            self.directory_config,
+                            key,
+                            self.cache_dir,
+                            self,
+                            control_signature=signature,
+                        )
                     )
-                )
             else:
                 self.ar_bucket_datasets.append(
                     ARBucketDataset(
@@ -1547,13 +1676,9 @@ class DirectoryDataset:
                     for p in self.mask_path.glob("*")
                     if p.is_file()
                 }
-            control_stems = {}
+            control_index = None
             if self.control_path is not None:
-                control_stems = {
-                    p.stem: p
-                    for p in self.control_path.glob("*")
-                    if p.is_file()
-                }
+                control_index = index_control_dir(self.control_path)
 
             from rengu_flow.data.parquet_source import MEMBER_PREFIX, ParquetSource
 
@@ -1587,6 +1712,7 @@ class DirectoryDataset:
             caption_files = []
             mask_files = []
             control_files = []
+            control_stamps = []
             inline_captions = []   # parquet rows only; None for file/tar entries
             inline_dims = []       # (width, height) from parquet columns, or (None, None)
             for file in tqdm(files, disable=not sys.stderr.isatty()):
@@ -1622,14 +1748,14 @@ class DirectoryDataset:
                                 image_file,
                             )
                         mask_files.append(None)
-                    if self.control_path is not None:
-                        if image_file.stem not in control_stems:
-                            raise RuntimeError(
-                                f"No control file for image {image_file}"
-                            )
-                        control_files.append(
-                            str(control_stems[image_file.stem])
+                    if control_index is not None:
+                        # Strict pairing (rengu_flow/data/control.py): a target without a valid
+                        # control set fails the build instead of silently training as t2i.
+                        paired = pair_control_files(
+                            image_file.stem, control_index, target=str(image_file)
                         )
+                        control_files.append(paired)
+                        control_stamps.append([control_stamp(c) for c in paired])
 
             if len(image_specs) == 0:
                 raise RuntimeError(
@@ -1643,6 +1769,7 @@ class DirectoryDataset:
             }
             if self.control_path:
                 d["control_file"] = control_files
+                d["control_stamp"] = control_stamps
             if any(c is not None for c in inline_captions):
                 d["caption"] = [c if c is not None else [""] for c in inline_captions]
                 if any(w is not None for w, _ in inline_dims):
@@ -1759,7 +1886,8 @@ class DirectoryDataset:
                 "is_video": [],
             }
             if self.control_path:
-                empty_return["control_file"] = []
+                for c in _CONTROL_METADATA_COLUMNS:
+                    empty_return[c] = []
 
             # Parquet fast path: width/height columns make this stage purely columnar —
             # no image bytes are read at all for AR/size bucketing.
@@ -1840,8 +1968,19 @@ class DirectoryDataset:
             "size_bucket": [],
             "is_video": [],
         }
+        control_dims = None
         if self.control_path:
-            empty_return["control_file"] = []
+            for c in _CONTROL_METADATA_COLUMNS:
+                empty_return[c] = []
+            # Source size of each control (header only): its own aspect ratio decides the size it
+            # is resized to, hence the batch signature (see split_by_control_signature).
+            try:
+                control_dims = [list(read_control_dims(c)) for c in example["control_file"][0]]
+            except Exception as e:  # noqa: BLE001 - same tolerance as the target header read
+                logger.warning(
+                    "Could not open a control image of %s: %s. Skipping.", image_spec[1], e
+                )
+                return empty_return
 
         is_video = frames > 1
         log_ar = np.log(width / height)
@@ -1861,6 +2000,12 @@ class DirectoryDataset:
                 return empty_return
             size_bucket = None
 
+        if is_video and self.control_path:
+            raise RuntimeError(
+                f"control_path is set for {self.path} but {image_spec[1]} is video; edit "
+                "datasets are images only."
+            )
+
         if is_video and self._aug_enabled:
             raise RuntimeError(
                 f"Augmentation is enabled for {self.path} but {image_spec[1]} is video; "
@@ -1877,7 +2022,8 @@ class DirectoryDataset:
             "is_video": [],
         }
         if self.control_path:
-            ret["control_file"] = []
+            for c in _CONTROL_METADATA_COLUMNS:
+                ret[c] = []
         for vk in variant_keys:
             ret["image_spec"].append(with_variant_key(image_spec, vk))
             ret["mask_file"].append(example["mask_file"][0])
@@ -1887,6 +2033,8 @@ class DirectoryDataset:
             ret["is_video"].append(is_video)
             if self.control_path:
                 ret["control_file"].append(example["control_file"][0])
+                ret["control_stamp"].append(example["control_stamp"][0])
+                ret["control_dims"].append(control_dims)
         return ret
 
     def _find_closest_ar_bucket(self, log_ar, frames, is_video):
@@ -2052,6 +2200,14 @@ class DirectoryDataset:
             sb.uncond_text_embeddings.append(uncond_ds)
 
 
+def control_round_to_multiple(model) -> int:
+    """Pixel multiple control images are floored to for ``model`` (contract point 2)."""
+    value = getattr(model, "control_round_to_multiple", None)
+    if not isinstance(value, int) or isinstance(value, bool):
+        value = getattr(model, "pixels_round_to_multiple", 32)
+    return int(value) if isinstance(value, int) and not isinstance(value, bool) else 32
+
+
 def parse_resolution_schedule(dataset_config: dict):
     """Parse the optional ``[resolution_schedule]`` section.
 
@@ -2146,6 +2302,7 @@ class Dataset:
                 skip_dataset_validation=skip_dataset_validation,
                 cache_text_embeddings=cache_text_embeddings,
                 training_config=self._training_config,
+                control_round_to_multiple=control_round_to_multiple(model),
             )
             self.directory_datasets.append(dir_dataset)
         # Tag dropout + cached text embeddings is no longer refused: with the cache on, the
@@ -2334,10 +2491,13 @@ class Dataset:
             s: bs * gradient_accumulation_steps * self.data_parallel_world_size
             for s, bs in per_device_batch_size_image.items()
         }
+        # Batch key = size bucket + control signature: a batch never mixes text-to-image rows with
+        # edit rows, nor edit rows with a different number/size of control images.
         datasets_by_size_bucket = defaultdict(list)
         for dir_ds in self.directory_datasets:
             for sb in dir_ds.get_size_bucket_datasets():
-                datasets_by_size_bucket[sb.size_bucket].append(sb)
+                key = (sb.size_bucket, getattr(sb, "control_signature", ()))
+                datasets_by_size_bucket[key].append(sb)
         self.buckets = []
         for datalist in datasets_by_size_bucket.values():
             self.buckets.append(ConcatenatedBatchedDataset(datalist))

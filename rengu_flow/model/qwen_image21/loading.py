@@ -10,12 +10,16 @@ resolves repo ids:
   (``*_int8_convrot``, fp8 "scaled") cannot be trained and are refused.
 - **Text encoder**: the transformers ``text_encoder/`` folder (Qwen3-VL-8B, sharded) or a
   single ``.safetensors`` (ComfyUI ``qwen3vl_8b_bf16.safetensors``). Only the text decoder
-  (``Qwen3VLTextModel``) is loaded — t2i conditioning never runs the vision tower.
+  (``Qwen3VLTextModel``) is loaded for text-to-image; the vision tower (``Qwen3VLVisionModel``)
+  is read separately, and only when a caption comes with condition images (edit training).
 - **VAE**: the diffusers ``vae/`` folder or a single diffusers-layout ``.safetensors``
   (``AutoencoderKLQwenImage21``). ComfyUI's original-layout VAE file is not converted.
 - **Tokenizer**: ``model.processor_path`` (the ``processor/`` folder), else
   ``<diffusers_path>/processor``, else the bundled Qwen3-VL tokenizer (byte-identical
   tokenization of the Qwen-Image 2.1 template).
+- **Processor** (edit only: the Qwen3-VL image processor next to that tokenizer): the image
+  processor config of the same ``processor/`` folder, else the bundled copy of the release's
+  ``processor/preprocessor_config.json``.
 """
 
 from __future__ import annotations
@@ -132,16 +136,23 @@ def load_vae(path: str | Path, dtype: torch.dtype):
     return vae
 
 
+def load_qwen3vl_config(path: str | Path):
+    """The full ``Qwen3VLConfig`` of the text encoder: the folder's ``config.json`` when it has
+    one, else the bundled Qwen3-VL-8B config (single files carry none)."""
+    from transformers import AutoConfig
+
+    path = Path(path)
+    config_dir = path if (not path.is_file() and (path / "config.json").exists()) else QWEN3VL_8B_ASSETS
+    return AutoConfig.from_pretrained(config_dir)
+
+
 def load_text_encoder(path: str | Path, dtype: torch.dtype):
     """Load the Qwen3-VL-8B text decoder (``Qwen3VLTextModel``) from a transformers folder or a
     single file, reading only the text-decoder tensors."""
-    from transformers import AutoConfig
-
     from rengu_flow.model.dit_common.qwen3vl import checkpoint_files, load_qwen3vl_text_model
 
     path = _require_exists(path, "text_encoder_path")
-    config_dir = path if (not path.is_file() and (path / "config.json").exists()) else QWEN3VL_8B_ASSETS
-    text_config = AutoConfig.from_pretrained(config_dir).text_config
+    text_config = load_qwen3vl_config(path).text_config
     files = checkpoint_files(path)
     if not files:
         raise ConfigValidationError(f"model.text_encoder_path: no .safetensors found in {path}.")
@@ -158,6 +169,39 @@ def load_text_encoder(path: str | Path, dtype: torch.dtype):
                 "qwen3vl_8b_bf16.safetensors or the diffusers text_encoder/ folder."
             )
     return load_qwen3vl_text_model(files, text_config, dtype)
+
+
+def load_vision_encoder(path: str | Path, dtype: torch.dtype):
+    """Load the Qwen3-VL-8B vision tower (``Qwen3VLVisionModel`` + deepstack mergers) from the
+    same checkpoint as the text decoder, reading only its ``visual.*`` tensors (~0.6B params)."""
+    from rengu_flow.model.dit_common.qwen3vl import load_qwen3vl_vision_model, vision_checkpoint_files
+
+    path = _require_exists(path, "text_encoder_path")
+    try:
+        return load_qwen3vl_vision_model(
+            vision_checkpoint_files(path), load_qwen3vl_config(path).vision_config, dtype
+        )
+    except ValueError as e:
+        raise ConfigValidationError(
+            f"model.text_encoder_path: {e} Edit training (control_path / preview control_images) "
+            "needs it: point text_encoder_path at the Qwen-Image-2.1 text_encoder/ folder."
+        ) from e
+
+
+def load_processor(path: str | Path | None, tokenizer):
+    """The Qwen3-VL processor used for image-conditioned prompts: ``tokenizer`` plus the image
+    processor configured by ``path/preprocessor_config.json`` (the ``processor/`` folder), or the
+    bundled copy of the release's config when ``path`` is ``None``."""
+    from transformers import AutoImageProcessor, Qwen3VLProcessor
+    from transformers.models.qwen3_vl.video_processing_qwen3_vl import Qwen3VLVideoProcessor
+
+    source = _require_exists(path, "processor_path") if path else QWEN3VL_8B_ASSETS
+    return Qwen3VLProcessor(
+        image_processor=AutoImageProcessor.from_pretrained(source),
+        tokenizer=tokenizer,
+        video_processor=Qwen3VLVideoProcessor(),  # required by the processor; never used
+        chat_template=getattr(tokenizer, "chat_template", None),
+    )
 
 
 def load_tokenizer(path: str | Path | None):

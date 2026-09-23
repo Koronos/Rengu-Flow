@@ -31,7 +31,8 @@ preview_every_n_steps = 500
 # preview_every_n_epochs = 1
 # preview_before_first_step = false
 
-# Each prompt entry is a string, or a [[preview.prompts]] table that reads only `name` and `prompt`.
+# Each prompt entry is a string, or a [[preview.prompts]] table that reads `name` and `prompt`
+# (plus `control_images` for an edit preview on Qwen-Image 2.1, see below).
 prompts = [
   "photo of a red sports car, studio lighting",
 ]
@@ -44,7 +45,7 @@ prompt = "1woman, soft light, detailed face"
 | Key | Description | Values | Default |
 |-----|-------------|--------|---------|
 | **`preview.enabled`** | Turn previews on or off without removing prompts. | `true` or `false`. | `true` when `prompts` is set |
-| **`preview.prompts`** | Prompts to render. Each entry is a string, or a table with `prompt` (or `text`) and optional `name` for the TensorBoard tag. | List of strings or tables. | Required to enable previews |
+| **`preview.prompts`** | Prompts to render. Each entry is a string, or a table with `prompt` (or `text`), optional `name` for the TensorBoard tag and optional `control_images` (edit previews, Qwen-Image 2.1 only — see [Edit previews](#edit-previews-qwen-image-21)). | List of strings or tables. | Required to enable previews |
 | **`preview.negative_prompt`** | Negative prompt passed to the pipeline. | String. | `""` |
 | **`preview.width`** | Output width in pixels. | Positive integer. | `1024` |
 | **`preview.height`** | Output height in pixels. | Positive integer. | `1024` |
@@ -75,6 +76,29 @@ Recommended for **Anima** previews: **`num_inference_steps = 20`**, **`guidance_
 | **`preview.preview_save_png`** | Also write `preview/{name}_step{N}.png` under the run directory (same folder as TensorBoard logs). **The web UI run page's preview gallery reads these PNGs, so enable this to see previews in the UI** — TensorBoard's IMAGES tab shows them either way. | `false` |
 
 The preview **VAE decode is tiled**: latents larger than 512×512 px decode in overlapping 512 px tiles that are blended together, so the decode's activation peak stays small enough to fit next to the resident DiT and training state even on a 16 GB GPU at 1024×1024.
+
+### Edit previews (Qwen-Image 2.1)
+
+For a model trained on edit pairs (a dataset directory with `control_path`, see
+[Training Qwen-Image 2.1 — Image editing](training-qwen-image21.md#image-editing-edit-training)),
+a preview prompt can carry the images to edit. The prompt is then the edit instruction:
+
+```toml
+[[preview.prompts]]
+name = "snow"
+prompt = "make it snowy"
+control_images = ["edit_set/controls/house.png"]   # one or more paths, in order
+```
+
+| Key | Description | Values | Default |
+|-----|-------------|--------|---------|
+| **`control_images`** (per prompt) | Condition images of this preview, in order (the same order as `stem_0`, `stem_1`, … in training). A single path string is accepted too. Paths are resolved from the working directory, like dataset paths. An empty list renders text-to-image. | List of image paths. | `[]` |
+| **`preview.control_resolution`** | Side of the target area each condition image is resized to (keeps its aspect ratio, floored to 32 px — the same helper training uses). At least 256. | Positive integer. | Side of `width × height` (1024) |
+
+The output keeps the **last** condition image's aspect ratio at the `width × height` area (the
+reference pipeline's behavior when no size is given), rounded down to 32 px. Other models ignore
+`control_images` (a note is printed and the prompt renders text-to-image). In the web UI the field
+is **Condition images (edit preview)** under a prompt's overrides.
 
 Video previews (`frame_buckets` > 1) are not supported in v1 — only a single frame (`T=1`).
 

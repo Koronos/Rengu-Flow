@@ -38,6 +38,14 @@ describe("previewEntries", () => {
     expect(dup).toEqual({ name: "tag (copy)", prompt: "x" });
   });
 
+  it("keeps edit-preview control_images and drops an empty list", () => {
+    expect(serializePreviewEntry({ prompt: "make it snowy", control_images: ["a.png"] })).toEqual({
+      prompt: "make it snowy",
+      control_images: ["a.png"],
+    });
+    expect(serializePreviewEntry({ prompt: "a cat", control_images: [] })).toBe("a cat");
+  });
+
   it("labels string entries", () => {
     expect(previewEntryName("short prompt", 0)).toBe("short prompt");
     expect(previewEntryName({ name: "a", prompt: "b" }, 1)).toBe("a");

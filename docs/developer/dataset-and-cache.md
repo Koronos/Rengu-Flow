@@ -14,7 +14,7 @@ User-facing summary: [Dataset augmentation (user)](../user/dataset-augmentation.
 
 The main config references a dataset via the `dataset` key (path to a TOML file). That TOML must contain:
 
-- **`directory`** — List of directory configs (from TOML `[[directory]]`). Each entry: **`path`** and **`num_repeats`** (required); optional: `directory_caption`, `mask_path`, `control_path`, `default_mask_file`, `resolutions`, `frame_buckets`, `enable_ar_bucket`, `ar_buckets`, `size_buckets`, `subsample_ratio`, `max_images`, `subsample_shuffle`. See [user dataset-config](../user/dataset-config.md) for what each option does and allowed values.
+- **`directory`** — List of directory configs (from TOML `[[directory]]`). Each entry: **`path`** and **`num_repeats`** (required); optional: `directory_caption`, `mask_path`, `control_path`, `control_resolution`, `default_mask_file`, `resolutions`, `frame_buckets`, `enable_ar_bucket`, `ar_buckets`, `size_buckets`, `subsample_ratio`, `max_images`, `subsample_shuffle`. See [user dataset-config](../user/dataset-config.md) for what each option does and allowed values.
 - **Global options** in the same TOML: `resolutions`, `frame_buckets`, `enable_ar_bucket`, `min_ar`, `max_ar`, `num_ar_buckets`, `ar_buckets`, `size_buckets`, `shuffle_metadata`, `online_captions`, `subsample_ratio`, `max_images`, `subsample_shuffle`. Full descriptions and values are in the user doc.
 - **Per-`[[directory]]` optional keys** include the same caption/bucket overrides as the UI directory editor, plus the per-epoch limiters `subsample_ratio` / `max_images` (see below). Root `subsample_ratio` is a separate static trim applied in `Dataset.post_init` on the combined iteration order.
 
@@ -100,7 +100,7 @@ caption column ends up with K entries per image; everything below is identical. 
 | Class | Location | Role |
 |-------|----------|------|
 | **Dataset** | `rengu_flow.data.dataset` | Top-level: builds one `DirectoryDataset` per `directory` entry; `post_init(dp_rank, dp_world_size, per_device_batch_size, gradient_accumulation_steps, per_device_batch_size_image)`; `__getitem__` returns a collated batch for the data-parallel rank. |
-| **DirectoryDataset** | `rengu_flow.data.dataset` | One directory: metadata (ungrouped → grouped by AR/size bucket), `cache_metadata`, `cache_latents`, `cache_text_embeddings`. Uses `_get_ungrouped_metadata`, `_metadata_map_fn` (read media, captions from .txt per line or captions.json; `directory_caption` as fallback and prefix). Optional `mask_path` / `control_path`: separate folders; files paired to images in `path` by stem. When `control_path` is set, metadata includes `control_file` and cache runs in edit mode (`DatasetManager._cache_fn`, `is_edit`). |
+| **DirectoryDataset** | `rengu_flow.data.dataset` | One directory: metadata (ungrouped → grouped by AR/size bucket), `cache_metadata`, `cache_latents`, `cache_text_embeddings`. Uses `_get_ungrouped_metadata`, `_metadata_map_fn` (read media, captions from .txt per line or captions.json; `directory_caption` as fallback and prefix). Optional `mask_path` / `control_path`: separate folders; files paired to images in `path` by stem. When `control_path` is set the directory is an **edit dataset** — see [Edit datasets (control images)](#edit-datasets-control-images). |
 | **ARBucketDataset** / **SizeBucketDataset** | `rengu_flow.data.dataset` | Per (AR, frames) or per size bucket; create `SizeBucketDataset` instances, cache latents and text embeddings, build iteration order (multi-caption). Each size bucket shuffles metadata with **`seed_from_hash(size_bucket)`** so multi-resolution runs mix order per bucket (diffusion-pipe). |
 | **`seed_from_hash`** | `rengu_flow.data.cache_utils` | Deterministic int seed from path or bucket key (MD5). Used for metadata shuffle and per-bucket shuffle. |
 | **ConcatenatedBatchedDataset** | `rengu_flow.data.dataset` | Concatenates multiple `SizeBucketDataset` (same size bucket); `post_init` for batch sizes and DP rank; returns batches. |
@@ -113,6 +113,35 @@ Contract for the object passed to the orchestrator as the training dataset:
 - `post_init(dp_rank, dp_world_size, per_device_batch_size, gradient_accumulation_steps, per_device_batch_size_image)`
 - `__len__`, `__getitem__(idx)` → batch dict (latents, mask, caption, text-embedding keys per model)
 - Attribute **`dataset_config`** (for error messages and Saver).
+
+## Edit datasets (control images)
+
+A `[[directory]]` with `control_path` trains an edit model (user side: [dataset-config — Control images](../user/dataset-config.md#control-images-control_path-edit-training)). Directories without `control_path` are untouched by everything below — their metadata columns, cache keys, cache dirs and calls are the text-to-image ones.
+
+**Single sizing rule** — `rengu_flow/data/control.py`:
+
+- `control_size(width, height, resolution, multiple) -> (w, h)`: own aspect ratio, area `resolution²`, `w = sqrt(area·ratio)`, `h = w/ratio`, each **floored** to `multiple` (min one multiple).
+- `load_control_image(path, resolution, multiple) -> PIL.Image`: RGB (RGBA when the file has alpha), LANCZOS resize to `control_size`, no crop. Both cache passes call it, so the VAE and the text encoder see the same image.
+- `index_control_dir` / `pair_control_files(stem, index)`: `stem.<ext>` → `[it]`, else `stem_<n>.<ext>` in numeric order, contiguous from 0; both forms, neither, a gap or two files per slot raise `ControlPairingError`. Also run by the preflight (`rengu_flow/config/preflight.py`).
+- `multiple` = `model.control_round_to_multiple`, falling back to `model.pixels_round_to_multiple` (`dataset.control_round_to_multiple(model)`).
+- `control_resolution` (per `[[directory]]`) — default: the bucket's resolution (`DirectoryDataset.control_resolution_for`).
+
+**Metadata** (per row, edit directories only): `control_file: list[str]` (paired paths, in order), `control_stamp: list[str]` (`size:mtime_ns` per control), `control_dims: list[[w, h]]` (source sizes from the header). Each bucket is then split by **control signature** `tuple((w_i, h_i))` at its control resolution (`split_by_control_signature`) — one `SizeBucketDataset` per signature, with a `control_resolution` column, `sb.control_signature`, and cache dir `cache_<bucket>_ctl_<w>x<h>-…`.
+
+**Batching:** `Dataset.post_init` groups buckets by `(size_bucket, control_signature)`, so a batch never mixes t2i with edit rows nor different control counts/sizes (`()` for t2i).
+
+**Model contract** (what `DatasetManager` calls):
+
+| Hook | Text-to-image directory | Edit directory |
+|------|------------------------|----------------|
+| `call_vae_fn` | `fn(tensor)` | `fn(tensor, control_tensors)` — `control_tensors` is a `list` of N tensors `(B, C, 1, H_i, W_i)` in [-1, 1] (C = 3; 4 when a control has alpha — RGB rows of that batch get an opaque alpha). Must return the usual dict **plus** `control_latents_0 … control_latents_{N-1}`; they are cached per row and reach `prepare_inputs` stacked. |
+| `call_text_encoder_fn` | 3-param fn: `fn(captions, is_video, [None] * B)`; 2-param fn: `fn(captions, is_video)` | 3-param fn: `fn(captions, is_video, control_images)` — one `list[PIL.Image]` per caption (loaded with `load_control_image`). 2-param fns never receive controls. |
+
+The uncond (empty caption) embedding is encoded with `control_images = [None]`; that is why `uncond_fraction > 0` is rejected on edit directories.
+
+**Cache keys:** `CONTROL_IDENTITY_COLUMNS = (control_file, control_stamp, control_resolution)` join the latent fingerprint, the text-embedding fingerprint, **and** both salvage identities (the map fns store them per row), so replacing a control re-encodes exactly its row and a donor never hands out an embedding made from other controls. In AR-bucket mode edit text embeddings are cached per size bucket (not per AR bucket) because the default control resolution differs per resolution.
+
+**Rejected combinations:** augmentation (`validate_augmentation_for_directory`), `uncond_fraction > 0`, video targets, `control_resolution` not a positive int (`validate_dataset_config_for_real_data`).
 
 ## Where the code lives
 
@@ -138,6 +167,7 @@ See the full table in [Testing — Dataset and data loading tests](testing.md#da
 - **`tests/test_dump_dataset.py`**, **`tests/test_smoke_cc0_dataset.py`** — `dump_dataset` and the versioned CC0 fixture.
 - **`tests/test_sdxl_cache_hooks.py`**, **`tests/test_sdxl_cached_prepare_inputs.py`** — SDXL cache hooks and cached training path (mocked).
 - **`tests/test_cache.py`** — round-trip, resume, fingerprint, legacy-v1 reject.
+- **`tests/test_dataset_control_helpers.py`**, **`tests/test_dataset_control_config.py`**, **`tests/test_dataset_control_integration.py`** — edit datasets: sizing/pairing helpers, validation + preflight, and a real `DatasetManager` over t2i + edit folders (homogeneous batches, control sizes, cache invalidation on a replaced control).
 
 ## Model hooks for cache
 

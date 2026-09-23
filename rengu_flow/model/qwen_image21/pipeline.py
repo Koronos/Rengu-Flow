@@ -1,12 +1,17 @@
 """Qwen-Image 2.1 training pipeline (Qwen3-VL-8B text encoder + RGBA 16x VAE + vendored
 single-stream block-causal DiT).
 
-Trains ``Qwen/Qwen-Image-2.1`` text-to-image: full finetune or any rengu adapter (LoRA / LoKr /
-LyCORIS catalog) on the DiT. The VAE and text encoder are always frozen; text embeddings must be
-cached (the 8B encoder cannot sit in the training graph). The encoder is loaded lazily (only
-when captions still need encoding) and streams its decoder layers from pinned host RAM when it
-does not fit in VRAM (``model.text_encoder_offload``). Image-conditioned (edit) training is not
-supported: every sample is ``[prompt | target image]``.
+Trains ``Qwen/Qwen-Image-2.1`` text-to-image and image-conditioned (edit): full finetune or any
+rengu adapter (LoRA / LoKr / LyCORIS catalog) on the DiT. The VAE and text encoder are always
+frozen; text embeddings must be cached (the 8B encoder cannot sit in the training graph). The
+encoder is loaded lazily (only when captions still need encoding) and streams its decoder
+layers from pinned host RAM when it does not fit in VRAM (``model.text_encoder_offload``).
+
+A text-to-image sample is ``[prompt | target image]``. An edit sample (a dataset directory with
+``control_path``) is ``[prompt with its N condition images | target]``: the condition images are
+read by the Qwen3-VL vision tower (loaded on the first caption that has them) as part of the
+prompt, and their clean VAE latents fill the vision slots of the DiT sequence; noise and loss
+touch only the target. Both kinds of batch can share one run.
 """
 
 from __future__ import annotations
@@ -20,10 +25,17 @@ from torch import nn
 from rengu_flow.config.validation import ConfigValidationError
 from rengu_flow.data.preprocess_media import PreprocessMediaFile
 from rengu_flow.model import dit_common
-from rengu_flow.model.dit_common.streaming import OFFLOAD_MODES, LazyStreamedEncoder
+from rengu_flow.model.dit_common.streaming import OFFLOAD_MODES, LazyStreamedEncoderWithCompanion
 from rengu_flow.model.qwen_image21 import loading
+from rengu_flow.model.qwen_image21.dit import pack_latents
 from rengu_flow.model.qwen_image21.layers import FinalLayer, InitialLayer, TransformerLayer
-from rengu_flow.model.qwen_image21.text import drop_index, encode_prompts, text_model_of
+from rengu_flow.model.qwen_image21.text import (
+    drop_index,
+    encode_prompts,
+    encode_prompts_with_images,
+    text_model_of,
+    vision_language_model,
+)
 from rengu_flow.registry.models import register_model
 from rengu_flow.utils.save_io import atomic_save_safetensors
 
@@ -75,6 +87,57 @@ def calculate_shift(image_seq_len: int) -> float:
     )
 
 
+def _stack_rows(value) -> torch.Tensor:
+    return value if torch.is_tensor(value) else torch.stack(list(value))
+
+
+def _edit_inputs(inputs: dict, text_len: int, h: int, w: int):
+    """``(img_mask, control_latents, control_layout)`` of an edit batch, or ``None`` for t2i.
+
+    - ``img_mask`` ``(B, text_len + h*w/4)`` bool: the cached ``image_pad_mask`` (the condition
+      images' vision slots in the prompt sequence, right-padded like the embeddings) followed by
+      one slot per 2x2 group of target latents — the reference's ``append_target_slots``.
+    - ``control_latents`` ``(B, sum h_i*w_i, 64)``: the N condition latents packed and joined in
+      order (they precede the target in the DiT sequence).
+    - ``control_layout``: a zero-storage tensor of shape ``(h_0, w_0, ..., h_{N-1}, w_{N-1}, 0)``
+      carrying the per-image latent grids as host shape metadata (the pipe tuple is tensors-only).
+    """
+    keys = sorted(
+        (k for k in inputs if k.startswith("control_latents_")), key=lambda k: int(k.rsplit("_", 1)[1])
+    )
+    if not keys:
+        return None
+    if [int(k.rsplit("_", 1)[1]) for k in keys] != list(range(len(keys))):
+        raise ValueError(f"qwen_image21: condition latents must be numbered 0..N-1, got {keys}")
+    controls = [_stack_rows(inputs[k]).float() for k in keys]
+    bs = controls[0].shape[0]
+    if inputs.get("image_pad_mask") is None:
+        raise ValueError(
+            "qwen_image21: an edit batch (condition latents present) has no cached image_pad_mask — "
+            "its text embeddings were encoded without the condition images. Regenerate the text "
+            "cache (--regenerate_text_cache)."
+        )
+    raw = inputs["image_pad_mask"]
+    rows = list(raw.unbind(0)) if torch.is_tensor(raw) else list(raw)
+    image_pad_mask = torch.zeros((bs, text_len), dtype=torch.bool)
+    for i, row in enumerate(rows):
+        image_pad_mask[i, : row.shape[0]] = row.bool().cpu()
+    grids = [tuple(c.shape[-2:]) for c in controls]
+    slots = sum(gh * gw for gh, gw in grids) // 4
+    if any(gh % 2 or gw % 2 for gh, gw in grids) or not bool((image_pad_mask.sum(1) == slots).all()):
+        raise ValueError(
+            f"qwen_image21: the cached image_pad_mask marks {image_pad_mask.sum(1).tolist()} vision "
+            f"slots but the condition latents {grids} need {slots} per sample (stale text cache? "
+            "regenerate it)."
+        )
+    if not bool((image_pad_mask == image_pad_mask[:1]).all()):
+        raise ValueError("qwen_image21: the samples of an edit batch must share one condition-image layout.")
+    img_mask = torch.cat([image_pad_mask, torch.ones((bs, h * w // 4), dtype=torch.bool)], dim=1)
+    control_latents = torch.cat([pack_latents(c) for c in controls], dim=1)
+    control_layout = control_latents.new_empty((*[d for g in grids for d in g], 0))
+    return img_mask, control_latents, control_layout
+
+
 @register_model("qwen_image21")
 class QwenImage21Pipeline(dit_common.DiTPipeline):
     name = "qwen_image21"
@@ -108,14 +171,20 @@ class QwenImage21Pipeline(dit_common.DiTPipeline):
         self.tokenizer = loading.load_tokenizer(self._processor_path())
         self.drop_idx = drop_index(self.tokenizer)
         text_encoder_path = self._component_path("text_encoder")
-        self.text_encoder = LazyStreamedEncoder(
+        # The text decoder streams; the vision tower (~1.2 GB) is only read for captions that come
+        # with condition images, then stays resident next to it.
+        self.text_encoder = LazyStreamedEncoderWithCompanion(
             lambda: loading.load_text_encoder(text_encoder_path, dtype),
             layers_of=lambda module: module.layers,
+            companion_loader=lambda: loading.load_vision_encoder(text_encoder_path, dtype),
             offload=offload,
             name="Qwen3-VL text encoder",
+            companion_name="Qwen3-VL vision tower",
         )
         self.transformer = None
-        self._preview_embed_cache: dict[str, torch.Tensor] = {}
+        self._preview_embed_cache: dict = {}
+        self._processor = None
+        self._vlm_shell = None
 
     # ---- component paths ------------------------------------------------------------------
 
@@ -184,8 +253,22 @@ class QwenImage21Pipeline(dit_common.DiTPipeline):
         std = torch.tensor(self.vae.config.latents_std, device=device, dtype=dtype).view(1, -1, 1, 1)
         return mean, std
 
+    def encode_condition_latents(self, vae, tensor: torch.Tensor) -> torch.Tensor:
+        """Normalized VAE latents ``(B, 64, 1, H/16, W/16)`` of a condition-image batch
+        ``(B, C, H, W)`` or ``(B, C, 1, H, W)`` in ``[-1, 1]`` (RGB gets an opaque alpha): the
+        distribution's mode, as the reference encodes condition images (``sample_mode="argmax"``)."""
+        p = next(vae.parameters())
+        tensor = tensor.to(p.device, p.dtype)
+        if tensor.ndim == 4:
+            tensor = tensor.unsqueeze(2)
+        if tensor.shape[1] == 3:
+            tensor = torch.cat([tensor, torch.ones_like(tensor[:, :1])], dim=1)
+        latents = vae.encode(tensor).latent_dist.mode()
+        mean, std = self._latent_stats(latents.device, latents.dtype)
+        return (latents - mean.unsqueeze(2)) / std.unsqueeze(2)
+
     def get_call_vae_fn(self, vae):
-        def fn(tensor):
+        def fn(tensor, control_tensors=None):
             p = next(vae.parameters())
             tensor = tensor.to(p.device, p.dtype)
             if tensor.shape[1] == 3:
@@ -194,25 +277,117 @@ class QwenImage21Pipeline(dit_common.DiTPipeline):
             # (B, 4, T=1, H, W) in -> (B, 64, 1, H/16, W/16) out.
             latents = vae.encode(tensor.unsqueeze(2)).latent_dist.sample().squeeze(2)
             mean, std = self._latent_stats(latents.device, latents.dtype)
-            return {"latents": (latents - mean) / std}
+            out = {"latents": (latents - mean) / std}
+            if control_tensors is not None:
+                if torch.is_tensor(control_tensors):
+                    control_tensors = [control_tensors]
+                for i, control in enumerate(control_tensors):
+                    out[f"control_latents_{i}"] = self.encode_condition_latents(vae, control)
+            return out
 
         return fn
 
+    # ---- image-conditioned text encoding ---------------------------------------------------
+
+    def _get_processor(self):
+        if self._processor is None:
+            self._processor = loading.load_processor(self._processor_path(), self.tokenizer)
+        return self._processor
+
+    def _vision_language_model(self, text_encoder):
+        """The full Qwen3-VL (vision tower + deepstack + the streamed text decoder) for prompts
+        with condition images. The vision tower loads on first use and stays resident with the
+        encoder. The returned shell must be released with ``_release_vision_language_model``."""
+        text_model = text_model_of(text_encoder)
+        vision = text_encoder.load_companion()
+        if self._vlm_shell is None:
+            config = loading.load_qwen3vl_config(self._component_path("text_encoder"))
+        else:
+            config = self._vlm_shell.config
+        self._vlm_shell = vision_language_model(text_model, vision, config, self._vlm_shell)
+        return self._vlm_shell
+
+    def _release_vision_language_model(self) -> None:
+        """Drop the shell's references to the encoder's modules, so unloading the encoder
+        (``.to("meta")``) actually frees its ~17.5 GB instead of the shell keeping them alive."""
+        if self._vlm_shell is not None:
+            self._vlm_shell.language_model = None
+            self._vlm_shell.visual = None
+
+    def encode_edit_prompts(self, text_encoder, captions: list[str], images: list[list], device):
+        """``(embeds, mask, image_pad_mask)`` for captions with their condition images, checking
+        that every image fills exactly the ``(W/32)*(H/32)`` vision slots its latents need (the
+        processor resizes anything else: images must be multiples of 32 px and at least 256x256
+        in area)."""
+        vlm = self._vision_language_model(text_encoder)
+        try:
+            embeds, mask, image_pad_mask = encode_prompts_with_images(
+                vlm, self._get_processor(), captions, images, device=device, drop_idx=self.drop_idx
+            )
+        finally:
+            self._release_vision_language_model()
+        for i, row in enumerate(images):
+            expected = sum((img.size[0] // 32) * (img.size[1] // 32) for img in row)
+            exact = all(img.size[0] % 32 == 0 and img.size[1] % 32 == 0 for img in row)
+            if not exact or int(image_pad_mask[i].sum()) != expected:
+                sizes = ", ".join(f"{img.size[0]}x{img.size[1]}" for img in row)
+                raise ValueError(
+                    f"qwen_image21: condition images ({sizes}) do not map 1:1 onto vision slots "
+                    f"({int(image_pad_mask[i].sum())} slots, expected {expected}). Condition images "
+                    "must be multiples of 32 px with an area of at least 256x256 "
+                    "(raise control_resolution)."
+                )
+        return embeds, mask, image_pad_mask
+
     def get_call_text_encoder_fn(self, text_encoder):
-        def fn(captions, is_video):
+        def fn(captions, is_video, control_images=None):
             # Device of the embedding table (resident on the GPU when streaming; loads a lazy
             # encoder that was never placed).
             device = next(text_model_of(text_encoder).parameters()).device
-            embeds, mask = encode_prompts(
-                text_encoder, self.tokenizer, captions, device=device, drop_idx=self.drop_idx
+            edit_rows = [i for i, imgs in enumerate(control_images or []) if imgs]
+            if not edit_rows:
+                embeds, mask = encode_prompts(
+                    text_encoder, self.tokenizer, captions, device=device, drop_idx=self.drop_idx
+                )
+                return {"prompt_embeds": embeds, "text_mask": mask}
+            # Captions with condition images go through the full VLM; any without (a mixed batch)
+            # through the unchanged text-only path. image_pad_mask is ragged like the embeddings.
+            rows = {}
+            edit = self.encode_edit_prompts(
+                text_encoder, [captions[i] for i in edit_rows], [control_images[i] for i in edit_rows], device
             )
-            return {"prompt_embeds": embeds, "text_mask": mask}
+            for j, i in enumerate(edit_rows):
+                rows[i] = (edit[0][j], edit[1][j], edit[2][j])
+            plain_rows = [i for i in range(len(captions)) if i not in rows]
+            if plain_rows:
+                embeds, mask = encode_prompts(
+                    text_encoder,
+                    self.tokenizer,
+                    [captions[i] for i in plain_rows],
+                    device=device,
+                    drop_idx=self.drop_idx,
+                )
+                for j, i in enumerate(plain_rows):
+                    rows[i] = (embeds[j], mask[j], torch.zeros_like(mask[j]))
+            max_len = max(r[0].shape[0] for r in rows.values())
+            first = rows[edit_rows[0]][0]
+            embeds = first.new_zeros((len(captions), max_len, first.shape[-1]))
+            mask = torch.zeros((len(captions), max_len), dtype=torch.bool, device=first.device)
+            image_pad_mask = torch.zeros_like(mask)
+            for i, (e, m, pad) in rows.items():
+                embeds[i, : e.shape[0]] = e
+                mask[i, : m.shape[0]] = m
+                image_pad_mask[i, : pad.shape[0]] = pad
+            return {"prompt_embeds": embeds, "text_mask": mask, "image_pad_mask": image_pad_mask}
 
         return fn
 
     # ---- training --------------------------------------------------------------------------
 
     def prepare_inputs(self, inputs, timestep_quantile=None):
+        """``(noisy, t, prompt_embeds, text_mask)`` for a text-to-image batch; an edit batch (one
+        with ``control_latents_*``) appends ``(img_mask, control_latents, control_layout)`` — see
+        ``_edit_inputs``. Noise, the timestep shift and the loss involve the target only."""
         latents = inputs["latents"].float()
         mask = inputs["mask"]
         prompt_embeds, text_mask = dit_common.pad_text_embeddings(inputs["prompt_embeds"], inputs["text_mask"])
@@ -229,7 +404,10 @@ class QwenImage21Pipeline(dit_common.DiTPipeline):
         t = dit_common.shift_timesteps(t, self.model_config.get("shift", None), calculate_shift(h * w))
         noisy_latents, target, t = dit_common.add_flow_noise(latents, t)
 
-        return (noisy_latents, t, prompt_embeds, text_mask), (target, mask)
+        edit = _edit_inputs(inputs, prompt_embeds.shape[1], h, w)
+        if edit is None:
+            return (noisy_latents, t, prompt_embeds, text_mask), (target, mask)
+        return (noisy_latents, t, prompt_embeds, text_mask, *edit), (target, mask)
 
     def to_layers(self):
         if self.config.get("tread"):
@@ -293,6 +471,27 @@ class QwenImage21Pipeline(dit_common.DiTPipeline):
             self.offload_text_encoder_after_encode(preview_cfg)
         return [(self._preview_embed_cache[p], self._preview_embed_cache[p].shape[0]) for p in prompts]
 
+    def preview_edit_prompt_embeds(
+        self, prompts: list[str], control_paths: list, images: list, resolution: int, preview_cfg: dict, device
+    ) -> list[tuple[torch.Tensor, torch.Tensor]]:
+        """``(embeds (L, D), image_pad_mask (L,))`` on CPU per prompt, each encoded with the same
+        condition ``images`` (the ones loaded from ``control_paths`` at ``resolution``). Memoized
+        like ``preview_prompt_embeds``; the key includes each file's size/mtime stamp."""
+        from rengu_flow.data.control import control_stamp
+
+        identity = (tuple((str(path), control_stamp(path)) for path in control_paths), int(resolution))
+        keys = [("edit", prompt, identity) for prompt in prompts]
+        missing = [k for k in dict.fromkeys(keys) if k not in self._preview_embed_cache]
+        if missing:
+            self.ensure_text_encoder_for_preview(device)
+            embeds, mask, image_pad_mask = self.encode_edit_prompts(
+                self.text_encoder, [k[1] for k in missing], [images] * len(missing), device
+            )
+            for i, k in enumerate(missing):
+                self._preview_embed_cache[k] = (embeds[i][mask[i]].cpu(), image_pad_mask[i][mask[i]].cpu())
+            self.offload_text_encoder_after_encode(preview_cfg)
+        return [self._preview_embed_cache[k] for k in keys]
+
     def prepare_preview_memory(self, preview_cfg: dict) -> None:
         self._prepare_blocks_preview_memory(preview_cfg)
 
@@ -304,7 +503,10 @@ class QwenImage21Pipeline(dit_common.DiTPipeline):
             self.text_encoder.to("meta")
             self._preview_te_rest_device = None
 
-    def generate_preview_image(self, preview_cfg: dict, prompt: str, step: int, seed: int):
+    def generate_preview_image(
+        self, preview_cfg: dict, prompt: str, step: int, seed: int, control_images: list | None = None
+    ):
+        """One preview; with ``control_images`` (paths) it is an edit of those images."""
         from rengu_flow.model.qwen_image21.preview_sampling import generate_preview_image as _gen
 
-        return _gen(self, preview_cfg, prompt, step, seed)
+        return _gen(self, preview_cfg, prompt, step, seed, control_images=control_images)

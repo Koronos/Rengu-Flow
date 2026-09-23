@@ -326,7 +326,7 @@ def _preview_sampler_fields(preview_models: list[str]) -> list[dict[str, Any]]:
 
 
 def _preview_section() -> dict[str, Any]:
-    from rengu_flow_ui.preview_form import WHEN_COSMOS_PREVIEW, WHEN_DIT_PREVIEW
+    from rengu_flow_ui.preview_form import WHEN_COSMOS_PREVIEW, WHEN_DIT_PREVIEW, WHEN_EDIT_PREVIEW
 
     preview_models = [c.type_id for c in model_capability_registry.values() if c.preview]
     when_preview = _when_model(*preview_models) if preview_models else {"field": "model.type", "in": []}
@@ -396,6 +396,14 @@ def _preview_section() -> dict[str, Any]:
             _field("preview.negative_prompt", "Negative prompt", "string", when=when_preview, example="blurry, low quality, watermark"),
             _field("preview.width", "Width", "integer", default=1024, when=when_preview),
             _field("preview.height", "Height", "integer", default=1024, when=when_preview),
+            _field(
+                "preview.control_resolution",
+                "Edit preview condition resolution",
+                "integer",
+                min_value=256,
+                when=WHEN_EDIT_PREVIEW,
+                placeholder="empty = side of width × height",
+            ),
             *_preview_sampler_fields(preview_models),
             _field("preview.seed", "Seed", "integer", default=0, when=when_preview),
             _field("preview.seed_stride", "Seed stride", "integer", default=0, when=when_preview),

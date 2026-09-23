@@ -21,6 +21,7 @@ DIRECTORY_OPTIONAL_KEYS = (
     "directory_caption",
     "mask_path",
     "control_path",
+    "control_resolution",
     "default_mask_file",
     "resolutions",
     "frame_buckets",

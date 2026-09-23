@@ -1,0 +1,28 @@
+# Qwen-Image 2.1 edit (image-conditioned) dataset, mixed with text-to-image data in one run.
+#
+# Edit folder layout (control_path is a sibling folder, paired by file stem):
+#   edit_set/targets/house.png   + house.txt  <- the edited result + the edit INSTRUCTION
+#   edit_set/controls/house.png               <- the source image (one condition image), or
+#   edit_set/controls/house_0.png, house_1.png, ...  (several condition images, in order)
+# Controls keep their own aspect ratio (area control_resolution^2, floored to 32 px); image
+# augmentations cannot be combined with control_path.
+
+resolutions = [1024]
+enable_ar_bucket = true
+min_ar = 0.5
+max_ar = 2.0
+num_ar_buckets = 4
+frame_buckets = [1]
+
+[[directory]]
+path = 'path/to/edit_set/targets'
+control_path = 'path/to/edit_set/controls'
+num_repeats = 1
+# Optional: condition-image size (side of the target area). Default: the bucket resolution
+# (1024 here). 768 roughly halves the condition tokens and the text-encoder cost per caption.
+# control_resolution = 768
+
+# Plain text-to-image images + captions in the same run keep the text-to-image skill intact.
+[[directory]]
+path = 'path/to/t2i_images'
+num_repeats = 1

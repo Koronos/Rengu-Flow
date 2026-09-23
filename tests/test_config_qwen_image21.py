@@ -104,7 +104,7 @@ def test_capability_declares_adapters_features_and_groups():
 
     cap = get_capability("qwen_image21")
     assert cap.full_finetune and cap.preview
-    assert cap.features == {"preview": True, "block_swap": True}
+    assert cap.features == {"preview": True, "block_swap": True, "edit": True}
     assert set(cap.adapters) == {"lora", "lokr", *LYCORIS_ADAPTER_TYPES}
     assert sorted(cap.adapter_layer_groups) == sorted(ADAPTER_LAYER_GROUPS)
 

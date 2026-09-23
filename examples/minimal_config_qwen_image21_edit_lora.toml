@@ -1,0 +1,49 @@
+# Minimal Qwen-Image 2.1 edit LoRA (image-conditioned, mixed with text-to-image data), sized
+# for an 8 GB card: fp8 frozen base + block swap. Captions are cached once with the Qwen3-VL-8B
+# encoder streamed from host RAM; edit captions also run its vision tower on the condition
+# images (loaded on the first one, ~1.2 GB).
+
+output_dir = 'output'
+dataset = 'examples/minimal_qwen_image21_edit_dataset.toml'
+
+epochs = 1
+micro_batch_size_per_gpu = 1
+pipeline_stages = 1
+gradient_accumulation_steps = 1
+activation_checkpointing = true
+save_every_n_epochs = 1
+caching_batch_size = 1
+# 8 GB: stream 24 of the 32 DiT blocks from CPU. An edit sample is longer than a t2i one (the
+# condition images' latent tokens precede the target), so keep this at least as high as for t2i.
+blocks_to_swap = 24
+
+[model]
+type = 'qwen_image21'
+dtype = 'bfloat16'
+# The Qwen/Qwen-Image-2.1 download (transformer/, vae/, text_encoder/, processor/).
+diffusers_path = 'path/to/Qwen-Image-2.1'
+# 14.2 GB bf16 -> ~7.3 GB: tensorwise fp8 frozen base (sm89+ GPU, e.g. RTX 40xx / Ada).
+transformer_fp8_matmul = true
+
+[adapter]
+type = 'lora'
+rank = 16
+
+[optimizer]
+type = 'adamw'
+lr = 1e-4
+
+[preview]
+preview_every_n_steps = 250
+preview_blocks_to_swap = 32
+
+# An edit preview: the prompt is the instruction, control_images the image(s) to edit.
+[[preview.prompts]]
+name = 'edit_snow'
+prompt = 'make it snowy'
+control_images = ['path/to/edit_set/controls/house.png']
+
+# A text-to-image preview in the same run, to watch that t2i does not degrade.
+[[preview.prompts]]
+name = 't2i'
+prompt = 'a red fox in a snowy forest, golden hour'
