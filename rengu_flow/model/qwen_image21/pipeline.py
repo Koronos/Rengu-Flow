@@ -23,12 +23,13 @@ import torch.nn.functional as F
 from torch import nn
 
 from rengu_flow.config.validation import ConfigValidationError
+from rengu_flow.data.control import summarize_control_problems
 from rengu_flow.data.preprocess_media import PreprocessMediaFile
 from rengu_flow.model import dit_common
 from rengu_flow.model.dit_common.streaming import OFFLOAD_MODES, LazyStreamedEncoderWithCompanion
 from rengu_flow.model.qwen_image21 import loading
 from rengu_flow.model.qwen_image21.dit import pack_latents
-from rengu_flow.model.qwen_image21.layers import FinalLayer, InitialLayer, TransformerLayer
+from rengu_flow.model.qwen_image21.layers import MAX_CONDITION_IMAGES, FinalLayer, InitialLayer, TransformerLayer
 from rengu_flow.model.qwen_image21.text import (
     drop_index,
     encode_prompts,
@@ -72,6 +73,33 @@ QUANT_SKIP_SUBSTRINGS = (
     "norm_out",
     "proj_out",
 )
+
+# Smallest condition image the Qwen3-VL processor keeps at its own size: below this area it
+# upsamples, and the image no longer maps 1:1 onto the vision slots its VAE latents fill.
+MIN_CONTROL_AREA = 256 * 256
+
+
+def control_row_problems(rows) -> list[str]:
+    """One message per target whose control images qwen_image21 cannot train on (first rule it
+    breaks): more than ``MAX_CONDITION_IMAGES`` of them, or one below ``MIN_CONTROL_AREA``.
+    ``rows`` are :class:`rengu_flow.data.control.ControlRow`."""
+    problems: dict[str, str] = {}
+    for row in rows:
+        if row.target in problems:
+            continue
+        if row.count > MAX_CONDITION_IMAGES:
+            problems[row.target] = (
+                f"{row.target}: {row.count} control images, at most {MAX_CONDITION_IMAGES} are supported"
+            )
+            continue
+        small = [(w, h) for w, h in row.sizes if w * h < MIN_CONTROL_AREA]
+        if small:
+            w, h = small[0]
+            problems[row.target] = (
+                f"{row.target}: control image resized to {w}x{h}, below the 256x256 minimum area"
+            )
+    return list(problems.values())
+
 
 # Resolution-aware timestep shift of the reference scheduler (scheduler_config.json:
 # base_image_seq_len=256, max_image_seq_len=8192, base_shift=0.5, max_shift=0.9, exponential).
@@ -315,6 +343,23 @@ class QwenImage21Pipeline(dit_common.DiTPipeline):
         if self._vlm_shell is not None:
             self._vlm_shell.language_model = None
             self._vlm_shell.visual = None
+
+    def validate_control_rows(self, rows) -> None:
+        """DatasetManager hook, run after the metadata stage and before any encode: fail fast on
+        control images the vision tower (area) or the layer layout (count) cannot take, instead
+        of mid text-encoder caching or at the first training step."""
+        problems = control_row_problems(rows)
+        if not problems:
+            return
+        hints = []
+        if any("minimum area" in p for p in problems):
+            hints.append("raise control_resolution on the [[directory]] (256 at least; non-square controls need more, each side is floored to 32 px)")
+        if any("are supported" in p for p in problems):
+            hints.append(f"use fewer control images per target (at most {MAX_CONDITION_IMAGES})")
+        raise ValueError(
+            f"qwen_image21: {len(problems)} edit row(s) have control images the model cannot train on:\n"
+            + summarize_control_problems(problems, "Fix: " + "; or ".join(hints) + ".")
+        )
 
     def encode_edit_prompts(self, text_encoder, captions: list[str], images: list[list], device):
         """``(embeds, mask, image_pad_mask)`` for captions with their condition images, checking

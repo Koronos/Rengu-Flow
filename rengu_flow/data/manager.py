@@ -17,7 +17,7 @@ except ImportError:
 
 from rengu_flow.control.progress_stream import ProgressEmitter
 from rengu_flow.data import caching_progress
-from rengu_flow.data.control import control_size, load_control_image
+from rengu_flow.data.control import ControlRow, control_signature, control_size, load_control_image
 from rengu_flow.data.dataset import CONTROL_IDENTITY_COLUMNS as _CONTROL_IDENTITY_COLUMNS
 from rengu_flow.data.dataset import control_round_to_multiple
 from rengu_flow.distributed import is_main_process
@@ -117,6 +117,40 @@ def _stack_control_slot(tensors: list) -> torch.Tensor:
     return torch.stack(tensors)
 
 
+def _control_rows(datasets_list) -> list[ControlRow]:
+    """Every edit row with the final sizes of its control images, from the metadata alone.
+
+    Size-bucket mode: each bucket already carries its ``control_signature``. AR-bucket mode splits
+    by signature only in ``cache_latents``, so the sizes are computed here per resolution, with the
+    same ``control_signature`` / ``control_resolution_for`` the split uses. A target trained at
+    several resolutions appears once per distinct set of sizes; text-to-image rows never appear.
+    """
+    rows: dict[ControlRow, None] = {}
+    for ds in datasets_list:
+        for dd in getattr(ds, "directory_datasets", []):
+            if getattr(dd, "control_path", None) is None:
+                continue
+            if dd.use_size_buckets:
+                for sb in dd.size_bucket_datasets:
+                    if not sb.control_signature or len(sb.metadata_dataset) == 0:
+                        continue
+                    for spec in sb.metadata_dataset["image_spec"]:
+                        rows[ControlRow(str(spec[1]), sb.control_signature)] = None
+                continue
+            multiple = dd.control_round_to_multiple
+            for ar in dd.ar_bucket_datasets:
+                meta = ar.metadata_dataset
+                if len(meta) == 0 or "control_dims" not in meta.column_names:
+                    continue
+                specs, all_dims = meta["image_spec"], meta["control_dims"]
+                for res in ar.resolutions:
+                    control_res = dd.control_resolution_for(int(res))
+                    for spec, dims in zip(specs, all_dims):
+                        sizes = control_signature(dims, control_res, multiple)
+                        rows[ControlRow(str(spec[1]), sizes)] = None
+    return list(rows)
+
+
 def _count_latent_units(datasets_list) -> int:
     """Latent-encode buckets across all datasets: one unit per (size|ar-resolution) bucket."""
     total = 0
@@ -169,6 +203,10 @@ def _make_channel(single_process: bool):
     return mp.Pipe(duplex=False)
 
 
+# Queue task id: the worker asks the consumer to run model.validate_control_rows(rows).
+_VALIDATE_CONTROL_ROWS = "__validate_control_rows__"
+
+
 def _cache_fn(
     datasets_list,
     queue,
@@ -182,11 +220,14 @@ def _cache_fn(
     cache_keep_in_memory: bool,
     single_process_channel: bool = False,
     control_round_to_multiple: int = 32,
+    validate_control_rows: bool = False,
 ) -> None:
     """Worker process: run cache_metadata, cache_latents, cache_text_embeddings; send GPU work via queue.
 
     ``control_round_to_multiple`` is the pixel multiple control images of edit datasets are
-    floored to (see rengu_flow/data/control.py).
+    floored to (see rengu_flow/data/control.py). ``validate_control_rows``: the model defines the
+    hook of that name; the edit rows are sent to it (over the queue — the model lives in the
+    consumer) after the metadata stage, before any latent or text embedding is encoded.
     """
     torch.set_num_threads(1)
     # HF datasets renders its own tqdm bars ("Saving the dataset (x/y shards)", map descs).
@@ -225,6 +266,16 @@ def _cache_fn(
                 trust_cache=trust_cache,
                 cache_num_proc=cache_num_proc,
             )
+
+    if validate_control_rows:
+        rows = _control_rows(datasets_list)
+        if rows:
+            reader, writer = _make_channel(single_process_channel)
+            queue.put((_VALIDATE_CONTROL_ROWS, rows, writer))
+            error = reader.recv()
+            if error is not None:
+                # The consumer raises the model's own error; this only ends the worker.
+                raise RuntimeError(f"control images rejected by the model: {error}")
 
     pipes = {}
 
@@ -433,6 +484,11 @@ class DatasetManager:
         self.cache_num_proc = cache_num_proc
         self.cache_keep_in_memory = cache_keep_in_memory
         self.backend = backend
+        # Optional model hook: validate_control_rows(rows: list[ControlRow]) raises when the
+        # model cannot take some edit rows' control images. Called once, after the metadata stage
+        # and before any encode, so a bad dataset fails in seconds instead of mid-caching.
+        hook = getattr(model, "validate_control_rows", None)
+        self._validate_control_rows = hook if callable(hook) else None
         self.datasets = []
 
     def register(self, dataset) -> None:
@@ -474,6 +530,7 @@ class DatasetManager:
                 # Multi-GPU worker is a real process: keep mp.Pipe (cross-process IPC).
                 not self.backend.is_distributed,
                 control_round_to_multiple(self.model),
+                self._validate_control_rows is not None,
             ]
             worker, queue = self.backend.make_cache_worker(_run_cache_worker, cache_args)
             cache_args[1] = queue  # inject the real queue so _cache_fn can enqueue GPU tasks
@@ -518,6 +575,15 @@ class DatasetManager:
     @torch.no_grad()
     def _handle_task(self, task) -> None:
         task_id = task[0]
+        if task_id == _VALIDATE_CONTROL_ROWS:
+            rows, pipe = task[1:]
+            try:
+                self._validate_control_rows(rows)
+            except Exception as exc:
+                pipe.send(str(exc))  # unblock the worker so it stops, then fail with the real error
+                raise
+            pipe.send(None)
+            return
         submodel = self.submodels[task_id]
         if isinstance(submodel, nn.Module):
             if next(submodel.parameters()).device.type != "cuda":

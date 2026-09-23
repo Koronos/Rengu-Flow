@@ -206,10 +206,11 @@ def get_directory_fields() -> list[dict[str, Any]]:
             "control_resolution",
             "Control resolution",
             "integer",
-            min=32,
+            min=256,
             show_if_set=True,
             description="Edit datasets: side of the target area of each control image (area = value²). "
-            "Each control keeps its own aspect ratio. Empty = the resolution of the target's bucket.",
+            "Each control keeps its own aspect ratio. Empty = the resolution of the target's bucket. "
+            "Minimum 256: qwen_image21 needs at least 256x256 per control image.",
             example=1024,
         ),
         _field("default_mask_file", "Default mask file", "string", show_if_set=True, example="masks/default_mask.png"),

@@ -722,8 +722,51 @@ def reject_legacy_v1(path: str | Path) -> None:
         )
 
 
-def open_disk_cache(path: str | Path, fingerprint: str, reuse_key: str | None = None) -> Cache:
-    """Return a ``Cache`` for *path* (raises on a legacy v1 cache)."""
+class StaleCacheLayoutError(ValueError):
+    """An existing cache stores a sequence key in the layout of an earlier Rengu version."""
+
+
+def reject_stale_sequence_layout(path: str | Path) -> None:
+    """Raise if the cache at *path* stores a ``_SEQUENCE_TENSOR_KEYS`` key as a fixed-width stack.
+
+    Sequence keys are read as ragged rows (per-row length + byte offset). A key that joined
+    ``_SEQUENCE_TENSOR_KEYS`` after a cache was written (``image_pad_mask``) sits in that cache
+    as a padded fixed stack, and reading it as ragged would misalign every row — so refuse it up
+    front instead of training on it. Checked on the manifest only; nothing is cleared. A cache of
+    another format version is skipped: ``Cache.init`` clears those anyway.
+    """
+    manifest = peek_manifest(path)
+    if manifest is None or manifest.get("format_version") != FORMAT_VERSION:
+        return
+    tensors = manifest.get("tensors")
+    if not isinstance(tensors, dict):
+        return
+    for key in sorted(_SEQUENCE_TENSOR_KEYS):
+        spec = tensors.get(key)
+        if isinstance(spec, dict) and not spec.get("ragged"):
+            raise StaleCacheLayoutError(
+                f"Cache {path} stores '{key}' as a fixed-width stack: it was created by an "
+                f"earlier version of Rengu, and this version reads '{key}' as ragged rows, so its "
+                "rows would come back misaligned. Either rebuild it with --regenerate_text_cache "
+                "(--regenerate_cache also works, but re-encodes the latents too), or go back to "
+                "the earlier Rengu version to keep using this cache."
+            )
+
+
+def open_disk_cache(
+    path: str | Path,
+    fingerprint: str,
+    reuse_key: str | None = None,
+    *,
+    regenerate: bool = False,
+) -> Cache:
+    """Return a ``Cache`` for *path* (raises on a legacy v1 cache).
+
+    Also raises :class:`StaleCacheLayoutError` on an existing cache whose sequence keys are in an
+    earlier version's layout, unless ``regenerate`` (the caller clears it right after opening).
+    """
     path = Path(path)
     reject_legacy_v1(path)
+    if not regenerate:
+        reject_stale_sequence_layout(path)
     return Cache(path, fingerprint, reuse_key=reuse_key)

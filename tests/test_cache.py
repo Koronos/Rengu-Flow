@@ -11,8 +11,10 @@ from rengu_flow.utils.cache import (
     MANIFEST_NAME,
     TENSORS_DIR,
     Cache,
+    StaleCacheLayoutError,
     open_disk_cache,
     reject_legacy_v1,
+    reject_stale_sequence_layout,
 )
 
 
@@ -467,3 +469,108 @@ def test_cache_finalize_then_kill_keeps_all_rows(tmp_path):
     reopened = Cache(tmp_path / "c", "fp-final")
     assert reopened.count == 5
     assert reopened[4]["caption"] == "4"
+
+
+def _write_manifest_by_hand(cache_dir, tensors: dict) -> None:
+    """A manifest as an earlier Rengu wrote it (same FORMAT_VERSION; only the layout differs)."""
+    from rengu_flow.utils.cache import FORMAT_VERSION
+
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    (cache_dir / TENSORS_DIR).mkdir(exist_ok=True)
+    (cache_dir / MANIFEST_NAME).write_text(
+        json.dumps(
+            {
+                "format_version": FORMAT_VERSION,
+                "fingerprint": "fp-old",
+                "reuse_key": None,
+                "count": 3,
+                "tensors": tensors,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+_RAGGED_EMBEDS = {"ragged": True, "trailing_shape": [8], "dtype": "float32", "storage_dtype": "bfloat16"}
+# Before fdad555 the (L,) image_pad_mask was a fixed-width stack, not a ragged row.
+_FIXED_PAD_MASK = {"shape": [10], "dtype": "bool", "storage_dtype": "bool", "item_nbytes": 10}
+
+
+def test_open_rejects_text_cache_with_fixed_width_sequence_key(tmp_path):
+    cache_dir = tmp_path / "text_embeddings_1"
+    _write_manifest_by_hand(
+        cache_dir,
+        {"prompt_embeds": _RAGGED_EMBEDS, "text_mask": dict(_RAGGED_EMBEDS, trailing_shape=[]),
+         "image_pad_mask": _FIXED_PAD_MASK},
+    )
+    with pytest.raises(StaleCacheLayoutError) as exc:
+        open_disk_cache(cache_dir, "fp-old")
+    msg = str(exc.value)
+    assert str(cache_dir) in msg and "'image_pad_mask'" in msg
+    assert "earlier version of Rengu" in msg and "--regenerate_text_cache" in msg
+    # Nothing was invalidated behind the user's back.
+    assert json.loads((cache_dir / MANIFEST_NAME).read_text())["count"] == 3
+    # Regenerating is the escape hatch: it opens the cache only to clear it.
+    rebuilt = open_disk_cache(cache_dir, "fp-old", regenerate=True)
+    rebuilt.clear()
+    assert len(rebuilt) == 0
+    open_disk_cache(cache_dir, "fp-old")  # the fresh (empty) cache no longer trips the guard
+
+
+def _valid_text_rows(model: str, n: int) -> dict:
+    """One text-embedding row as each model's text-encoder fn caches it."""
+    if model == "sdxl":  # encoder 1 and 2 share a cache dir per index; both key sets here
+        return {"prompt_embeds": torch.randn(77, 16), "prompt_embeds_2": torch.randn(77, 24),
+                "pooled_prompt_embeds": torch.randn(24)}
+    if model == "cosmos":  # token ids / masks are padded to the tokenizer's max length
+        return {"prompt_embeds": torch.randn(n, 16), "attn_mask": torch.ones(12, dtype=torch.int64),
+                "t5_input_ids": torch.ones(12, dtype=torch.int64), "t5_attn_mask": torch.ones(12, dtype=torch.int64)}
+    if model == "krea2":  # compacted (L, layers, D) stack + (L,) mask
+        return {"prompt_embeds": torch.randn(n, 3, 16), "text_mask": torch.ones(n, dtype=torch.bool)}
+    if model == "qwen_t2i":
+        return {"prompt_embeds": torch.randn(n, 16), "text_mask": torch.ones(n, dtype=torch.bool)}
+    raise AssertionError(model)
+
+
+@pytest.mark.parametrize("model", ["sdxl", "cosmos", "krea2", "qwen_t2i"])
+def test_valid_text_caches_do_not_trip_the_layout_guard(tmp_path, model):
+    cache_dir = tmp_path / model
+    cache = open_disk_cache(cache_dir, "fp")
+    for i, n in enumerate([5, 9, 7]):
+        cache.add({**_valid_text_rows(model, n), "caption": f"c{i}"})
+    cache.finalize_current_shard()
+    cache.close()
+    reopened = open_disk_cache(cache_dir, "fp")  # must not raise
+    assert len(reopened) == 3
+    reject_stale_sequence_layout(cache_dir)
+
+
+def test_map_and_cache_guard_blocks_load_but_not_regenerate(tmp_path):
+    """The caching path: a stale text cache stops the run on open/load; --regenerate_text_cache
+    (regenerate_cache=True here) rebuilds it in the current layout."""
+    import datasets
+
+    from rengu_flow.data.cache_utils import _map_and_cache
+
+    ds = datasets.Dataset.from_dict({"caption": ["a", "bb", "ccc"]})
+
+    def map_fn(batch, rank):
+        rows = [len(c) + 2 for c in batch["caption"]]
+        return {
+            "prompt_embeds": [torch.randn(n, 8) for n in rows],
+            "image_pad_mask": [torch.ones(n, dtype=torch.bool) for n in rows],
+            "caption": list(batch["caption"]),
+        }
+
+    _write_manifest_by_hand(
+        tmp_path / "text_embeddings_1", {"prompt_embeds": _RAGGED_EMBEDS, "image_pad_mask": _FIXED_PAD_MASK}
+    )
+    with pytest.raises(StaleCacheLayoutError):
+        _map_and_cache(ds, map_fn, tmp_path, cache_file_prefix="text_embeddings_1_")
+    with pytest.raises(StaleCacheLayoutError):  # the trusted load after caching
+        _map_and_cache(ds, None, tmp_path, cache_file_prefix="text_embeddings_1_")
+    cache = _map_and_cache(ds, map_fn, tmp_path, cache_file_prefix="text_embeddings_1_", regenerate_cache=True)
+    assert len(cache) == 3
+    assert cache.tensor_specs["image_pad_mask"]["ragged"] is True
+    cache.close()
+    reject_stale_sequence_layout(tmp_path / "text_embeddings_1")

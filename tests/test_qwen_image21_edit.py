@@ -924,3 +924,45 @@ def test_mixed_dataset_batches_run_through_the_layers(tmp_path, monkeypatch, acc
 
     square = (SEAM_RES // 16, SEAM_RES // 16)
     assert seen == {(), (square,), ((256 // 16, 352 // 16), (352 // 16, 256 // 16))}
+
+
+# ---- control validation before any encode ---------------------------------------------------
+
+
+def _row(target, *sizes):
+    from rengu_flow.data.control import ControlRow
+
+    return ControlRow(target, tuple(sizes))
+
+
+def test_validate_control_rows_accepts_the_limits():
+    from rengu_flow.model.qwen_image21.layers import MAX_CONDITION_IMAGES
+
+    p = object.__new__(QwenImage21Pipeline)
+    p.validate_control_rows([_row("a.png", (256, 256)), _row("b.png", *[(512, 128)] * MAX_CONDITION_IMAGES)])
+
+
+@pytest.mark.parametrize(
+    "rows, fragments",
+    [
+        ([_row("small.png", (224, 256))], ["small.png", "224x256", "256x256", "control_resolution"]),
+        ([_row("many.png", *[(256, 256)] * 11)], ["many.png", "11 control images", "at most 10", "fewer control images"]),
+    ],
+)
+def test_validate_control_rows_rejects_each_rule(rows, fragments):
+    p = object.__new__(QwenImage21Pipeline)
+    with pytest.raises(ValueError) as exc:
+        p.validate_control_rows(rows)
+    for fragment in fragments:
+        assert fragment in str(exc.value)
+
+
+def test_validate_control_rows_aggregates_the_culprits():
+    p = object.__new__(QwenImage21Pipeline)
+    rows = [_row(f"t{i}.png", (128, 128)) for i in range(8)] + [_row("ok.png", (256, 256))]
+    with pytest.raises(ValueError) as exc:
+        p.validate_control_rows(rows)
+    msg = str(exc.value)
+    assert all(f"t{i}.png" in msg for i in range(5))
+    assert "t5.png" not in msg and "ok.png" not in msg
+    assert "3 more" in msg and "8 edit row" in msg

@@ -150,6 +150,8 @@ def test_ui_form_roundtrip_keeps_control_keys():
     assert directory["control_resolution"] == 768
     fields = {f["path"]: f for f in get_dataset_schema()["directory_fields"]}
     assert fields["control_resolution"]["type"] == "integer"
+    # qwen_image21's vision tower needs >= 256x256 per control; the form does not offer less.
+    assert fields["control_resolution"]["min"] == 256
 
 
 def test_ui_help_covers_control_keys():

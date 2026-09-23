@@ -19,6 +19,7 @@ from __future__ import annotations
 import math
 import re
 from pathlib import Path
+from typing import NamedTuple
 
 from PIL import Image
 
@@ -49,6 +50,30 @@ def control_size(width: int, height: int, resolution: int, multiple: int) -> tup
     w_out = max(1, math.floor(w / multiple + 1e-6)) * multiple
     h_out = max(1, math.floor(h / multiple + 1e-6)) * multiple
     return int(w_out), int(h_out)
+
+
+class ControlRow(NamedTuple):
+    """One edit row as a model's ``validate_control_rows`` hook sees it, before any encode.
+
+    ``sizes`` are the final ``(w, h)`` of its control images (:func:`control_size`, in order);
+    ``target`` is the target image path, for error messages. A target trained at several bucket
+    resolutions yields one row per distinct set of sizes.
+    """
+
+    target: str
+    sizes: tuple[tuple[int, int], ...]
+
+    @property
+    def count(self) -> int:
+        return len(self.sizes)
+
+
+def summarize_control_problems(problems: list[str], hint: str, *, limit: int = 5) -> str:
+    """One error message for per-row control problems: the first ``limit``, then a count."""
+    lines = [f"  - {p}" for p in problems[:limit]]
+    if len(problems) > limit:
+        lines.append(f"  … and {len(problems) - limit} more.")
+    return "\n".join([*lines, hint])
 
 
 def control_signature(control_dims, resolution: int, multiple: int) -> tuple:

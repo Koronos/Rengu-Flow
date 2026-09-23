@@ -331,3 +331,53 @@ def test_corrupt_control_is_tombstoned_on_both_passes(tmp_path):
     assert "make p red" not in captions
     # q is p's only bucket-mate (a lone row does not fill a batch of 2); the other bucket trains.
     assert {"make r red", "make s red"} <= set(captions)
+
+
+class ValidatingStub(StubPipeline):
+    """Stub with the optional ``validate_control_rows`` hook: records what it receives."""
+
+    def __init__(self, error=None):
+        super().__init__()
+        self.validated: list[list] = []
+        self.error = error
+
+    def validate_control_rows(self, rows):
+        self.validated.append(list(rows))
+        if self.error:
+            raise ValueError(self.error)
+
+
+def _cache_with(root, model, **dataset_overrides):
+    gc.collect()
+    ds = Dataset({**_dataset_config(root), **dataset_overrides}, model,
+                 training_config={"cache_root": str(root / "cache")})
+    manager = DatasetManager(model, backend=select_backend({"engine": "accelerate"}))
+    manager.register(ds)
+    manager.cache(unload_models=False)
+    return ds
+
+
+@pytest.mark.parametrize("ar_bucket", [False, True])
+def test_validate_control_rows_sees_final_sizes_of_every_edit_row(tmp_path, ar_bucket):
+    _build_tree(tmp_path)
+    model = ValidatingStub()
+    _cache_with(tmp_path, model, resolutions=[32, RES], enable_ar_bucket=ar_bucket)
+    assert len(model.validated) == 1  # once, after the metadata stage
+    seen = {(os.path.basename(r.target), r.sizes) for r in model.validated[0]}
+    for r in model.validated[0]:
+        assert r.count == len(r.sizes)
+    expected = set()
+    for res in (32, RES):  # default control_resolution: each bucket's resolution
+        for stem, src in (("p", (128, 64)), ("q", (128, 64)), ("r", (64, 128)), ("s", (64, 128))):
+            expected.add((f"{stem}.png", (control_size(*src, res, MULTIPLE),)))
+        for stem in ("u", "v"):
+            expected.add((f"{stem}.png", (control_size(64, 64, res, MULTIPLE), control_size(96, 64, res, MULTIPLE))))
+    assert seen == expected  # t2i rows are never passed
+
+
+def test_validate_control_rows_failure_stops_before_any_encode(tmp_path):
+    _build_tree(tmp_path)
+    model = ValidatingStub(error="controls too small")
+    with pytest.raises(ValueError, match="controls too small"):
+        _cache_with(tmp_path, model)
+    assert model.vae_calls == [] and model.te_calls == []

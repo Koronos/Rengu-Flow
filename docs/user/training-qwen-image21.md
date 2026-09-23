@@ -266,9 +266,20 @@ path = "t2i_images"
 
 Each condition image **keeps its own aspect ratio** (it is not cropped to the target's bucket):
 it is resized to the area `control_resolution²`, floored to 32 px. The default is the target's
-bucket resolution; condition images must end up at least 256×256 in area (the vision encoder's
-minimum). Image augmentations cannot be combined with `control_path`. Full details (naming rules,
-batching, caching): [Dataset config — Control images](dataset-config.md#control-images-control_path-edit-training).
+bucket resolution. Image augmentations cannot be combined with `control_path`. Full details
+(naming rules, batching, caching): [Dataset config — Control images](dataset-config.md#control-images-control_path-edit-training).
+
+Two limits apply to every edit target. Both are checked right after the metadata is built, before
+any image or caption is encoded, and the error lists the first offending targets:
+
+| Limit | Why | How to fix |
+|-------|-----|------------|
+| Each condition image at least **256×256 in area** after resizing | The Qwen3-VL vision encoder upsamples anything smaller, and the image then no longer lines up with its VAE latents. | Raise `control_resolution` (the web UI does not offer less than 256). Each side is floored to 32 px, so a non-square condition image needs somewhat more: a 2:1 image at 256 ends up 352×160, below the minimum; at 288 it is 384×192. |
+| At most **10 condition images** per target | A limit of this implementation, not of the model: the layout of the condition blocks is carried in the shape of a tensor passed between the DiT layers (two dimensions per condition image), and PyTorch allows at most 25 dimensions per tensor. | Use fewer condition images per target. |
+
+In practice VRAM runs out before the 10-image limit: each 1024² condition image adds 4096 tokens to
+the DiT sequence (see below), so a target with ten of them is an 11× longer sequence than
+text-to-image.
 
 ### Mixed text-to-image + edit runs
 

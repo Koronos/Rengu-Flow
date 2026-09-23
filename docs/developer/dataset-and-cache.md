@@ -139,6 +139,8 @@ A `[[directory]]` with `control_path` trains an edit model (user side: [dataset-
 
 The uncond (empty caption) embedding is encoded with `control_images = [None]`; that is why `uncond_fraction > 0` is rejected on edit directories.
 
+**Optional hook `validate_control_rows(rows)`:** if the model defines it, `_cache_fn` calls it once right after the metadata stage, before any latent or text embedding is encoded. `rows` is a `list[ControlRow]` (`rengu_flow/data/control.py`: `target` path, `sizes` = final `(w, h)` per control from `control_size`, `count`), one per edit target and distinct set of sizes (a target in several resolutions appears once per size set); t2i rows are never passed. The hook raises to stop the run. The model lives in the consumer, so the worker sends the rows over the cache queue (`_VALIDATE_CONTROL_ROWS` task) and the consumer re-raises the model's own error. Models without the hook skip the row collection entirely. `summarize_control_problems` formats "first 5 + … and N more". qwen_image21 implements it (`control_row_problems`: area ≥ 256² and N ≤ `MAX_CONDITION_IMAGES`). Not run by `rengu validate`: the preflight has neither the model nor the final sizes (they depend on each target's bucket).
+
 **Cache keys:** `CONTROL_IDENTITY_COLUMNS = (control_file, control_stamp, control_resolution)` join the latent fingerprint, the text-embedding fingerprint, **and** both salvage identities (the map fns store them per row), so replacing a control re-encodes exactly its row and a donor never hands out an embedding made from other controls. In AR-bucket mode edit text embeddings are cached per size bucket (not per AR bucket) because the default control resolution differs per resolution.
 
 **Rejected combinations:** augmentation (`validate_augmentation_for_directory`), `uncond_fraction > 0`, video targets, `control_resolution` not a positive int (`validate_dataset_config_for_real_data`).
@@ -149,7 +151,7 @@ The uncond (empty caption) embedding is encoded with `control_images = [None]`; 
 |------|----------|
 | Config loading | `rengu_flow.config.loader`: `load_config`, `load_dataset_config`, `load_eval_dataset_config` |
 | Dataset config validation | `rengu_flow.data.dataset_config`: `validate_dataset_config_for_real_data`, `DatasetConfigError` |
-| Cache (disk) | `rengu_flow.utils.cache`: `Cache` (single format), `open_disk_cache`, `reject_legacy_v1` |
+| Cache (disk) | `rengu_flow.utils.cache`: `Cache` (single format), `open_disk_cache`, `reject_legacy_v1`, `reject_stale_sequence_layout` (an existing cache with a `_SEQUENCE_TENSOR_KEYS` key stored fixed-width — written before that key became ragged — raises `StaleCacheLayoutError` on open/load; skipped when regenerating, and such a cache never donates rows) |
 | Map and cache helpers | `rengu_flow.data.cache_utils`: `_map_and_cache`, `bucket_suffix`, `dedup_and_sort` |
 | Dataset hierarchy | `rengu_flow.data.dataset`: `Dataset`, `DirectoryDataset`, `SizeBucketDataset`, `ConcatenatedBatchedDataset`, `ARBucketDataset`, `TextEmbeddingDataset`, `_cache_text_embeddings`, caption helpers |
 | Cache orchestration | `rengu_flow.data.manager`: `_cache_fn`, `DatasetManager` |

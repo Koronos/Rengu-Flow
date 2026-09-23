@@ -222,7 +222,7 @@ def _open_donors(salvage_dir: Path, donor_dirs, reuse_key: str) -> list:
             continue
         try:
             donors.append(open_disk_cache(path, manifest["fingerprint"], reuse_key=reuse_key))
-        except (ValueError, OSError):
+        except (ValueError, OSError):  # incl. StaleCacheLayoutError: an old layout never donates
             continue
     return donors
 
@@ -313,7 +313,9 @@ def _map_and_cache(
     elif regenerate_cache and salvage_dir.exists():
         shutil.rmtree(salvage_dir, ignore_errors=True)
 
-    cache = open_disk_cache(cache_dir, new_fingerprint, reuse_key=reuse_key)
+    cache = open_disk_cache(
+        cache_dir, new_fingerprint, reuse_key=reuse_key, regenerate=regenerate_cache and map_fn is not None
+    )
 
     from rengu_flow.data import caching_progress
 
