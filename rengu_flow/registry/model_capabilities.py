@@ -569,7 +569,7 @@ def _register_builtin_capabilities() -> None:
             adapters=["lora", "lokr", *LYCORIS_ADAPTER_TYPES],
             full_finetune=True,
             preview=True,
-            features={"preview": True, "block_swap": True},
+            features={"preview": True, "block_swap": True, "tread": True},
             branding_note=(
                 "Use the Krea 2 Raw open-weights files (raw.safetensors or ComfyUI's "
                 "krea2_raw_bf16.safetensors, plus the Qwen3-VL text encoder and Qwen-Image "
@@ -622,12 +622,14 @@ def _register_builtin_capabilities() -> None:
                     "type": "path",
                     "required": True,
                     "placeholder": "path/to/qwen3vl_4b_bf16.safetensors",
+                    "path_expect": "any",
                     "description": "Turns captions into conditioning (ComfyUI file or transformers folder). Tokenizer is bundled.",
                 },
                 {
                     "path": "model.checkpoint_path",
                     "label": "Diffusers folder (alternative)",
                     "type": "path",
+                    "path_expect": "dir",
                     "show_if_set": True,
                     "description": "Full Krea-2-Raw diffusers folder; fills any component path left empty.",
                 },
@@ -782,6 +784,7 @@ def _register_builtin_capabilities() -> None:
                     "path": "model.diffusers_path",
                     "label": "Qwen-Image-2.1 folder (diffusers)",
                     "type": "path",
+                    "path_expect": "dir",
                     "required": True,
                     "placeholder": "path/to/Qwen-Image-2.1",
                     "description": (
@@ -793,6 +796,7 @@ def _register_builtin_capabilities() -> None:
                     "path": "model.transformer_path",
                     "label": "Main model override",
                     "type": "path",
+                    "path_expect": "any",
                     "show_if_set": True,
                     "placeholder": "path/to/qwen_image_2.1_bf16.safetensors",
                     "description": "DiT folder or single file (diffusers or ComfyUI bf16 layout); defaults to <folder>/transformer.",
@@ -801,6 +805,7 @@ def _register_builtin_capabilities() -> None:
                     "path": "model.vae_path",
                     "label": "VAE override",
                     "type": "path",
+                    "path_expect": "any",
                     "show_if_set": True,
                     "description": "Diffusers VAE folder or diffusers-layout file; defaults to <folder>/vae.",
                 },
@@ -808,6 +813,7 @@ def _register_builtin_capabilities() -> None:
                     "path": "model.text_encoder_path",
                     "label": "Text encoder override (Qwen3-VL-8B)",
                     "type": "path",
+                    "path_expect": "any",
                     "show_if_set": True,
                     "placeholder": "path/to/qwen3vl_8b_bf16.safetensors",
                     "description": "Transformers folder or ComfyUI qwen3vl_8b_bf16.safetensors; defaults to <folder>/text_encoder.",
@@ -816,6 +822,7 @@ def _register_builtin_capabilities() -> None:
                     "path": "model.processor_path",
                     "label": "Processor / tokenizer override",
                     "type": "path",
+                    "path_expect": "dir",
                     "show_if_set": True,
                     "description": "Folder with the tokenizer files; defaults to <folder>/processor, else the bundled Qwen3-VL tokenizer.",
                 },

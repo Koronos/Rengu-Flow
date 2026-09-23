@@ -37,6 +37,7 @@ FEATURE_GATED_TRAINING_KEYS: dict[str, str] = {
     "block_swap_prefetch": "block_swap",
     "disable_block_swap_for_eval": "block_swap",
     "disable_block_swap_for_preview": "block_swap",
+    "tread": "tread",
 }
 
 

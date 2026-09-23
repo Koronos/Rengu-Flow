@@ -36,6 +36,10 @@ export function isPathField(field: SchemaField): boolean {
 
 /** Expected node type for validation, or null to only check existence. */
 export function pathFieldExpect(field: SchemaField): PathExpect | null {
+  // Schema-declared kind wins (e.g. qwen_image21's diffusers folder, or a component path that
+  // takes a folder or one .safetensors — "any" only checks that the path exists).
+  if (field.path_expect === "any") return null;
+  if (field.path_expect === "file" || field.path_expect === "dir") return field.path_expect;
   const p = field.path || "";
   if (DIR_FIELD_PATHS.has(p) || p.endsWith("_dir") || p === "output_dir") {
     return "dir";

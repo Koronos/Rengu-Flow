@@ -69,6 +69,7 @@ def _field(
     max_length: int | None = None,
     runtime_tokens: list[str] | None = None,
     deepspeed_only: bool = False,
+    path_expect: str | None = None,
 ) -> dict[str, Any]:
     if required:
         imp = "required"
@@ -113,6 +114,10 @@ def _field(
         out["max_length"] = max_length
     if runtime_tokens:
         out["runtime_tokens"] = runtime_tokens
+    if path_expect:
+        # What a "path" field accepts: "file", "dir", or "any" (folder or single file). The SPA
+        # validates existence + kind with it; without it a "path" field is checked as a file.
+        out["path_expect"] = path_expect
     if deepspeed_only:
         # Multi-GPU / DeepSpeed-pipeline-only knob. Dropped from the schema on hosts whose engine
         # is not 'deepspeed' (e.g. native Windows 'accelerate'); see get_schema().
@@ -130,6 +135,13 @@ def _field_from_template(spec: dict[str, Any], when: dict[str, Any] | None) -> d
     opts = spec.get("options")
     if spec.get("options_key") == "dtypes":
         opts = DTYPE_OPTIONS
+    effective_when = when or spec.get("when")
+    visibility = spec.get("visibility")
+    if visibility is not None and effective_when:
+        # An explicit visibility tree replaces the normalized `when` clause, so keep the
+        # per-model gate in it — otherwise every model sharing the path would show it
+        # (e.g. krea2's and qwen_image21's model.fp8_grad_mode both on a cosmos form).
+        visibility = {"all": [effective_when, visibility]}
     return _field(
         spec["path"],
         spec["label"],
@@ -140,7 +152,7 @@ def _field_from_template(spec: dict[str, Any], when: dict[str, Any] | None) -> d
         recommended=spec.get("recommended", False),
         importance=spec.get("importance"),
         options=opts,
-        when=when or spec.get("when"),
+        when=effective_when,
         min_value=spec.get("min"),
         placeholder=spec.get("placeholder", ""),
         example=spec.get("example"),
@@ -148,7 +160,8 @@ def _field_from_template(spec: dict[str, Any], when: dict[str, Any] | None) -> d
         when_capability=spec.get("when_capability"),
         show_if_set=spec.get("show_if_set", False),
         show_if_set_exclude_zero=spec.get("show_if_set_exclude_zero", False),
-        visibility=spec.get("visibility"),
+        visibility=visibility,
+        path_expect=spec.get("path_expect"),
     )
 
 
@@ -288,6 +301,30 @@ def _adapter_section_fields() -> list[dict[str, Any]]:
     return fields
 
 
+# Sampler defaults the trainer applies when [preview] omits them (rengu_flow.config.defaults for
+# the DiTs, rengu_flow.utils.preview for sdxl). One field per distinct pair, gated by model.type,
+# so the form shows the value a run will actually use (Qwen-Image 2.1 samples without CFG).
+# tests/test_ui_qwen_image21_schema.py checks these against set_config_defaults().
+PREVIEW_SAMPLER_DEFAULTS: dict[str, tuple[int, float]] = {
+    "cosmos_predict2": (20, 4.0),
+    "krea2": (28, 4.5),
+    "qwen_image21": (28, 1.0),
+}
+_PREVIEW_SAMPLER_FALLBACK: tuple[int, float] = (20, 7.0)
+
+
+def _preview_sampler_fields(preview_models: list[str]) -> list[dict[str, Any]]:
+    groups: dict[tuple[int, float], list[str]] = {}
+    for type_id in preview_models:
+        groups.setdefault(PREVIEW_SAMPLER_DEFAULTS.get(type_id, _PREVIEW_SAMPLER_FALLBACK), []).append(type_id)
+    fields: list[dict[str, Any]] = []
+    for (steps, guidance), type_ids in groups.items():
+        when = _when_model(*type_ids)
+        fields.append(_field("preview.num_inference_steps", "Inference steps", "integer", default=steps, when=when))
+        fields.append(_field("preview.guidance_scale", "Guidance scale", "number", default=guidance, when=when))
+    return fields
+
+
 def _preview_section() -> dict[str, Any]:
     from rengu_flow_ui.preview_form import WHEN_COSMOS_PREVIEW, WHEN_DIT_PREVIEW
 
@@ -359,8 +396,7 @@ def _preview_section() -> dict[str, Any]:
             _field("preview.negative_prompt", "Negative prompt", "string", when=when_preview, example="blurry, low quality, watermark"),
             _field("preview.width", "Width", "integer", default=1024, when=when_preview),
             _field("preview.height", "Height", "integer", default=1024, when=when_preview),
-            _field("preview.num_inference_steps", "Inference steps", "integer", default=20, when=when_preview),
-            _field("preview.guidance_scale", "Guidance scale", "number", default=7.0, when=when_preview),
+            *_preview_sampler_fields(preview_models),
             _field("preview.seed", "Seed", "integer", default=0, when=when_preview),
             _field("preview.seed_stride", "Seed stride", "integer", default=0, when=when_preview),
             _field(
@@ -625,7 +661,9 @@ def get_sections() -> list[dict[str, Any]]:
                 "Cache text-encoder outputs once instead of running the encoder every "
                 "step. Baking tag-dropout caption variants into the cache "
                 "(cached_caption_variants / cached_caption_shuffle) is configured per "
-                "dataset in the Dataset form."
+                "dataset in the Dataset form. Krea 2 and Qwen-Image 2.1 always cache "
+                "(their encoders cannot run inside the training step), so the toggle is "
+                "hidden for them."
             ),
             "fields": [
                 _field(

@@ -145,7 +145,10 @@ Logic lives in **`rengu_flow_ui/field_visibility.py`**; the Vue form mirrors it 
 | `features` on capability | `ModelCapability.features` | `block_swap: true` → show `blocks_to_swap` via `when_capability="block_swap"` on any schema field |
 | `when_capability` | `_field(...)` in `config_schema.py` or model field spec | Cross-section flags without listing model IDs |
 | `show_if_set` | model field spec | Expert fields (e.g. `llm_adapter_path`) only after a value exists |
-| `visibility` | explicit dict on field spec | `any` / `all` / `form_nonempty` / `capability` clauses |
+| `visibility` | explicit dict on field spec | `any` / `all` / `form_nonempty` / `capability` clauses — on a model field spec it is ANDed with the auto `model.type` gate |
+| `path_expect` | model field spec (`type: "path"`) | `dir` (e.g. qwen_image21 `diffusers_path`), `file`, or `any` (folder or one `.safetensors`; existence check only). Unset → `ui/web/src/lib/pathFields.ts` heuristics (a `path` field is checked as a file) |
+
+Several fields may share a path when each is gated to different models (per-model `model_fields`, and `preview.num_inference_steps` / `preview.guidance_scale`, whose defaults come from `PREVIEW_SAMPLER_DEFAULTS` in `config_schema.py` so the form shows what the trainer applies). At most one of them may be visible for a given form.
 
 When the user changes **`model.type`**, the form calls **`pruneFormForModel`** so stale `model.*` keys are removed before saving TOML.
 

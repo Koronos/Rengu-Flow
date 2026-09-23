@@ -143,7 +143,7 @@ def profiles_for_config_dict(data: dict[str, Any]) -> list[str]:
     profiles: list[str] = []
     model = data.get("model") if isinstance(data.get("model"), dict) else {}
     mtype = str(model.get("type", "")).strip().lower()
-    if mtype == "cosmos_predict2":
+    if mtype in ("cosmos_predict2", "krea2", "qwen_image21"):  # transformers/einops/accelerate
         profiles.append("cosmos")
 
     adapter = data.get("adapter") if isinstance(data.get("adapter"), dict) else {}

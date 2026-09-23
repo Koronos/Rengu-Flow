@@ -20,6 +20,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
+
 from rengu_flow.registry.model_capabilities import model_capability_registry
 from rengu_flow_ui.config_schema import get_sections
 
@@ -129,3 +131,76 @@ def test_every_consumed_config_key_is_exposed_in_the_ui() -> None:
         "or — only for genuinely intentional non-UI keys — add a justified entry to "
         "ALLOWLIST in this test."
     )
+
+
+# --- Per-model coverage --------------------------------------------------------------------
+# The global test above only proves a key is exposed for *some* model. These check that every key
+# a model's own package reads is actually *visible* on that model's form (gates like
+# `when: model.type in [...]` can hide a field the model consumes).
+
+# Keys a model reads but intentionally does not show on its form, keyed by model type.
+PER_MODEL_ALLOWLIST: dict[str, frozenset[str]] = {
+    "qwen_image21": frozenset(
+        {
+            # Always on; the pipeline raises on false, so the toggle is hidden (like krea2).
+            # ("tread" is read only to reject it and is already in ALLOWLIST as a table name.)
+            "model.cache_text_embeddings",
+        }
+    ),
+}
+
+
+def _extract_consumed_keys_under(*roots: Path) -> set[str]:
+    consumed: set[str] = set()
+    for root in roots:
+        for path in root.rglob("*.py"):
+            text = path.read_text(encoding="utf-8")
+            for m in _SECTIONED_RE.finditer(text):
+                consumed.add(_SECTION_PREFIX[m.group(1)] + (m.group(2) or m.group(3)))
+            for m in _BARE_RE.finditer(text):
+                consumed.add(_BARE_PREFIX[m.group(1)] + (m.group(2) or m.group(3)))
+    return consumed
+
+
+def _visible_paths_for_model(model_type: str) -> set[str]:
+    """Union of fields visible on this model's form across the states that unlock them."""
+    from rengu_flow_ui.config_schema import get_schema
+    from rengu_flow_ui.field_visibility import field_visible
+
+    schema = get_schema()
+    caps = schema["registries"]["model_capabilities"]
+    fields = [f for s in schema["sections"] for f in s["fields"]]
+    all_paths = {f["path"] for f in fields}
+    base = {"model.type": model_type}
+    forms = [
+        {**base, "_has_adapter": True},
+        {**base, "_has_adapter": False},
+        # Every expert (show_if_set) / dependent field once its trigger has a value.
+        {**base, "_has_adapter": True, **{p: True for p in all_paths if p != "model.type"}},
+    ]
+    return {f["path"] for f in fields for form in forms if field_visible(f, form, caps)}
+
+
+@pytest.mark.parametrize("model_type", ["qwen_image21"])
+def test_model_consumed_keys_are_visible_for_that_model(monkeypatch, model_type: str) -> None:
+    monkeypatch.setenv("RENGU_ENGINE", "deepspeed")
+    # dit_common holds the shared DiT pieces (fp8/NF4 quantization, preview memory, timestep
+    # sampling) the model's pipeline subclasses, so its reads count as the model's.
+    consumed = _extract_consumed_keys_under(SRC_ROOT / "model" / model_type, SRC_ROOT / "model" / "dit_common")
+    visible = _visible_paths_for_model(model_type)
+    allowed = ALLOWLIST | PER_MODEL_ALLOWLIST.get(model_type, frozenset())
+
+    missing = sorted(consumed - visible - allowed)
+    assert not missing, (
+        f"Config keys rengu_flow/model/{model_type}/ reads but the {model_type} form never shows: "
+        f"{missing}. Add the model to the field's `when` gate in config_schema.py, a model_fields "
+        "entry in its capability, or a justified PER_MODEL_ALLOWLIST entry."
+    )
+    # Stale allowlist entries hide future regressions.
+    stale = sorted(PER_MODEL_ALLOWLIST.get(model_type, frozenset()) - consumed)
+    assert not stale, f"PER_MODEL_ALLOWLIST[{model_type!r}] lists keys the model no longer reads: {stale}"
+
+
+def test_tread_is_hidden_on_the_qwen_image21_form(monkeypatch) -> None:
+    monkeypatch.setenv("RENGU_ENGINE", "deepspeed")
+    assert not {p for p in _visible_paths_for_model("qwen_image21") if p.startswith("tread.")}

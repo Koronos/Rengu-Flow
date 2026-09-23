@@ -46,6 +46,8 @@ export interface SchemaField {
   when?: VisibilityClause;
   when_capability?: string;
   when_model_has_adapter?: boolean;
+  /** What a `path` field accepts; `any` = a folder or a single file. Unset: heuristics in lib/pathFields. */
+  path_expect?: "file" | "dir" | "any";
 }
 
 export interface ModelCapability {

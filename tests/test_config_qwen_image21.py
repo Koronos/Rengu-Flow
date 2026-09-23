@@ -120,3 +120,16 @@ def test_preview_memory_knobs_visible_in_ui():
     from rengu_flow_ui.preview_form import WHEN_DIT_PREVIEW
 
     assert "qwen_image21" in WHEN_DIT_PREVIEW["in"]
+
+
+def test_tread_is_rejected_at_validation():
+    cfg = _config()
+    cfg["tread"] = {"drop_ratio": 0.5}
+    with pytest.raises(ConfigValidationError, match="tread"):
+        validate_config(cfg)
+
+
+def test_install_profile_includes_transformers_stack():
+    from rengu_flow.install.manager import profiles_for_config_dict
+
+    assert "cosmos" in profiles_for_config_dict({"model": {"type": "qwen_image21"}})

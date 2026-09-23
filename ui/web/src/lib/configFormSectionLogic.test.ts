@@ -92,3 +92,46 @@ describe("sectionHasVisibleFields", () => {
     ).toBe(true);
   });
 });
+
+describe("per-model fields sharing a path", () => {
+  // Shapes emitted by rengu_flow_ui/config_schema.py: one field per model group, gated by model.type.
+  const caps = {
+    krea2: { type_id: "krea2", adapters: ["lora"] },
+    qwen_image21: { type_id: "qwen_image21", adapters: ["lora"] },
+  };
+  const fp8Gate = {
+    all: [
+      { when_model_has_adapter: true },
+      { field: "model.transformer_fp8_matmul", equals: true },
+    ],
+  };
+  const section: ConfigSchemaSection = {
+    id: "preview",
+    fields: [
+      field("preview.guidance_scale", { type: "number", default: 4.5, when: { field: "model.type", in: ["krea2"] } }),
+      field("preview.guidance_scale", { type: "number", default: 1.0, when: { field: "model.type", in: ["qwen_image21"] } }),
+      field("model.fp8_grad_mode", {
+        default: "bf16",
+        visibility: { all: [{ field: "model.type", in: ["krea2"] }, fp8Gate] },
+      }),
+      field("model.fp8_grad_mode", {
+        default: "bf16",
+        visibility: { all: [{ field: "model.type", in: ["qwen_image21"] }, fp8Gate] },
+      }),
+    ],
+  };
+
+  it("shows exactly one field per path, with the selected model's default", () => {
+    const form = { "model.type": "qwen_image21", _has_adapter: true, "model.transformer_fp8_matmul": true };
+    const visible = partitionSectionFields(section, form, caps).advanced;
+    expect(visible.map((f) => f.path)).toEqual(["preview.guidance_scale", "model.fp8_grad_mode"]);
+    expect(visible[0].default).toBe(1.0);
+    expect(visible[1].visibility).toEqual(section.fields?.[3].visibility);
+  });
+
+  it("hides the fp8 gradient knob until the fp8 base is on", () => {
+    const form = { "model.type": "qwen_image21", _has_adapter: true };
+    const visible = partitionSectionFields(section, form, caps).advanced;
+    expect(visible.map((f) => f.path)).toEqual(["preview.guidance_scale"]);
+  });
+});
