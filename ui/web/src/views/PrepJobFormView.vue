@@ -41,6 +41,13 @@
           :seed="(seedConfig?.caption as PrepCaptionConfig) ?? null"
         />
 
+        <EditCaptionStageForm
+          v-if="stage === 'edit_caption'"
+          v-model="editCaptionForm"
+          v-model:preview-text="editPreviewText"
+          :seed="(seedConfig?.edit_caption as PrepEditCaptionConfig) ?? null"
+        />
+
         <CleanStageForm
           v-if="stage === 'clean'"
           v-model="cleanForm"
@@ -79,6 +86,8 @@
           :tag-form="tagForm"
           :tag-thresholds="tagThresholds"
           :caption-form="captionForm"
+          :edit-caption-form="editCaptionForm"
+          :edit-preview-text="editPreviewText"
           :clean-form="cleanForm"
           :quality-form="qualityForm"
           :prompt-options="promptOptions"
@@ -101,6 +110,7 @@ import PrepJobSummaryPanel from "../components/PrepJobSummaryPanel.vue";
 import PrepCommonFields from "../components/prep/PrepCommonFields.vue";
 import TagStageForm from "../components/prep/TagStageForm.vue";
 import CaptionStageForm from "../components/prep/CaptionStageForm.vue";
+import EditCaptionStageForm from "../components/prep/EditCaptionStageForm.vue";
 import CleanStageForm from "../components/prep/CleanStageForm.vue";
 import QualityStageForm from "../components/prep/QualityStageForm.vue";
 import IndexStageForm from "../components/prep/IndexStageForm.vue";
@@ -111,6 +121,7 @@ import {
   defaultCaptionForm,
   defaultCleanForm,
   defaultCommonForm,
+  defaultEditCaptionForm,
   defaultIndexForm,
   defaultQualityForm,
   defaultTagForm,
@@ -119,6 +130,7 @@ import type { ModelThresholds } from "../lib/prepStageConfig";
 import type {
   PrepCaptionConfig,
   PrepCleanConfig,
+  PrepEditCaptionConfig,
   PrepIndexConfig,
   PrepModelInfo,
   PrepPromptOptions,
@@ -135,6 +147,7 @@ const stageLabel = computed(() => {
   const map: Record<string, string> = {
     tag: "tag",
     caption: "caption",
+    edit_caption: "edit instruction",
     clean: "clean",
     quality: "quality",
     index: "quality index",
@@ -147,6 +160,7 @@ const form = reactive(defaultCommonForm());
 const tagForm = reactive(defaultTagForm());
 const tagThresholds = reactive<Record<string, ModelThresholds>>({});
 const captionForm = reactive(defaultCaptionForm());
+const editCaptionForm = reactive(defaultEditCaptionForm());
 const cleanForm = reactive(defaultCleanForm());
 const qualityForm = reactive(defaultQualityForm());
 const indexForm = reactive(defaultIndexForm());
@@ -158,6 +172,8 @@ const tagModels = ref<PrepModelInfo[]>([]);
 const promptOptions = ref<PrepPromptOptions | null>(null);
 const previewText = ref("");
 const previewNative = ref(false);
+/** Request layout of an edit_caption job, produced by EditCaptionStageForm. */
+const editPreviewText = ref("");
 
 // --- quality preview run (owned by QualityStageForm, triggered from here) ---
 const qualityFormRef = useTemplateRef<InstanceType<typeof QualityStageForm>>("qualityFormRef");
@@ -176,6 +192,7 @@ function buildConfig() {
     tagThresholds,
     tagModels: tagModels.value,
     captionForm,
+    editCaptionForm,
     cleanForm,
     qualityForm,
     indexForm,
@@ -194,6 +211,14 @@ async function submit(startNow: boolean): Promise<void> {
   }
   if (stage.value === "caption" && !captionForm.model) {
     formError.value = "Select a caption model.";
+    return;
+  }
+  if (stage.value === "edit_caption" && !editCaptionForm.control_path.trim()) {
+    formError.value = "Control folder is required.";
+    return;
+  }
+  if (stage.value === "edit_caption" && !editCaptionForm.model) {
+    formError.value = "Select an edit-instruction model.";
     return;
   }
   if (stage.value === "index" && !indexForm.models.length) {

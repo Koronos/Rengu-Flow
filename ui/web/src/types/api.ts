@@ -774,7 +774,7 @@ export interface QuarantineBatchInfo {
 
 // --- Dataset prep: jobs -------------------------------------------------------
 
-export type PrepStage = "tag" | "caption" | "clean" | "quality" | "index";
+export type PrepStage = "tag" | "caption" | "edit_caption" | "clean" | "quality" | "index";
 
 export interface PrepTagConfig {
   models: string[];
@@ -821,6 +821,33 @@ export interface PrepCaptionConfig {
   gguf_quantization?: "Q8_0" | "Q6_K" | "Q5_K_M" | "Q4_K_M";
 }
 
+/** Edit-instruction captioning (`[edit_caption]`): controls + target -> line-1 instruction. */
+export interface PrepEditCaptionConfig {
+  /** Folder of control images, paired with each target as `stem.<ext>` or `stem_0..N.<ext>`. */
+  control_path: string;
+  model: string;
+  /** "" = the model's default quant. */
+  gguf_quantization: "" | "Q8_0" | "Q6_K" | "Q5_K_M" | "Q4_K_M";
+  /** "" = the default edit-instruction prompt. */
+  prompt: string;
+  overwrite: boolean;
+  /** Pixel cap per image sent to the VLM; sets the llama-server context. */
+  max_pixels: number;
+  max_new_tokens: number;
+  temperature: number | null;
+  top_p: number | null;
+  /** llama-server slots (0 = the model's default). */
+  n_parallel: number;
+}
+
+export interface PrepEditCaptionPrompts {
+  default_prompt: string;
+  /** Full request for one control; `<image>` marks an image slot. */
+  layout_single: string;
+  /** Full request for two controls. */
+  layout_multi: string;
+}
+
 export interface PrepCleanConfig {
   confidence: number;
   mask_dilation_px: number;
@@ -854,6 +881,7 @@ export interface PrepConfigDto {
   caption_ext?: string;
   tag?: PrepTagConfig;
   caption?: PrepCaptionConfig;
+  edit_caption?: PrepEditCaptionConfig;
   clean?: PrepCleanConfig;
   quality?: PrepQualityConfig;
   index?: PrepIndexConfig;
@@ -934,6 +962,9 @@ export interface PrepModelInfo {
   character_threshold?: number;
   rating_threshold?: number;
   notes?: string;
+  /** GGUF models (edit_caption): the quant downloaded by default and the ones available. */
+  default_quant?: string;
+  quants?: string[];
 }
 
 export interface PrepModelsResult {

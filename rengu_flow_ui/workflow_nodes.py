@@ -378,3 +378,74 @@ def read_exit_code(node: WorkflowNode, node_dir: Path) -> int | None:
     text = read_raw_log_tail_path(node_log_path(node_dir), _EXIT_TAIL_BYTES)
     codes = _EXIT_CODE_RE.findall(text)
     return int(codes[-1]) if codes else None
+
+
+# ------------------------------------------------------------------------------ failure excerpt
+
+#: Bounds on what a failed node copies from ``node.log`` into its ``error``. ``state_json`` is the
+#: one row every tick rewrites under compare-and-swap, so the excerpt is the end of the story, not
+#: the log.
+FAILURE_EXCERPT_LINES = 20
+FAILURE_EXCERPT_BYTES = 2048
+
+#: How much of the log is read to find it. The traceback is the last thing a crashed child prints.
+_FAILURE_TAIL_BYTES = 65_536
+
+_TRACEBACK_HEAD = "Traceback (most recent call last):"
+
+#: The three lines ``workflow_runner._spawn`` writes before the child says anything.
+_LOG_HEADER_RE = re.compile(r"^(--- rengu-flow-ui .*---|CWD: .*|CMD: .*)$")
+
+
+@dataclass(frozen=True)
+class FailureExcerpt:
+    """The end of a failed node's ``node.log``.
+
+    ``text`` is the final traceback when there is one (else the last lines), bounded by
+    :data:`FAILURE_EXCERPT_LINES` / :data:`FAILURE_EXCERPT_BYTES`; ``exception`` is its closing
+    ``Name: message`` line, or ``""`` when the log holds no traceback.
+    """
+
+    text: str
+    exception: str
+
+
+def _bounded_tail(lines: list[str]) -> str:
+    lines = lines[-FAILURE_EXCERPT_LINES:]
+    while len(lines) > 1 and len("\n".join(lines).encode("utf-8")) > FAILURE_EXCERPT_BYTES:
+        lines = lines[1:]
+    text = "\n".join(lines)
+    raw = text.encode("utf-8")
+    if len(raw) > FAILURE_EXCERPT_BYTES:  # one enormous line: keep its end
+        text = "…" + raw[-(FAILURE_EXCERPT_BYTES - 3):].decode("utf-8", errors="ignore")
+    return text
+
+
+def read_failure_excerpt(node_dir: Path) -> FailureExcerpt:
+    """What the user needs from ``node.log`` when a node exits non-zero: how it died.
+
+    Without it the node's ``error`` read "Exited with code 1." and every failure meant opening the
+    log. Progress and exit markers are plumbing and are dropped, as is the header the UI itself
+    writes.
+    """
+    from rengu_flow.control.progress_stream import strip_progress_markers
+    from rengu_flow_ui.jobs import read_raw_log_tail_path
+
+    text = strip_progress_markers(read_raw_log_tail_path(node_log_path(node_dir), _FAILURE_TAIL_BYTES))
+    lines = [
+        line.rstrip()
+        for line in text.splitlines()
+        if not _EXIT_CODE_RE.search(line) and not _LOG_HEADER_RE.match(line.rstrip())
+    ]
+    while lines and not lines[-1]:
+        lines.pop()
+    if not lines:
+        return FailureExcerpt("", "")
+
+    starts = [i for i, line in enumerate(lines) if line.startswith(_TRACEBACK_HEAD)]
+    if not starts:
+        return FailureExcerpt(_bounded_tail([line for line in lines if line]), "")
+    body = lines[starts[-1]:]
+    # The frames are indented; the first flush-left line after the head is ``Name: message``.
+    exception = next((line for line in body[1:] if line and not line[0].isspace()), "")
+    return FailureExcerpt(_bounded_tail(body), exception)

@@ -1259,6 +1259,9 @@ Phase 2 therefore adds two things: `kind == "train"` to `_pending_sorted()` and
     `start_now` prep job walks straight past the guard onto the held GPU. Reproduced. This is
     pre-existing, not a regression of Phase 0 — but it weakens the premise the phase ordering
     rests on, and both call sites must acquire a lease before Phase 2 removes the shared queue.
+    **Closed 2026-09-23:** both go through `job_queue.start_job_now` (same lock, acquire,
+    `BaseException` release and `bind_pid` check as `try_start_next`); a held GPU is a 409 and the
+    refused start leaves no row behind.
 
 ---
 

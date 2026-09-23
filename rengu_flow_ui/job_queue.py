@@ -197,41 +197,72 @@ def try_start_next() -> db.JobRecord | None:
             return db.get_job(job.id)
         # Acquire only here, AFTER the config check: at the top of the block the early return
         # above would leak the lease permanently.
-        holder = f"job:{job.id}"
-        if not gpu_lease.acquire("train", holder, _devices_for_job(job)):
-            return None  # stays pending; the queue tick retries
         try:
-            pid = jobs.start_job(job)
-        except BaseException:
-            # BaseException, not Exception: ensure_training_extras -> ensure_profiles raises
-            # SystemExit when uv is missing or a profile stays unimportable. Caught only as
-            # Exception the release is skipped, the row stays pending, and the lease keeps
-            # pid IS NULL — which by the no-timer rule is immortal. Every retry then collides
-            # with the job's OWN lease, so fixing the environment does not revive the queue;
-            # only restarting the server does.
-            gpu_lease.release(holder)  # ensure_training_extras and popen both raise
-            raise
-        if gpu_lease.bind_pid(holder, pid) is False:
-            # The lease was reaped out from under the launch: the row was deleted or dequeued
-            # (neither takes _start_lock) while start_job sat in uv sync, and the next reap
-            # freed it legitimately. Training is now live with ZERO leases and another holder
-            # may already have taken the GPU, so kill what we just spawned. `is False`, not
-            # falsy: bind_pid returns None when there was simply no pid to bind.
-            terminate_process_tree(pid)
-            _append_job_log(
-                job,
-                "\n[rengu-flow-ui] GPU lease was released while this run was starting"
-                " (the run was removed from the queue mid-launch); the process was killed.\n",
+            return _start_under_lease(job)
+        except gpu_lease.LeaseBusyError:
+            return None  # stays pending; the queue tick retries
+
+
+def start_job_now(job: db.JobRecord) -> db.JobRecord | None:
+    """Start *job* immediately — not the queue head — under the GPU lease, or raise.
+
+    For the explicit "Start now" paths (``prep_jobs``). Same lock and the same launch sequence as
+    :func:`try_start_next`, so a job started this way is exactly as leased as a queued one; the
+    difference is that a busy GPU raises :class:`gpu_lease.LeaseBusyError` for the caller to
+    report, because nothing would ever come back to retry this particular row.
+    """
+    with _start_lock:
+        # Same reasoning as try_start_next: a lease whose holder is provably gone must not turn
+        # an explicit start into a refusal.
+        try:
+            gpu_lease.reap_dead()
+        except Exception:  # noqa: BLE001 - never block a start over a failed reap
+            _logger.exception("gpu lease reap failed; continuing with possibly stale leases")
+        return _start_under_lease(job)
+
+
+def _start_under_lease(job: db.JobRecord) -> db.JobRecord | None:
+    """acquire -> ``jobs.start_job`` -> ``bind_pid``. Caller holds ``_start_lock``.
+
+    Raises :class:`gpu_lease.LeaseBusyError` when the acquire fails. Returns the refreshed row,
+    or ``None`` when the row vanished while it was starting.
+    """
+    holder = f"job:{job.id}"
+    devices = _devices_for_job(job)
+    if not gpu_lease.acquire("train", holder, devices):
+        raise gpu_lease.LeaseBusyError(gpu_lease.wait_reason(devices) or "The GPU is busy.")
+    try:
+        pid = jobs.start_job(job)
+    except BaseException:
+        # BaseException, not Exception: ensure_training_extras -> ensure_profiles raises
+        # SystemExit when uv is missing or a profile stays unimportable. Caught only as
+        # Exception the release is skipped, the row stays pending, and the lease keeps
+        # pid IS NULL — which by the no-timer rule is immortal. Every retry then collides
+        # with the job's OWN lease, so fixing the environment does not revive the queue;
+        # only restarting the server does.
+        gpu_lease.release(holder)  # ensure_training_extras and popen both raise
+        raise
+    if gpu_lease.bind_pid(holder, pid) is False:
+        # The lease was reaped out from under the launch: the row was deleted or dequeued
+        # (neither takes _start_lock) while start_job sat in uv sync, and the next reap
+        # freed it legitimately. Training is now live with ZERO leases and another holder
+        # may already have taken the GPU, so kill what we just spawned. `is False`, not
+        # falsy: bind_pid returns None when there was simply no pid to bind.
+        terminate_process_tree(pid)
+        _append_job_log(
+            job,
+            "\n[rengu-flow-ui] GPU lease was released while this run was starting"
+            " (the run was removed from the queue mid-launch); the process was killed.\n",
+        )
+        try:
+            db.update_job(
+                job.id, state="failed", finished_at=_now(), exit_code=-1, pid=None
             )
-            try:
-                db.update_job(
-                    job.id, state="failed", finished_at=_now(), exit_code=-1, pid=None
-                )
-            except KeyError:
-                # The row was deleted outright — which is exactly why the lease got reaped.
-                # There is nothing left to mark; the kill above was the whole job here.
-                return None
-        return db.get_job(job.id)
+        except KeyError:
+            # The row was deleted outright — which is exactly why the lease got reaped.
+            # There is nothing left to mark; the kill above was the whole job here.
+            return None
+    return db.get_job(job.id)
 
 
 def merge_job_cli_args(

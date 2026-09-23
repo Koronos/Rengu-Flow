@@ -6,6 +6,11 @@ composite ``captions.json`` (``{image_filename: [captions]}``). All mutations st
 until ``save()``; writes are atomic, and ``snapshot()``/``restore_snapshot()`` give a full
 caption backup under the managed app data dir (see ``prep_storage_dir``) so a bad bulk
 edit is always recoverable.
+
+An edit dataset (targets + a ``control_path`` folder of condition images) opens with
+``CaptionStore.open(..., control_path=...)``: each target is paired with its controls by the
+trainer's own rules (``rengu_flow.data.control``), so prep and training always agree on the
+pairs. Targets that do not pair are recorded in ``CaptionSet.unpaired``, never fatal.
 """
 
 from __future__ import annotations
@@ -23,6 +28,7 @@ from rengu_flow.prep.storage import prep_storage_dir
 CAPTIONS_JSON_FILE = "captions.json"
 BACKUPS_DIR_NAME = "backups"
 QUARANTINE_DIR_NAME = "quarantine"
+CONTROLS_DIR_NAME = "controls"  # quarantined control images, inside a quarantine batch
 MANIFEST_FILE = "manifest.json"
 
 FORMAT_SIDECAR = "sidecar"
@@ -79,6 +85,11 @@ class CaptionSet:
     ext: str = ".txt"
     images: dict[str, Path] = field(default_factory=dict)
     captions: dict[str, list[str]] = field(default_factory=dict)
+    # Edit datasets only (open(..., control_path=...)): the control folder, each paired
+    # target's control images in order, and why each unpaired target did not pair.
+    control_path: Path | None = None
+    controls: dict[str, list[Path]] = field(default_factory=dict)
+    unpaired: dict[str, str] = field(default_factory=dict)
     _loaded: dict[str, tuple[str, ...]] = field(default_factory=dict, repr=False)
 
     # -- accessors ---------------------------------------------------------------
@@ -186,35 +197,56 @@ class CaptionSet:
     # -- quarantine ----------------------------------------------------------------
 
     def quarantine(self, keys: list[str]) -> Path:
-        """Move images (and their sidecars) out of the dataset — never delete."""
+        """Move images (and their sidecars) out of the dataset — never delete.
+
+        In an edit set (opened with ``control_path``) a target's paired control images move
+        with it, into the batch's ``controls/`` subfolder, so the pair stays whole and
+        ``restore_quarantine`` puts both back. A control that a remaining target also pairs
+        with (``a_1.png`` is both the control of ``a_1`` and control #1 of ``a``) stays in
+        place: moving it would silently unpair that other target.
+        """
         qdir = prep_storage_dir(self.folder) / QUARANTINE_DIR_NAME / _utc_stamp()
         qdir.mkdir(parents=True, exist_ok=True)
+        removed = {key for key in keys if key in self.images}
+        kept_controls = {
+            p for key, paths in self.controls.items() if key not in removed for p in paths
+        }
         entries = {}
         for key in keys:
             image = self.images.get(key)
             if image is None:
                 continue
-            entries[key] = {"captions": self.captions.get(key, [])}
+            entry: dict = {"captions": self.captions.get(key, [])}
             shutil.move(str(image), qdir / image.name)
             sidecar = image.with_suffix(self.ext)
             if sidecar.is_file():
                 shutil.move(str(sidecar), qdir / sidecar.name)
+            moved = []
+            for control in self.controls.get(key, []):
+                if control in kept_controls or not control.is_file():
+                    continue
+                (qdir / CONTROLS_DIR_NAME).mkdir(exist_ok=True)
+                shutil.move(str(control), qdir / CONTROLS_DIR_NAME / control.name)
+                moved.append(control.name)
+            if moved:
+                entry["controls"] = moved
+            entries[key] = entry
             self.images.pop(key, None)
             self.captions.pop(key, None)
             self._loaded.pop(key, None)
+            self.controls.pop(key, None)
+            self.unpaired.pop(key, None)
+        manifest = {
+            "created": datetime.now(timezone.utc).isoformat(),
+            "format": self.fmt,
+            "ext": self.ext,
+            "entries": entries,
+        }
+        if self.control_path is not None:
+            manifest["control_path"] = str(self.control_path)
         _atomic_write_text(
             qdir / MANIFEST_FILE,
-            json.dumps(
-                {
-                    "created": datetime.now(timezone.utc).isoformat(),
-                    "format": self.fmt,
-                    "ext": self.ext,
-                    "entries": entries,
-                },
-                ensure_ascii=False,
-                indent=2,
-            )
-            + "\n",
+            json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
         )
         if self.fmt == FORMAT_JSON:
             # Rewrite captions.json without the removed keys even if nothing else changed.
@@ -229,13 +261,40 @@ class CaptionSet:
         return qdir
 
 
+def _pair_controls(
+    images: dict[str, Path], control_path: Path
+) -> tuple[dict[str, list[Path]], dict[str, str]]:
+    """Pair each image with its control images by the trainer's rules (``stem`` or
+    ``stem_0..N``). Returns ``(controls, unpaired)``: a pairing error is recorded, not raised."""
+    from rengu_flow.data.control import (
+        ControlPairingError,
+        index_control_dir,
+        pair_control_files,
+    )
+
+    index = index_control_dir(control_path)  # one directory scan for the whole set
+    controls: dict[str, list[Path]] = {}
+    unpaired: dict[str, str] = {}
+    for key, image in images.items():
+        try:
+            controls[key] = [Path(p) for p in pair_control_files(image.stem, index, target=key)]
+        except ControlPairingError as exc:
+            unpaired[key] = str(exc)
+    return controls, unpaired
+
+
 class CaptionStore:
     """Entry points for opening caption sets and managing backups/quarantine."""
 
     @staticmethod
     def open(
-        folder: str | Path, fmt: str = FORMAT_SIDECAR, ext: str = ".txt"
+        folder: str | Path,
+        fmt: str = FORMAT_SIDECAR,
+        ext: str = ".txt",
+        control_path: str | Path | None = None,
     ) -> CaptionSet:
+        """Load a folder's captions. With ``control_path`` (an edit dataset) each image is also
+        paired with its control images — see :attr:`CaptionSet.controls` and ``unpaired``."""
         folder = Path(folder)
         if not folder.is_dir():
             raise FileNotFoundError(f"Dataset folder not found: {folder}")
@@ -274,12 +333,23 @@ class CaptionStore:
                 else:
                     captions[key] = []
 
+        controls: dict[str, list[Path]] = {}
+        unpaired: dict[str, str] = {}
+        if control_path is not None:
+            control_path = Path(control_path)
+            if not control_path.is_dir():
+                raise FileNotFoundError(f"Control folder not found: {control_path}")
+            controls, unpaired = _pair_controls(images, control_path)
+
         return CaptionSet(
             folder=folder,
             fmt=fmt,
             ext=ext,
             images=images,
             captions=captions,
+            control_path=control_path,
+            controls=controls,
+            unpaired=unpaired,
             _loaded={key: tuple(lines) for key, lines in captions.items()},
         )
 
@@ -373,6 +443,13 @@ class CaptionStore:
             sidecar = (qdir / key).with_suffix(manifest.get("ext", ".txt"))
             if sidecar.is_file():
                 shutil.move(str(sidecar), folder / sidecar.name)
+            if entry.get("controls") and manifest.get("control_path"):
+                control_dir = Path(manifest["control_path"])
+                control_dir.mkdir(parents=True, exist_ok=True)
+                for name in entry["controls"]:
+                    src = qdir / CONTROLS_DIR_NAME / name
+                    if src.is_file():
+                        shutil.move(str(src), control_dir / name)
             if manifest.get("format") == FORMAT_JSON and entry.get("captions"):
                 captions_json = folder / CAPTIONS_JSON_FILE
                 data = {}

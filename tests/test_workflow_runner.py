@@ -43,6 +43,7 @@ from rengu_flow_ui.workflow_graph import DatasetHandle, WorkflowNode
 
 #: Captured before any fixture replaces it, for the one test that needs the genuine article.
 _REAL_PID_IS_ALIVE = wr._pid_is_alive
+_REAL_INSTALL_PREP_EXTRAS = wr._install_prep_extras
 
 JOB_TOML = """
 dataset = "examples/minimal_dataset.toml"
@@ -182,7 +183,7 @@ def rt(ui_data_tmp: Path, monkeypatch: pytest.MonkeyPatch) -> FakeRuntime:
     monkeypatch.setattr(wr, "_pid_is_alive", lambda pid, ct: int(pid) in runtime.alive)
     monkeypatch.setattr(wr, "terminate_process_tree", runtime.terminate)
     # The extras install has its own tests; here it must never shell out to `uv sync`.
-    monkeypatch.setattr(wr, "_install_prep_extras", lambda node: None)
+    monkeypatch.setattr(wr, "_install_prep_extras", lambda node, **_kwargs: None)
     monkeypatch.setattr(wn, "build_launch", runtime.build_launch)
     # enumerate_devices shells out to nvidia-smi and caches per process.
     monkeypatch.setattr(gpu_lease, "enumerate_devices", lambda: [0])
@@ -604,6 +605,30 @@ def test_a_nonzero_exit_fails_the_node_and_the_workflow(rt: FakeRuntime, src: Pa
     assert _state(workflow_id)["status"] == "failed"
 
 
+def test_a_nonzero_exit_carries_the_final_exception_not_just_the_code(
+    rt: FakeRuntime, src: Path
+) -> None:
+    """"Exited with code 1." sent the user to the log for every failure; the chip shows line 1."""
+    workflow_id = _make(_chain(src))
+    _start(workflow_id)
+    spawn = rt.last("n2")
+    with (spawn.node_dir / wn.NODE_LOG_NAME).open("a", encoding="utf-8") as log:
+        log.write(
+            "Traceback (most recent call last):\n"
+            '  File "tagger.py", line 9, in load\n'
+            "KeyError: 'does-not-exist'\n"
+        )
+    rt.finish("n2", 1)
+    wr.tick()
+
+    n2 = _nodes(workflow_id)["n2"]
+    assert n2["status"] == "failed" and n2["exit_code"] == 1
+    first, _, rest = n2["error"].partition("\n")
+    assert first == "KeyError: 'does-not-exist' (exit code 1)"
+    assert "Traceback (most recent call last):" in rest
+    assert len(n2["error"].encode("utf-8")) <= wn.FAILURE_EXCERPT_BYTES + 200
+
+
 def test_an_unreported_exit_code_is_not_done(rt: FakeRuntime, src: Path) -> None:
     """Unknown stays unknown, **on the second run too**: the log is one run, not a history.
 
@@ -763,6 +788,120 @@ def test_run_only_this_step_finishes_without_touching_the_tail(
 
     assert _state(workflow_id)["status"] == "done"
     assert [s.node_id for s in rt.spawns] == ["n2"]
+
+
+@pytest.mark.parametrize("leftover", ["failed", "stopped"])
+def test_run_only_this_step_ignores_a_failed_node_outside_the_plan(
+    rt: FakeRuntime, src: Path, tmp_path: Path, leftover: str
+) -> None:
+    """A step further down that failed (or was stopped) in an EARLIER run is not this run's verdict.
+
+    ``_next_runnable`` walked every enabled node, so the leftover ``failed`` on n3 halted a run
+    that only ever planned n2 — the single step succeeded and the workflow read ``failed``.
+    """
+    tagged = tmp_path / "tagged"
+    tagged.mkdir()
+    workflow_id = _make(
+        [
+            _node("n1", "folder", config={"path": str(src)}),
+            _node("n2", "prep.tag", source="n1", config={"models": ["pixai-v0.9"]}),
+            _node("n3", "prep.caption", source="n2", config={"model": "joycaption-beta-one"}),
+        ]
+    )
+    _seed_done(workflow_id, "n1", src)
+    _seed_done(workflow_id, "n2", tagged)
+    wr._update_node(workflow_id, "n3", status=leftover, error="boom from last week")
+
+    _start(workflow_id, from_node="n2", only=True)
+    rt.finish("n2", 0)
+    wr.tick()
+
+    assert _state(workflow_id)["status"] == "done"
+    assert _nodes(workflow_id)["n2"]["status"] == "done"
+    assert _nodes(workflow_id)["n3"]["status"] == leftover  # untouched, as `only` promises
+    assert [s.node_id for s in rt.spawns] == ["n2"]
+
+
+def test_run_from_here_ignores_a_failed_sibling_outside_the_plan(
+    rt: FakeRuntime, src: Path, tmp_path: Path
+) -> None:
+    """Same leak, other door: n3 reads n1, so it is not a descendant of n2 and not planned."""
+    workflow_id = _make(
+        [
+            _node("n1", "folder", config={"path": str(src)}),
+            _node("n2", "prep.tag", source="n1", config={"models": ["pixai-v0.9"]}),
+            _node("n3", "prep.quality", source="n1", config={"metric": "blur"}),
+        ]
+    )
+    _seed_done(workflow_id, "n1", src)
+    wr._update_node(workflow_id, "n3", status="failed", error="old")
+
+    _start(workflow_id, from_node="n2")
+    rt.finish("n2", 0)
+    wr.tick()
+
+    assert _state(workflow_id)["status"] == "done"
+    assert _nodes(workflow_id)["n3"]["status"] == "failed"
+
+
+def test_start_refuses_a_disabled_source_with_no_saved_output(rt: FakeRuntime, src: Path) -> None:
+    """Pre-flight, not mid-run: before this, n1 ran and n3 then died on a missing input."""
+    workflow_id = _make(
+        [
+            _node("n1", "folder", config={"path": str(src)}),
+            _node("n2", "prep.quality", source="n1", enabled=False, config={"metric": "blur"}),
+            _node("n3", "prep.quality", source="n2", config={"metric": "blur"}),
+        ]
+    )
+
+    with pytest.raises(ValueError, match="'n2' is disabled and has no saved output"):
+        _start(workflow_id)
+
+    assert _state(workflow_id).get("status") is None
+    assert rt.spawns == []
+
+
+def test_steps_a_halted_run_never_reached_are_skipped_not_pending(
+    rt: FakeRuntime, tmp_path: Path
+) -> None:
+    """A failed source folder used to leave every step below it ``pending`` under a finished run.
+
+    ``pending`` means "about to run"; nothing is. They read ``skipped`` ("excluded from this run",
+    docs/user/workflows.md) — and their saved outputs survive, since they never started.
+    """
+    kept = tmp_path / "kept"
+    kept.mkdir()
+    workflow_id = _make(
+        [
+            _node("n1", "folder", config={"path": str(tmp_path / "missing")}),
+            _node("n2", "prep.quality", source="n1", config={"metric": "blur"}),
+        ]
+    )
+    _seed_done(workflow_id, "n2", kept)
+
+    _start(workflow_id, force=True)
+
+    assert _state(workflow_id)["status"] == "failed"
+    nodes = _nodes(workflow_id)
+    assert nodes["n1"]["status"] == "failed"
+    assert nodes["n2"]["status"] == "skipped"
+    assert nodes["n2"]["output"]["path"] == str(kept)
+    assert rt.spawns == []
+
+
+def test_a_cancelled_run_marks_its_unreached_steps_skipped(
+    rt: FakeRuntime, src: Path
+) -> None:
+    workflow_id = _make(
+        _chain(src) + [_node("n3", "prep.quality", source="n2", config={"metric": "blur"})]
+    )
+    _start(workflow_id)
+    _cancel(workflow_id)
+    rt.finish("n2", 0, report={"stopped": True})
+    wr.tick()
+
+    assert _state(workflow_id)["status"] == "stopped"
+    assert _nodes(workflow_id)["n3"]["status"] == "skipped"
 
 
 def test_run_only_this_step_still_needs_the_ancestor_output(
@@ -1116,7 +1255,7 @@ def test_installed_prep_extras_do_not_block_a_cpu_node(
 
 
 def test_a_refused_install_waits_instead_of_spawning(rt: FakeRuntime, src: Path, monkeypatch) -> None:
-    def _wait(node: object) -> None:
+    def _wait(node: object, **_kwargs: object) -> None:
         raise wr._WaitingForLane("Waiting for the training queue to be idle.")
 
     monkeypatch.setattr(wr, "_install_prep_extras", _wait)
@@ -1129,6 +1268,136 @@ def test_a_refused_install_waits_instead_of_spawning(rt: FakeRuntime, src: Path,
     assert "training queue" in n2["error"]
     assert rt.spawns == []
     assert gpu_lease.snapshot() == []  # the lease is handed back while it waits
+
+
+class _FakeExtras:
+    """``missing_profiles`` / ``ensure_profiles`` with memory: installed once, present after."""
+
+    def __init__(self, missing: list[str]) -> None:
+        self.missing = list(missing)
+        self.installs: list[list[str]] = []
+
+    def missing_profiles(self, profiles: list[str]) -> list[str]:
+        return [p for p in profiles if p in self.missing]
+
+    def ensure_profiles(self, profiles: list[str], **_kwargs: object) -> list[str]:
+        self.installs.append(list(profiles))
+        self.missing = [p for p in self.missing if p not in profiles]
+        return list(profiles)
+
+
+@pytest.fixture
+def extras(monkeypatch: pytest.MonkeyPatch) -> _FakeExtras:
+    from rengu_flow.install import manager
+
+    fake = _FakeExtras(["prep"])
+    monkeypatch.setattr(manager, "missing_profiles", fake.missing_profiles)
+    monkeypatch.setattr(manager, "ensure_profiles", fake.ensure_profiles)
+    monkeypatch.setattr(job_queue, "has_active_runner", lambda: False)
+    return fake
+
+
+def test_a_deferred_install_never_runs_inside_the_caller(
+    ui_data_tmp: Path, extras: _FakeExtras
+) -> None:
+    """``/start`` ticks synchronously; a multi-minute ``uv sync`` there holds the HTTP request."""
+    with pytest.raises(wr._DeferInstall):
+        _REAL_INSTALL_PREP_EXTRAS(_prep_node(), defer=True)
+    assert extras.installs == []
+
+
+def test_start_leaves_the_install_to_the_poller(
+    rt: FakeRuntime, src: Path, extras: _FakeExtras, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The request's tick parks the node in ``launching``; the poller's tick installs and spawns."""
+    monkeypatch.setattr(wr, "_install_prep_extras", _REAL_INSTALL_PREP_EXTRAS)
+    workflow_id = _make(_chain(src, required=True))
+
+    wr.start_workflow(workflow_id)
+    wr.tick(defer_installs=True)  # what POST /start does
+
+    n2 = _nodes(workflow_id)["n2"]
+    assert n2["status"] == "launching" and n2["install_pending"] is True
+    assert extras.installs == [] and rt.spawns == []
+    assert gpu_lease.snapshot() == []  # no GPU held while nothing runs
+
+    wr.tick()  # the poller
+
+    assert extras.installs == [["prep"]]
+    assert _nodes(workflow_id)["n2"]["status"] == "running"
+    assert _nodes(workflow_id)["n2"]["install_pending"] is False
+    assert [s.node_id for s in rt.spawns] == ["n2"]
+
+
+def test_a_parked_install_is_not_an_interrupted_launch_on_restart(
+    rt: FakeRuntime, src: Path, extras: _FakeExtras, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Nothing was spawned, so there is no orphan to warn about: it simply runs again."""
+    monkeypatch.setattr(wr, "_install_prep_extras", _REAL_INSTALL_PREP_EXTRAS)
+    workflow_id = _make(_chain(src))
+    wr.start_workflow(workflow_id)
+    wr.tick(defer_installs=True)
+
+    wr.reconcile_on_start()
+
+    n2 = _nodes(workflow_id)["n2"]
+    assert n2["status"] == "pending"
+    assert n2.get("error", "") != wr.LAUNCH_INTERRUPTED_ERROR
+
+
+def test_cancelling_a_parked_install_stops_without_an_orphan_warning(
+    rt: FakeRuntime, src: Path, extras: _FakeExtras, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(wr, "_install_prep_extras", _REAL_INSTALL_PREP_EXTRAS)
+    workflow_id = _make(_chain(src))
+    wr.start_workflow(workflow_id)
+    wr.tick(defer_installs=True)
+
+    _cancel(workflow_id)
+
+    assert _state(workflow_id)["status"] == "stopped"
+    n2 = _nodes(workflow_id)["n2"]
+    assert n2["status"] == "stopped"
+    assert n2.get("error", "") != wr.LAUNCH_INTERRUPTED_ERROR
+    assert extras.installs == [] and rt.spawns == []
+
+
+@pytest.mark.parametrize(("node_type", "wants_onnx"), [("prep.tag", True), ("prep.clean", True), ("prep.quality", False)])
+def test_the_onnx_runtime_is_installed_by_the_ui_not_by_the_child(
+    ui_data_tmp: Path, extras: _FakeExtras, monkeypatch: pytest.MonkeyPatch,
+    node_type: str, wants_onnx: bool,
+) -> None:
+    """On Windows the tagger/LaMa child runs ``ensure_profiles(["onnx-cuda"])`` itself — a
+    ``uv sync`` from inside a CPU-only step running alongside training. Installing it here, behind
+    the same guard as ``prep``, leaves the child nothing to write."""
+    monkeypatch.setattr(wr, "_is_windows", lambda: True)
+    extras.missing = ["onnx-cuda"]
+
+    wr._install_prep_extras(_prep_node(node_type))
+
+    assert extras.installs == ([["onnx-cuda"]] if wants_onnx else [])
+
+
+def test_the_onnx_runtime_waits_for_an_idle_training_lane(
+    ui_data_tmp: Path, extras: _FakeExtras, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(wr, "_is_windows", lambda: True)
+    monkeypatch.setattr(job_queue, "has_active_runner", lambda: True)
+    extras.missing = ["onnx-cuda"]
+
+    with pytest.raises(wr._WaitingForLane):
+        wr._install_prep_extras(_prep_node("prep.tag"))
+    assert extras.installs == []
+
+
+def test_the_onnx_runtime_is_not_needed_off_windows(
+    ui_data_tmp: Path, extras: _FakeExtras, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(wr, "_is_windows", lambda: False)
+    monkeypatch.setattr(job_queue, "has_active_runner", lambda: True)
+    extras.missing = ["onnx-cuda"]
+
+    wr._install_prep_extras(_prep_node("prep.tag"))  # nothing to install: must not wait
 
 
 # ------------------------------------------------------------------------------ toolbox gate
@@ -1390,3 +1659,50 @@ def test_a_train_node_runs_again_when_the_dataset_variable_changes(
     assert _nodes(workflow_id)["n3"]["status"] == "done"
     assert db.get_job(job.id).queue_position == 0  # it really fired again
     assert _state(workflow_id)["status"] == "done"
+
+
+@pytest.mark.parametrize(("index", "label"), [(0, "①"), (19, "⑳"), (20, "21"), (41, "42")])
+def test_position_labels_fall_back_to_the_number_the_editor_shows(index: int, label: str) -> None:
+    """Past ⑳ Unicode has no glyph; the editor prints the plain number (``ordinalGlyph``), so an
+    error must name that same number rather than a ``#21`` the card never shows."""
+    assert wr._position_label(index) == label
+
+
+# ------------------------------------------------------------------------------ accept configuration
+
+
+def test_accept_current_configuration_clears_config_staleness_on_done_nodes(
+    rt: FakeRuntime, src: Path
+) -> None:
+    """Spec, "Staleness": one release that changes a default must not cost a full re-run or a wall
+    of amber. Accepting rewrites ``saved_hash = current_hash`` on every ``done`` node — and only
+    there: a node that never finished has nothing to accept."""
+    from rengu_flow_ui.workflow_graph import compute_stale, parse_graph
+
+    workflow_id = _make(_chain(src) + [_node("n3", "prep.quality", source="n2")])
+    _start(workflow_id)
+    rt.finish("n2", 0)
+    wr.tick()
+    rt.finish("n3", 1)
+    wr.tick()
+    for node_id in ("n1", "n2", "n3"):  # a hash from "an older release"
+        wr._update_node(workflow_id, node_id, config_hash="from-an-older-release")
+
+    def _stale() -> dict:
+        graph = parse_graph(json.loads(workflow_db.get_workflow(workflow_id).content))
+        return compute_stale(graph, _nodes(workflow_id))
+
+    assert _stale() == {"n1": True, "n2": True, "n3": True}
+
+    wr.accept_current_configuration(workflow_id)
+
+    assert _stale() == {"n1": False, "n2": False, "n3": True}  # n3 failed: not accepted
+    assert _nodes(workflow_id)["n3"]["config_hash"] == "from-an-older-release"
+
+
+def test_accept_current_configuration_refuses_while_running(rt: FakeRuntime, src: Path) -> None:
+    workflow_id = _make(_chain(src))
+    _start(workflow_id)
+
+    with pytest.raises(wr.WorkflowBusyError):
+        wr.accept_current_configuration(workflow_id)

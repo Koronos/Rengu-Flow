@@ -368,3 +368,45 @@ def test_caption_prompt_options_expose_sampling_defaults(ui_client):
     res = ui_client.get("/api/v1/prep/caption-prompts").json()
     assert res["sampling_defaults"]["toriigate-0.5"] == {"temperature": 0.5, "top_p": 1.0}
     assert res["sampling_defaults"]["joycaption-beta-one"] == {"temperature": 0.6, "top_p": 0.9}
+
+
+def test_edit_caption_prompts_route(ui_client):
+    from rengu_flow.prep.edit_captioner import DEFAULT_EDIT_PROMPT
+
+    data = ui_client.get("/api/v1/prep/edit-caption-prompts").json()
+    assert data["default_prompt"] == DEFAULT_EDIT_PROMPT
+    assert data["layout_single"].count("<image>") == 2
+    assert data["layout_multi"].count("<image>") == 3
+    custom = ui_client.get("/api/v1/prep/edit-caption-prompts", params={"prompt": "Mine."}).json()
+    assert custom["layout_single"].endswith("Mine.")
+
+
+def test_create_edit_caption_job_validates_config(ui_client, img_dir, tmp_path):
+    controls = tmp_path / "controls"
+    controls.mkdir()
+    ok = ui_client.post(
+        "/api/v1/prep/jobs",
+        json={"stage": "edit_caption",
+              "config": {"path": str(img_dir), "edit_caption": {"control_path": str(controls)}}},
+    )
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["extra_args"] == "edit_caption"
+    no_control = ui_client.post(
+        "/api/v1/prep/jobs", json={"stage": "edit_caption", "config": {"path": str(img_dir)}}
+    )
+    assert no_control.status_code == 400
+    assert "control_path" in no_control.text
+    no_model = ui_client.post(
+        "/api/v1/prep/jobs",
+        json={"stage": "edit_caption", "config": {
+            "path": str(img_dir), "edit_caption": {"control_path": str(controls), "model": ""}}},
+    )
+    assert no_model.status_code == 400
+
+
+def test_edit_caption_models_route(ui_client):
+    res = ui_client.get("/api/v1/prep/models", params={"stage": "edit_caption"})
+    assert res.status_code == 200
+    assert [m["id"] for m in res.json()["models"]] == [
+        "qwen3-vl-4b-instruct", "qwen3-vl-8b-instruct",
+    ]

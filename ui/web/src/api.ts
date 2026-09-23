@@ -126,6 +126,7 @@ import type {
   PrepModelDownloadResult,
   PrepStage,
   PrepCaptionConfig,
+  PrepEditCaptionPrompts,
   LocalSettings,
   LocalSettingsPatch,
   QualityIndexModelsResult,
@@ -707,6 +708,12 @@ export const api = {
       body: JSON.stringify({ caption, sample_tags: sampleTags }),
     }),
 
+  /** Default edit-instruction prompt + the request layout it is wrapped in. */
+  prepEditCaptionPrompts: (prompt = "") =>
+    request<PrepEditCaptionPrompts>(
+      `/prep/edit-caption-prompts?prompt=${encodeURIComponent(prompt)}`
+    ),
+
   prepModelDownload: (stage: PrepStage, modelId: string) =>
     request<PrepModelDownloadResult>("/prep/models/download", {
       method: "POST",
@@ -845,6 +852,16 @@ export const api = {
         only: options?.only ?? false,
       }),
     }),
+
+  /**
+   * Spec, "Staleness": every `done` step's saved hash becomes its current one. 409s (`ApiError`)
+   * while the workflow is `running`/`cancelling`.
+   */
+  acceptWorkflowConfiguration: (id: number | string) =>
+    request<WorkflowDetail>(
+      `/workflows/${encodeURIComponent(String(id))}/accept-configuration`,
+      { method: "POST" }
+    ),
 
   cancelWorkflow: (id: number | string) =>
     request<WorkflowDetail>(`/workflows/${encodeURIComponent(String(id))}/cancel`, {

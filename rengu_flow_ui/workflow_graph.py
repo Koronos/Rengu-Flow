@@ -413,12 +413,25 @@ def _prep_config_errors(node: WorkflowNode, graph: WorkflowGraph, where: str) ->
     return []
 
 
-def validate(graph: WorkflowGraph) -> list[str]:
+def _has_saved_output(saved: Mapping[str, Any], node_id: str) -> bool:
+    info = saved.get(node_id)
+    output = info.get("output") if isinstance(info, Mapping) else None
+    return isinstance(output, Mapping) and bool(output.get("path"))
+
+
+def validate(
+    graph: WorkflowGraph, saved: Mapping[str, Any] | None = None
+) -> list[str]:
     """Every error in the graph, at once — pre-flight promises no mid-run surprises.
 
     Structure *and* substance: each enabled ``prep.*`` node's config is materialized and put
     through :func:`_prep_config_errors`, the same gate the launch runs, so "pre-flight passed"
     means the run will not stop on a config the editor let the user save.
+
+    *saved* is ``state_json["nodes"]``. It answers the one rule structure cannot: an enabled node
+    whose ``from`` is **disabled** reads that node's *saved* handle, and without one it fails
+    validation (spec, "Execution order") instead of dying at launch after the steps before it ran.
+    ``None`` means nothing is saved.
 
     Cycles are not checked: ``from`` pointing only backwards makes them impossible to express.
     """
@@ -426,6 +439,8 @@ def validate(graph: WorkflowGraph) -> list[str]:
     seen: set[str] = set()
     defined = {v.name for v in graph.variables}
     positions = {node.id: index for index, node in enumerate(graph.nodes)}
+    by_id = {node.id: node for node in graph.nodes}
+    saved = saved or {}
 
     for index, node in enumerate(graph.nodes):
         where = f"node {node.id}"
@@ -454,6 +469,15 @@ def validate(graph: WorkflowGraph) -> list[str]:
             errors.append(
                 f"{where} · from {node.source!r} points forward; a node may only read "
                 "from an earlier node"
+            )
+        elif (
+            node.enabled
+            and not by_id[node.source].enabled
+            and not _has_saved_output(saved, node.source)
+        ):
+            errors.append(
+                f"{where} · from {node.source!r} is disabled and has no saved output; "
+                "enable it or point this step at another source"
             )
 
         unresolved = False

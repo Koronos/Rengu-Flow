@@ -58,6 +58,19 @@ export interface PrepCaptionForm {
   gguf_quantization: "Q8_0" | "Q6_K" | "Q5_K_M" | "Q4_K_M";
 }
 
+export interface PrepEditCaptionForm {
+  control_path: string;
+  model: string;
+  gguf_quantization: "" | "Q8_0" | "Q6_K" | "Q5_K_M" | "Q4_K_M";
+  prompt: string;
+  overwrite: boolean;
+  max_pixels: number;
+  max_new_tokens: number;
+  temperature: number | null;
+  top_p: number | null;
+  n_parallel: number;
+}
+
 export interface PrepCleanForm {
   confidence: number;
   mask_dilation_px: number;
@@ -91,6 +104,7 @@ export interface PrepStageForms {
   /** Registry entries, used only to seed a missing thresholds row. */
   tagModels?: PrepModelInfo[];
   captionForm?: PrepCaptionForm;
+  editCaptionForm?: PrepEditCaptionForm;
   cleanForm?: PrepCleanForm;
   qualityForm?: PrepQualityForm;
   indexForm?: PrepIndexForm;
@@ -137,6 +151,19 @@ export const defaultCaptionForm = (): PrepCaptionForm => ({
   vllm_quantization: "gptq",
   vllm_model: "",
   gguf_quantization: "Q8_0",
+});
+
+export const defaultEditCaptionForm = (): PrepEditCaptionForm => ({
+  control_path: "",
+  model: "",
+  gguf_quantization: "",
+  prompt: "",
+  overwrite: false,
+  max_pixels: 524288,
+  max_new_tokens: 96,
+  temperature: 0.2,
+  top_p: null,
+  n_parallel: 0,
 });
 
 export const defaultCleanForm = (): PrepCleanForm => ({
@@ -246,6 +273,24 @@ export function buildStageConfig(stage: PrepStage, forms: PrepStageForms): PrepC
         vllm_quantization: captionForm.vllm_quantization,
         vllm_model: captionForm.vllm_model,
         gguf_quantization: captionForm.gguf_quantization,
+      },
+    };
+  }
+  if (stage === "edit_caption") {
+    const f = forms.editCaptionForm ?? defaultEditCaptionForm();
+    return {
+      ...base,
+      edit_caption: {
+        control_path: f.control_path,
+        model: f.model,
+        gguf_quantization: f.gguf_quantization,
+        prompt: f.prompt,
+        overwrite: f.overwrite,
+        max_pixels: f.max_pixels,
+        max_new_tokens: f.max_new_tokens,
+        temperature: f.temperature,
+        top_p: f.top_p,
+        n_parallel: f.n_parallel,
       },
     };
   }

@@ -8,7 +8,7 @@ GPU, what a dead process means, and how a Stop escalates.
 ```
 pending -> waiting_gpu -> launching -> running -> done | failed
                                           `----> stopping -> stopped
-pending -> skipped (disabled)
+pending -> skipped (disabled, or planned but never reached when the run halts)
 ```
 
 The rules below are load-bearing. Each one exists because its absence is silent, not loud:
@@ -129,11 +129,21 @@ _ADOPTION_SAMPLE_SECONDS = 1.0
 _ADOPTED_STALL_SECONDS = 120.0
 
 #: ①..⑳ — the same glyphs the editor numbers cards with, so an error names what the user sees.
+#: Unicode stops at ⑳; :func:`_position_label` falls back to the plain number, as the editor does.
 _POSITION_GLYPHS = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳"
 
 
 class _WaitingForLane(Exception):
     """Not an error: the node cannot start *yet*. It goes back to ``waiting_gpu`` and retries."""
+
+
+class _DeferInstall(Exception):
+    """Not an error: the extras need installing and this caller must not be the one to do it.
+
+    Raised on the ticks an HTTP request runs (``/start``, ``/cancel``): a cold ``uv sync`` takes
+    minutes and would hold the request for all of them. The node is parked in ``launching`` with
+    ``install_pending`` and the poller's next tick — which may block — does the install.
+    """
 
 
 # ------------------------------------------------------------------------------ small helpers
@@ -179,7 +189,9 @@ def _find_node(graph: WorkflowGraph, node_id: str) -> WorkflowNode | None:
 def _position_label(index: int) -> str:
     if 0 <= index < len(_POSITION_GLYPHS):
         return _POSITION_GLYPHS[index]
-    return f"#{index + 1}"
+    # Plain digits past ⑳, exactly like the editor's `ordinalGlyph`: the error must name the
+    # number the card shows.
+    return str(index + 1)
 
 
 def _label(graph: WorkflowGraph, node_id: str) -> str:
@@ -261,6 +273,7 @@ def _mark_launching(workflow_id: Any, node_id: str) -> None:
                 "pid_create_time": None,
                 "adopted": False,
                 "stop_requested_at": None,
+                "install_pending": False,
             }
         )
 
@@ -331,9 +344,23 @@ def _complete_node(
 
 
 def _finish_workflow(workflow_id: Any, status: str) -> None:
-    _update_workflow(
-        workflow_id, status=status, current_node=None, finished_at=now_utc_iso()
-    )
+    """End the run. Planned steps it never reached become ``skipped``, not left ``pending``.
+
+    ``pending`` says "about to run" and nothing is going to run it: a failed source folder used to
+    leave every step below it reading that under a finished workflow. ``skipped`` is the status
+    the user docs already describe as "excluded from this run". Their saved ``output`` is kept —
+    they never started, so whatever an earlier run left is exactly as valid as it was (same
+    reasoning as :func:`_stop_waiting_nodes`).
+    """
+    finished_at = now_utc_iso()
+
+    def _apply(state: dict) -> None:
+        state.update(status=status, current_node=None, finished_at=finished_at)
+        for info in (state.get("nodes") or {}).values():
+            if isinstance(info, dict) and info.get("status") == "pending":
+                info["status"] = "skipped"
+
+    workflow_db.mutate_state(workflow_id, _apply)
 
 
 # ------------------------------------------------------------------------------ process liveness
@@ -466,20 +493,48 @@ def _training_lane_busy() -> bool:
     return job_queue.has_active_runner()
 
 
-def _install_prep_extras(node: WorkflowNode) -> None:
-    """``uv sync --extra prep``, here rather than inside the child. See the module docstring.
+def _is_windows() -> bool:
+    from rengu_flow.platform_compat import PLATFORM
 
-    The refusal is conditioned on there being something to install: with the extras already present
-    ``ensure_profiles`` writes nothing, there is no ``site-packages`` rewrite, and refusing anyway
-    would block every CPU-only prep node for the whole of any training run — which is the lane
-    separation this feature is *for*. The check and the install happen together so no run can start
-    in between.
+    return bool(PLATFORM.is_windows)
+
+
+#: Stages whose child calls ``rengu_flow.prep.onnx_runtime.ensure_onnx_cuda_runtime`` — the ONNX
+#: tagger and the LaMa inpainter in ``clean``. On native Windows that is ``ensure_profiles
+#: (["onnx-cuda"])``: a ``uv sync`` of ~1 GB of CUDA 12 wheels run *by the child*, i.e. with no
+#: guard at all, from a step that may be running alongside training.
+_ONNX_STAGES = ("prep.tag", "prep.clean")
+
+
+def _prep_profiles(node: WorkflowNode) -> list[str]:
+    """Every extra the node's child would otherwise install for itself."""
+    profiles = ["prep"]
+    if node.type in _ONNX_STAGES and _is_windows():
+        profiles.append("onnx-cuda")
+    return profiles
+
+
+def _install_prep_extras(node: WorkflowNode, *, defer: bool = False) -> None:
+    """``uv sync --extra prep`` (and ``onnx-cuda`` on Windows), here rather than inside the child.
+
+    See the module docstring. The refusal is conditioned on there being something to install: with
+    the extras already present ``ensure_profiles`` writes nothing, there is no ``site-packages``
+    rewrite, and refusing anyway would block every CPU-only prep node for the whole of any training
+    run — which is the lane separation this feature is *for*. The check and the install happen
+    together so no run can start in between.
+
+    Installing ``onnx-cuda`` here is what makes the child's own ``ensure_onnx_cuda_runtime`` a no-op
+    (it finds the profile importable and syncs nothing), so the guard below covers it too.
+
+    ``defer`` is for ticks run inside an HTTP request: raise :class:`_DeferInstall` rather than hold
+    the request for the minutes a cold install takes.
     """
     if not node.type.startswith("prep."):
         return
     from rengu_flow.install.manager import ensure_profiles, missing_profiles
 
-    if not missing_profiles(["prep"]):
+    missing = missing_profiles(_prep_profiles(node))
+    if not missing:
         return
 
     if _training_lane_busy():
@@ -487,7 +542,9 @@ def _install_prep_extras(node: WorkflowNode) -> None:
             "Prep extras are not installed yet, and installing them rewrites site-packages "
             "under the running training job. Waiting for the training queue to be idle."
         )
-    ensure_profiles(["prep"], root=settings.repo_root(), reason="dataset prep")
+    if defer:
+        raise _DeferInstall(", ".join(missing))
+    ensure_profiles(missing, root=settings.repo_root(), reason="dataset prep")
 
 
 def _sweep_signal_files(node_dir: Path) -> None:
@@ -549,7 +606,12 @@ def _run_inline_node(
 
 
 def _launch_node(
-    workflow_id: Any, graph: WorkflowGraph, node: WorkflowNode, state: Mapping[str, Any]
+    workflow_id: Any,
+    graph: WorkflowGraph,
+    node: WorkflowNode,
+    state: Mapping[str, Any],
+    *,
+    defer_installs: bool = False,
 ) -> str:
     """Take one node from runnable to running (or to a terminal status). Returns that status."""
     node_id = node.id
@@ -585,7 +647,7 @@ def _launch_node(
     try:
         # BEFORE the spawn, never after. See the module docstring.
         _mark_launching(workflow_id, node_id)
-        _install_prep_extras(node)
+        _install_prep_extras(node, defer=defer_installs)
         _sweep_signal_files(node_dir)
         launch = workflow_nodes.build_launch(resolved, inputs, node_dir)
         if launch is None:  # a non-inline type with no launcher is a bug, not a node error
@@ -595,6 +657,12 @@ def _launch_node(
         gpu_lease.release(holder)
         _update_node(workflow_id, node_id, status="waiting_gpu", error=str(exc))
         return "waiting_gpu"
+    except _DeferInstall:
+        # Parked, not started: nothing was spawned, so the GPU is handed back and the poller's
+        # tick picks the node up again (see `_advance`). `launching` is what the user sees.
+        gpu_lease.release(holder)
+        _update_node(workflow_id, node_id, install_pending=True)
+        return "launching"
     except KeyboardInterrupt:
         raise
     except BaseException as exc:  # noqa: BLE001 - ensure_profiles raises SystemExit
@@ -716,6 +784,20 @@ def _read_report(node: WorkflowNode, node_dir: Path) -> Any:
         return None
 
 
+def _exit_error(exit_code: int, node_dir: Path) -> str:
+    """A non-zero exit, told the way the user needs it: the exception first, then its traceback.
+
+    The chip shows the first line, so that line is the final ``Name: message`` when the log has
+    one. "Exited with code 1." alone sent every failure to the Logs tab.
+    """
+    excerpt = workflow_nodes.read_failure_excerpt(node_dir)
+    if excerpt.exception:
+        return f"{excerpt.exception} (exit code {exit_code})\n\n{excerpt.text}"
+    if excerpt.text:
+        return f"Exited with code {exit_code}.\n\n{excerpt.text}"
+    return f"Exited with code {exit_code}."
+
+
 def _finalize_node(
     workflow_id: Any, graph: WorkflowGraph, node: WorkflowNode, state: Mapping[str, Any]
 ) -> str:
@@ -739,10 +821,16 @@ def _finalize_node(
         if info.get("status") == "stopping" or (exit_code == 0 and stopped):
             return _stop_node(workflow_id, node_id, exit_code)
         if exit_code is None:
-            return _fail_node(workflow_id, node_id, EXIT_UNKNOWN_ERROR)
+            # A child that died without printing its marker usually died of an uncaught
+            # exception; when the log says which, the node says it too.
+            excerpt = workflow_nodes.read_failure_excerpt(node_dir)
+            error = EXIT_UNKNOWN_ERROR
+            if excerpt.exception:
+                error = f"{excerpt.exception}\n\n{excerpt.text}\n\n{EXIT_UNKNOWN_ERROR}"
+            return _fail_node(workflow_id, node_id, error)
         if exit_code != 0:
             return _fail_node(
-                workflow_id, node_id, f"Exited with code {exit_code}.", exit_code=exit_code
+                workflow_id, node_id, _exit_error(exit_code, node_dir), exit_code=exit_code
             )
         try:
             output = workflow_nodes.collect_output(resolved, node_dir, inputs)
@@ -842,9 +930,18 @@ def _next_runnable(
 
     A ``failed`` or ``stopped`` node halts the workflow instead of being stepped over: the chain's
     whole premise is that each node's folder is the next node's input.
+
+    **Only this run's plan is looked at** (``state["plan"]``, written by :func:`start_workflow`).
+    A node outside it keeps whatever verdict an earlier run left — *Run only this step* promises
+    exactly that — so its ``failed`` is history, not a reason to halt this run. A state written
+    before the plan existed has none, and then every enabled node counts, as it always did.
     """
     nodes = state.get("nodes") or {}
+    plan = state.get("plan")
+    planned = set(plan) if isinstance(plan, list) else None
     for node in execution_order(graph):
+        if planned is not None and node.id not in planned:
+            continue
         status = (nodes.get(node.id) or {}).get("status")
         if status in _RUNNABLE_NODE_STATUSES:
             return node, None
@@ -853,7 +950,7 @@ def _next_runnable(
     return None, None
 
 
-def _advance(workflow_id: Any) -> None:
+def _advance(workflow_id: Any, *, defer_installs: bool = False) -> None:
     try:
         record = workflow_db.get_workflow(workflow_id)
     except KeyError:
@@ -869,6 +966,22 @@ def _advance(workflow_id: Any) -> None:
         info = _node_state(state, current)
         if node is None:
             _abandon_deleted_node(workflow_id, current, info)
+            state = workflow_db.get_state(workflow_id)
+        elif info.get("status") == "launching" and info.get("install_pending"):
+            # Parked by a request tick, never spawned: no process to reconcile. Cancelled, it
+            # simply stops (its saved output kept, as for `_stop_waiting_nodes`); otherwise it is
+            # runnable again and the loop below relaunches it.
+            if state.get("status") == "cancelling":
+                _update_node(
+                    workflow_id,
+                    current,
+                    status="stopped",
+                    install_pending=False,
+                    finished_at=now_utc_iso(),
+                    error="",
+                )
+            else:
+                _update_node(workflow_id, current, status="pending", install_pending=False)
             state = workflow_db.get_state(workflow_id)
         elif info.get("status") in _ACTIVE_NODE_STATUSES:
             if _node_is_alive(workflow_id, node, info):
@@ -894,7 +1007,9 @@ def _advance(workflow_id: Any) -> None:
             return
         _update_workflow(workflow_id, current_node=node.id)
         state = workflow_db.get_state(workflow_id)
-        outcome = _launch_node(workflow_id, graph, node, state)
+        outcome = _launch_node(
+            workflow_id, graph, node, state, defer_installs=defer_installs
+        )
         state = workflow_db.get_state(workflow_id)
         if outcome in ("failed", "stopped"):
             # A node that died at launch (a bad config, a closed toolbox gate) halts the chain
@@ -902,15 +1017,19 @@ def _advance(workflow_id: Any) -> None:
             _finish_workflow(workflow_id, outcome)
             return
         if outcome != "done":
-            return  # running / waiting_gpu — the next pass looks again
+            return  # running / waiting_gpu / parked launching — the next pass looks again
 
 
-def tick() -> None:
+def tick(*, defer_installs: bool = False) -> None:
     """One pass over the workflow lane. Called from ``queue_poller._tick`` and from the routes.
 
     The lock is **non-blocking**: a second caller returns immediately rather than queueing behind
     the first, because the only thing a queued caller would do is re-launch work the first one has
     already started. See the module docstring for what two concurrent spawns cost.
+
+    ``defer_installs=True`` is for the ticks HTTP handlers run: a node that still needs its prep
+    extras is parked in ``launching`` instead of holding the request through a ``uv sync``, and the
+    poller's own tick installs them (:class:`_DeferInstall`).
     """
     if not _tick_lock.acquire(blocking=False):
         return
@@ -928,7 +1047,7 @@ def tick() -> None:
                 )
                 break
             try:
-                _advance(record.id)
+                _advance(record.id, defer_installs=defer_installs)
             except KeyboardInterrupt:
                 raise
             except BaseException:  # noqa: BLE001 - one bad workflow must not stop the lane
@@ -1060,12 +1179,12 @@ def start_workflow(
     """
     record = workflow_db.get_workflow(workflow_id)
     graph = _graph_of(record)
-    errors = validate(graph)
+    state = _state_of(record)
+    errors = validate(graph, state.get("nodes") or {})
     if errors:
         # Pre-flight reports every error at once; the promise is no mid-run surprises.
         raise ValueError("\n".join(errors))
 
-    state = _state_of(record)
     if state.get("status") in _ACTIVE_WORKFLOW_STATUSES:
         raise ValueError("This workflow is already running. Stop it first.")
     other = _active_workflow_id(exclude=record.id)
@@ -1095,10 +1214,43 @@ def start_workflow(
                         "stop_requested_at": None,
                     }
                 )
+        # What this run is FOR, in list order. `_next_runnable` reads it, so a node outside the
+        # plan (left `failed` by an earlier run) cannot halt a run that never meant to touch it.
+        current["plan"] = [node.id for node in graph.nodes if node.id in plan]
         current["status"] = "running"
         current["started_at"] = now_utc_iso()
         current["finished_at"] = None
         current["current_node"] = None
+
+    workflow_db.mutate_state(workflow_id, _apply)
+    return workflow_db.get_state(workflow_id)
+
+
+class WorkflowBusyError(RuntimeError):
+    """The runner owns this workflow right now (``running`` / ``cancelling``). HTTP 409."""
+
+
+def accept_current_configuration(workflow_id: Any) -> dict:
+    """Spec, "Staleness": rewrite ``saved_hash = current_hash`` on every ``done`` node.
+
+    The escape hatch for a release that changes a stage default: ``HASH_VERSION`` or a default
+    moves, every saved node turns amber, and without this the user either re-runs everything or
+    learns to ignore the one staleness signal there is. Only ``done`` nodes are touched — anything
+    else has no finished output to vouch for — and only the *hash*: a node amber because its input
+    folder changed stays amber, since that is not configuration.
+
+    Refused while the runner owns the workflow: a tick finalizing a node would write its own hash
+    over this one, and "accept" under a live run is not a question anyone is asking.
+    """
+    record = workflow_db.get_workflow(workflow_id)
+    hashes = _config_hashes(_graph_of(record))
+
+    def _apply(state: dict) -> None:
+        if state.get("status") in _ACTIVE_WORKFLOW_STATUSES:
+            raise WorkflowBusyError("Workflow is running; stop it before accepting its configuration")
+        for node_id, info in (state.get("nodes") or {}).items():
+            if isinstance(info, dict) and info.get("status") == "done" and node_id in hashes:
+                info["config_hash"] = hashes[node_id]
 
     workflow_db.mutate_state(workflow_id, _apply)
     return workflow_db.get_state(workflow_id)
@@ -1182,6 +1334,11 @@ def _reconcile_workflow(record: workflow_db.WorkflowRecord) -> None:
             # made about a GPU that may now be free (or taken by someone else).
             gpu_lease.release(_holder_id(workflow_id, node.id))
             _update_node(workflow_id, node.id, status="pending", error="")
+        elif status == "launching" and info.get("install_pending") and info.get("pid") is None:
+            # Parked before any spawn (`_DeferInstall`): provably no process, so it is runnable,
+            # not an orphan to warn about.
+            gpu_lease.release(_holder_id(workflow_id, node.id))
+            _update_node(workflow_id, node.id, status="pending", install_pending=False, error="")
         elif status == "launching":
             # NEVER auto-started: its process may be alive and detached, and a second `prep.tag`
             # writing the same sidecars is silent, dataset-wide corruption.

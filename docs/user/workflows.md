@@ -174,15 +174,18 @@ already-processed images are skipped (unless Overwrite is on).
 | ● Not run | No saved state for this step |
 | ◷ Queued | Waiting its turn in a running workflow |
 | ◷ Waiting for GPU | Asked for a GPU lease and did not get it; the second line names who holds it |
-| ◷ Launching / ⟳ Running | Started; the card shows a progress bar |
+| ◷ Launching / ⟳ Running | Started; the card shows a progress bar. "Installing the prep dependencies first." means the first prep step on this machine is waiting for its one-time install |
 | ✓ Done | Finished, with the finish time (or `Queued run #123` for a training step) |
-| ✕ Failed | The first line of the error; the workflow stops here |
+| ✕ Failed | The exception the step died of (the drawer shows the end of its traceback); the workflow stops here |
 | ■ Stopped | Stopped part-way; running again resumes it |
-| — Disabled / Skipped | Excluded from this run |
+| — Disabled / Skipped | Excluded from this run: switched off, or not reached because an earlier step failed or the run was stopped |
 | Dashed amber ring | **Stale** — see below. Combines with any of the above, including ✓ Done |
 
 A failed or stopped step **halts the workflow** rather than being stepped over: everything below it
 depends on the folder it was supposed to produce.
+
+A step that reads from a **disabled** step uses the folder that step saved the last time it ran. If
+it never ran, the editor blocks Run and says which step to enable or re-point.
 
 ### Stale (the amber ring)
 
@@ -193,6 +196,11 @@ includes its source's.
 
 Editing configuration has **no side effects**: nothing on disk is deleted, and the saved folder is
 kept so **Run from here** still works. The only change is the ring.
+
+After an app update that changes a stage's defaults, every finished step can turn amber at once.
+**⋯ → Accept current configuration** takes the current configuration as what produced those
+outputs and clears the ring on every ✓ Done step, without re-running anything. A step that is amber
+because its *input folder* changed stays amber.
 
 > **Re-running is not a rollback.** Tag, Caption, Quality index and in-place Clean write **into the
 > folder itself**. A `done` step is not a snapshot of anything, and "start again from step 3"

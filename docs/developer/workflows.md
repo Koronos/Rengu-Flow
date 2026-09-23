@@ -141,12 +141,19 @@ refresh without polling. Calqued on `db._jobs_version`.
       "started_at": "…", "finished_at": "…",
       "output": { "path": "…", "caption_format": "sidecar", "caption_ext": ".txt" },
       "saved_input": { … }, "config_hash": "…", "error": "",
-      "adopted": false, "log_size": 0, "stop_requested_at": null, "result": null
+      "adopted": false, "log_size": 0, "stop_requested_at": null, "result": null,
+      "install_pending": false
     }
   },
+  "plan": ["n2", "n3"],
   "queue_claim": { "job_id": 42, "node_id": "n5" }
 }
 ```
+
+`plan` is the node ids `start_workflow` planned for the current run, in list order;
+`_next_runnable` looks only at those (see [Run planning](#run-planning)). A state written before it
+existed has none, and then every enabled node counts. `install_pending` marks a `launching` node
+parked before its spawn (see [The prep-extras interlock](#the-prep-extras-interlock)).
 
 Three fields carry more weight than they look:
 
@@ -164,7 +171,7 @@ Three fields carry more weight than they look:
 pending ──▶ waiting_gpu ──▶ launching ──▶ running ──▶ done
    │             │                           │    └──▶ failed
    │             │                           └──▶ stopping ──▶ stopped
-   └──────── skipped (disabled)
+   └──────── skipped (disabled, or never reached when the run halts)
 ```
 
 `workflow_runner.tick()` takes a **non-blocking** lock (`_tick_lock`, mirroring
@@ -192,7 +199,20 @@ Rules the state machine will silently break if you edit around them:
 | Liveness matches `pid` **and** `pid_create_time` | `_pid_is_alive`, `gpu_lease._pid_is_gone` | After a reboot, PID 4231 is an unrelated process; the node stays "running" forever and its lease is never released. Zombies count as dead |
 
 `failed` and `stopped` **halt** the workflow rather than being stepped over (`_next_runnable`): the
-chain's premise is that each node's folder is the next node's input.
+chain's premise is that each node's folder is the next node's input. Only nodes in this run's
+`plan` count: a node that *Run only this step* left alone keeps whatever verdict an earlier run gave
+it, and that old `failed` must not halt a run that never meant to touch it.
+
+When a run ends — failed, stopped or cancelled — every node still `pending` becomes `skipped`
+(`_finish_workflow`): it was planned, never reached, and `pending` under a finished workflow says
+"about to run" when nothing is. Its saved `output` is kept, since it never started.
+
+A non-zero exit copies the end of `node.log` into the node's `error`
+(`workflow_nodes.read_failure_excerpt`): the final traceback, or the last lines when there is none,
+bounded to `FAILURE_EXCERPT_LINES` (20) and `FAILURE_EXCERPT_BYTES` (2 KB), with progress and exit
+markers and the UI's own header dropped. The first line is the exception (`KeyError: 'x' (exit
+code 1)`), because the card's chip shows only the first line. A child that died without printing
+its exit marker gets the same excerpt ahead of `EXIT_UNKNOWN_ERROR` when its log holds a traceback.
 
 ### Cancellation
 
@@ -270,7 +290,10 @@ runner *before* `build_launch`, because a node that cannot get its GPU is never 
 
 `_install_prep_extras` runs `ensure_profiles(["prep"])` **in the UI process, with the node in
 `launching`** — not inside the child — and refuses **only when the extras are actually missing and
-the training lane is busy**. The hazard is the `uv sync` write to `site-packages` under a live
+the training lane is busy**. On native Windows `prep.tag` and `prep.clean` also need `onnx-cuda`
+(`_prep_profiles`): their child calls `rengu_flow.prep.onnx_runtime.ensure_onnx_cuda_runtime`, which
+is its own `uv sync`. Installing that profile here, behind the same guard, is what leaves the child
+nothing to install. The hazard is the `uv sync` write to `site-packages` under a live
 DeepSpeed process, not the node itself; refusing unconditionally would block every CPU-only prep
 node during any training run, which is the opposite of the point.
 
@@ -283,6 +306,13 @@ reaped.
 A node refused this way raises `_WaitingForLane`, **releases its lease** and returns to
 `waiting_gpu` with the reason — holding a GPU token while waiting on a dependency install would
 deadlock the lane it is queuing behind.
+
+**The install never runs inside an HTTP request.** `/start` and `/cancel` tick with
+`tick(defer_installs=True)`; a node that would need to install raises `_DeferInstall`, releases its
+lease and stays `launching` with `install_pending: true` (the card reads "Installing the prep
+dependencies first."). The poller's next tick turns it back to `pending` and relaunches it, and that
+tick installs. A parked node has provably no process, so `reconcile_on_start` resets it to
+`pending` instead of failing it with `LAUNCH_INTERRUPTED_ERROR`, and a cancel stops it outright.
 
 ### Node environment
 
@@ -358,8 +388,11 @@ Two design points to preserve:
 Editing configuration has no side effects: no files are deleted and the saved handle is kept so
 "Run from here" still works. `done` **and** `stale` at once is a valid, intended combination.
 
-There is no "Accept current configuration" bulk action yet (spec, Staleness) —
-see [BACKLOG.md](../BACKLOG.md).
+**Accept current configuration** (`POST /workflows/{id}/accept-configuration`,
+`workflow_runner.accept_current_configuration`) rewrites `config_hash` to the current hash on every
+`done` node — the spec's escape hatch for a release that moves a default. Only the hash: a node that
+is stale because its *input* changed stays stale. 409 while the runner owns the workflow. The editor
+offers it in the workflow `⋯` menu when at least one done step reads stale.
 
 ## Run planning
 
@@ -376,10 +409,16 @@ reset to `pending`:
 `stopped` is in the default set because prep stages resume naturally; skipping it is what would
 train on a dataset captioned only up to 60 %. `only` without `from_node` is refused outright.
 `_require_saved_ancestors` applies to both per-node entries and raises with the ordinal glyph
-(`①②③…`) the editor numbers cards with, so the error names what the user sees.
+(`①②③…`) the editor numbers cards with, so the error names what the user sees — plain digits past
+⑳, exactly like `ordinalGlyph`. The editor's `runFromBlockReason` walks the same ancestor chain and
+names the same earliest gap, so the menu never offers a start the server refuses. The planned ids are
+stored as `state["plan"]`.
 
-`start_workflow` runs `workflow_graph.validate(graph)` first and raises with **every** error joined
-by newlines. `validate` is structural *and* substantive: each enabled `prep.*` node is materialized
+`start_workflow` runs `workflow_graph.validate(graph, state["nodes"])` first and raises with
+**every** error joined by newlines. The saved outputs are what decide the one rule structure cannot:
+an enabled node whose `from` is **disabled** reads that node's saved handle, and without one the
+graph fails validation (spec, "Execution order"). The editor mirrors it in `disabledSourceProblems`,
+which blocks Run with the repair. `validate` is structural *and* substantive: each enabled `prep.*` node is materialized
 and put through `PrepConfig.validate_for_stage(stage)` — the same gate the launch runs
 (`workflow_graph._prep_config_errors`). Two wrinkles: `validate_for_stage` demands an existing
 `path` that in a workflow arrives from the edge, so `_preflight_path()` injects `Path.cwd()` and
@@ -417,8 +456,9 @@ All routes under `/api/v1`.
 | `DELETE /workflows/{id}` | Same running guard: a deleted running workflow would leave a leased, detached child with nothing to reconcile against |
 | `POST /workflows/{id}/clone` | Copy `content`, discard `state_json`, rewrite the graph's `name` |
 | `POST /workflows/{id}/validate` | `{"errors": [...]}`, runs nothing |
-| `POST /workflows/{id}/start` | Body `{from_node?, force?, only?}`. Plans, then ticks synchronously |
-| `POST /workflows/{id}/cancel` | Sets `cancelling`, then ticks |
+| `POST /workflows/{id}/start` | Body `{from_node?, force?, only?}`. Plans, then ticks synchronously with `defer_installs=True` |
+| `POST /workflows/{id}/cancel` | Sets `cancelling`, then ticks (same deferral) |
+| `POST /workflows/{id}/accept-configuration` | Rewrites `config_hash` on every `done` node; 409 while running |
 | `GET /workflows/{id}/nodes/{nid}/log` | Byte-offset tail + last `@@RFPROG@@` progress marker |
 | `GET /workflows/{id}/nodes/{nid}/report` | `report.json` (prep) or `result.json` (tool), read **from disk**. 404 with the reason for `folder`/`train`, never-run, and unparseable |
 | `WS /workflows/{id}/nodes/{nid}/log/ws` | Live tail; closes once the node leaves `running`/`stopping` |

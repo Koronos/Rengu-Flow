@@ -10,7 +10,7 @@
   - [Full-model finetuning (SDXL)](user/full-model-training-sdxl.md) — Training the full model (no adapter), optional UNet-only with `freeze_text_encoders`.
   - [Dataset configuration](user/dataset-config.md) — Dataset TOML, resolutions, directories, and eval datasets.
   - [Dataset augmentation](user/dataset-augmentation.md) — Diversity presets (MVP), cache interaction, references (Kohya, OneTrainer).
-  - [Dataset Studio (`rengu prep`)](user/dataset-prep.md) — Tagging, captioning, watermark cleanup, and the bulk tag editor.
+  - [Dataset Studio (`rengu prep`)](user/dataset-prep.md) — Tagging, captioning, edit instructions for edit datasets, watermark cleanup, and the bulk tag editor.
   - [Toolbox](user/toolbox.md) — Authoring and running your own Python tools; inputs, dependencies via PEP 723, and the `[toolbox].enabled` gate.
   - [Workflows](user/workflows.md) — Chaining prep, Toolbox and training steps over one folder; the eight step types and the folder each emits, variables, staleness, GPU sharing.
   - [Optimizer and scheduler](user/optimizer-and-scheduler.md) — Choosing optimizer and LR scheduler in TOML, built-in names, qualified path, runtime tokens, warmup.

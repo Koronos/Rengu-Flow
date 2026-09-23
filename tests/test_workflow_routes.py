@@ -45,11 +45,12 @@ def _put_graph(client, workflow_id, nodes: list[dict], version: int, name: str =
 @pytest.fixture
 def fake_workflow_runner(monkeypatch: pytest.MonkeyPatch) -> dict:
     """Install a stand-in ``rengu_flow_ui.workflow_runner`` and record calls made to it."""
-    calls = {"tick": 0, "start": [], "cancel": []}
+    calls = {"tick": 0, "tick_kwargs": [], "start": [], "cancel": []}
     fake = types.ModuleType("rengu_flow_ui.workflow_runner")
 
-    def tick() -> None:
+    def tick(**kwargs) -> None:
         calls["tick"] += 1
+        calls["tick_kwargs"].append(kwargs)
 
     def start_workflow(workflow_id, *, from_node=None, force=False, only=False) -> None:
         calls["start"].append((workflow_id, from_node, force, only))
@@ -242,6 +243,28 @@ def test_validate_returns_all_errors_not_just_first(ui_client) -> None:
     assert "unknown node type" in joined
     assert "points at itself" in joined
     assert "duplicate node id" in joined
+
+
+def test_validate_rejects_a_disabled_source_until_it_has_a_saved_output(
+    ui_client, tmp_path: Path
+) -> None:
+    """The audit's repro: folder -> quality (disabled) -> quality came back ``errors: []``."""
+    created = _create(ui_client)
+    nodes = [
+        _node("a", config={"path": str(tmp_path)}),
+        _node("b", node_type="prep.quality", enabled=False, config={"metric": "blur"}, **{"from": "a"}),
+        _node("c", node_type="prep.quality", config={"metric": "blur"}, **{"from": "b"}),
+    ]
+    assert _put_graph(ui_client, created["id"], nodes, version=0).status_code == 200
+
+    errors = ui_client.post(f"/api/v1/workflows/{created['id']}/validate").json()["errors"]
+    assert len(errors) == 1 and "'b' is disabled and has no saved output" in errors[0]
+
+    def _saved(state: dict) -> None:
+        state["nodes"] = {"b": {"status": "done", "output": {"path": str(tmp_path)}}}
+
+    workflow_db.mutate_state(created["id"], _saved)
+    assert ui_client.post(f"/api/v1/workflows/{created['id']}/validate").json() == {"errors": []}
 
 
 def test_validate_missing_workflow_404(ui_client) -> None:
@@ -478,6 +501,8 @@ def test_start_calls_runner_and_ticks(ui_client, fake_workflow_runner: dict) -> 
     assert resp.status_code == 200, resp.text
     assert fake_workflow_runner["start"] == [(str(created["id"]), "n1", True, False)]
     assert fake_workflow_runner["tick"] == 1
+    # A request must not sit through a cold `uv sync`: its tick parks installs for the poller.
+    assert fake_workflow_runner["tick_kwargs"] == [{"defer_installs": True}]
 
 
 def test_start_without_body_calls_runner_with_defaults(
@@ -532,6 +557,7 @@ def test_cancel_calls_runner_and_ticks(ui_client, fake_workflow_runner: dict) ->
     assert resp.status_code == 200, resp.text
     assert fake_workflow_runner["cancel"] == [str(created["id"])]
     assert fake_workflow_runner["tick"] == 1
+    assert fake_workflow_runner["tick_kwargs"] == [{"defer_installs": True}]
 
 
 def test_cancel_missing_workflow_404(ui_client, fake_workflow_runner: dict) -> None:
@@ -573,3 +599,42 @@ def test_start_reaches_the_real_runner(ui_client, tmp_path: Path) -> None:
     node_state = state["nodes"]["n1"]
     assert node_state["status"] == "failed"
     assert "does-not-exist" in node_state["error"]
+
+
+# ------------------------------------------------------------------------------ accept configuration
+
+
+def test_accept_configuration_route_rewrites_done_hashes(ui_client, tmp_path: Path) -> None:
+    created = _create(ui_client)
+    assert _put_graph(
+        ui_client, created["id"], [_node("n1", config={"path": str(tmp_path)})], version=0
+    ).status_code == 200
+
+    def _done_with_old_hash(state: dict) -> None:
+        state["nodes"] = {
+            "n1": {"status": "done", "output": {"path": str(tmp_path)}, "config_hash": "old"}
+        }
+
+    workflow_db.mutate_state(created["id"], _done_with_old_hash)
+    assert ui_client.get(f"/api/v1/workflows/{created['id']}").json()["stale"] == {"n1": True}
+
+    resp = ui_client.post(f"/api/v1/workflows/{created['id']}/accept-configuration")
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["stale"] == {"n1": False}
+
+
+@pytest.mark.parametrize("status", ["running", "cancelling"])
+def test_accept_configuration_route_409_while_running(ui_client, status: str) -> None:
+    created = _create(ui_client)
+
+    def _busy(state: dict) -> None:
+        state["status"] = status
+
+    workflow_db.mutate_state(created["id"], _busy)
+    resp = ui_client.post(f"/api/v1/workflows/{created['id']}/accept-configuration")
+    assert resp.status_code == 409
+
+
+def test_accept_configuration_route_404(ui_client) -> None:
+    assert ui_client.post("/api/v1/workflows/999/accept-configuration").status_code == 404

@@ -156,6 +156,26 @@ def list_models(stage: str) -> list[dict]:
     if stage in ("quality", "index"):
         return []  # quality/index models are pulled on demand by the uv-overlay scorers
 
+    if stage == "edit_caption":
+        from rengu_flow.prep.gguf_captioner import gguf_models
+
+        # GGUF weights: "downloaded" means the model's DEFAULT quant (+ its mmproj) is cached.
+        return [
+            {
+                "id": spec.id,
+                "repo_id": spec.repo,
+                "repo_type": "model",
+                "filename": spec.quants[spec.default_quant],
+                "default_quant": spec.default_quant,
+                "quants": list(spec.quants),
+                "notes": spec.notes,
+                "downloaded": _is_downloaded(spec.repo, spec.quants[spec.default_quant])
+                and _is_downloaded(spec.repo, spec.mmproj),
+                "available": True,
+            }
+            for spec in gguf_models("edit_caption").values()
+        ]
+
     registry = {"caption": CAPTION_MODELS, "clean": CLEANUP_MODELS}.get(stage)
     if registry is not None:
         results = []
@@ -221,6 +241,19 @@ def ensure_model(
         local = hfh.hf_hub_download(**kwargs)
         logger.info("Tagger model ready: %s -> %s", spec.id, local)
         return Path(local)
+
+    if stage == "edit_caption":
+        from rengu_flow.prep.gguf_captioner import ensure_gguf, gguf_models
+
+        spec = gguf_models("edit_caption").get(model_id)
+        if spec is None:
+            raise ValueError(
+                f"Unknown edit_caption model id {model_id!r}. "
+                f"Known ids: {list(gguf_models('edit_caption'))}"
+            )
+        gguf, _mmproj = ensure_gguf(spec.default_quant, model=spec.id)
+        logger.info("GGUF model ready: %s -> %s", model_id, gguf)
+        return gguf
 
     registry = {"caption": CAPTION_MODELS, "clean": CLEANUP_MODELS}.get(stage)
     if registry is None:

@@ -214,7 +214,9 @@ def register_workflow_routes(app: FastAPI) -> None:
         with _workflow_http_errors():
             record = workflow_db.get_workflow(workflow_id)
         graph = workflow_graph.parse_graph(json.loads(record.content or "{}"))
-        return {"errors": workflow_graph.validate(graph)}
+        # The saved outputs decide whether a disabled `from` can still feed its reader.
+        saved = (json.loads(record.state_json or "{}") or {}).get("nodes") or {}
+        return {"errors": workflow_graph.validate(graph, saved)}
 
     @app.post(f"{API_PREFIX}/workflows/{{workflow_id}}/start")
     def start_workflow_route(
@@ -231,8 +233,24 @@ def register_workflow_routes(app: FastAPI) -> None:
                 only=bool(body and body.only),
             )
         # Synchronous tick so the UI sees the effect immediately, without waiting for the
-        # poller's interval — same pattern as job_queue.start_job_immediately.
-        workflow_runner.tick()
+        # poller's interval — same pattern as job_queue.start_job_immediately. Deferred installs:
+        # a node that still needs its prep extras is left `launching` for the poller, rather than
+        # holding this request through a multi-minute `uv sync`.
+        workflow_runner.tick(defer_installs=True)
+        return _workflow_detail(workflow_db.get_workflow(workflow_id))
+
+    @app.post(f"{API_PREFIX}/workflows/{{workflow_id}}/accept-configuration")
+    def accept_configuration_route(workflow_id: str) -> dict[str, Any]:
+        """Spec, "Staleness": *Accept current configuration* — every ``done`` node's saved hash
+        becomes its current one, so a release that moved a default does not turn the chain amber."""
+        from rengu_flow_ui import workflow_runner
+
+        with _workflow_http_errors():
+            _reject_while_running(workflow_db.get_workflow(workflow_id), "accepting its configuration")
+            try:
+                workflow_runner.accept_current_configuration(workflow_id)
+            except workflow_runner.WorkflowBusyError as e:  # it started between the two reads
+                raise HTTPException(409, str(e))
         return _workflow_detail(workflow_db.get_workflow(workflow_id))
 
     @app.post(f"{API_PREFIX}/workflows/{{workflow_id}}/cancel")
@@ -242,7 +260,7 @@ def register_workflow_routes(app: FastAPI) -> None:
         with _workflow_http_errors():
             workflow_db.get_workflow(workflow_id)
             workflow_runner.cancel_workflow(workflow_id)
-        workflow_runner.tick()
+        workflow_runner.tick(defer_installs=True)
         return _workflow_detail(workflow_db.get_workflow(workflow_id))
 
     @app.get(f"{API_PREFIX}/workflows/{{workflow_id}}/nodes/{{node_id}}/log")

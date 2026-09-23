@@ -24,7 +24,7 @@ import {
   nodeTypeLabel,
   sourceMayBeEmpty,
 } from "./workflowNodeTypes";
-import type { PrepStage } from "@/types/api";
+import type { PrepModelInfo, PrepStage } from "@/types/api";
 
 // The graph shapes live in `types/workflow.ts`, next to the API payloads they travel in.
 // Re-exported here so callers of the editing helpers get them from one import.
@@ -50,6 +50,11 @@ export interface CreateNodeOptions {
   config?: Record<string, unknown>;
   gpu?: Partial<WorkflowNodeGpu>;
   enabled?: boolean;
+  /**
+   * The stage's model registry (`GET /prep/models?stage=`), when the caller has it. Seeds the
+   * model picker the way the stage form's preselect would — see {@link seedModelDefaults}.
+   */
+  registry?: readonly PrepModelInfo[];
 }
 
 export interface AddNodeOptions {
@@ -108,9 +113,42 @@ export function defaultNodeConfig(type: string): Record<string, unknown> {
   return { ...(payload[stage] as Record<string, unknown>) };
 }
 
+/**
+ * Fill an empty model picker from the registry, by the same rules as the stage forms' preselect:
+ * `TagStageForm` takes the downloaded taggers, else the registry's first two; `CaptionStageForm`
+ * takes the registry's first model. A choice already made is never replaced.
+ *
+ * Without this a step added and run without opening its drawer carried `models: []` /
+ * `model: ""` — the preselect lived only in the form's mount — and the server refused it (tag) or
+ * ran it with no model (caption). Kept in step with the two forms by hand: they are the source.
+ */
+export function seedModelDefaults(
+  type: string,
+  config: Record<string, unknown>,
+  registry: readonly PrepModelInfo[] | undefined,
+): Record<string, unknown> {
+  if (!registry?.length) return config;
+  if (type === "prep.tag") {
+    const current = config.models;
+    if (Array.isArray(current) && current.length) return config;
+    const downloaded = registry.filter((model) => model.downloaded).map((model) => model.id);
+    const models = downloaded.length ? downloaded : registry.slice(0, 2).map((model) => model.id);
+    return { ...config, models };
+  }
+  if (type === "prep.caption") {
+    if (typeof config.model === "string" && config.model) return config;
+    return { ...config, model: registry[0].id };
+  }
+  return config;
+}
+
 /** A node with this app's defaults filled in. Its `from` is decided by {@link addNode}. */
 export function createNode(type: string, options: CreateNodeOptions = {}): WorkflowNode {
-  const config = { ...defaultNodeConfig(type), ...(options.config ?? {}) };
+  const config = seedModelDefaults(
+    type,
+    { ...defaultNodeConfig(type), ...(options.config ?? {}) },
+    options.registry,
+  );
   return {
     id: options.id ?? newNodeId(),
     type,

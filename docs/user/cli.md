@@ -37,7 +37,7 @@ so the UI port and training defaults always exist. An existing file is never ove
 | `rengu validate --config PATH` | Validate training config and exit |
 | `rengu cache --config PATH` | Run dataset cache only (`--cache_only` on trainer) |
 | `rengu dump-dataset PATH` | Inspect dataset TOML |
-| `rengu prep <tag\|caption\|clean\|models>` | Dataset Studio: tagging, captioning, watermark cleanup, model list/download (see [Dataset Studio](dataset-prep.md)) |
+| `rengu prep <tag\|caption\|edit_caption\|clean\|quality\|index\|models>` | Dataset Studio: tagging, captioning, edit instructions, watermark cleanup, quality, model list/download (see [Dataset Studio](dataset-prep.md)) |
 | `rengu ui` / `rengu ui start` | `uv sync --extra ui`, build `ui/web/dist`, serve API, open browser (bare `rengu ui` defaults to `start`) |
 | `rengu ui serve` | API only (`--host`, `--port`, `--reload`) |
 | `rengu ui dev` | API with reload + Vite dev server |

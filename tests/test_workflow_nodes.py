@@ -490,3 +490,68 @@ def test_unknown_node_type_is_refused(node_dir: Path, dataset_dir: Path) -> None
 def test_run_inline_refuses_a_subprocess_node(node_dir: Path, dataset_dir: Path) -> None:
     with pytest.raises(ValueError, match="build_launch"):
         wn.run_inline(_node("prep.tag", {}), _handle(dataset_dir), node_dir)
+
+
+# ------------------------------------------------------------------------------ failure excerpt
+
+_TRACEBACK_LOG = (
+    "--- rengu-flow-ui workflow 1 node n2 ---\n"
+    "CWD: /repo\n"
+    "CMD: python -m rengu_flow.cli prep quality\n"
+    "\n"
+    "scoring 12 images\n"
+    "ERROR prep quality failed\n"
+    "Traceback (most recent call last):\n"
+    '  File "runner.py", line 303, in run_stage\n'
+    "    report = _STAGE_RUNNERS[stage](config, on_progress, should_stop)\n"
+    "ValueError: Unknown quality action 'explode'\n"
+    "@@RFPROG@@ {\"phase\": \"prep:quality\", \"done\": true}\n"
+    "prep quality exits with return code = 1\n"
+)
+
+
+def test_failure_excerpt_is_the_final_traceback(node_dir: Path) -> None:
+    node_dir.mkdir(parents=True, exist_ok=True)
+    (node_dir / "node.log").write_text(_TRACEBACK_LOG, encoding="utf-8")
+
+    excerpt = wn.read_failure_excerpt(node_dir)
+
+    assert excerpt.exception == "ValueError: Unknown quality action 'explode'"
+    assert excerpt.text.startswith("Traceback (most recent call last):")
+    assert excerpt.text.endswith("ValueError: Unknown quality action 'explode'")
+    # Markers are plumbing, not the error: neither the progress line nor the exit line survives.
+    assert "@@RFPROG@@" not in excerpt.text and "exits with return code" not in excerpt.text
+
+
+def test_failure_excerpt_without_a_traceback_is_the_log_tail(node_dir: Path) -> None:
+    node_dir.mkdir(parents=True, exist_ok=True)
+    (node_dir / "node.log").write_text(
+        "--- rengu-flow-ui workflow 1 node n2 ---\nCWD: /repo\nCMD: x\n\n"
+        "loading\nout of disk space\nprep tag exits with return code = 1\n",
+        encoding="utf-8",
+    )
+
+    excerpt = wn.read_failure_excerpt(node_dir)
+
+    assert excerpt.exception == ""
+    assert excerpt.text == "loading\nout of disk space"  # the header is ours, not the child's
+
+
+def test_failure_excerpt_is_bounded(node_dir: Path) -> None:
+    node_dir.mkdir(parents=True, exist_ok=True)
+    frames = "".join(f'  File "f{i}.py", line {i}, in g\n    {"x" * 150}\n' for i in range(200))
+    (node_dir / "node.log").write_text(
+        "Traceback (most recent call last):\n" + frames + "RuntimeError: deep\n",
+        encoding="utf-8",
+    )
+
+    excerpt = wn.read_failure_excerpt(node_dir)
+
+    assert len(excerpt.text.splitlines()) <= wn.FAILURE_EXCERPT_LINES
+    assert len(excerpt.text.encode("utf-8")) <= wn.FAILURE_EXCERPT_BYTES
+    assert excerpt.text.endswith("RuntimeError: deep")  # the tail is what is kept
+    assert excerpt.exception == "RuntimeError: deep"
+
+
+def test_failure_excerpt_of_a_missing_log_is_empty(node_dir: Path) -> None:
+    assert wn.read_failure_excerpt(node_dir) == wn.FailureExcerpt("", "")

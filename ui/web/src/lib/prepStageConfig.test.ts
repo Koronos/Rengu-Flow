@@ -4,6 +4,7 @@ import {
   defaultCaptionForm,
   defaultCleanForm,
   defaultCommonForm,
+  defaultEditCaptionForm,
   defaultQualityForm,
   defaultTagForm,
   modelThresholdDefaults,
@@ -423,6 +424,40 @@ describe("buildStageConfig — index", () => {
     const indexForm = { models: ["aesthetic"] };
     const cfg = buildStageConfig("index", forms({ indexForm }));
     expect(cfg.index?.models).not.toBe(indexForm.models);
+  });
+});
+
+describe("buildStageConfig — edit_caption", () => {
+  it("sends the edit_caption section with the dataset layout", () => {
+    const editCaptionForm = {
+      ...defaultEditCaptionForm(),
+      control_path: "/data/controls",
+      model: "qwen3-vl-4b-instruct",
+    };
+    const cfg = buildStageConfig("edit_caption", forms({ editCaptionForm }));
+    expect(cfg).toEqual({
+      path: "/data/ds",
+      caption_format: "sidecar",
+      caption_ext: ".txt",
+      edit_caption: {
+        control_path: "/data/controls",
+        model: "qwen3-vl-4b-instruct",
+        gguf_quantization: "",
+        prompt: "",
+        overwrite: false,
+        max_pixels: 524288,
+        max_new_tokens: 96,
+        temperature: 0.2,
+        top_p: null,
+        n_parallel: 0,
+      },
+    });
+    expect(cfg.caption).toBeUndefined();
+  });
+
+  it("uses the defaults when the form is missing", () => {
+    const cfg = buildStageConfig("edit_caption", forms());
+    expect(cfg.edit_caption).toEqual(defaultEditCaptionForm());
   });
 });
 

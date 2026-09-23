@@ -227,6 +227,97 @@ The same absorption logic applies to the tag line: use the tagger's
 `prepend_tags = ["hatsune miku"]` plus the tag editor to remove her inherent tags
 (`aqua hair`, `twintails`, …) so they collapse into the trigger.
 
+### Edit instructions — `rengu prep edit_caption`
+
+For **edit datasets** (targets + a folder of control images, the layout
+[edit training](training-qwen-image21.md#image-editing-edit-training) reads): for every
+(controls, target) pair a VLM looks at the control images and then the target, and writes the
+**instruction** that turns one into the other — "Convert the image to black and white.",
+"Remove the man on the left." — on **line 1** of the target's caption (the line an edit dataset
+trains on). The dataset folder (`path`) holds the targets; `control_path` holds the controls.
+
+```bash
+rengu prep edit_caption --path /data/edit/targets --control-path /data/edit/controls
+rengu prep edit_caption --path /data/edit/targets --control-path /data/edit/controls \
+  --model qwen3-vl-8b-instruct --overwrite
+```
+
+**Pairing** is the trainer's own: target `stem.<ext>` pairs with `stem.<ext>` (one control) or
+`stem_0.<ext>, stem_1.<ext>, …` (several, in that order, contiguous from 0) in the control
+folder. A target without a valid set (missing, ambiguous, both forms, a gap in the numbering) is
+**not** an error here: it is listed under `unpaired` in the report — with the reason — and left
+untouched, so you can fix the folder and rerun. Targets whose line 1 already has text are skipped
+unless `overwrite` is on, so a stopped job resumes where it left off. Both caption layouts
+(sidecar and `captions.json`) work; other caption lines are never touched.
+
+> [!WARNING]
+> **Review the output before training on it.** VLMs describing the difference between two images
+> hallucinate: they name changes that are not there, miss the real one, or describe the whole
+> picture instead of the edit (EditCaption, [arXiv 2604.08213](https://arxiv.org/abs/2604.08213)).
+> Open the target folder in Studio → Tag editor (its grid shows each image's line 1 next to the
+> thumbnail) and fix the wrong ones in their `.txt` (or `captions.json`) — a wrong instruction
+> teaches the wrong edit. There is no per-image text editor in the UI yet.
+
+**Models** (llama.cpp GGUF, same auto-install as ToriiGate's `gguf` engine below: the pinned
+Vulkan binary plus the weights, downloaded to the Hugging Face cache on first use):
+
+| `model` | Repo | Default quant | VRAM (measured, RTX 3000 Ada 8 GB) | Notes |
+|---|---|---|---|---|
+| `qwen3-vl-4b-instruct` (default) | `unsloth/Qwen3-VL-4B-Instruct-GGUF` | `Q8_0` (4.3 GB + 0.8 GB mmproj) | ~6.8 GB | Fits an 8 GB card |
+| `qwen3-vl-8b-instruct` | `unsloth/Qwen3-VL-8B-Instruct-GGUF` | `Q4_K_M` (5.0 GB + 1.2 GB mmproj) | ~7.5 GB | Better instructions; `Q8_0` (8.7 GB) needs a 12 GB+ card |
+
+Both are the *Instruct* (non-thinking) variants; `Q4_K_M`, `Q5_K_M`, `Q6_K` and `Q8_0` are
+selectable with `gguf_quantization`. On the 8 GB test card, with 4 slots and the model loaded, a
+pair (512×512 control + target) takes **~1.3 s** with the 4B and **~1.9 s** with the 8B; loading
+takes ~6-7 s, and the very first run pays ~25 s more while the Vulkan driver compiles its shaders.
+
+**The prompt.** The default asks for one or two short sentences in the imperative that describe
+only what changes (never what stays the same), with no quotes, labels or preamble. It is editable
+(`prompt`, and in the web form, which shows the default text). The image layout is added around
+it automatically: a single control is labelled *Source image* / *Result image*; with several
+controls they are *Image 1 (source)*, *Image 2 (source)*, … and the model is told to refer to
+them as "image 1", "image 2". The reply is cleaned before it is written: one line, surrounding quotes and prefixes such
+as `Instruction:` / `Edit instruction -` / `Here is the instruction:` removed; an empty reply
+counts as `failed`.
+
+**Pixels vs. context (VRAM).** Every request carries all of a row's images, so the server context
+is sized from the dataset's largest row instead of the caption stage's fixed `-c 32768 --parallel
+16` (2048 tokens per slot — one ~1 Mpx image, not a pair). Each image is downscaled to at most
+`max_pixels` (default 524 288 ≈ 724×724, ~512 vision tokens for Qwen3-VL's 32×32 px per token);
+a slot holds `images × tokens_per_image + prompt + max_new_tokens`, and the context is
+`slot × n_parallel` (e.g. 3 images → 2560-token slots, `-c 10240 --parallel 4`). The KV cache
+grows with that context: more controls per target, more pixels or more slots cost VRAM. On a
+small card lower `n_parallel` (throughput) or `max_pixels` (a coarser view of the edit — fine
+detail changes may go unnoticed below ~0.25 Mpx). llama.cpp warns that Qwen-VL wants ≥1024 image
+tokens for *grounding* tasks; spotting a global edit does not need that, but raise `max_pixels`
+if the model misses small, local changes.
+
+| Key (`[edit_caption]`) | Purpose | Values | Default |
+|---|---|---|---|
+| `control_path` | Folder of control images (required; must differ from `path`) | directory | — |
+| `model` | GGUF VLM | `qwen3-vl-4b-instruct`, `qwen3-vl-8b-instruct` | `qwen3-vl-4b-instruct` |
+| `gguf_quantization` | Weight quant | `""` (model default), `Q8_0`, `Q6_K`, `Q5_K_M`, `Q4_K_M` | `""` |
+| `prompt` | Custom instruction prompt (the image labels are still added) | text; `""` = default | `""` |
+| `overwrite` | Rewrite targets whose line 1 already has text | bool | `false` |
+| `max_pixels` | Pixel cap per image sent to the VLM; sizes the server context | ≥ 1024 | `524288` |
+| `max_new_tokens` | Length cap of an instruction | int | `96` |
+| `temperature` / `top_p` | Sampling; `None` (omit / clear in the form) = the model's recommended 0.7 / 0.8 | float | `0.2` / model default |
+| `n_parallel` | llama-server slots (concurrent pairs) | int; `0` = model default (4) | `0` |
+
+The report adds `unpaired` (`"<image>: <reason>"`), `model`, `quantization`, `ctx_size`,
+`n_parallel` and `max_images_per_row` to the usual `captioned` / `skipped` / `failed` counts.
+
+**Quarantine with controls.** When a caption set is opened with its control folder, quarantining
+a target moves its paired control images too (into the batch's `controls/` subfolder), and
+restoring the batch puts both back — the pair never goes half-missing. A control that another
+remaining target also uses (`a_1.png` is both the control of target `a_1` and control #1 of target
+`a`) stays in place.
+
+> Qwen publishes an official prompt enhancer for image-to-image edits,
+> [`Qwen/Qwen-Image-2.1-PE-I2I`](https://huggingface.co/Qwen/Qwen-Image-2.1-PE-I2I), which rewrites
+> a user's edit request at *generation* time. It is not integrated here; this stage writes the
+> training-side instruction from the image pair.
+
 ### Watermark cleanup — `rengu prep clean`
 
 YOLO11 watermark detector (from the JoyCaption project) draws boxes → dilated mask →
@@ -282,6 +373,11 @@ quantization = "bf16"           # bf16 | int8 | nf4
 prompt = ""                     # empty = model default
 batch_size = 4
 use_tags_as_grounding = true
+overwrite = false
+
+[edit_caption]                  # edit datasets: path = the targets folder
+control_path = "/data/my_dataset_controls"
+model = "qwen3-vl-4b-instruct"  # or "qwen3-vl-8b-instruct"
 overwrite = false
 
 [clean]

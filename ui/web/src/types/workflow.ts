@@ -101,6 +101,11 @@ export interface NodeState {
   /** Set when a restart adopted a `launching` node with no pid because its log was still growing. */
   adopted?: boolean;
   stop_requested_at?: number | null;
+  /**
+   * `launching` without a process yet: the request that started the run left the prep-extras
+   * install to the poller (`workflow_runner._DeferInstall`), which installs, then spawns.
+   */
+  install_pending?: boolean;
   /** The handle this node produced. Cleared on failure/stop — a downstream node never reads a stale success. */
   output?: DatasetHandle | null;
   /** The upstream handle this node actually consumed; workflow_graph.compute_stale compares against it. */

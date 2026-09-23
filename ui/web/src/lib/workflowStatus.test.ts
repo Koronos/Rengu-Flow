@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   clockTime,
+  disabledSourceProblems,
   firstLine,
   isBusy,
   moveBlockReason,
@@ -130,13 +131,15 @@ describe("shouldRunNode / nodesToRun", () => {
 describe("runFromBlockReason", () => {
   const g = graph(node("n1", { type: "folder" }), node("n2", { from: "n1" }), node("n3", { from: "n2" }));
 
-  it("allows starting at a node whose source has a saved output", () => {
-    const state = { nodes: { n2: { output: { path: "D:/a", caption_format: "sidecar", caption_ext: ".txt" } } } };
+  it("allows starting at a node whose ancestors have saved outputs", () => {
+    const saved = { output: { path: "D:/a", caption_format: "sidecar", caption_ext: ".txt" } };
+    const state = { nodes: { n1: saved, n2: saved } };
     expect(runFromBlockReason(g, "n3", state)).toBe("");
   });
 
   it("names the source and a safe restart point when there is no saved output", () => {
-    expect(runFromBlockReason(g, "n3", { nodes: {} })).toBe(
+    const state = { nodes: { n1: { output: { path: "D:/a", caption_format: "sidecar", caption_ext: ".txt" } } } };
+    expect(runFromBlockReason(g, "n3", state)).toBe(
       "② has no saved output. Start from ① or earlier."
     );
   });
@@ -171,5 +174,65 @@ describe("moveBlockReason", () => {
   it("says so at the ends of the list", () => {
     expect(moveBlockReason(g, "n1", "up")).toBe("Already the first step.");
     expect(moveBlockReason(g, "n3", "down")).toBe("Already the last step.");
+  });
+});
+
+describe("runFromBlockReason walks the whole ancestor chain", () => {
+  /**
+   * Mirrors `workflow_runner._require_saved_ancestors`: a saved output on the direct parent is not
+   * enough when *its* parent has none — the server refuses, and the menu must not offer it.
+   */
+  it("blocks when a grandparent has no saved output, naming the earliest gap", () => {
+    const g = graph(
+      node("n1", { type: "folder" }),
+      node("n2", { from: "n1" }),
+      node("n3", { from: "n2" }),
+      node("n4", { from: "n3" })
+    );
+    const state = { nodes: { n3: { output: { path: "D:/a" } } } } as never;
+    expect(runFromBlockReason(g, "n4", state)).toBe(
+      "① has no saved output. Use Run to start from the top."
+    );
+    const partial = { nodes: { n1: { output: { path: "D:/a" } }, n3: { output: { path: "D:/a" } } } } as never;
+    expect(runFromBlockReason(g, "n4", partial)).toBe(
+      "② has no saved output. Start from ① or earlier."
+    );
+  });
+
+  it("allows it once every ancestor has one", () => {
+    const g = graph(node("n1", { type: "folder" }), node("n2", { from: "n1" }), node("n3", { from: "n2" }));
+    const saved = { output: { path: "D:/a" } };
+    expect(runFromBlockReason(g, "n3", { nodes: { n1: saved, n2: saved } } as never)).toBe("");
+  });
+});
+
+describe("disabledSourceProblems", () => {
+  const g = graph(
+    node("a", { type: "folder" }),
+    node("b", { type: "prep.quality", from: "a", enabled: false }),
+    node("c", { type: "prep.quality", from: "b" })
+  );
+
+  it("flags an enabled step reading a disabled one with no saved output", () => {
+    expect(disabledSourceProblems(g, { nodes: {} })).toEqual([
+      "③ reads from ②, which is disabled and has no saved output. Enable ② or point ③ at another step.",
+    ]);
+  });
+
+  it("is satisfied by the disabled step's saved output", () => {
+    expect(disabledSourceProblems(g, { nodes: { b: { output: { path: "D:/a" } } } } as never)).toEqual([]);
+  });
+
+  it("ignores readers that are themselves disabled", () => {
+    const off = graph(...g.nodes.map((n) => (n.id === "c" ? { ...n, enabled: false } : n)));
+    expect(disabledSourceProblems(off, { nodes: {} })).toEqual([]);
+  });
+});
+
+describe("nodeChip for a parked install", () => {
+  it("says what the launch is waiting on", () => {
+    const chip = nodeChip(node("n2"), { status: "launching", install_pending: true }, "running");
+    expect(chip.label).toBe("Launching");
+    expect(chip.detail).toBe("Installing the prep dependencies first.");
   });
 });

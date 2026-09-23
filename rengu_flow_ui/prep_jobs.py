@@ -5,19 +5,45 @@ queue (so a prep job never shares the GPU with a training run), same log streami
 graceful stop via signal files in the job's run_dir, and exit-code reconciliation
 from the log. ``extra_args`` stores the stage name; ``config_content`` keeps the
 staged prep TOML so the job is self-contained.
+
+"Start now" goes through the GPU lease (``job_queue.start_job_now``), exactly like a queued start.
+``has_active_runner()`` alone is not enough: a training run is still ``pending`` for the minutes
+its own ``uv sync`` takes, and a workflow GPU node holds the lease with no job row at all
+(docs/spec/workflows.md, Risk 14). A refused start raises ``gpu_lease.LeaseBusyError`` (409) and
+leaves nothing behind — nothing would ever come back to start a row stranded in ``pending``.
 """
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
+from typing import Callable
 
 from rengu_flow.prep.config import STAGES
-from rengu_flow_ui import db, job_queue
+from rengu_flow_ui import db, gpu_lease, job_queue
 from rengu_flow_ui.settings import ensure_data_dirs, ui_data_dir
 
 
 def prep_jobs_dir() -> Path:
     return ui_data_dir() / "prep"
+
+
+def _start_now(job: db.JobRecord, undo: Callable[[], None]) -> db.JobRecord:
+    """Start *job* under the lease, or run *undo* and re-raise the refusal.
+
+    With a run already active the job simply waits its FIFO turn, as it always has: the queue
+    drains itself when that run finishes, so a pending row is not stranded there.
+    """
+    if job_queue.has_active_runner():
+        return job
+    try:
+        started = job_queue.start_job_now(job)
+    except gpu_lease.LeaseBusyError as exc:
+        undo()
+        raise gpu_lease.LeaseBusyError(
+            f"Cannot start now: {exc} Queue the job instead, or try again once it frees."
+        ) from exc
+    return started if started is not None else job
 
 
 def enqueue_prep_job(stage: str, config_toml: str, *, start_now: bool = False) -> db.JobRecord:
@@ -45,10 +71,13 @@ def enqueue_prep_job(stage: str, config_toml: str, *, start_now: bool = False) -
         run_dir=str(job_dir),
     )
 
-    if start_now and not job_queue.has_active_runner():
-        from rengu_flow_ui import jobs
+    if start_now:
 
-        jobs.start_job(job)
+        def _undo() -> None:
+            db.delete_job(job.id)
+            shutil.rmtree(job_dir, ignore_errors=True)
+
+        job = _start_now(job, _undo)
         job = db.get_job(job.id)
     return job
 
@@ -77,6 +106,13 @@ def requeue_prep_job(job_id: str | int, *, start_now: bool = False) -> db.JobRec
             except OSError:
                 pass
 
+    previous = {
+        "state": job.state,
+        "finished_at": job.finished_at,
+        "exit_code": job.exit_code,
+        "pid": job.pid,
+        "queue_position": job.queue_position,
+    }
     job = db.update_job(
         job.id,
         state="pending",
@@ -85,9 +121,7 @@ def requeue_prep_job(job_id: str | int, *, start_now: bool = False) -> db.JobRec
         pid=None,
         queue_position=job_queue.next_queue_position(),
     )
-    if start_now and not job_queue.has_active_runner():
-        from rengu_flow_ui import jobs
-
-        jobs.start_job(job)
+    if start_now:
+        job = _start_now(job, lambda: db.update_job(job.id, **previous))
         job = db.get_job(job.id)
     return job

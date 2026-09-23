@@ -74,6 +74,15 @@
                 <el-icon><CopyDocument /></el-icon><span>Duplicate</span>
               </span>
             </el-dropdown-item>
+            <!--
+              Spec, "Staleness": after a release that moves a stage default every saved step turns
+              amber; this accepts the new configuration on the done steps instead of re-running.
+            -->
+            <el-dropdown-item command="accept-config" :disabled="running || !acceptableCount">
+              <span class="rf-dropdown-item-label">
+                <el-icon><Select /></el-icon><span>Accept current configuration</span>
+              </span>
+            </el-dropdown-item>
             <el-dropdown-item command="delete" divided :disabled="running">
               <span class="rf-dropdown-item-label rf-dropdown-item-label--danger">
                 <el-icon><Delete /></el-icon><span>Delete</span>
@@ -106,6 +115,7 @@ import {
   EditPen,
   MoreFilled,
   RefreshRight,
+  Select,
 } from "@element-plus/icons-vue";
 import { ariaLabel } from "../../lib/aria";
 import type { WorkflowStatus } from "../../types/workflow";
@@ -137,6 +147,8 @@ const props = withDefaults(
     saving?: boolean;
     dirty?: boolean;
     streamStatus?: string;
+    /** Done steps that read stale — what *Accept current configuration* would settle. */
+    acceptableCount?: number;
   }>(),
   {
     running: false,
@@ -151,6 +163,7 @@ const props = withDefaults(
     saving: false,
     dirty: false,
     streamStatus: "connected",
+    acceptableCount: 0,
   }
 );
 
@@ -163,6 +176,7 @@ const emit = defineEmits<{
   variables: [];
   duplicate: [];
   delete: [];
+  "accept-config": [];
   rename: [name: string];
 }>();
 
@@ -213,6 +227,7 @@ function onCommand(command: string | number): void {
   if (command === "force") emit("run-force");
   else if (command === "validate") emit("validate");
   else if (command === "duplicate") emit("duplicate");
+  else if (command === "accept-config") emit("accept-config");
   else if (command === "delete") emit("delete");
 }
 </script>

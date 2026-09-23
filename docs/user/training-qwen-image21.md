@@ -254,6 +254,11 @@ edit_set/
 `stem.<ext>` gives one condition image; `stem_0.<ext>, stem_1.<ext>, …` give several, in order
 (contiguous from 0). Pairing is strict: a target without a valid control set is an error.
 
+No instructions yet? [`rengu prep edit_caption`](dataset-prep.md#edit-instructions--rengu-prep-edit_caption)
+has a VLM write one per pair onto line 1 of each target's `.txt` (same pairing rules; unpaired
+targets are reported, not fatal). Review them before training (Studio → Tag editor shows each
+target's line 1): VLMs hallucinate differences between two images.
+
 ```toml
 [[directory]]
 path = "edit_set/targets"

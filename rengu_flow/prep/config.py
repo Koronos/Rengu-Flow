@@ -14,7 +14,7 @@ from rengu_flow.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
-STAGES = ("tag", "caption", "clean", "quality", "index")
+STAGES = ("tag", "caption", "edit_caption", "clean", "quality", "index")
 
 
 @dataclass
@@ -69,6 +69,26 @@ class CaptionStageConfig:
 
 
 @dataclass
+class EditCaptionStageConfig:
+    """Edit-instruction captioning: for each (controls, target) pair of an edit dataset, a VLM
+    writes the instruction that turns the controls into the target, on line 1 of the target's
+    caption (the line an edit dataset trains on). ``path`` holds the targets."""
+
+    control_path: str = ""  # folder of control images (same pairing as the trainer's [[directory]])
+    model: str = "qwen3-vl-4b-instruct"  # a GGUF model registered for edit_caption
+    gguf_quantization: str = ""  # "" = the model's default quant (see GGUF_MODELS)
+    prompt: str = ""  # "" = the default edit-instruction prompt (DEFAULT_EDIT_PROMPT)
+    overwrite: bool = False  # False: skip targets whose line 1 already has text
+    # Pixel cap of EACH image sent to the VLM (controls and target). It sets the tokens per image
+    # and, with the images per row, the server context — see gguf_captioner.server_budget.
+    max_pixels: int = 512 * 1024
+    max_new_tokens: int = 96
+    temperature: float | None = 0.2  # None = the model's recommended sampling
+    top_p: float | None = None
+    n_parallel: int = 0  # llama-server slots (0 = the model's default)
+
+
+@dataclass
 class CleanStageConfig:
     confidence: float = 0.35
     mask_dilation_px: int = 8
@@ -104,6 +124,7 @@ class PrepConfig:
     caption_ext: str = ".txt"
     tag: TagStageConfig = field(default_factory=TagStageConfig)
     caption: CaptionStageConfig = field(default_factory=CaptionStageConfig)
+    edit_caption: EditCaptionStageConfig = field(default_factory=EditCaptionStageConfig)
     clean: CleanStageConfig = field(default_factory=CleanStageConfig)
     quality: QualityStageConfig = field(default_factory=QualityStageConfig)
     index: IndexStageConfig = field(default_factory=IndexStageConfig)
@@ -125,6 +146,34 @@ class PrepConfig:
         # was never opened) failed silently instead of up front.
         if stage == "tag" and not self.tag.models:
             raise ValueError("tag stage needs at least one model in [tag].models")
+        # Same failure mode for caption: model = "" passed here and the run died later with an
+        # "Unknown model ''" from inside the captioner.
+        if stage == "caption" and not str(self.caption.model or "").strip():
+            raise ValueError("caption stage needs a model in [caption].model")
+        if stage == "edit_caption":
+            self._validate_edit_caption()
+
+    def _validate_edit_caption(self) -> None:
+        from rengu_flow.prep.gguf_captioner import gguf_models
+
+        stage = self.edit_caption
+        if not str(stage.model or "").strip():
+            raise ValueError("edit_caption stage needs a model in [edit_caption].model")
+        known = gguf_models("edit_caption")
+        if stage.model not in known:
+            raise ValueError(
+                f"Unknown edit_caption model {stage.model!r}; expected one of {list(known)}"
+            )
+        if not str(stage.control_path or "").strip():
+            raise ValueError("edit_caption stage needs [edit_caption].control_path")
+        if not Path(stage.control_path).is_dir():
+            raise FileNotFoundError(f"Control folder not found: {stage.control_path}")
+        if Path(stage.control_path).resolve() == Path(self.path).resolve():
+            raise ValueError(
+                "edit_caption control_path must be a different folder from the targets' path"
+            )
+        if int(stage.max_pixels) < 32 * 32:
+            raise ValueError("edit_caption max_pixels must be at least 1024")
 
 
 def _fill_dataclass(instance, data: dict, *, context: str):
@@ -147,6 +196,8 @@ def parse_prep_config(data: dict) -> PrepConfig:
         _fill_dataclass(config.tag, data["tag"], context="tag")
     if isinstance(data.get("caption"), dict):
         _fill_dataclass(config.caption, data["caption"], context="caption")
+    if isinstance(data.get("edit_caption"), dict):
+        _fill_dataclass(config.edit_caption, data["edit_caption"], context="edit_caption")
     if isinstance(data.get("clean"), dict):
         _fill_dataclass(config.clean, data["clean"], context="clean")
     if isinstance(data.get("quality"), dict):

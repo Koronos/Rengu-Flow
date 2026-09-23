@@ -1,6 +1,6 @@
 """Single-stage prep runner: the process the CLI (and therefore the UI) executes.
 
-One process = one stage (tag | caption | clean). Emits throttled ``@@RFPROG@@``
+One process = one stage (tag | caption | edit_caption | clean | quality | index). Emits throttled ``@@RFPROG@@``
 markers so the web UI's existing live-progress plumbing works unchanged, honors the
 ``save_quit``/``quit`` signal files between batches (graceful partial stop), writes a
 ``report.json`` into the job dir, and prints the ``exits with return code = N`` line
@@ -202,6 +202,21 @@ def _run_caption(config: PrepConfig, on_progress, should_stop) -> dict:
     )
 
 
+def _run_edit_caption(config: PrepConfig, on_progress, should_stop) -> dict:
+    from rengu_flow.prep.edit_captioner import edit_caption_folder
+
+    report = edit_caption_folder(
+        config.path,
+        config.edit_caption,
+        fmt=config.caption_format,
+        ext=config.caption_ext,
+        on_progress=on_progress,
+        should_stop=should_stop,
+    )
+    report["control_path"] = config.edit_caption.control_path
+    return report
+
+
 def _run_clean(config: PrepConfig, on_progress, should_stop) -> dict:
     from rengu_flow.prep.cleanup import CleanupConfig, clean_folder
 
@@ -262,6 +277,7 @@ def _run_index(config: PrepConfig, on_progress, should_stop) -> dict:
 _STAGE_RUNNERS = {
     "tag": _run_tag,
     "caption": _run_caption,
+    "edit_caption": _run_edit_caption,
     "clean": _run_clean,
     "quality": _run_quality,
     "index": _run_index,

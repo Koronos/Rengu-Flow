@@ -336,3 +336,53 @@ describe("ordinals", () => {
     expect(ordinalGlyph(0)).toBe("0");
   });
 });
+
+describe("createNode with the model registry", () => {
+  const registry = [
+    { id: "pixai-v0.9", repo_id: "a", downloaded: false, available: true },
+    { id: "cl-tagger-1.02", repo_id: "b", downloaded: true, available: true },
+    { id: "wd-eva02", repo_id: "c", downloaded: false, available: true },
+  ];
+
+  /**
+   * A node added and run without opening the drawer used to carry `models: []` / `model: ""` — the
+   * pickers' preselect only ran when the form mounted. Seeding happens at birth, by the same rules.
+   */
+  it("preselects the downloaded taggers, as TagStageForm does", () => {
+    expect(createNode("prep.tag", { registry }).config.models).toEqual(["cl-tagger-1.02"]);
+  });
+
+  it("falls back to the registry's first two taggers when none is downloaded", () => {
+    const none = registry.map((m) => ({ ...m, downloaded: false }));
+    expect(createNode("prep.tag", { registry: none }).config.models).toEqual([
+      "pixai-v0.9",
+      "cl-tagger-1.02",
+    ]);
+  });
+
+  it("preselects the registry's first caption model, as CaptionStageForm does", () => {
+    const captioners = [
+      { id: "joycaption-beta-one", repo_id: "x", downloaded: false, available: true },
+      { id: "qwen", repo_id: "y", downloaded: true, available: true },
+    ];
+    expect(createNode("prep.caption", { registry: captioners }).config.model).toBe(
+      "joycaption-beta-one"
+    );
+  });
+
+  it("fills a gap, never replaces a choice", () => {
+    expect(
+      createNode("prep.tag", { registry, config: { models: ["wd-eva02"] } }).config.models
+    ).toEqual(["wd-eva02"]);
+    expect(
+      createNode("prep.caption", { registry, config: { model: "mine" } }).config.model
+    ).toBe("mine");
+  });
+
+  it("leaves other types and an empty registry alone", () => {
+    expect(createNode("prep.index", { registry }).config).toEqual({ models: [] });
+    expect(createNode("prep.tag", { registry: [] }).config.models).toEqual(
+      createNode("prep.tag").config.models
+    );
+  });
+});

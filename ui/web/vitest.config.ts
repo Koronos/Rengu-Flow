@@ -6,5 +6,7 @@ export default defineConfig({
   test: {
     environment: "happy-dom",
     include: ["src/**/*.test.ts"],
+    // ponytail: drawer tests mount the full stage forms (~5 s on this box); 5 s default flaked.
+    testTimeout: 20_000,
   },
 });

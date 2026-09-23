@@ -23,6 +23,8 @@
       @variables="variablesOpen = true"
       @duplicate="duplicateWorkflow"
       @delete="deleteWorkflow"
+      @accept-config="acceptConfiguration"
+      :acceptable-count="acceptableCount"
       @rename="editor.setName"
     />
 
@@ -187,6 +189,7 @@ import { useRoute, useRouter } from "vue-router";
 import { ElLoadingDirective, ElMessage, ElMessageBox } from "element-plus";
 import { Plus } from "@element-plus/icons-vue";
 import { api, type ToolboxToolSummary } from "../api";
+import type { PrepModelInfo, PrepStage } from "../types/api";
 import { ariaLabel } from "../lib/aria";
 import { formatError } from "../lib/formatError";
 import {
@@ -203,6 +206,7 @@ import { edgeKey, isJump, skippedBy } from "../lib/workflowLayout";
 import { describeOutput } from "../lib/workflowNodeTypes";
 import { nodeConfigSummary, relativeTime, workflowResultPath } from "../lib/workflowCard";
 import {
+  disabledSourceProblems,
   moveBlockReason,
   nodeChip,
   nodeEntry,
@@ -337,6 +341,9 @@ const runSet = computed(() => nodesToRun(graph.value, state.value, staleMap.valu
 const undefinedNames = computed(() => unknownRefs(graph.value));
 const resultPath = computed(() => workflowResultPath(graph.value, state.value));
 
+/** Enabled steps fed by a disabled one that never saved an output — the server refuses those. */
+const disabledSources = computed(() => disabledSourceProblems(graph.value, state.value));
+
 const blockedReason = computed(() => {
   if (!graph.value.nodes.length) return "Add a step first.";
   if (undefinedNames.value.length) {
@@ -344,8 +351,17 @@ const blockedReason = computed(() => {
       .map((name) => `\${${name}}`)
       .join(", ")}. Open Variables to give them a value.`;
   }
+  if (disabledSources.value.length) return disabledSources.value.join(" ");
   return "";
 });
+
+/** Done steps whose amber ring *Accept current configuration* would clear. */
+const acceptableCount = computed(
+  () =>
+    graph.value.nodes.filter(
+      (node) => nodeEntry(state.value, node.id)?.status === "done" && staleMap.value[node.id]
+    ).length
+);
 
 const lastRunLabel = computed(() => {
   if (running.value && state.value.started_at) {
@@ -359,16 +375,41 @@ const lastRunLabel = computed(() => {
 
 const tools = ref<ToolboxToolSummary[]>([]);
 
-function addStep(
+/** Node types whose model picker is seeded from the registry at birth (`seedModelDefaults`). */
+const REGISTRY_STAGES: Record<string, PrepStage> = { "prep.tag": "tag", "prep.caption": "caption" };
+const registries = new Map<PrepStage, Promise<PrepModelInfo[]>>();
+
+/** One fetch per stage per editor; a failed fetch degrades to the form defaults, as the forms do. */
+function registryFor(type: string): Promise<PrepModelInfo[] | undefined> {
+  const stage = REGISTRY_STAGES[type];
+  if (!stage) return Promise.resolve(undefined);
+  let pending = registries.get(stage);
+  if (!pending) {
+    pending = api.prepModels(stage).then(
+      (res) => res.models || [],
+      () => {
+        registries.delete(stage);
+        return [];
+      }
+    );
+    registries.set(stage, pending);
+  }
+  return pending;
+}
+
+async function addStep(
   at: number,
   choice: { type: string; title: string; config?: Record<string, unknown> },
   splice: boolean
-): void {
+): Promise<void> {
+  // Seeded now, not when the drawer opens: a step added and run unopened must carry a model.
+  const registry = await registryFor(choice.type);
   editor.mutate((current) =>
-    addNode(current, createNode(choice.type, { title: choice.title, config: choice.config }), {
-      at,
-      splice,
-    })
+    addNode(
+      current,
+      createNode(choice.type, { title: choice.title, config: choice.config, registry }),
+      { at, splice }
+    )
   );
 }
 
@@ -542,6 +583,20 @@ async function duplicateWorkflow(): Promise<void> {
   }
 }
 
+async function acceptConfiguration(): Promise<void> {
+  try {
+    if (!(await editor.flush())) {
+      ElMessage.warning("Your last edit is not saved yet, so nothing was accepted.");
+      return;
+    }
+    const detail = await api.acceptWorkflowConfiguration(workflowId.value);
+    editor.applyLive(detail);
+    ElMessage.success("Accepted the current configuration for the done steps.");
+  } catch (e) {
+    ElMessage.error(formatError(e));
+  }
+}
+
 async function deleteWorkflow(): Promise<void> {
   try {
     await ElMessageBox.confirm(
@@ -562,6 +617,8 @@ async function deleteWorkflow(): Promise<void> {
 }
 
 onMounted(async () => {
+  // Warm the registries so "Add step" does not wait on a round-trip.
+  for (const type of Object.keys(REGISTRY_STAGES)) void registryFor(type);
   try {
     tools.value = await api.listToolboxTools();
   } catch {

@@ -85,6 +85,32 @@
         </div>
       </template>
 
+      <!-- Edit instructions -->
+      <template v-else-if="stage === 'edit_caption' && editCaptionForm">
+        <div class="prep-summary__row">
+          <dt>Controls</dt>
+          <dd>
+            <span v-if="editCaptionForm.control_path.trim()">{{ basename(editCaptionForm.control_path.trim()) }}</span>
+            <span v-else class="prep-summary__muted">choose a folder…</span>
+          </dd>
+        </div>
+        <div class="prep-summary__row">
+          <dt>Model</dt>
+          <dd>
+            <span v-if="editCaptionForm.model">{{ editCaptionForm.model }} · gguf/{{ editCaptionForm.gguf_quantization || 'default' }}</span>
+            <span v-else class="prep-summary__muted">not selected</span>
+          </dd>
+        </div>
+        <div class="prep-summary__row">
+          <dt>Max pixels</dt>
+          <dd>{{ editCaptionForm.max_pixels }} per image</dd>
+        </div>
+        <div class="prep-summary__row">
+          <dt>Writes</dt>
+          <dd>line 1{{ editCaptionForm.overwrite ? ' (overwrite)' : ' (skip existing)' }}</dd>
+        </div>
+      </template>
+
       <!-- Clean -->
       <template v-else-if="stage === 'clean'">
         <div class="prep-summary__row">
@@ -153,6 +179,10 @@
       </el-divider>
       <pre class="prep-summary__preview">{{ previewText || '(waiting for model selection…)' }}</pre>
     </template>
+    <template v-if="stage === 'edit_caption'">
+      <el-divider class="prep-summary__divider" content-position="left">Request layout</el-divider>
+      <pre class="prep-summary__preview">{{ editPreviewText || '(loading…)' }}</pre>
+    </template>
 
     <el-text size="small" type="info" class="prep-summary__note">
       Jobs run one at a time; extra jobs queue in FIFO order.
@@ -196,6 +226,13 @@ interface CaptionForm {
   vllm_quantization: "gptq" | "fp8" | "awq" | "none";
   gguf_quantization: "Q8_0" | "Q6_K" | "Q5_K_M" | "Q4_K_M";
 }
+interface EditCaptionForm {
+  control_path: string;
+  model: string;
+  gguf_quantization: string;
+  max_pixels: number;
+  overwrite: boolean;
+}
 interface CleanForm {
   confidence: number;
   mask_dilation_px: number;
@@ -221,6 +258,8 @@ const props = defineProps({
   tagForm: { type: Object as PropType<TagForm>, required: true },
   tagThresholds: { type: Object as PropType<Record<string, ModelThresholds>>, default: () => ({}) },
   captionForm: { type: Object as PropType<CaptionForm>, required: true },
+  editCaptionForm: { type: Object as PropType<EditCaptionForm | null>, default: null },
+  editPreviewText: { type: String, default: "" },
   cleanForm: { type: Object as PropType<CleanForm>, required: true },
   qualityForm: { type: Object as PropType<QualityForm>, required: true },
   promptOptions: { type: Object as PropType<PrepPromptOptions | null>, default: null },

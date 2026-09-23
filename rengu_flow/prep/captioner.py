@@ -1073,8 +1073,6 @@ def _caption_via_gguf(
     endpoint. The binary (Vulkan) and GGUF are fetched on first use. ToriiGate only —
     the GGUF repo and prompt format are specific to it.
     """
-    import socket
-    import subprocess
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
     from rengu_flow.prep import gguf_captioner as gg
@@ -1108,30 +1106,7 @@ def _caption_via_gguf(
     binary_dir = gg.ensure_binary()
     gguf, mmproj = gg.ensure_gguf(config.gguf_quantization)
 
-    def _free_port() -> int:
-        with socket.socket() as s:
-            s.bind(("127.0.0.1", 0))  # 0 = OS assigns a free ephemeral port (never hard-code 8080)
-            return s.getsockname()[1]
-
-    # Start on a free port; if it loses the race for that port (closed before the server binds),
-    # retry on a fresh one. Avoids a hard-coded port that a dev server might already hold.
-    proc = port = None
-    for attempt in range(3):
-        port = _free_port()
-        proc = gg._start_server(binary_dir, gguf, mmproj, port)
-        try:
-            gg._wait_health(port, proc, timeout=180.0 if attempt == 0 else 30.0)
-            break
-        except Exception as exc:  # noqa: BLE001
-            proc.terminate()
-            try:
-                proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-            if attempt == 2:
-                raise
-            logger.warning("llama-server start failed on port %d (%s); retrying", port, exc)
-    try:
+    with gg.llama_server(binary_dir, gguf, mmproj) as port:
 
         def _one(key: str) -> tuple[str, Optional[str]]:
             tags = cs.get_tags(key) if config.use_tags_as_grounding else None
@@ -1168,12 +1143,6 @@ def _caption_via_gguf(
                 cs.save()  # incremental: a crash keeps everything done so far
                 if on_progress is not None:
                     on_progress(captioned + len(failed), total, f"captioned {captioned}/{total}")
-    finally:
-        proc.terminate()
-        try:
-            proc.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            proc.kill()
 
     return {"captioned": captioned, "skipped": skipped, "skipped_small": skipped_small,
             "failed": failed, "stopped": stopped}

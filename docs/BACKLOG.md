@@ -90,13 +90,6 @@ longer listed here. What they left behind for P5-3:
 - The unconditional `try_start_next()` in the poller tick is still **not** there: it belongs with
   the workflow lane and lands together with the two contract comments it invalidates
   (`jobs.py:254-256`, `job_queue.py:495-496`) and a test fixing the new semantics.
-- `prep_jobs`' two `start_now` call sites still bypass the lease entirely (Risk 14 in the spec) —
-  a prep job can start on a GPU a training run already holds, in the window where that run's row
-  is still `pending` during its own `uv sync`. Close this before P5-3 removes the shared queue.
-- No "Accept current configuration" action yet (spec, Staleness): after a release that changes a
-  stage default, every saved node goes amber with no way to accept them in bulk.
-- `/prep/new/index` has a form now but no entry point — `PrepJobsView.vue` offers buttons for
-  tag/caption/clean/quality only.
 
 | ID | Item | Source | Notes |
 |----|------|--------|-------|

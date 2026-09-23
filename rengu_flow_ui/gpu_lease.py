@@ -41,6 +41,14 @@ _WF_PREFIX = "wf:"
 _devices_cache: list[int] | None = None
 
 
+class LeaseBusyError(RuntimeError):
+    """An explicit "start this now" found the GPU held. The message is :func:`wait_reason`'s.
+
+    Only for callers that must *refuse* rather than wait: the queue and the workflow lane retry on
+    a failed :func:`acquire` instead. The HTTP layer maps it to 409 (``_http_util.http_errors``).
+    """
+
+
 def _connect() -> sqlite3.Connection:
     """Same DB file and same pragmas (WAL, busy_timeout) as every other UI connection."""
     return db._connect()

@@ -162,6 +162,19 @@ def register_prep_routes(app: FastAPI) -> None:
 
         return list_prompt_options()
 
+    @app.get(f"{API_PREFIX}/prep/edit-caption-prompts")
+    def prep_edit_caption_prompts(prompt: str = Query("")):
+        """Default edit-instruction prompt (the form's editable text) and the full request
+        ``prompt`` (blank = the default) is wrapped in, for one control and for two
+        (``<image>`` marks an image slot)."""
+        from rengu_flow.prep.edit_captioner import DEFAULT_EDIT_PROMPT, render_edit_prompt
+
+        return {
+            "default_prompt": DEFAULT_EDIT_PROMPT,
+            "layout_single": render_edit_prompt(1, prompt),
+            "layout_multi": render_edit_prompt(2, prompt),
+        }
+
     @app.post(f"{API_PREFIX}/prep/caption-prompts/preview")
     def prep_caption_prompt_preview(body: PromptPreviewBody):
         """Render the EXACT prompt a caption job would send for these settings.

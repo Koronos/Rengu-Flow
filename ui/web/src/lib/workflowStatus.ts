@@ -98,7 +98,14 @@ export function nodeChip(
         showProgress: false,
       };
     case "launching":
-      return { glyph: "◷", label: "Launching", tone: "primary", detail: "", showProgress: true };
+      return {
+        glyph: "◷",
+        label: "Launching",
+        tone: "primary",
+        // Parked by the request that started it: the poller installs the extras, then spawns.
+        detail: entry?.install_pending ? "Installing the prep dependencies first." : "",
+        showProgress: true,
+      };
     case "running":
       return { glyph: "⟳", label: "Running", tone: "primary", detail: "", showProgress: true };
     case "stopping":
@@ -167,30 +174,70 @@ export function nodesToRun(
     .map((node) => node.id);
 }
 
+function hasSavedOutput(state: WorkflowState | null | undefined, nodeId: string): boolean {
+  return Boolean(nodeEntry(state, nodeId)?.output);
+}
+
 /**
  * Why *Run from here* is unavailable, or `""` when it is.
  *
- * Starting mid-chain reuses the upstream node's **saved** handle; without one there is nothing to
- * feed this node and the run would die on the first stage's "Prep config needs a dataset 'path'".
+ * Starting mid-chain reuses the upstream nodes' **saved** handles; without one there is nothing to
+ * feed the chain and the run would die on the first stage's "Prep config needs a dataset 'path'".
+ * The whole ancestor chain is checked, not just the direct parent — the server's
+ * `workflow_runner._require_saved_ancestors` does, and a menu entry it will refuse is a lie. The
+ * message names the **earliest** gap, exactly as the server's does.
  */
 export function runFromBlockReason(
   graph: WorkflowGraph,
   nodeId: string,
   state: WorkflowState | null | undefined
 ): string {
-  const node = graph.nodes.find((candidate) => candidate.id === nodeId);
-  if (!node || !node.from) return "";
-  const source = graph.nodes.find((candidate) => candidate.id === node.from);
-  if (!source) return "";
-  if (nodeEntry(state, source.id)?.output) return "";
+  const byId = new Map(graph.nodes.map((candidate) => [candidate.id, candidate]));
+  const node = byId.get(nodeId);
+  if (!node) return "";
 
   const positions = ordinals(graph);
-  const sourceGlyph = ordinalGlyph(positions[source.id]);
-  if (positions[source.id] <= 1) {
+  const missing: number[] = [];
+  const seen = new Set<string>();
+  for (let cursor = node.from; cursor && !seen.has(cursor); cursor = byId.get(cursor)?.from ?? null) {
+    seen.add(cursor);
+    if (!byId.has(cursor)) break;
+    if (!hasSavedOutput(state, cursor)) missing.push(positions[cursor]);
+  }
+  if (!missing.length) return "";
+
+  const earliest = Math.min(...missing);
+  const sourceGlyph = ordinalGlyph(earliest);
+  if (earliest <= 1) {
     return `${sourceGlyph} has no saved output. Use Run to start from the top.`;
   }
-  const earlier = ordinalGlyph(positions[source.id] - 1);
-  return `${sourceGlyph} has no saved output. Start from ${earlier} or earlier.`;
+  return `${sourceGlyph} has no saved output. Start from ${ordinalGlyph(earliest - 1)} or earlier.`;
+}
+
+/**
+ * Every enabled step that reads from a **disabled** one with no saved output — the editor's copy
+ * of `workflow_graph.validate`'s rule (spec, "Execution order": a disabled `from` is read through
+ * its saved handle, otherwise the graph fails validation). Surfacing it here is what stops the
+ * user switching a step off and pressing Run into a pre-flight refusal.
+ */
+export function disabledSourceProblems(
+  graph: WorkflowGraph,
+  state: WorkflowState | null | undefined
+): string[] {
+  const byId = new Map(graph.nodes.map((candidate) => [candidate.id, candidate]));
+  const positions = ordinals(graph);
+  const problems: string[] = [];
+  for (const node of graph.nodes) {
+    if (!node.enabled || !node.from) continue;
+    const source = byId.get(node.from);
+    if (!source || source.enabled || hasSavedOutput(state, source.id)) continue;
+    const self = ordinalGlyph(positions[node.id]);
+    const from = ordinalGlyph(positions[source.id]);
+    problems.push(
+      `${self} reads from ${from}, which is disabled and has no saved output. Enable ${from} or point ${self} at another step.`
+    );
+  }
+  return problems;
 }
 
 /**

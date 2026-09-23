@@ -150,6 +150,41 @@ def test_missing_source_is_rejected_except_on_folder_and_tool() -> None:
     assert errors[0] == "node n3 · has no source; only folder and tool nodes may have none"
 
 
+def _disabled_middle() -> wg.WorkflowGraph:
+    """folder -> quality (DISABLED) -> quality: the audit's repro."""
+    return wg.WorkflowGraph(
+        nodes=[
+            _node("a", "folder", config={"path": "D:/datasets/aoi"}),
+            _node("b", "prep.quality", source="a", enabled=False, config={"metric": "blur"}),
+            _node("c", "prep.quality", source="b", config={"metric": "blur"}),
+        ]
+    )
+
+
+def test_from_a_disabled_node_without_a_saved_output_is_rejected() -> None:
+    """Spec, "Execution order": a disabled ``from`` is read through its saved handle, and without
+    one the graph fails validation — not the run, after the earlier steps already did their work."""
+    errors = wg.validate(_disabled_middle(), {})
+    assert errors == [
+        "node c · from 'b' is disabled and has no saved output; "
+        "enable it or point this step at another source"
+    ]
+    # No state at all is the same as no saved output.
+    assert wg.validate(_disabled_middle()) == errors
+
+
+def test_from_a_disabled_node_with_a_saved_output_is_fine() -> None:
+    saved = {"b": {"status": "done", "output": {"path": "D:/datasets/aoi"}}}
+    assert wg.validate(_disabled_middle(), saved) == []
+
+
+def test_a_disabled_reader_of_a_disabled_node_is_not_an_error() -> None:
+    """Nothing reads anything: a disabled node never runs."""
+    graph = _disabled_middle()
+    graph.nodes[2] = _node("c", "prep.quality", source="b", enabled=False)
+    assert wg.validate(graph, {}) == []
+
+
 def test_unknown_node_type_is_an_error_at_validation() -> None:
     graph = wg.WorkflowGraph(nodes=[_node("n1", "prep.frobnicate")])
     assert wg.validate(graph) == ["node n1 · unknown node type 'prep.frobnicate'"]
@@ -254,6 +289,28 @@ def test_a_prep_stage_is_judged_on_the_resolved_config_not_the_written_one() -> 
     assert len(errors) == 1
     assert errors[0].startswith("node n2 · ")
     assert "[index].models" in errors[0]
+
+
+def test_a_caption_stage_rule_raised_by_the_engine_reaches_preflight(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Whatever ``validate_for_stage`` refuses, pre-flight reports — including the caption-model
+    rule the prep engine is gaining. Stubbed here so this pins *propagation*, not the rule itself
+    (which lives, and is tested, in ``rengu_flow/prep/config.py``)."""
+    from rengu_flow.prep import config as prep_config
+
+    real = prep_config.PrepConfig.validate_for_stage
+
+    def _with_caption_rule(self, stage: str) -> None:
+        real(self, stage)
+        if stage == "caption" and not self.caption.model:
+            raise ValueError("caption stage needs a model in [caption].model")
+
+    monkeypatch.setattr(prep_config.PrepConfig, "validate_for_stage", _with_caption_rule)
+    graph = wg.WorkflowGraph(
+        nodes=[*_indexable(), _node("n2", "prep.caption", source="n1", config={"model": ""})]
+    )
+    assert wg.validate(graph) == ["node n2 · caption stage needs a model in [caption].model"]
 
 
 def test_a_disabled_prep_stage_is_not_judged() -> None:

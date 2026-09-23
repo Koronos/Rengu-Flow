@@ -1,4 +1,4 @@
-"""``rengu prep`` — dataset preparation stages (tag | caption | clean | quality | models).
+"""``rengu prep`` — dataset preparation stages (tag | caption | edit_caption | clean | quality | models).
 
 Each stage runs in this process (the UI launches exactly this command as a
 subprocess). Heavy inference deps live in the ``prep`` extra and are installed
@@ -35,10 +35,13 @@ def add_parser(sub: argparse._SubParsersAction) -> None:
 
     t = stage_sub.add_parser("tag", help="Danbooru-style tagging (ONNX ensemble)")
     c = stage_sub.add_parser("caption", help="Natural-language captioning (VLM)")
+    ec = stage_sub.add_parser(
+        "edit_caption", help="Edit instructions for (controls, target) pairs (VLM, llama.cpp)"
+    )
     cl = stage_sub.add_parser("clean", help="Watermark detection + inpainting")
     q = stage_sub.add_parser("quality", help="Flag/move low-quality images (blur + resolution)")
     ix = stage_sub.add_parser("index", help="Persistent quality index (incremental, multi-model)")
-    for stage_parser in (t, c, cl, q, ix):
+    for stage_parser in (t, c, ec, cl, q, ix):
         for args_, kwargs in common:
             stage_parser.add_argument(*args_, **kwargs)
 
@@ -65,6 +68,19 @@ def add_parser(sub: argparse._SubParsersAction) -> None:
                    help="vLLM checkpoint repo override (default resolves from --vllm-quant)")
     c.add_argument("--gguf-quant", default=None, choices=("Q8_0", "Q6_K", "Q5_K_M", "Q4_K_M"),
                    help="GGUF (ToriiGate) weight quant: Q8_0 ~lossless .. Q4_K_M smallest/fastest")
+    ec.add_argument("--control-path", default=None,
+                    help="Folder of control images, paired as stem.<ext> or stem_0..N.<ext>")
+    ec.add_argument("--model", default=None,
+                    help="GGUF VLM id (qwen3-vl-4b-instruct default, qwen3-vl-8b-instruct)")
+    ec.add_argument("--gguf-quant", default=None, choices=("Q8_0", "Q6_K", "Q5_K_M", "Q4_K_M"),
+                    help="Weight quant (default: the model's own default)")
+    ec.add_argument("--prompt", default=None, help="Custom instruction prompt (overrides the default)")
+    ec.add_argument("--max-pixels", type=int, default=None,
+                    help="Pixel cap per image sent to the VLM (default 524288); sets the server context")
+    ec.add_argument("--parallel", type=int, default=None,
+                    help="llama-server slots (default: the model's own default)")
+    ec.add_argument("--overwrite", action="store_true", default=None,
+                    help="Rewrite targets whose line 1 already has an instruction")
     cl.add_argument("--in-place", action="store_true", default=None,
                     help="Rewrite sources (originals backed up under the app data dir)")
     cl.add_argument("--output-dir", default=None,
@@ -144,6 +160,22 @@ def _build_config(args: argparse.Namespace) -> PrepConfig:
             config.caption.vllm_model = args.vllm_model
         if args.gguf_quant:
             config.caption.gguf_quantization = args.gguf_quant
+    elif stage == "edit_caption":
+        ed = config.edit_caption
+        if args.control_path:
+            ed.control_path = args.control_path
+        if args.model:
+            ed.model = args.model
+        if args.gguf_quant:
+            ed.gguf_quantization = args.gguf_quant
+        if args.prompt is not None:
+            ed.prompt = args.prompt
+        if args.max_pixels is not None:
+            ed.max_pixels = args.max_pixels
+        if args.parallel is not None:
+            ed.n_parallel = args.parallel
+        if args.overwrite is not None:
+            ed.overwrite = args.overwrite
     elif stage == "clean":
         if args.in_place is not None:
             config.clean.in_place = args.in_place

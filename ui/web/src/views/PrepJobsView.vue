@@ -17,8 +17,10 @@
         >Start queue ({{ pendingJobs.length }})</el-button>
         <el-button type="primary" :icon="MagicStick" @click="goNewJob('tag')">New tag job</el-button>
         <el-button :icon="ChatLineRound" @click="goNewJob('caption')">New caption job</el-button>
+        <el-button :icon="EditPen" @click="goNewJob('edit_caption')">New edit-instruction job</el-button>
         <el-button :icon="Delete" @click="goNewJob('clean')">New clean job</el-button>
         <el-button :icon="Filter" @click="goNewJob('quality')">New quality job</el-button>
+        <el-button :icon="Files" @click="goNewJob('index')">New index job</el-button>
         <el-button :icon="Edit" @click="$router.push('/prep/tags')">Tag editor</el-button>
         <el-button @click="$router.push('/prep/quality')">Quality index</el-button>
       </el-space>
@@ -147,6 +149,18 @@
                   <li v-for="f in reportFailed(job.id)" :key="f">{{ f }}</li>
                 </ul>
               </el-alert>
+              <el-alert
+                v-if="reportUnpaired(job.id).length"
+                type="warning"
+                show-icon
+                :closable="false"
+                class="mt-8"
+                title="Unpaired targets (no valid control images — left untouched)"
+              >
+                <ul class="report-failed-list">
+                  <li v-for="u in reportUnpaired(job.id)" :key="u">{{ u }}</li>
+                </ul>
+              </el-alert>
             </div>
             <el-text v-else-if="!isActive(job)" size="small" type="info" class="mt-8">
               No report available.
@@ -181,6 +195,7 @@ import { useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import {
   ChatLineRound,
+  EditPen,
   CopyDocument,
   Delete,
   Edit,
@@ -321,7 +336,7 @@ function reportData(id: string): Record<string, unknown> | null {
 function reportCountFields(id: string): Record<string, unknown> {
   const r = reportData(id);
   if (!r) return {};
-  const excluded = new Set(["failed", "errors"]);
+  const excluded = new Set(["failed", "errors", "unpaired"]);
   return Object.fromEntries(
     Object.entries(r).filter(([k]) => !excluded.has(k))
   );
@@ -333,6 +348,12 @@ function reportFailed(id: string): string[] {
   const f = r.failed;
   if (Array.isArray(f)) return f.map(String);
   return [];
+}
+
+/** edit_caption: targets without a valid control set (`"<image>: <reason>"`). */
+function reportUnpaired(id: string): string[] {
+  const u = reportData(id)?.unpaired;
+  return Array.isArray(u) ? u.map(String) : [];
 }
 
 async function fetchReport(job: JobRecord): Promise<void> {
