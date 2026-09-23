@@ -50,6 +50,7 @@ from rengu_flow_ui.workflow_graph import (
     DatasetHandle,
     NodeOutputError,
     WorkflowNode,
+    edit_control_path,
     effective_output,
 )
 
@@ -132,9 +133,17 @@ def _prep_payload(node: WorkflowNode, inputs: DatasetHandle | None) -> tuple[str
     through untouched — so the next node would read the format this one stopped writing. A copy of
     any of the three left in ``node.config`` is therefore dropped, not honoured; the spec already
     excludes them from the stage section.
+
+    The handle's fourth field, ``control_path``, is not a top-level prep key: it belongs to the
+    ``[edit_caption]`` section (``EditCaptionStageConfig.control_path``), and only that stage reads
+    it. There the handle's value **wins** over the node's own field, which is the fallback for a
+    source that names no control folder (``workflow_graph.edit_control_path``, the rule pre-flight
+    applies too). Every other stage ignores it — they touch only the targets.
     """
     stage = node.type.split(".", 1)[1]
     data = {key: value for key, value in node.config.items() if key not in _HANDLE_KEYS}
+    if stage == "edit_caption":
+        data["control_path"] = edit_control_path(node.config, inputs)
     top: dict[str, Any] = {}
     if inputs is not None:
         top = {
@@ -264,6 +273,10 @@ def _run_folder(node: WorkflowNode) -> dict[str, Any]:
         raise ValueError("A folder node needs a 'path'")
     if not Path(handle.path).is_dir():
         raise FileNotFoundError(f"Dataset folder not found: {handle.path}")
+    # Optional; checked here for the same reason as the path: the source runs first, so a typo
+    # fails step 1 instead of the edit-instruction step after everything before it ran.
+    if handle.control_path and not Path(handle.control_path).is_dir():
+        raise FileNotFoundError(f"Control images folder not found: {handle.control_path}")
     return handle.to_dict()
 
 

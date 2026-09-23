@@ -293,6 +293,11 @@ def run_stage(config: PrepConfig, stage: str, job_dir: Path) -> int:
     emitter = ProgressEmitter()
     on_progress = _progress_callback(emitter, stage)
     should_stop = _make_should_stop(job_dir)
+    # llama-server (GGUF caption / edit_caption) logs next to report.json, so a failed start is
+    # readable instead of a bare "exited early". Cheap: gguf_captioner imports only the stdlib.
+    from rengu_flow.prep import gguf_captioner
+
+    gguf_captioner.set_server_log_dir(job_dir)
 
     logger.info("prep %s: %s (%s%s)", stage, config.path, config.caption_format,
                 config.caption_ext if config.caption_format == "sidecar" else "")

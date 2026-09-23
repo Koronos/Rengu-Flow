@@ -184,7 +184,9 @@ def test_toriigate_caption_path_starts_server_with_fixed_tuning(tmp_path, monkey
 
     report = caption_folder(d, CaptionerConfig(model="toriigate-0.5", engine="gguf"))
     assert report["captioned"] == 1
-    assert started == [{"ctx_size": 32768, "n_parallel": 16}]
+    assert [{k: kw[k] for k in ("ctx_size", "n_parallel")} for kw in started] == [
+        {"ctx_size": 32768, "n_parallel": 16}
+    ]
 
 
 def test_request_caption_body_is_single_image(monkeypatch):
@@ -573,3 +575,67 @@ def test_ensure_model_edit_caption(monkeypatch, tmp_path):
     assert seen == [("Q4_K_M", "qwen3-vl-8b-instruct")]
     with pytest.raises(ValueError, match="Unknown edit_caption model"):
         models.ensure_model("toriigate-0.5", "edit_caption")
+
+
+# ------------------------------------------------------------------ llama-server log
+
+
+class _ExitedProc:
+    returncode = 1
+
+    def poll(self):
+        return 1
+
+
+def test_a_server_that_dies_on_start_says_why(tmp_path):
+    """stderr used to go to DEVNULL, so a failed start read only "exited early (code 1)"."""
+    log = tmp_path / gg.SERVER_LOG_NAME
+    log.write_text(
+        "".join(f"line {i}\n" for i in range(50))
+        + "ggml_vulkan: Device memory allocation of size 123 failed.\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(RuntimeError) as excinfo:
+        gg._wait_health(1, _ExitedProc(), timeout=5, log_path=log)
+    message = str(excinfo.value)
+    assert "exited early (code 1)" in message
+    assert "Device memory allocation of size 123 failed." in message
+    assert str(log) in message
+    assert "line 49" in message and "line 0\n" not in message  # the tail, not the whole log
+
+
+def test_the_server_log_goes_to_the_job_dir(monkeypatch, tmp_path):
+    seen = {}
+
+    def fake_popen(cmd, **kw):
+        seen.update(kw)
+        return object()
+
+    monkeypatch.setattr(gg.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(gg, "_server_log_dir", None)
+    gg.set_server_log_dir(tmp_path)
+    try:
+        gg._start_server(tmp_path, tmp_path / "m.gguf", tmp_path / "mm.gguf", 1234)
+    finally:
+        gg.set_server_log_dir(None)
+    assert seen["stderr"] is gg.subprocess.STDOUT
+    assert seen["stdout"] is not gg.subprocess.DEVNULL
+    assert Path(seen["stdout"].name) == tmp_path / gg.SERVER_LOG_NAME
+    assert seen["stdout"].closed  # the parent's copy; the child holds its own
+
+
+def test_run_stage_points_the_server_log_at_its_job_dir(monkeypatch, tmp_path):
+    from rengu_flow.prep import runner
+    from rengu_flow.prep.config import PrepConfig
+
+    seen = {}
+
+    def fake_tag(*_args):
+        seen["dir"] = gg._server_log_dir
+        return {}
+
+    monkeypatch.setitem(runner._STAGE_RUNNERS, "tag", fake_tag)
+    monkeypatch.setattr(PrepConfig, "validate_for_stage", lambda self, stage: None)
+    monkeypatch.setattr(gg, "_server_log_dir", None)
+    runner.run_stage(PrepConfig(path=str(tmp_path)), "tag", tmp_path / "job")
+    assert seen["dir"] == tmp_path / "job"

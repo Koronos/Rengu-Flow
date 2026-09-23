@@ -182,6 +182,21 @@
               :seed="seedSection as PrepCaptionConfig | null"
               :disabled="readOnly"
             />
+            <!--
+              The control folder is the dataset's, not the step's: while the edge carries one the
+              form shows it locked and names the step that sets it (the executor uses it over the
+              step's own field, `workflow_graph.edit_control_path`).
+            -->
+            <EditCaptionStageForm
+              v-else-if="prepStage === 'edit_caption'"
+              :key="`edit_caption-${node.id}`"
+              v-model="editCaptionForm"
+              v-model:preview-text="previewText"
+              :seed="seedSection as PrepEditCaptionConfig | null"
+              :locked-control-path="inputHandle?.control_path ?? ''"
+              :control-path-source="controlPathSource"
+              :disabled="readOnly"
+            />
             <CleanStageForm
               v-else-if="prepStage === 'clean'"
               :key="`clean-${node.id}`"
@@ -259,6 +274,13 @@
                 <div class="node-drawer__fact">
                   <dt>Captions</dt>
                   <dd>{{ captionLayoutLabel }}</dd>
+                </div>
+                <div v-if="inputHandle?.control_path" class="node-drawer__fact">
+                  <dt>Controls</dt>
+                  <dd>
+                    <code class="node-drawer__path">{{ inputHandle.control_path }}</code>
+                    <el-text size="small" type="info" class="ml-8">from {{ controlPathSource }}</el-text>
+                  </dd>
                 </div>
               </dl>
 
@@ -339,6 +361,7 @@
               :tag-form="tagForm"
               :tag-thresholds="tagThresholds"
               :caption-form="captionForm"
+              :edit-caption-form="summaryEditCaptionForm"
               :clean-form="cleanForm"
               :quality-form="qualityForm"
               :prompt-options="promptOptions"
@@ -417,6 +440,7 @@ import TrainNodeForm from "./nodeforms/TrainNodeForm.vue";
 import PrepCommonFields from "../prep/PrepCommonFields.vue";
 import TagStageForm from "../prep/TagStageForm.vue";
 import CaptionStageForm from "../prep/CaptionStageForm.vue";
+import EditCaptionStageForm from "../prep/EditCaptionStageForm.vue";
 import CleanStageForm from "../prep/CleanStageForm.vue";
 import QualityStageForm from "../prep/QualityStageForm.vue";
 import IndexStageForm from "../prep/IndexStageForm.vue";
@@ -439,6 +463,7 @@ import {
   defaultCaptionForm,
   defaultCleanForm,
   defaultCommonForm,
+  defaultEditCaptionForm,
   defaultIndexForm,
   defaultQualityForm,
   defaultTagForm,
@@ -449,6 +474,7 @@ import { useDatasetFolderStats } from "../../composables/useDatasetFolderStats";
 import type {
   PrepCaptionConfig,
   PrepCleanConfig,
+  PrepEditCaptionConfig,
   PrepIndexConfig,
   PrepModelInfo,
   PrepPromptOptions,
@@ -552,6 +578,8 @@ function inherit(
       overrides.caption_format ?? input?.caption_format ?? DEFAULT_HANDLE.caption_format,
     ),
     caption_ext: String(overrides.caption_ext ?? input?.caption_ext ?? DEFAULT_HANDLE.caption_ext),
+    // An edit dataset's controls travel with the targets (`workflow_graph._inherit`).
+    control_path: String(overrides.control_path ?? input?.control_path ?? "").trim(),
   };
 }
 
@@ -569,7 +597,7 @@ function predictOutput(node: WorkflowNode, input: DatasetHandle | null): Dataset
 
   switch (node.type) {
     case "folder":
-      return inherit(resolve(config.path), null, config);
+      return inherit(resolve(config.path), null, { ...config, control_path: resolve(config.control_path) });
     case "prep.clean": {
       if (config.in_place) return input;
       const explicit = resolve(config.output_dir).trim();
@@ -579,6 +607,7 @@ function predictOutput(node: WorkflowNode, input: DatasetHandle | null): Dataset
     }
     case "prep.tag":
     case "prep.caption":
+    case "prep.edit_caption":
     case "prep.quality":
     case "prep.index":
       // `prep.quality`'s output_dir is the QUARANTINE folder, not the result: the surviving
@@ -655,6 +684,28 @@ const driftedInput = computed(() => {
   return saved.path === inputHandle.value.path ? "" : saved.path;
 });
 
+/**
+ * The step that sets the incoming control folder: the nearest ancestor whose own input does not
+ * already carry it (a source folder, or a tool that returned one). "① Source folder".
+ */
+const controlPathSource = computed(() => {
+  const control = inputHandle.value?.control_path;
+  if (!control) return "";
+  const byId = new Map(props.graph.nodes.map((n) => [n.id, n]));
+  let origin = sourceNode.value;
+  while (origin?.from && handles.value[origin.from]?.handle?.control_path === control) {
+    origin = byId.get(origin.from);
+  }
+  if (!origin) return "";
+  return `${ordinalGlyph(ordinals(props.graph)[origin.id] ?? 0)} ${origin.title}`;
+});
+
+/** The summary panel shows the folder the step will actually use: the edge's, when it has one. */
+const summaryEditCaptionForm = computed(() => ({
+  ...editCaptionForm.value,
+  control_path: inputHandle.value?.control_path || editCaptionForm.value.control_path,
+}));
+
 const queuedJobId = computed(() => {
   const result = nodeState.value?.result;
   if (!result || typeof result !== "object") return null;
@@ -701,6 +752,7 @@ const mediaSummary = computed(() => {
 const PREP_STAGES: Record<string, PrepStage> = {
   "prep.tag": "tag",
   "prep.caption": "caption",
+  "prep.edit_caption": "edit_caption",
   "prep.clean": "clean",
   "prep.quality": "quality",
   "prep.index": "index",
@@ -779,6 +831,7 @@ const tagForm = ref(defaultTagForm());
 const tagThresholds = ref<Record<string, ModelThresholds>>({});
 const tagModels = ref<PrepModelInfo[]>([]);
 const captionForm = ref(defaultCaptionForm());
+const editCaptionForm = ref(defaultEditCaptionForm());
 const cleanForm = ref(defaultCleanForm());
 const qualityForm = ref(defaultQualityForm());
 const indexForm = ref(defaultIndexForm());
@@ -805,6 +858,7 @@ watch(
     Object.assign(tagForm.value, defaultTagForm());
     tagThresholds.value = {};
     Object.assign(captionForm.value, defaultCaptionForm());
+    Object.assign(editCaptionForm.value, defaultEditCaptionForm());
     Object.assign(cleanForm.value, defaultCleanForm());
     Object.assign(qualityForm.value, defaultQualityForm());
     Object.assign(indexForm.value, defaultIndexForm());
@@ -852,6 +906,7 @@ const builtConfig = computed<Record<string, unknown> | null>(() => {
     tagThresholds: tagThresholds.value,
     tagModels: tagModels.value,
     captionForm: captionForm.value,
+    editCaptionForm: editCaptionForm.value,
     cleanForm: cleanForm.value,
     qualityForm: qualityForm.value,
     indexForm: indexForm.value,

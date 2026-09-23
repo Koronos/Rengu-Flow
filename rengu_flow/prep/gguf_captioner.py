@@ -261,30 +261,78 @@ def _server_env(bin_dir: Path) -> dict:
     return env
 
 
+#: The server's own stdout+stderr, in the job dir (``set_server_log_dir``). Truncated per start.
+SERVER_LOG_NAME = "llama-server.log"
+#: How much of that log a start failure quotes.
+SERVER_LOG_TAIL_LINES = 15
+
+# Set by ``prep.runner.run_stage`` to the job dir; ``None`` falls back to the temp dir.
+_server_log_dir: Path | None = None
+
+
+def set_server_log_dir(path: str | Path | None) -> None:
+    """Where :func:`llama_server` writes :data:`SERVER_LOG_NAME` (``None`` = the temp dir)."""
+    global _server_log_dir
+    _server_log_dir = Path(path) if path is not None else None
+
+
+def _server_log_path() -> Path:
+    if _server_log_dir is not None:
+        return _server_log_dir / SERVER_LOG_NAME
+    import tempfile
+
+    return Path(tempfile.gettempdir()) / f"rengu-llama-server-{os.getpid()}.log"
+
+
+def _log_tail(log_path: Path | None, lines: int = SERVER_LOG_TAIL_LINES) -> str:
+    """The last non-empty lines of the server log, or ``""`` when there is none to read."""
+    if log_path is None:
+        return ""
+    try:
+        text = Path(log_path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+    return "\n".join([line for line in text.splitlines() if line.strip()][-lines:])
+
+
+def _start_failure(message: str, log_path: Path | None) -> str:
+    tail = _log_tail(log_path)
+    if not tail:
+        return message
+    return f"{message}. Last lines of {log_path}:\n{tail}"
+
+
 def _start_server(
     bin_dir: Path, gguf: Path, mmproj: Path, port: int,
-    *, ctx_size: int = CTX_SIZE, n_parallel: int = N_PARALLEL,
+    *, ctx_size: int = CTX_SIZE, n_parallel: int = N_PARALLEL, log_path: Path | None = None,
 ):
+    """Spawn ``llama-server``. Its output goes to *log_path* (default :func:`_server_log_path`),
+    so a start that fails — out of VRAM, a bad GGUF, a missing Vulkan driver — can say why."""
     exe = bin_dir / ("llama-server.exe" if os.name == "nt" else "llama-server")
     cmd = [
         str(exe), "-m", str(gguf), "--mmproj", str(mmproj),
         "-ngl", "99", "-c", str(ctx_size), "--parallel", str(n_parallel),
         "--host", "127.0.0.1", "--port", str(port),
     ]
-    logger.info("Starting llama-server: %s", " ".join(cmd))
-    proc = subprocess.Popen(
-        cmd, env=_server_env(bin_dir),
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-    )
+    log_path = Path(log_path) if log_path is not None else _server_log_path()
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    logger.info("Starting llama-server (log: %s): %s", log_path, " ".join(cmd))
+    with open(log_path, "wb") as log:  # the child inherits its own handle; ours closes here
+        proc = subprocess.Popen(
+            cmd, env=_server_env(bin_dir),
+            stdout=log, stderr=subprocess.STDOUT,
+        )
     return proc
 
 
-def _wait_health(port: int, proc, timeout: float = 180.0) -> None:
+def _wait_health(port: int, proc, timeout: float = 180.0, log_path: Path | None = None) -> None:
     url = f"http://127.0.0.1:{port}/health"
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if proc.poll() is not None:
-            raise RuntimeError(f"llama-server exited early (code {proc.returncode})")
+            raise RuntimeError(
+                _start_failure(f"llama-server exited early (code {proc.returncode})", log_path)
+            )
         try:
             with urllib.request.urlopen(url, timeout=2) as r:
                 if r.status == 200:
@@ -292,7 +340,7 @@ def _wait_health(port: int, proc, timeout: float = 180.0) -> None:
         except Exception:
             pass
         time.sleep(1.0)
-    raise TimeoutError("llama-server did not become healthy in time")
+    raise TimeoutError(_start_failure("llama-server did not become healthy in time", log_path))
 
 
 def _free_port() -> int:
@@ -322,11 +370,15 @@ def llama_server(
     binds), retries on a fresh one — no hard-coded port a dev server might already hold.
     """
     proc = port = None
+    log_path = _server_log_path()
     for attempt in range(3):
         port = _free_port()
-        proc = _start_server(bin_dir, gguf, mmproj, port, ctx_size=ctx_size, n_parallel=n_parallel)
+        proc = _start_server(
+            bin_dir, gguf, mmproj, port,
+            ctx_size=ctx_size, n_parallel=n_parallel, log_path=log_path,
+        )
         try:
-            _wait_health(port, proc, timeout=180.0 if attempt == 0 else 30.0)
+            _wait_health(port, proc, timeout=180.0 if attempt == 0 else 30.0, log_path=log_path)
             break
         except Exception as exc:  # noqa: BLE001
             _stop(proc)

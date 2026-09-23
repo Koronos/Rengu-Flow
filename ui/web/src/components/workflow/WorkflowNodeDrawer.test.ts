@@ -34,6 +34,11 @@ vi.mock("../../api", () => ({
     prepModels: vi.fn(async () => ({ models: [] })),
     prepCaptionPrompts: vi.fn(async () => promptCatalogue()),
     prepCaptionPromptPreview: vi.fn(async () => ({ prompt: "", native_format: false })),
+    prepEditCaptionPrompts: vi.fn(async () => ({
+      default_prompt: "Write the editing instruction.",
+      layout_single: "<image>",
+      layout_multi: "<image><image>",
+    })),
     fsStat: vi.fn(async () => ({ exists: true, is_dir: true, is_file: false })),
     cancelWorkflow: vi.fn(async () => ({})),
   },
@@ -361,6 +366,68 @@ describe("WorkflowNodeDrawer read-only", () => {
     // `from`, the GPU switches, `enabled` and every tagging field, in one sweep.
     expect(liveInputs().map((input) => input.outerHTML)).toEqual([]);
     expect(runButton()?.disabled).toBe(true);
+
+    app.unmount();
+  });
+});
+
+// ------------------------------------------------------------------------------ edit datasets
+
+/** folder (targets + controls) → edit instructions: the control folder travels on the edge. */
+function editGraph(controlPath: string | null, edit: Record<string, unknown> = {}): WorkflowGraph {
+  const base = graphOf();
+  const folderConfig: Record<string, unknown> = { ...base.nodes[0].config };
+  if (controlPath !== null) folderConfig.control_path = controlPath;
+  return {
+    ...base,
+    nodes: [
+      { ...base.nodes[0], config: folderConfig },
+      prepNode("e1", "prep.edit_caption", {
+        ...stageSectionEdit(),
+        ...edit,
+      }),
+    ],
+  };
+}
+
+function stageSectionEdit(): Record<string, unknown> {
+  const payload = buildStageConfig("edit_caption", { form: defaultCommonForm() }) as unknown as
+    Record<string, Record<string, unknown>>;
+  return { ...payload.edit_caption, model: "qwen3-vl-4b-instruct" };
+}
+
+describe("WorkflowNodeDrawer edit instructions", () => {
+  const CONFIGURE_PANE = 0;
+  const lockedInput = () =>
+    document.querySelector<HTMLInputElement>(".locked-control-path input");
+
+  it("shows the edge's control folder, locked, and names the step that sets it", async () => {
+    const { app, errors, pane, updates } = await mountDrawer("e1", {
+      graph: editGraph("D:/datasets/controls"),
+    });
+
+    expect(errors).toEqual([]);
+    expect(pane(INPUT_PANE)).toContain("D:/datasets/controls");
+    expect(pane(INPUT_PANE)).toContain("from ① Source folder");
+    expect(lockedInput()?.value).toBe("D:/datasets/controls");
+    expect(lockedInput()?.disabled).toBe(true);
+    expect(pane(CONFIGURE_PANE)).toContain("From ① Source folder");
+    expect(pane(OUTPUT_PANE)).toContain("emits the input folder unchanged");
+    // Opening a saved step is not an edit, locked field or not.
+    expect(updates).toEqual([]);
+
+    app.unmount();
+  });
+
+  it("leaves the step's own control folder editable when the edge has none", async () => {
+    const { app, errors, pane } = await mountDrawer("e1", {
+      graph: editGraph(null, { control_path: "D:/own/controls" }),
+    });
+
+    expect(errors).toEqual([]);
+    expect(lockedInput()).toBeNull();
+    expect(pane(INPUT_PANE)).not.toContain("Controls");
+    expect(pane(CONFIGURE_PANE)).not.toContain("From ①");
 
     app.unmount();
   });

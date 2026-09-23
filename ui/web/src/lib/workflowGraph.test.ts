@@ -370,6 +370,20 @@ describe("createNode with the model registry", () => {
     );
   });
 
+  it("preselects the registry's first edit-instruction model, as EditCaptionStageForm does", () => {
+    const vlms = [
+      { id: "qwen3-vl-4b-instruct", repo_id: "x", downloaded: false, available: true },
+      { id: "qwen3-vl-8b-instruct", repo_id: "y", downloaded: true, available: true },
+    ];
+    const born = createNode("prep.edit_caption", { registry: vlms });
+    expect(born.config.model).toBe("qwen3-vl-4b-instruct");
+    expect(born.config.control_path).toBe("");
+    expect(born.gpu.required).toBe(true);
+    expect(
+      createNode("prep.edit_caption", { registry: vlms, config: { model: "mine" } }).config.model
+    ).toBe("mine");
+  });
+
   it("fills a gap, never replaces a choice", () => {
     expect(
       createNode("prep.tag", { registry, config: { models: ["wd-eva02"] } }).config.models

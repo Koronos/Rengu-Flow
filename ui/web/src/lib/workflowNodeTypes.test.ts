@@ -13,18 +13,19 @@ import {
 } from "./workflowNodeTypes";
 
 describe("the catalog", () => {
-  it("carries the eight types of the spec, once each", () => {
+  it("carries the nine types of the spec, once each", () => {
     expect(NODE_TYPE_LIST.map((spec) => spec.type)).toEqual([
       "folder",
       "prep.tag",
       "prep.caption",
+      "prep.edit_caption",
       "prep.clean",
       "prep.quality",
       "prep.index",
       "tool",
       "train",
     ]);
-    expect(Object.keys(NODE_TYPES)).toHaveLength(8);
+    expect(Object.keys(NODE_TYPES)).toHaveLength(9);
   });
 
   it("keeps the handle flags in parity with workflow_graph.py::NODE_TYPES", () => {
@@ -35,6 +36,7 @@ describe("the catalog", () => {
       ["folder", false, true, true],
       ["prep.tag", true, true, false],
       ["prep.caption", true, true, false],
+      ["prep.edit_caption", true, true, false],
       ["prep.clean", true, true, false],
       ["prep.quality", true, true, false],
       ["prep.index", true, true, false],
@@ -55,6 +57,7 @@ describe("the catalog", () => {
     expect(NODE_TYPE_GROUPS[1].types.map((spec) => spec.label)).toEqual([
       "Tag",
       "Caption",
+      "Edit instructions",
       "Clean",
       "Quality filter",
       "Quality index",
@@ -95,6 +98,7 @@ describe("defaultNeedsGpu", () => {
   it("uses the catalog default for every other type", () => {
     expect(defaultNeedsGpu("prep.tag")).toBe(true);
     expect(defaultNeedsGpu("prep.caption")).toBe(true);
+    expect(defaultNeedsGpu("prep.edit_caption")).toBe(true);
     expect(defaultNeedsGpu("prep.clean")).toBe(true);
     expect(defaultNeedsGpu("prep.index")).toBe(true);
     expect(defaultNeedsGpu("folder")).toBe(false);
@@ -115,6 +119,9 @@ describe("describeOutput", () => {
     );
     expect(describeOutput({ type: "prep.caption" })).toContain("emits it unchanged");
     expect(describeOutput({ type: "prep.index" })).toContain("emits the input folder unchanged");
+    expect(describeOutput({ type: "prep.edit_caption" })).toBe(
+      "Writes edit instructions into line 1 of each target's caption and emits the input folder unchanged",
+    );
   });
 
   it("says quality emits its INPUT — its output_dir is the quarantine pile", () => {

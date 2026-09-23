@@ -42,6 +42,7 @@ TOOL_RETURN_ERROR = (
 
 _DEFAULT_CAPTION_FORMAT = "sidecar"
 _DEFAULT_CAPTION_EXT = ".txt"
+_DEFAULT_CONTROL_PATH = ""
 
 #: ``$$`` (escaped literal ``$``) or ``${name}``. One regex for substitution *and* reference
 #: collection, so both agree on what the escape hides.
@@ -58,13 +59,23 @@ class DatasetHandle:
     path: str
     caption_format: str = _DEFAULT_CAPTION_FORMAT
     caption_ext: str = _DEFAULT_CAPTION_EXT
+    #: An edit dataset's folder of control images (``""`` = not an edit dataset). A property of the
+    #: dataset like the caption layout: set on the ``folder`` node, inherited down the chain and
+    #: injected into ``prep.edit_caption``. Pairing is by stem, so the targets can move (a tool
+    #: returning a new folder) without the controls having to follow.
+    control_path: str = _DEFAULT_CONTROL_PATH
 
     def to_dict(self) -> dict[str, str]:
-        return {
+        out = {
             "path": self.path,
             "caption_format": self.caption_format,
             "caption_ext": self.caption_ext,
         }
+        # Omitted when empty: every handle saved before edit datasets existed has no such key, and
+        # a plain dataset's saved output keeps reading exactly as it always did.
+        if self.control_path:
+            out["control_path"] = self.control_path
+        return out
 
 
 @dataclass
@@ -138,6 +149,7 @@ NODE_TYPES: dict[str, NodeType] = {
         NodeType("folder", "Source folder", False, True, False, source_optional=True),
         NodeType("prep.tag", "Tag", True, True, True),
         NodeType("prep.caption", "Caption", True, True, True),
+        NodeType("prep.edit_caption", "Edit instructions", True, True, True),
         NodeType("prep.clean", "Clean", True, True, True),
         NodeType("prep.quality", "Quality filter", True, True, True),
         NodeType("prep.index", "Quality index", True, True, True),
@@ -388,13 +400,54 @@ def _preflight_path() -> str:
     return str(Path.cwd())
 
 
-def _prep_config_errors(node: WorkflowNode, graph: WorkflowGraph, where: str) -> list[str]:
+#: Pre-flight message for an edit-instruction step with no control folder from either side.
+EDIT_CAPTION_NO_CONTROLS_ERROR = (
+    "edit_caption needs a control images folder: set 'Control images folder' on the source "
+    "folder step, or 'Control folder' in this step"
+)
+
+
+def edit_control_path(config: Mapping[str, Any], handle: DatasetHandle | None) -> str:
+    """The control folder a ``prep.edit_caption`` node runs with: **the handle's, else its own**.
+
+    The handle wins because ``control_path`` is a property of the dataset, set once on the source
+    folder like the caption layout; the node's own field is the fallback for a chain whose source
+    does not name one (and the drawer locks that field while the edge supplies it). One definition,
+    read by pre-flight (:func:`validate`) and by the launch (``workflow_nodes._prep_payload``), so
+    the two can never judge different folders.
+    """
+    if handle is not None and handle.control_path:
+        return handle.control_path
+    value = config.get("control_path")
+    return str(value).strip() if isinstance(value, str) else ""
+
+
+def handle_from_dict(data: Any) -> DatasetHandle | None:
+    """A saved ``output`` / ``saved_input`` dict as a handle; ``None`` when it names no path."""
+    if not isinstance(data, Mapping) or not data.get("path"):
+        return None
+    extra = {
+        key: str(data[key])
+        for key in ("caption_format", "caption_ext", "control_path")
+        if data.get(key)
+    }
+    return DatasetHandle(path=str(data["path"]), **extra)
+
+
+def _prep_config_errors(
+    node: WorkflowNode, graph: WorkflowGraph, where: str, handle: DatasetHandle | None = None
+) -> list[str]:
     """``validate_for_stage`` for one ``prep.*`` node — the *launch* check, run at pre-flight.
 
     Structure alone does not make a graph runnable: a ``prep.index`` with an empty config is what
     "Add step" creates, and it used to pass pre-flight clean and then die inside
     ``workflow_nodes._build_prep_launch`` — mid-run, after the earlier nodes had already done their
     work. Running the identical check here is the only way the docstring above stays true.
+
+    *handle* is the node's **predicted** input (:func:`_predicted_handles`). Only its
+    ``control_path`` is used: unlike the targets' ``path``, the control folder is not produced by
+    any step — a source folder names one that exists before the run starts — so judging it here is
+    not the false positive :func:`_preflight_path` exists to avoid.
     """
     stage = node.type.split(".", 1)[1]
     # Imported lazily, like :func:`materialize_config`: routes that only read a graph must not pay
@@ -403,13 +456,87 @@ def _prep_config_errors(node: WorkflowNode, graph: WorkflowGraph, where: str) ->
 
     if stage not in prep_config.STAGES:
         return []
+    section = materialize_config(node, graph.variables)
+    if stage == "edit_caption":
+        section["control_path"] = edit_control_path(section, handle)
+        if not section["control_path"]:
+            return [f"{where} · {EDIT_CAPTION_NO_CONTROLS_ERROR}"]
     try:
-        parsed = prep_config.parse_prep_config(
-            {"path": _preflight_path(), stage: materialize_config(node, graph.variables)}
-        )
+        parsed = prep_config.parse_prep_config({"path": _preflight_path(), stage: section})
         parsed.validate_for_stage(stage)
     except (ValueError, OSError) as exc:
         return [f"{where} · {exc}"]
+    return []
+
+
+def _predicted_handles(
+    graph: WorkflowGraph, saved: Mapping[str, Any]
+) -> dict[str, DatasetHandle | None]:
+    """Node id -> the handle it will emit, as far as pre-flight can know it.
+
+    Every enabled node is predicted from its resolved config (``effective_output`` with no report),
+    which is what it *will* emit this run; a disabled node emits its saved output, which is what a
+    reader of it actually gets. A tool is predicted as a pass-through — the only outcome knowable
+    without running it.
+    """
+    out: dict[str, DatasetHandle | None] = {}
+    for node in graph.nodes:
+        upstream = out.get(node.source) if node.source else None
+        if not node.enabled:
+            info = saved.get(node.id)
+            out[node.id] = handle_from_dict(info.get("output") if isinstance(info, Mapping) else None)
+            continue
+        if node.type not in NODE_TYPES:
+            out[node.id] = upstream
+            continue
+        resolved = WorkflowNode(
+            id=node.id,
+            type=node.type,
+            source=node.source,
+            config=resolve_config(node, graph.variables),
+        )
+        try:
+            out[node.id] = effective_output(resolved, upstream)
+        except NodeOutputError:
+            out[node.id] = None
+    return out
+
+
+def _edit_dataset_errors(
+    node: WorkflowNode, graph: WorkflowGraph, where: str, handle: DatasetHandle | None
+) -> list[str]:
+    """Steps that would break an edit dataset (a handle carrying ``control_path``) — refused.
+
+    Both only ever touch the **targets**; the control folder is a separate directory no prep stage
+    but ``edit_caption`` knows about:
+
+    * ``prep.clean`` (in place or not) removes watermarks/text from the targets and not from their
+      controls, so every pair would teach that removal on top of its edit.
+    * ``prep.quality`` with ``action = "move"`` moves flagged targets into its quarantine folder
+      with ``shutil.move`` — not ``CaptionStore.quarantine``, the one path that moves a target's
+      controls with it — so their controls stay behind, orphaned, in the control folder.
+      ``action = "report"`` touches nothing and is fine.
+
+    Errors, not warnings: pre-flight has no warning channel, and the user has a clean way out
+    (report-only quality; clean targets and controls from sources without a control folder, then
+    set the control folder on the edit-instruction step).
+    """
+    if handle is None or not handle.control_path:
+        return []
+    if node.type == "prep.clean":
+        return [
+            f"{where} · Clean on an edit dataset (control folder {handle.control_path}) cleans "
+            "only the targets, never their controls, so every pair would also teach the removal; "
+            "clean both folders from sources without a control folder instead"
+        ]
+    if node.type == "prep.quality":
+        config = resolve_config(node, graph.variables)
+        if config.get("action") == "move":
+            return [
+                f"{where} · Quality filter with 'move' on an edit dataset would move flagged "
+                f"targets and leave their controls orphaned in {handle.control_path}; use action "
+                "'report' (flag only) instead"
+            ]
     return []
 
 
@@ -441,6 +568,7 @@ def validate(
     positions = {node.id: index for index, node in enumerate(graph.nodes)}
     by_id = {node.id: node for node in graph.nodes}
     saved = saved or {}
+    predicted = _predicted_handles(graph, saved)
 
     for index, node in enumerate(graph.nodes):
         where = f"node {node.id}"
@@ -490,7 +618,9 @@ def validate(
         # config still carrying a literal ``${name}`` would pile a second, derived error on top of
         # the one the user actually has to fix.
         if node.enabled and spec is not None and node.type.startswith("prep.") and not unresolved:
-            errors.extend(_prep_config_errors(node, graph, where))
+            handle = predicted.get(node.source) if node.source else None
+            errors.extend(_prep_config_errors(node, graph, where, handle))
+            errors.extend(_edit_dataset_errors(node, graph, where, handle))
     return errors
 
 
@@ -560,14 +690,20 @@ def node_config_hash(
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
-def _handle_key(data: Any) -> tuple[str, str, str] | None:
-    """A comparable form of a saved handle, so defaults never read as a change."""
+def _handle_key(data: Any) -> tuple[str, str, str, str] | None:
+    """A comparable form of a saved handle, so defaults never read as a change.
+
+    ``control_path`` defaults to ``""``: a handle saved before edit datasets existed has no such
+    key and must compare equal to the same handle emitted today, or every finished chain would turn
+    amber on upgrade.
+    """
     if not isinstance(data, Mapping) or not data:
         return None
     return (
         str(data.get("path", "")),
         str(data.get("caption_format", _DEFAULT_CAPTION_FORMAT)),
         str(data.get("caption_ext", _DEFAULT_CAPTION_EXT)),
+        str(data.get("control_path") or _DEFAULT_CONTROL_PATH),
     )
 
 
@@ -618,14 +754,17 @@ def compute_stale(
 def _inherit(
     path: str, input_handle: DatasetHandle | None, overrides: Mapping[str, Any] | None = None
 ) -> DatasetHandle:
-    """A handle at *path*, inheriting format/ext from the input unless overridden."""
+    """A handle at *path*, inheriting format/ext/control folder from the input unless overridden."""
     over = overrides or {}
     base_format = input_handle.caption_format if input_handle else _DEFAULT_CAPTION_FORMAT
     base_ext = input_handle.caption_ext if input_handle else _DEFAULT_CAPTION_EXT
+    base_control = input_handle.control_path if input_handle else _DEFAULT_CONTROL_PATH
+    control = over.get("control_path", base_control)
     return DatasetHandle(
         path=str(path),
         caption_format=str(over.get("caption_format", base_format)),
         caption_ext=str(over.get("caption_ext", base_ext)),
+        control_path=str(control).strip() if control else _DEFAULT_CONTROL_PATH,
     )
 
 
@@ -664,7 +803,10 @@ def effective_output(
             out = str(Path(input_handle.path) / "cleaned")
         return _inherit(out or "", input_handle)
 
-    if node_type in ("prep.tag", "prep.caption", "prep.quality", "prep.index"):
+    if node_type in (
+        "prep.tag", "prep.caption", "prep.edit_caption", "prep.quality", "prep.index"
+    ):
+        # ``edit_caption`` writes line 1 of each target's caption in place: same folder out.
         # ``prep.quality``'s report["output_dir"] is the QUARANTINE folder
         # (``rengu_flow/prep/quality.py:179``), not the result: the surviving dataset is still the
         # input folder. Reading it here would make ``quality -> caption`` caption the reject pile.

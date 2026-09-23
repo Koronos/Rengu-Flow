@@ -22,15 +22,17 @@ steps run the same engine with the same options.
 
 ## What travels between steps
 
-Exactly one thing: a **folder**, plus the caption layout to read and write in it.
+Exactly one thing: a **folder**, plus the caption layout to read and write in it — and, for an
+[edit dataset](#edit-datasets), where its control images are.
 
 | Field | Meaning |
 |-------|---------|
 | Folder path | The dataset directory the step works on |
 | Caption format | `sidecar` (one `.txt` per image) or `json` (one `captions.json` per folder) |
 | Caption extension | The sidecar extension, e.g. `.txt` |
+| Control images folder | Optional. Only for an edit dataset: the folder of control (source) images paired with the targets in the folder path |
 
-Those three are set **once**, on the Source folder step, and inherited down the chain. Individual
+They are set **once**, on the Source folder step, and inherited down the chain. Individual
 prep steps do not carry their own path — that is what makes "process a different folder" a
 one-field edit. See [Caption layout](dataset-prep.md#caption-layout) for what the two formats mean.
 
@@ -64,6 +66,7 @@ and hand that same folder on. Only `Clean` can produce a new folder.
 | **Source folder** | Names the dataset folder and its caption layout. No process runs; the step is done as soon as the path exists. | Its configured folder |
 | **Tag** | Writes tag sidecars **in place** | The input folder, unchanged |
 | **Caption** | Writes caption lines **in place** | The input folder, unchanged |
+| **Edit instructions** | Writes an edit instruction on line 1 of each target's caption, **in place** (see [Edit datasets](#edit-datasets)) | The input folder, unchanged |
 | **Clean** | Watermark/text removal | **In-place** on → the input folder. Off → the **Output directory** you set, or `<input>/cleaned` |
 | **Quality filter** | Scores images and flags the bad ones; when set to move them, the flagged ones go to the quarantine directory | The **input** folder — the survivors |
 | **Quality index** | Builds a SQLite score index stored outside the dataset | The input folder, unchanged |
@@ -156,7 +159,9 @@ a step with no source, a forward `from`, an undefined variable, a Tag step with 
 a Quality index step with no models. You see them all up front, not after forty minutes of tagging.
 
 Folder existence is the one thing pre-flight cannot judge, because a step's folder comes from the
-step above and may not exist yet when you press Run. It is checked at launch instead — and since
+step above and may not exist yet when you press Run. (An edit dataset's control folder is the
+exception: no step produces it, so an Edit instructions step whose control folder does not exist is
+refused up front.) It is checked at launch instead — and since
 the Source folder step runs first, a bad source path fails on step 1, before anything is written.
 
 **Stop is graceful first.** The active prep step is asked to stop between batches, so a half-done
@@ -209,6 +214,46 @@ because its *input folder* changed stays amber.
 > an in-place Clean twice re-processes already-cleaned images and writes a second "originals"
 > backup whose originals are the first pass's output.
 
+## Edit datasets
+
+An **edit dataset** is a folder of *targets* plus a folder of *control* images, paired by name
+(`stem.<ext>`, or `stem_0.<ext>, stem_1.<ext>, …` for several controls — the rule
+[edit training](training-qwen-image21.md#image-editing-edit-training) uses). Its caption is an
+instruction ("Convert the image to black and white."), which the **Edit instructions** step writes
+with a local VLM; what it does, its models and its options are in
+[Dataset Studio → Edit instructions](dataset-prep.md#edit-instructions--rengu-prep-edit_caption).
+
+Set **Control images folder** on the Source folder step. Every step below inherits it, the way
+they inherit the caption layout, and the Edit instructions step reads it from there: its own
+*Control folder* field shows the inherited folder locked, with the step that sets it (`From ①
+Source folder`). Only when the source has no control folder does the step's own field apply.
+
+A typical chain — drop the blurry targets, then write the instructions for the rest:
+
+| # | Step | Configure |
+|---|------|-----------|
+| ① | Source folder | Folder path `D:/edit/targets`, Control images folder `D:/edit/controls` |
+| ② | Quality filter | Metric `blur`, **Move flagged images off** (report only) |
+| ③ | Edit instructions | Model `qwen3-vl-4b-instruct`; everything else at its default |
+
+Press **Run**. ② scores the targets and lists the blurry ones in its report without touching
+anything; ③ writes one instruction per paired target into `D:/edit/targets/<stem>.txt`, line 1.
+Targets without a valid control set are listed as *unpaired* in ③'s report and left alone. Review
+the instructions before training (Studio → Tag editor shows each target's line 1) — the model does
+hallucinate differences. ③ needs the GPU (~7 GB with the 4B model at its defaults) and waits for
+the GPU queue like any other GPU step.
+
+**What pre-flight refuses on an edit dataset.** Two steps only ever touch the targets, and on an
+edit dataset that breaks the pairs, so a workflow that contains them refuses to start:
+
+| Step | Why it is refused | Instead |
+|------|-------------------|---------|
+| **Clean** (in place or not) | It removes watermarks/text from the targets but not from their controls, so every pair would also teach "remove the watermark" on top of its edit | Clean the targets and the controls from Source folder steps *without* a control folder, then set the control folder on the Edit instructions step |
+| **Quality filter** with *Move flagged images* on | It moves flagged targets to its quarantine folder and leaves their controls behind, orphaned, in the control folder | Leave *Move* off (report only) and remove the pairs yourself |
+
+An Edit instructions step with no control folder at all — none on the source, none in its own
+field — or with one that does not exist is refused too, before anything runs.
+
 ## GPU: needs GPU, waiting, and device
 
 Every step except Source folder carries **Needs GPU** in its drawer; the other two controls appear
@@ -216,7 +261,7 @@ only while it is on.
 
 | Control | Values | Default | Effect |
 |---------|--------|---------|--------|
-| **Needs GPU** | on / off | On for Tag, Caption, Clean, Quality index. For Quality filter it follows the metric: off for `blur`, on for `aesthetic` and `iqa`. Off for Tool and Training run | Off means the step never asks for a GPU lease, so it runs alongside a training run |
+| **Needs GPU** | on / off | On for Tag, Caption, Edit instructions, Clean, Quality index. For Quality filter it follows the metric: off for `blur`, on for `aesthetic` and `iqa`. Off for Tool and Training run | Off means the step never asks for a GPU lease, so it runs alongside a training run |
 | **Wait for the GPU queue** | on / off | on | On: the step runs only when nothing else holds the GPU. Off: it starts immediately, sharing VRAM with whatever is already running |
 | **Device** | Auto, or a listed GPU | Auto | Sets `CUDA_VISIBLE_DEVICES` for that step only |
 

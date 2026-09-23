@@ -17,6 +17,12 @@ export interface DatasetHandle {
   path: string;
   caption_format: string;
   caption_ext: string;
+  /**
+   * An edit dataset's folder of control images. Absent (or `""`) on a plain dataset — the server
+   * omits it from a handle that has none, so every handle saved before it existed reads the same.
+   * Set on the `folder` node, inherited down the chain, injected into `prep.edit_caption`.
+   */
+  control_path?: string;
 }
 
 /** Per-node GPU policy (workflow_graph.NodeGpu). `device` is a physical index; `null` is auto. */

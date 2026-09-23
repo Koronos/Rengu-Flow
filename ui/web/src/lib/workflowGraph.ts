@@ -16,6 +16,7 @@
  * Shapes mirror `rengu_flow_ui/workflow_graph.py` (whose `source` is this JSON's `from`).
  */
 
+import { preselectModel, preselectTagModels } from "./modelPreselect";
 import { buildStageConfig, defaultCommonForm } from "./prepStageConfig";
 import {
   consumesInput,
@@ -83,6 +84,7 @@ export function newNodeId(): string {
 const PREP_STAGES: Record<string, PrepStage> = {
   "prep.tag": "tag",
   "prep.caption": "caption",
+  "prep.edit_caption": "edit_caption",
   "prep.clean": "clean",
   "prep.quality": "quality",
   "prep.index": "index",
@@ -114,13 +116,14 @@ export function defaultNodeConfig(type: string): Record<string, unknown> {
 }
 
 /**
- * Fill an empty model picker from the registry, by the same rules as the stage forms' preselect:
- * `TagStageForm` takes the downloaded taggers, else the registry's first two; `CaptionStageForm`
- * takes the registry's first model. A choice already made is never replaced.
+ * Fill an empty model picker from the registry, by the stage forms' own preselect rules
+ * (`modelPreselect.ts`, which the forms read too): tag takes the downloaded taggers, else the
+ * registry's first two; caption and edit_caption take the registry's first model. A choice
+ * already made is never replaced.
  *
  * Without this a step added and run without opening its drawer carried `models: []` /
  * `model: ""` — the preselect lived only in the form's mount — and the server refused it (tag) or
- * ran it with no model (caption). Kept in step with the two forms by hand: they are the source.
+ * ran it with no model (caption).
  */
 export function seedModelDefaults(
   type: string,
@@ -131,13 +134,11 @@ export function seedModelDefaults(
   if (type === "prep.tag") {
     const current = config.models;
     if (Array.isArray(current) && current.length) return config;
-    const downloaded = registry.filter((model) => model.downloaded).map((model) => model.id);
-    const models = downloaded.length ? downloaded : registry.slice(0, 2).map((model) => model.id);
-    return { ...config, models };
+    return { ...config, models: preselectTagModels(registry) };
   }
-  if (type === "prep.caption") {
+  if (type === "prep.caption" || type === "prep.edit_caption") {
     if (typeof config.model === "string" && config.model) return config;
-    return { ...config, model: registry[0].id };
+    return { ...config, model: preselectModel(registry) };
   }
   return config;
 }

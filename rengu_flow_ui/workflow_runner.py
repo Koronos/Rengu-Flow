@@ -82,6 +82,7 @@ from rengu_flow_ui.workflow_graph import (
     WorkflowNode,
     compute_stale,
     execution_order,
+    handle_from_dict,
     node_config_hash,
     parse_graph,
     resolve_config,
@@ -222,15 +223,7 @@ def _input_handle(state: Mapping[str, Any], source_id: str | None) -> DatasetHan
     """
     if not source_id:
         return None
-    output = _node_state(state, source_id).get("output")
-    if not isinstance(output, Mapping) or not output.get("path"):
-        return None
-    extra = {
-        key: str(output[key])
-        for key in ("caption_format", "caption_ext")
-        if output.get(key)
-    }
-    return DatasetHandle(path=str(output["path"]), **extra)
+    return handle_from_dict(_node_state(state, source_id).get("output"))
 
 
 # ------------------------------------------------------------------------------ state writes

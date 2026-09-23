@@ -66,10 +66,17 @@ Three concrete outcomes:
 **`DatasetHandle`** — the only value that travels between nodes:
 
 ```ts
-{ path: string, caption_format: "sidecar" | "json", caption_ext: string }
+{ path: string, caption_format: "sidecar" | "json", caption_ext: string, control_path?: string }
 ```
 
 Every node consumes a handle and emits a handle. Connecting is always valid.
+
+`control_path` (added with `prep.edit_caption`) makes the handle an **edit dataset**: `path` holds
+the targets, `control_path` the control images, paired by stem (`rengu_flow/data/control.py`). It
+is a property of the dataset like the caption layout: set on the `folder` node, inherited through
+every step (`_inherit`), overridable by a tool that returns it, and read by `prep.edit_caption`
+only. Absent means `""` (a plain dataset); the server omits it from a handle that has none, so every
+handle saved before it existed compares equal to today's and nothing turns stale on upgrade.
 
 **Node** — one executable step. Declares `from` (which node's handle it reads), its own config,
 and its GPU policy.
@@ -90,7 +97,7 @@ timestamps, and the config hash that was in effect when the output was produced.
 
 ## Node catalog
 
-Eight types. The output rule per type is the part most likely to be got wrong, so it is normative
+Nine types. The output rule per type is the part most likely to be got wrong, so it is normative
 here.
 
 | Type | Consumes | Emits | GPU by default |
@@ -98,6 +105,7 @@ here.
 | `folder` | — | its literal config as a handle | no |
 | `prep.tag` | handle | **the same handle** — writes tag sidecars in place | yes |
 | `prep.caption` | handle | **the same handle** — writes caption lines in place | yes |
+| `prep.edit_caption` | handle (edit dataset) | **the same handle** — writes the edit instruction on line 1 of each target's caption, in place | yes |
 | `prep.clean` | handle | `in_place ? input : (output_dir or <input>/cleaned)` | yes |
 | `prep.quality` | handle | **the same handle** — the survivors | `metric != "blur"` |
 | `prep.index` | handle | **the same handle** — the SQLite index lives outside the dataset | yes |
@@ -175,7 +183,9 @@ library it never feeds the trainer.
 - **`config`** holds exactly the stage section (`TagStageConfig`, `CaptionStageConfig`, …) from
   `rengu_flow/prep/config.py` **minus `path` / `caption_format` / `caption_ext`**. Those three are
   injected by the executor from the incoming handle. That omission is what makes "change the input
-  folder" a single edit in a single node.
+  folder" a single edit in a single node. `prep.edit_caption` keeps its own `control_path` field as
+  a **fallback**: the executor writes the handle's `control_path` into `[edit_caption]` when the
+  handle carries one, and the node's only when it does not (`workflow_graph.edit_control_path`).
 - **Parsing is tolerant**, mirroring `parse_prep_config`'s `_fill_dataclass`: unknown keys are
   logged and ignored, never fatal. An unknown *node type* is fatal at execution but **preserved on
   save**, so downgrading the app never destroys the user's graph.
@@ -187,6 +197,16 @@ library it never feeds the trainer.
   ran, in direct contradiction of the promise that pre-flight reports every error up front.
   Deleting a `folder` with children is a distinct prompt: *"③ has no source. Pick a new source
   folder first."*
+- **Edit datasets are judged at pre-flight** on the handle each node is *predicted* to receive
+  (`workflow_graph._predicted_handles`: `effective_output` with no report for enabled nodes, the
+  saved output for disabled ones). A `prep.edit_caption` with no `control_path` from the handle or
+  its own field is refused, and so is one whose control folder does not exist — unlike the targets'
+  `path`, no step produces it, so checking it up front is not a false positive. Two steps that would
+  break a pair are refused on a handle that carries `control_path`: `prep.clean` (either mode — it
+  cleans the targets and never their controls, so every pair would also teach the removal) and
+  `prep.quality` with `action = "move"` (`filter_folder` moves flagged targets with `shutil.move`,
+  not `CaptionStore.quarantine`, so their controls stay behind, orphaned). `action = "report"` is
+  fine. These are errors, not warnings: pre-flight has no warning channel.
 - **`id` is minted with `crypto.randomUUID()`** (or an 8-char random suffix), never `n<max+1>`.
   With two tabs open, sequential minting hands the same `n5` to two different node types; the
   second save wins and inherits a `state_json["n5"]` written by a node of another stage, so

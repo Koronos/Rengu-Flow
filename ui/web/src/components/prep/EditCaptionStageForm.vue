@@ -6,6 +6,11 @@
 
   `previewText` is surfaced as an extra v-model: the summary panel renders the
   full request layout (image slots + prompt) outside this component.
+
+  In a workflow the control folder usually comes from the incoming edge (the
+  source folder's "Control images folder"): `locked-control-path` then shows
+  that folder read-only, with `control-path-source` saying where it is set, and
+  the node's own field is ignored by the executor — the handle wins.
 -->
 <template>
   <h3 class="section-title">Edit instruction options</h3>
@@ -17,12 +22,19 @@
     title="VLMs hallucinate differences between two images (EditCaption, arXiv 2604.08213): some instructions will name changes that are not there or miss the real one. Review them before training: Studio → Tag editor shows each target's line 1; fix wrong ones in its caption file."
   />
   <el-form label-position="top" :disabled="disabled">
-    <el-form-item required>
+    <el-form-item :required="!lockedControlPath">
       <template #label>
         Control folder <FieldHelpIcon :field="help('Folder with the control (source) images. Each target in the dataset folder pairs with stem.<ext> (one control) or stem_0.<ext>, stem_1.<ext>, … (several, in order) — the same rule the trainer uses for control_path. Targets without a valid set are listed as unpaired in the report and left untouched.')" />
         <FieldPathTag path="edit_caption.control_path" />
       </template>
+      <template v-if="lockedControlPath">
+        <el-input :model-value="lockedControlPath" disabled class="w-full locked-control-path" />
+        <el-text size="small" type="info" class="hint-text">
+          From {{ controlPathSource || "the incoming dataset" }}. Change it there; this step always uses the dataset's control folder.
+        </el-text>
+      </template>
       <PathFieldControl
+        v-else
         v-model="model.control_path"
         expect="dir"
         required
@@ -152,6 +164,7 @@ import FieldHelpIcon from "../FieldHelpIcon.vue";
 import FieldPathTag from "../FieldPathTag.vue";
 import PathFieldControl from "../PathFieldControl.vue";
 import { copyKnown, help } from "./formHelpers";
+import { preselectModel } from "../../lib/modelPreselect";
 import type { PrepEditCaptionForm } from "../../lib/prepStageConfig";
 import type { PrepEditCaptionConfig, PrepModelInfo } from "../../types/api";
 
@@ -166,6 +179,13 @@ const props = defineProps({
   seed: { type: Object as PropType<PrepEditCaptionConfig | null>, default: null },
   /** Read-only: disables every control of the form. */
   disabled: { type: Boolean, default: false },
+  /**
+   * The control folder the incoming dataset carries (a workflow's handle). Non-empty: shown
+   * read-only in place of the editable field, because the executor uses it over `control_path`.
+   */
+  lockedControlPath: { type: String, default: "" },
+  /** Where {@link lockedControlPath} is set, e.g. "① Source folder". */
+  controlPathSource: { type: String, default: "" },
 });
 
 const models = ref<PrepModelInfo[]>([]);
@@ -244,9 +264,8 @@ async function loadModels(): Promise<void> {
   try {
     const res = await api.prepModels("edit_caption");
     models.value = res.models || [];
-    const first = models.value[0];
     // Fill a gap only — never replace a seeded or already chosen model.
-    if (first && !model.value.model) model.value.model = first.id;
+    if (!model.value.model) model.value.model = preselectModel(models.value);
   } catch {
     // registry unavailable — the user can still submit a seeded config
   } finally {

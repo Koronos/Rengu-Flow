@@ -307,6 +307,15 @@ if the model misses small, local changes.
 The report adds `unpaired` (`"<image>: <reason>"`), `model`, `quantization`, `ctx_size`,
 `n_parallel` and `max_images_per_row` to the usual `captioned` / `skipped` / `failed` counts.
 
+**When the server does not start.** `llama-server`'s own output goes to `llama-server.log` in the
+job directory (next to `report.json`; for a workflow step, its node directory), for this stage and
+for ToriiGate's `gguf` engine alike. A start that fails — out of VRAM, a driver without Vulkan, a
+broken download — ends the job with the last lines of that log in its error, e.g. a
+`ggml_vulkan: Device memory allocation … failed` that says to lower `n_parallel` or `max_pixels`.
+
+In a [workflow](workflows.md#edit-datasets) the control folder is set once on the Source folder
+step and inherited; the step's own *Control folder* field applies only when the source has none.
+
 **Quarantine with controls.** When a caption set is opened with its control folder, quarantining
 a target moves its paired control images too (into the batch's `controls/` subfolder), and
 restoring the batch puts both back — the pair never goes half-missing. A control that another

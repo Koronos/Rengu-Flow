@@ -376,7 +376,11 @@ const lastRunLabel = computed(() => {
 const tools = ref<ToolboxToolSummary[]>([]);
 
 /** Node types whose model picker is seeded from the registry at birth (`seedModelDefaults`). */
-const REGISTRY_STAGES: Record<string, PrepStage> = { "prep.tag": "tag", "prep.caption": "caption" };
+const REGISTRY_STAGES: Record<string, PrepStage> = {
+  "prep.tag": "tag",
+  "prep.caption": "caption",
+  "prep.edit_caption": "edit_caption",
+};
 const registries = new Map<PrepStage, Promise<PrepModelInfo[]>>();
 
 /** One fetch per stage per editor; a failed fetch degrades to the form defaults, as the forms do. */

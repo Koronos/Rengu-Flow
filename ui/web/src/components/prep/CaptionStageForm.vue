@@ -383,6 +383,7 @@ import { api } from "../../api";
 import FieldHelpIcon from "../FieldHelpIcon.vue";
 import FieldPathTag from "../FieldPathTag.vue";
 import { copyKnown, help } from "./formHelpers";
+import { preselectModel } from "../../lib/modelPreselect";
 import type { PrepCaptionForm } from "../../lib/prepStageConfig";
 import type { PrepCaptionConfig, PrepModelInfo, PrepPromptOptions } from "../../types/api";
 
@@ -530,11 +531,10 @@ async function loadModels(): Promise<void> {
   try {
     const res = await api.prepModels("caption");
     captionModels.value = res.models || [];
-    const first = captionModels.value[0];
     // The registry's picks fill GAPS, they never replace a choice: `model` is a shared v-model,
     // and in the workflow drawer a write here is an edit the parent saves. A seeded form already
     // carries the user's own model and prompt, and those must survive being looked at.
-    if (first && !model.value.model) model.value.model = first.id;
+    if (!model.value.model) model.value.model = preselectModel(captionModels.value);
     const prompts = await api.prepCaptionPrompts();
     promptOptions.value = prompts;
     if (!seedApplied) {

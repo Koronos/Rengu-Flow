@@ -27,6 +27,27 @@ describe("nodeConfigSummary", () => {
     expect(nodeConfigSummary(node())).toContain("no folder yet");
   });
 
+  it("names an edit dataset's control folder on the source", () => {
+    const summary = nodeConfigSummary(
+      node({ config: { path: "D:/edit/targets", control_path: "D:/edit/controls" } })
+    );
+    expect(summary).toBe("D:/edit/targets · sidecar .txt · controls D:/edit/controls · CPU");
+  });
+
+  it("reads an edit-instruction step as its model", () => {
+    const summary = nodeConfigSummary(
+      node({
+        type: "prep.edit_caption",
+        config: { model: "qwen3-vl-4b-instruct", prompt: "", overwrite: true },
+        gpu: { required: true, wait: true, device: null },
+      })
+    );
+    expect(summary).toBe("qwen3-vl-4b-instruct · default prompt · overwrite · GPU");
+    expect(nodeConfigSummary(node({ type: "prep.edit_caption", config: {} }))).toContain(
+      "no model selected"
+    );
+  });
+
   it("lists taggers and the tag cap", () => {
     const summary = nodeConfigSummary(
       node({

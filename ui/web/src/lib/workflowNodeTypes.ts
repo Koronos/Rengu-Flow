@@ -1,5 +1,5 @@
 /**
- * The eight workflow node types: label, icon, handle behaviour, GPU default and the fixed
+ * The nine workflow node types: label, icon, handle behaviour, GPU default and the fixed
  * sentence describing what each one emits.
  *
  * Single source for the add menu, the card summary and the drawer's Output tab — the three
@@ -15,6 +15,7 @@ export type WorkflowNodeTypeId =
   | "folder"
   | "prep.tag"
   | "prep.caption"
+  | "prep.edit_caption"
   | "prep.clean"
   | "prep.quality"
   | "prep.index"
@@ -71,6 +72,16 @@ const SPECS: WorkflowNodeTypeSpec[] = [
     type: "prep.caption",
     label: "Caption",
     icon: "ChatLineSquare",
+    group: "prepare",
+    consumes: true,
+    emits: true,
+    needsGpu: true,
+    sourceOptional: false,
+  },
+  {
+    type: "prep.edit_caption",
+    label: "Edit instructions",
+    icon: "EditPen",
     group: "prepare",
     consumes: true,
     emits: true,
@@ -212,6 +223,8 @@ export function describeOutput(node: NodeTypeLike): string {
       return "Writes tag sidecars into the input folder and emits it unchanged";
     case "prep.caption":
       return "Writes captions into the input folder and emits it unchanged";
+    case "prep.edit_caption":
+      return "Writes edit instructions into line 1 of each target's caption and emits the input folder unchanged";
     case "prep.clean": {
       if (config.in_place) return "Emits the input folder; images are cleaned in place";
       const outputDir = typeof config.output_dir === "string" ? config.output_dir.trim() : "";

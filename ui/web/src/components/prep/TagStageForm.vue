@@ -181,6 +181,7 @@ import { api } from "../../api";
 import FieldHelpIcon from "../FieldHelpIcon.vue";
 import FieldPathTag from "../FieldPathTag.vue";
 import { copyKnown, help } from "./formHelpers";
+import { preselectTagModels } from "../../lib/modelPreselect";
 import { modelThresholdDefaults } from "../../lib/prepStageConfig";
 import type { ModelThresholds, PrepTagForm } from "../../lib/prepStageConfig";
 import type { PrepModelInfo, PrepTagConfig } from "../../types/api";
@@ -265,10 +266,7 @@ async function loadModels(): Promise<void> {
     // selection would silently persist the registry's guess over the user's saved one.
     if (!model.value.models.length) {
       // pre-select downloaded models; fall back to the registry's default ensemble
-      model.value.models = tagModels.value.filter((m) => m.downloaded).map((m) => m.id);
-      if (!model.value.models.length) {
-        model.value.models = tagModels.value.slice(0, 2).map((m) => m.id);
-      }
+      model.value.models = preselectTagModels(tagModels.value);
     }
     syncThresholds();
   } catch {

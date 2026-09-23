@@ -453,11 +453,12 @@ def test_gpu_defaults_of_the_other_types() -> None:
     assert wg.default_needs_gpu("prep.frobnicate") is False
 
 
-def test_catalog_covers_the_eight_types() -> None:
+def test_catalog_covers_the_nine_types() -> None:
     assert set(wg.NODE_TYPES) == {
         "folder",
         "prep.tag",
         "prep.caption",
+        "prep.edit_caption",
         "prep.clean",
         "prep.quality",
         "prep.index",

@@ -32,6 +32,8 @@ export function nodeConfigSummary(node: WorkflowNode): string {
       parts.push(text(config.path) || "no folder yet");
       const format = text(config.caption_format) || "sidecar";
       parts.push(format === "json" ? "captions in JSON" : `sidecar ${text(config.caption_ext) || ".txt"}`);
+      const controls = text(config.control_path);
+      if (controls) parts.push(`controls ${controls}`);
       break;
     }
     case "prep.tag": {
@@ -46,6 +48,12 @@ export function nodeConfigSummary(node: WorkflowNode): string {
       parts.push(text(config.model) || "no model selected");
       const prompt = text(config.prompt);
       parts.push(prompt ? "custom prompt" : text(config.prompt_base) || "descriptive-long");
+      if (config.overwrite) parts.push("overwrite");
+      break;
+    }
+    case "prep.edit_caption": {
+      parts.push(text(config.model) || "no model selected");
+      parts.push(text(config.prompt) ? "custom prompt" : "default prompt");
       if (config.overwrite) parts.push("overwrite");
       break;
     }

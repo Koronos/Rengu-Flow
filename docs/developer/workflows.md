@@ -50,7 +50,8 @@ Node directories are `ui_data_dir()/workflows/<workflow_id>/<node_id>`, produced
 | `components/workflow/WorkflowRunBar.vue` | Header: rename, Run split button, Stop, Variables badge, status line |
 | `components/workflow/WorkflowVariablesDialog.vue` | Variable editor plus the "Used by" table from `collectRefs` |
 | `components/workflow/nodeforms/` | `NodeRuntimeFields.vue` (from / GPU / device / enabled — shared by every non-`folder` type), `FolderNodeForm.vue`, `ToolNodeForm.vue`, `TrainNodeForm.vue` |
-| `components/prep/` | `PrepCommonFields.vue` + the five stage forms (`Tag`, `Caption`, `Clean`, `Quality`, `Index`), extracted from `PrepJobFormView.vue` and consumed by both `/prep` and the drawer |
+| `components/prep/` | `PrepCommonFields.vue` + the six stage forms (`Tag`, `Caption`, `EditCaption`, `Clean`, `Quality`, `Index`), extracted from `PrepJobFormView.vue` and consumed by both `/prep` and the drawer. `EditCaptionStageForm`'s `locked-control-path` / `control-path-source` props show the edge's control folder read-only |
+| `lib/modelPreselect.ts` | The registry preselect (`preselectTagModels`, `preselectModel`): one definition read by the three model-picking stage forms and by `seedModelDefaults` |
 | `lib/workflowGraph.ts` | Pure immutable graph edits: `createNode`, `addNode`, `removeNode` (splices children onto the deleted node's `from`), `canMove`/`moveNode`, `legalSources`, `repointNode`, `ordinals` |
 | `lib/workflowNodeTypes.ts` | The catalog mirroring `workflow_graph.NODE_TYPES`: label, icon, group, `consumes`/`emits`, `defaultNeedsGpu`, and `describeOutput` — the single source for the add menu, the card and the Output tab |
 | `lib/workflowStatus.ts` | Status chips and run eligibility (`nodesToRun`, `runFromBlockReason`, `moveBlockReason`). **Renders** `stale`, never computes it |
@@ -139,7 +140,8 @@ refresh without polling. Calqued on `db._jobs_version`.
       "status": "pending|waiting_gpu|launching|running|stopping|done|failed|stopped|skipped",
       "pid": 4231, "pid_create_time": 1754689201.4, "exit_code": 0,
       "started_at": "…", "finished_at": "…",
-      "output": { "path": "…", "caption_format": "sidecar", "caption_ext": ".txt" },
+      "output": { "path": "…", "caption_format": "sidecar", "caption_ext": ".txt",
+                  "control_path": "…" },   // only on an edit dataset
       "saved_input": { … }, "config_hash": "…", "error": "",
       "adopted": false, "log_size": 0, "stop_requested_at": null, "result": null,
       "install_pending": false
@@ -338,11 +340,22 @@ variables are already resolved (`workflow_runner._resolved`).
 | `folder` | — | its own `config.path` (+ `caption_format` / `caption_ext` from config). Runs inline; `done` once the directory exists |
 | `prep.tag` | `report.json` (ignored) | **the input handle** — sidecars written in place |
 | `prep.caption` | `report.json` (ignored) | **the input handle** |
+| `prep.edit_caption` | `report.json` (ignored) | **the input handle** — the instruction goes on line 1 of each target's caption, in place |
 | `prep.quality` | `report.json` (ignored) | **the input handle** — the survivors |
 | `prep.index` | `report.json` (ignored) | **the input handle** — the SQLite index lives under `prep_storage_dir()`, outside the dataset |
 | `prep.clean` | `report.json` | `in_place ? input : report["output_dir"] or config.output_dir or <input>/cleaned` |
 | `tool` | `result.json` | `str` → that path; `dict` with `path` → present keys win, absent inherited; `None` → **pass-through**; anything else → `NodeOutputError(TOOL_RETURN_ERROR)` |
 | `train` | — | `None`. Terminal, fire-and-forget |
+
+**`control_path` rides on the handle.** `DatasetHandle.control_path` (default `""`) is set by a
+`folder` node's config, inherited by every rule above through `_inherit` (including `clean`'s new
+folder and a tool's string return), and replaced by a tool dict that returns one. `to_dict` omits it
+when empty, `_handle_key` defaults it to `""`, and `handle_from_dict` (also the runner's
+`_input_handle`) reads it back — so a pre-existing `state_json` compares equal and no chain goes
+amber on upgrade. It is **not** one of `workflow_nodes._HANDLE_KEYS` (the three top-level prep keys):
+`_prep_payload` writes it into `[edit_caption].control_path` only, handle first, the node's own field
+as fallback (`workflow_graph.edit_control_path`). `_run_folder` fails the source step when a set
+`control_path` is not a directory.
 
 **The `output_dir` trap.** `cleanup.clean_folder` sets `report["output_dir"]` to the *result* folder
 (`rengu_flow/prep/cleanup.py:270-272`); `quality.filter_folder` sets it to the *quarantine* folder,
@@ -424,6 +437,17 @@ and put through `PrepConfig.validate_for_stage(stage)` — the same gate the lau
 `path` that in a workflow arrives from the edge, so `_preflight_path()` injects `Path.cwd()` and
 path rules are left to the launch; and a node with an unresolved variable is skipped, because the
 materialized config is not the one that would run.
+
+Edit datasets add a third input: `validate` predicts every node's handle
+(`_predicted_handles` — `effective_output` with no report, the saved output for a disabled node) and
+hands each prep node the one it will receive. `_prep_config_errors` injects its `control_path` into
+`edit_caption` (so `validate_for_stage` checks that the folder exists — it is not produced by any
+step, so that is no false positive) and reports `EDIT_CAPTION_NO_CONTROLS_ERROR` when neither the
+handle nor the node names one. `_edit_dataset_errors` refuses `prep.clean` (either mode) and
+`prep.quality` with `action = "move"` on a handle that carries `control_path`: both touch only the
+targets — clean would teach the removal on top of every edit, and `filter_folder` moves flagged
+targets with `shutil.move` (not `CaptionStore.quarantine`, which moves a pair's controls with it),
+leaving their controls orphaned. They are errors because pre-flight has no warning channel.
 
 ## The `train` node
 
@@ -510,6 +534,7 @@ unknown types so the links around them survive a round-trip.
 | `tests/test_workflow_graph.py` | Tolerant parsing, variables, the hash chain, the `from` invariant, `effective_output` per type — especially `quality` vs `clean` |
 | `tests/test_workflow_db.py` | `update_graph` CAS, `mutate_state` retries, clone, `node_dir` traversal guard |
 | `tests/test_workflow_nodes.py` | Launch construction, handle injection, `collect_output`, exit-code parsing |
+| `tests/test_workflow_edit_dataset.py` | `control_path` on the handle (inheritance, staleness, round-trip), `prep.edit_caption` injection, and the edit-dataset pre-flight rules |
 | `tests/test_workflow_runner.py` | Handle propagation with fake launchers, restart reconciliation, cancel escalation |
 | `tests/test_workflow_routes.py` | Route contracts, the 409 guards |
 | `ui/web/src/lib/workflow*.test.ts`, `composables/useWorkflow*.test.ts` | The pure graph/layout/status logic and the two composables |
