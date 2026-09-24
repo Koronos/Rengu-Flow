@@ -2,57 +2,54 @@
   <div class="tag-filter-builder">
     <div class="tag-filter-builder__row">
       <span class="tag-filter-builder__label">Has all</span>
-      <el-select
+      <el-select-v2
         v-model="all"
         multiple
         filterable
         allow-create
         default-first-option
         clearable
+        :options="tagSelectOptions"
         placeholder="every one of these tags"
         size="small"
         @change="emitFilter"
-      >
-        <el-option v-for="t in tagOptions" :key="t" :label="t" :value="t" />
-      </el-select>
+      />
     </div>
     <div class="tag-filter-builder__row">
       <span class="tag-filter-builder__label">Has any</span>
-      <el-select
+      <el-select-v2
         v-model="any"
         multiple
         filterable
         allow-create
         default-first-option
         clearable
+        :options="tagSelectOptions"
         placeholder="at least one of these tags"
         size="small"
         @change="emitFilter"
-      >
-        <el-option v-for="t in tagOptions" :key="t" :label="t" :value="t" />
-      </el-select>
+      />
     </div>
     <div class="tag-filter-builder__row">
       <span class="tag-filter-builder__label">Lacks</span>
-      <el-select
+      <el-select-v2
         v-model="none"
         multiple
         filterable
         allow-create
         default-first-option
         clearable
+        :options="tagSelectOptions"
         placeholder="none of these tags"
         size="small"
         @change="emitFilter"
-      >
-        <el-option v-for="t in tagOptions" :key="t" :label="t" :value="t" />
-      </el-select>
+      />
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import type { TagEditOpDto } from "../types/api";
 
 const props = defineProps<{
@@ -67,6 +64,10 @@ const emit = defineEmits<{
 const all = ref<string[]>([...(props.modelValue?.all ?? [])]);
 const any = ref<string[]>([...(props.modelValue?.any ?? [])]);
 const none = ref<string[]>([...(props.modelValue?.none ?? [])]);
+
+// el-select-v2 virtualizes its option list (unlike el-select's el-option
+// children), so large vocabularies don't block the main thread on mount.
+const tagSelectOptions = computed(() => props.tagOptions.map((t) => ({ value: t, label: t })));
 
 watch(
   () => props.modelValue,

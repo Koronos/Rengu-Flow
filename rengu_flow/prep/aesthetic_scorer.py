@@ -20,6 +20,7 @@ stdout as it goes (JSONL), so the caller can stream progress.
 """
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -29,9 +30,13 @@ IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".jfif", "
 def _list_images(target: Path) -> list:
     """Images in *target* if a folder, else the paths listed one-per-line (manifest)."""
     if target.is_dir():
-        return sorted(
-            p for p in target.iterdir() if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS
-        )
+        # One scandir pass: DirEntry.is_file() needs no stat per file (Path.is_file() does).
+        with os.scandir(target) as it:
+            return sorted(
+                Path(e.path)
+                for e in it
+                if e.is_file() and Path(e.name).suffix.lower() in IMAGE_EXTENSIONS
+            )
     return [Path(line) for line in target.read_text().splitlines() if line.strip()]
 
 

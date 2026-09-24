@@ -48,9 +48,13 @@ def _list_images(target: Path) -> list:
     """Images to score: every image in *target* if it's a folder, else the paths
     listed one-per-line in *target* (a manifest, for incremental indexing)."""
     if target.is_dir():
-        return sorted(
-            p for p in target.iterdir() if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS
-        )
+        # One scandir pass: DirEntry.is_file() needs no stat per file (Path.is_file() does).
+        with os.scandir(target) as it:
+            return sorted(
+                Path(e.path)
+                for e in it
+                if e.is_file() and Path(e.name).suffix.lower() in IMAGE_EXTENSIONS
+            )
     return [Path(line) for line in target.read_text().splitlines() if line.strip()]
 
 

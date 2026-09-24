@@ -86,7 +86,7 @@
               Find matching
             </el-button>
             <el-divider direction="vertical" />
-            <el-select
+            <el-select-v2
               v-model="editTags"
               multiple
               filterable
@@ -96,9 +96,8 @@
               size="small"
               class="tag-editor__edit-tags"
               placeholder="tags to add / remove"
-            >
-              <el-option v-for="t in tagOptions" :key="t" :label="t" :value="t" />
-            </el-select>
+              :options="tagSelectOptions"
+            />
             <el-button size="small" :disabled="!editTags.length" @click="stageAdd('start')">
               Add at start
             </el-button>
@@ -316,6 +315,7 @@ const quarantine = ref<QuarantineBatchInfo[]>([]);
 const { openDatasetImageViewer } = useDatasetImageViewerStore();
 
 const tagOptions = computed(() => (stats.value?.tags ?? []).map((t) => t.tag));
+const tagSelectOptions = computed(() => tagOptions.value.map((t) => ({ value: t, label: t })));
 const filterEmpty = computed(
   () =>
     !(filter.value?.all?.length || filter.value?.any?.length || filter.value?.none?.length)
@@ -438,7 +438,7 @@ async function doCommit(): Promise<void> {
     if (result) {
       diffOpen.value = false;
       ElMessage.success(
-        `Committed ${result.files_written.length} file(s) — backup ${result.backup}`
+        `Committed ${result.files_written_count} file(s) — backup ${result.backup}`
       );
     }
   } finally {

@@ -23,6 +23,8 @@ from typing import NamedTuple
 
 from PIL import Image
 
+from rengu_flow.utils.paths import dir_files, name_stem
+
 # Extensions a control image may have (anything else in the control folder is ignored).
 CONTROL_IMAGE_EXTENSIONS = frozenset(
     {".png", ".jpg", ".jpeg", ".jpe", ".webp", ".bmp", ".gif", ".tif", ".tiff"}
@@ -127,11 +129,13 @@ def index_control_dir(control_path) -> dict:
     """
     exact: dict[str, list[Path]] = {}
     numbered: dict[str, dict[int, list[Path]]] = {}
-    for p in sorted(Path(control_path).glob("*")):
-        if not p.is_file() or p.suffix.lower() not in CONTROL_IMAGE_EXTENSIONS:
-            continue
-        exact.setdefault(p.stem, []).append(p)
-        m = _NUMBERED_STEM.match(p.stem)
+    folder = Path(control_path)
+    # One scandir pass, no stat per file (see dir_files); same order as sorted(glob("*")).
+    for name in dir_files(folder, CONTROL_IMAGE_EXTENSIONS):
+        p = folder / name
+        stem = name_stem(name)
+        exact.setdefault(stem, []).append(p)
+        m = _NUMBERED_STEM.match(stem)
         if m:
             numbered.setdefault(m.group("base"), {}).setdefault(int(m.group("n")), []).append(p)
     return {"exact": exact, "numbered": numbered}

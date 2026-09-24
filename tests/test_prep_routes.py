@@ -114,6 +114,42 @@ def test_query_pagination(ui_client, img_dir):
     assert set(p0["keys"]) | set(p1["keys"]) == {"a.jpg", "c.jpg"}  # pages cover all matches
 
 
+def test_diff_is_paginated_and_bounded(ui_client, img_dir):
+    sid = _open_session(ui_client, img_dir)
+    ui_client.post(
+        f"/api/v1/prep/tags/sessions/{sid}/ops",
+        json={"ops": [{"op": "add", "tags": ["masterpiece"], "scope": "line1"}]},
+    )
+    url = f"/api/v1/prep/tags/sessions/{sid}/diff"
+    full = ui_client.get(url).json()  # no limit -> default page of 200, never "everything"
+    assert full["total"] == 3 and full["offset"] == 0 and full["limit"] == 200
+    assert [e["key"] for e in full["entries"]] == ["a.jpg", "b.jpg", "c.jpg"]
+    p1 = ui_client.get(url, params={"limit": 2, "offset": 1}).json()
+    assert p1["total"] == 3 and p1["offset"] == 1 and p1["limit"] == 2
+    assert [e["key"] for e in p1["entries"]] == ["b.jpg", "c.jpg"]
+    assert ui_client.get(url, params={"limit": 500}).status_code == 200
+    assert ui_client.get(url, params={"limit": 501}).status_code == 422
+    assert ui_client.get(url, params={"limit": 0}).status_code == 422
+    assert ui_client.get(url, params={"offset": -1}).status_code == 422
+
+
+def test_commit_reports_counts_and_bounded_samples(ui_client, img_dir, monkeypatch):
+    from rengu_flow_ui import tag_sessions
+
+    monkeypatch.setattr(tag_sessions, "COMMIT_SAMPLE_SIZE", 1)
+    sid = _open_session(ui_client, img_dir)
+    ui_client.post(
+        f"/api/v1/prep/tags/sessions/{sid}/ops",
+        json={"ops": [
+            {"op": "add", "tags": ["masterpiece"], "scope": "line1"},
+            {"op": "quarantine", "filter": {"any": ["short hair", "2girls"]}},
+        ]},
+    )
+    commit = ui_client.post(f"/api/v1/prep/tags/sessions/{sid}/commit").json()
+    assert commit["files_written_count"] == 1 and commit["files_written"] == ["a.txt"]
+    assert commit["quarantined_count"] == 2 and commit["quarantined"] == ["b.jpg"]
+
+
 def test_quarantine_commit_and_restore(ui_client, img_dir):
     sid = _open_session(ui_client, img_dir)
     ui_client.post(

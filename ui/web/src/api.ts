@@ -656,10 +656,15 @@ export const api = {
       method: "POST",
     }),
 
-  prepTagDiff: (sessionId: string, limit?: number) =>
-    request<TagDiffResult>(
-      `/prep/tags/sessions/${encodeURIComponent(sessionId)}/diff${limit ? `?limit=${limit}` : ""}`
-    ),
+  prepTagDiff: (sessionId: string, limit?: number, offset?: number) => {
+    const params = new URLSearchParams();
+    if (limit) params.set("limit", String(limit));
+    if (offset) params.set("offset", String(offset));
+    const qs = params.toString();
+    return request<TagDiffResult>(
+      `/prep/tags/sessions/${encodeURIComponent(sessionId)}/diff${qs ? `?${qs}` : ""}`
+    );
+  },
 
   prepCommitTagSession: (sessionId: string) =>
     request<TagCommitResult>(`/prep/tags/sessions/${encodeURIComponent(sessionId)}/commit`, {

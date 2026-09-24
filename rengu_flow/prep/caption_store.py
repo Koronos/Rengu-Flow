@@ -24,6 +24,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from rengu_flow.prep.storage import prep_storage_dir
+from rengu_flow.utils.paths import dir_files, glob_names, name_key, name_stem, name_suffix
 
 CAPTIONS_JSON_FILE = "captions.json"
 BACKUPS_DIR_NAME = "backups"
@@ -173,9 +174,7 @@ class CaptionSet:
         backup_dir.mkdir(parents=True)
 
         files: list[str] = []
-        for name in sorted(
-            p.name for p in self.folder.glob(f"*{self.ext}") if p.is_file()
-        ):
+        for name in sorted(glob_names(dir_files(self.folder), f"*{self.ext}")):
             shutil.copy2(self.folder / name, backup_dir / name)
             files.append(name)
         captions_json = self.folder / CAPTIONS_JSON_FILE
@@ -303,10 +302,12 @@ class CaptionStore:
         if not ext.startswith("."):
             ext = f".{ext}"
 
+        # One scandir pass lists images and sidecars alike: no stat per file (see dir_files).
+        names = dir_files(folder)
         images = {
-            p.name: p
-            for p in sorted(folder.glob("*"))
-            if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS
+            name: folder / name
+            for name in names
+            if name_suffix(name).lower() in IMAGE_EXTENSIONS
         }
         captions: dict[str, list[str]] = {}
         if fmt == FORMAT_JSON:
@@ -324,11 +325,13 @@ class CaptionStore:
                 else:
                     captions[key] = [c.strip() for c in raw if str(c).strip()]
         else:
+            # Same lookup as ``image.with_suffix(ext).is_file()``, answered from the listing.
+            present = {name_key(name) for name in names}
             for key, image in images.items():
-                sidecar = image.with_suffix(ext)
-                if sidecar.is_file():
+                sidecar = f"{name_stem(key)}{ext}"
+                if name_key(sidecar) in present:
                     captions[key] = read_caption_lines(
-                        sidecar.read_text(encoding="utf-8")
+                        (folder / sidecar).read_text(encoding="utf-8")
                     )
                 else:
                     captions[key] = []
@@ -390,10 +393,10 @@ class CaptionStore:
         ext = manifest.get("ext", ".txt")
 
         restored: list[str] = []
-        for current in folder.glob(f"*{ext}"):
-            if current.is_file() and current.name not in files:
-                current.unlink()
-                restored.append(current.name)
+        for name in glob_names(dir_files(folder), f"*{ext}"):
+            if name not in files:
+                (folder / name).unlink()
+                restored.append(name)
         captions_json = folder / CAPTIONS_JSON_FILE
         if CAPTIONS_JSON_FILE not in files and captions_json.is_file():
             captions_json.unlink()

@@ -6,6 +6,7 @@ from rengu_flow.prep.tag_ops import (
     TagEditOp,
     TagFilter,
     apply_ops,
+    count_changed,
     diff_captions,
     is_tag_line,
     line_indices_for_scope,
@@ -157,6 +158,24 @@ def test_diff_captions():
     assert diff[0]["key"] == "a.jpg"
     assert diff[0]["before"][0].endswith("smile")
     assert diff[0]["after"][0] == "1girl, long hair"
+
+
+@pytest.mark.parametrize(
+    "ops",
+    [
+        [],
+        [{"op": "remove", "tags": ["smile"], "scope": "line1"}],
+        [{"op": "add", "tags": ["new"]}],
+        [{"op": "quarantine", "keys": ["a.jpg"]}, {"op": "remove", "tags": ["smile"]}],
+    ],
+)
+def test_count_changed_equals_diff_length(ops):
+    after = apply_ops(CAPS, [op(o) for o in ops]).captions
+    assert count_changed(CAPS, after) == len(diff_captions(CAPS, after))
+    # An image present only after (never produced by ops, but the diff counts it) counts too.
+    assert count_changed(CAPS, {**after, "zz.jpg": ["x"]}) == len(
+        diff_captions(CAPS, {**after, "zz.jpg": ["x"]})
+    )
 
 
 # -- validation --------------------------------------------------------------------

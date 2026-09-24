@@ -822,15 +822,22 @@ export interface TagDiffEntry {
   after: string[] | null;
 }
 
+/** One page of the staged diff (the server caps `limit` at 500, default 200). */
 export interface TagDiffResult {
   total: number;
+  offset: number;
+  limit: number;
   entries: TagDiffEntry[];
 }
 
 export interface TagCommitResult {
   backup: string;
   backup_path: string;
+  files_written_count: number;
+  /** A sample (at most 50 names) — use `files_written_count` for the total. */
   files_written: string[];
+  quarantined_count: number;
+  /** A sample (at most 50 keys) — use `quarantined_count` for the total. */
   quarantined: string[];
 }
 

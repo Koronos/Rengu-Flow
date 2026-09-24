@@ -18,12 +18,16 @@ from rengu_flow.prep.tag_ops import (
     TagEditOp,
     TagFilter,
     apply_ops,
-    diff_captions,
+    changed_keys,
+    count_changed,
     select_images,
     tag_frequencies,
 )
 
 SESSION_TTL_SECONDS = 6 * 3600
+# The commit response names at most this many written files / quarantined images (plus the
+# full counts): on a million-image folder the full lists were tens of MB of JSON.
+COMMIT_SAMPLE_SIZE = 50
 
 
 @dataclass
@@ -74,7 +78,7 @@ class TagSession:
             "ext": self.captions.ext,
             "image_count": len(current),
             "staged_ops": [op.to_dict() for op in self.staged_ops],
-            "changed_count": len(diff_captions(self.base, current)),
+            "changed_count": count_changed(self.base, current),
             "quarantine_pending": self.quarantine_pending(),
         }
 
@@ -204,13 +208,22 @@ class TagSessionStore:
             "sizes": {key: list(sizes.get(key, (0, 0))) for key in keys},
         }
 
-    def diff(self, session_id: str, limit: int | None = None) -> dict:
+    def diff(self, session_id: str, limit: int | None = None, offset: int = 0) -> dict:
+        """One page of the staged diff (``limit=None``: everything from ``offset``). Only the
+        page's entries are built; ``total`` counts every changed image."""
         session = self.get(session_id)
-        entries = diff_captions(session.base, session.current())
-        total = len(entries)
-        if limit is not None:
-            entries = entries[:limit]
-        return {"total": total, "entries": entries}
+        base, current = session.base, session.current()
+        keys = changed_keys(base, current)
+        page = keys[offset : offset + limit] if limit is not None else keys[offset:]
+        return {
+            "total": len(keys),
+            "offset": offset,
+            "limit": limit if limit is not None else len(page),
+            "entries": [
+                {"key": key, "before": base.get(key), "after": current.get(key)}
+                for key in page
+            ],
+        }
 
     def commit(self, session_id: str) -> dict:
         """Snapshot, then write staged state to disk; the session resets on the new base."""
@@ -234,6 +247,9 @@ class TagSessionStore:
         return {
             "backup": backup_dir.name,
             "backup_path": str(backup_dir),
-            "files_written": written,
-            "quarantined": quarantined,
+            # Counts plus a bounded sample of names (see COMMIT_SAMPLE_SIZE).
+            "files_written_count": len(written),
+            "files_written": written[:COMMIT_SAMPLE_SIZE],
+            "quarantined_count": len(quarantined),
+            "quarantined": quarantined[:COMMIT_SAMPLE_SIZE],
         }

@@ -15,6 +15,8 @@ from rengu_flow_ui.dataset_image_preview import issue_image_token
 from rengu_flow_ui.tag_sessions import TagSessionStore
 
 API_PREFIX = "/api/v1"
+DIFF_PAGE_SIZE = 200
+MAX_DIFF_PAGE_SIZE = 500
 
 tag_sessions = TagSessionStore()
 
@@ -324,9 +326,14 @@ def register_prep_routes(app: FastAPI) -> None:
             return tag_sessions.undo(session_id)
 
     @app.get(f"{API_PREFIX}/prep/tags/sessions/{{session_id}}/diff")
-    def tag_session_diff(session_id: str, limit: int | None = Query(None, ge=1)):
+    def tag_session_diff(
+        session_id: str,
+        # Always paginated: an unbounded diff of a 1M-image session was ~1 GB of JSON.
+        limit: int = Query(DIFF_PAGE_SIZE, ge=1, le=MAX_DIFF_PAGE_SIZE),
+        offset: int = Query(0, ge=0),
+    ):
         with _prep_http_errors():
-            return tag_sessions.diff(session_id, limit=limit)
+            return tag_sessions.diff(session_id, limit=limit, offset=offset)
 
     @app.post(f"{API_PREFIX}/prep/tags/sessions/{{session_id}}/commit")
     def tag_session_commit(session_id: str):

@@ -348,10 +348,23 @@ def diff_captions(
     before: dict[str, list[str]], after: dict[str, list[str]]
 ) -> list[dict]:
     """Per-image before/after lines for every image whose captions changed or vanished."""
-    entries = []
-    for key in sorted(set(before) | set(after)):
-        old = before.get(key)
-        new = after.get(key)
-        if old != new:
-            entries.append({"key": key, "before": old, "after": new})
-    return entries
+    return [
+        {"key": key, "before": before.get(key), "after": after.get(key)}
+        for key in changed_keys(before, after)
+    ]
+
+
+def changed_keys(
+    before: dict[str, list[str]], after: dict[str, list[str]]
+) -> list[str]:
+    """Sorted keys of the images :func:`diff_captions` lists, without building the entries."""
+    return sorted(k for k in set(before) | set(after) if before.get(k) != after.get(k))
+
+
+def count_changed(
+    before: dict[str, list[str]], after: dict[str, list[str]]
+) -> int:
+    """``len(diff_captions(before, after))`` without building (or sorting) anything."""
+    return sum(1 for k, lines in after.items() if before.get(k) != lines) + sum(
+        1 for k in before if k not in after
+    )

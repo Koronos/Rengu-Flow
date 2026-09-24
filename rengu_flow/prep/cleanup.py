@@ -21,6 +21,7 @@ from PIL import Image, ImageDraw
 from rengu_flow.prep.caption_store import IMAGE_EXTENSIONS
 from rengu_flow.prep.storage import prep_storage_dir
 from rengu_flow.utils.logging import get_logger
+from rengu_flow.utils.paths import dir_files
 
 logger = get_logger(__name__)
 
@@ -251,9 +252,7 @@ def clean_folder(
     """
     src = Path(src).resolve()
 
-    images = sorted(
-        p for p in src.iterdir() if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS
-    )
+    images = [src / name for name in dir_files(src, IMAGE_EXTENSIONS)]
     total = len(images)
 
     report: dict = {
