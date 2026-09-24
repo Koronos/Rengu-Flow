@@ -10,6 +10,9 @@ gradient_accumulation_steps = 1
 activation_checkpointing = true
 save_every_n_epochs = 1
 caching_batch_size = 1
+# The 12B DiT needs multiple GPUs or heavy block swap for a full finetune. Single GPU:
+# stream blocks from CPU and set optimizer.gradient_release = true below.
+# blocks_to_swap = 24
 
 [model]
 type = 'krea2'
@@ -22,3 +25,5 @@ text_encoder_path = 'path/to/qwen3vl_4b_bf16.safetensors'
 [optimizer]
 type = 'adamw'
 lr = 1e-6
+# Per-block optimizer step during backward (pairs with blocks_to_swap above).
+# gradient_release = true

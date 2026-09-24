@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import torch
+import torch.utils.checkpoint
 from torch import nn
 
 from rengu_flow.model.base import make_contiguous
@@ -13,7 +14,7 @@ from rengu_flow.utils.common import cuda_autocast
 class InitialLayer(nn.Module):
     """Embeds text (fusion + projection), packs image latents, and builds timestep/RoPE tensors."""
 
-    def __init__(self, model):
+    def __init__(self, model, checkpoint_text: bool = False, pipe_parallel: bool = False):
         super().__init__()
         self.img_in = model.img_in
         self.time_embed = model.time_embed
@@ -22,6 +23,16 @@ class InitialLayer(nn.Module):
         self.txt_in = model.txt_in
         self.rotary_emb = model.rotary_emb
         self.model = [model]
+        # Activation checkpointing on: recompute the text branch (fusion blocks over
+        # tokens x tapped layers + txt_in, adapters included) in backward instead of
+        # holding its activations (~1-2 GB per sample) for the whole step.
+        self.checkpoint_text = checkpoint_text
+        # DeepSpeed pipe (> 1 stage) backprops every floating inter-stage tensor, so they
+        # must all require grad there; single-stage marks only what carries gradient.
+        self.pipe_parallel = pipe_parallel
+
+    def _embed_text(self, prompt_embeds, text_attn_mask):
+        return self.txt_in(self.text_fusion(prompt_embeds, attention_mask=text_attn_mask))
 
     def forward(self, inputs):
         with cuda_autocast():
@@ -35,7 +46,12 @@ class InitialLayer(nn.Module):
             temb_mod = self.time_mod_proj(torch.nn.functional.gelu(temb, approximate="tanh"))
 
             text_attn_mask, attn_mask = self.model[0].build_attention_masks(text_mask, image_seq_len)
-            text_states = self.txt_in(self.text_fusion(prompt_embeds, attention_mask=text_attn_mask))
+            if self.checkpoint_text and torch.is_grad_enabled():
+                text_states = torch.utils.checkpoint.checkpoint(
+                    self._embed_text, prompt_embeds, text_attn_mask, use_reentrant=False
+                )
+            else:
+                text_states = self._embed_text(prompt_embeds, text_attn_mask)
 
             hidden = self.img_in(pack_latents(noisy_latents))
             hidden = torch.cat([text_states, hidden], dim=1)
@@ -53,7 +69,10 @@ class InitialLayer(nn.Module):
             # tensors-only DeepSpeed pipeline contract.
             grid = hidden.new_empty((grid_h, grid_w, 0))
             outputs = make_contiguous(hidden, temb, temb_mod, freqs_cos, freqs_sin, attn_mask, text_mask, grid)
-            for tensor in outputs:
+            # The RoPE tables are constants: marking them would make every block save fp32
+            # q/k copies to backprop into a leaf nobody reads (qwen_image21 does the same).
+            marked = outputs if self.pipe_parallel else outputs[:3]
+            for tensor in marked:
                 if torch.is_floating_point(tensor):
                     tensor.requires_grad_(True)
             return outputs
@@ -73,7 +92,9 @@ class TransformerLayer(nn.Module):
 
             self.offloader.wait_for_block(self.block_idx)
             mask = attn_mask if attn_mask.numel() else None  # 0-size sentinel = no padding
-            hidden = self.block(hidden, temb_mod, (freqs_cos, freqs_sin), mask)
+            # Detached: reentrant AC (and pipe stages) hand the passthrough RoPE tables back
+            # requiring grad; the block must still treat them as constants.
+            hidden = self.block(hidden, temb_mod, (freqs_cos.detach(), freqs_sin.detach()), mask)
             self.offloader.submit_move_blocks_forward(self.block_idx)
 
             return make_contiguous(hidden, temb, temb_mod, freqs_cos, freqs_sin, attn_mask, text_mask, grid) + tuple(inputs[8:])

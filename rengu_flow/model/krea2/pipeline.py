@@ -18,10 +18,10 @@ from torch import nn
 from rengu_flow.config.validation import ConfigValidationError
 from rengu_flow.data.preprocess_media import PreprocessMediaFile
 from rengu_flow.model import dit_common
+from rengu_flow.model.dit_common.streaming import LazyStreamedEncoder
 from rengu_flow.model.krea2.layers import FinalLayer, InitialLayer, TransformerLayer
 from rengu_flow.model.krea2.text import (
     DEFAULT_SELECT_LAYERS,
-    compact_text_embeddings,
     encode_prompts,
     pad_text_embeddings,
 )
@@ -41,13 +41,14 @@ EXPORT_PREFIX = "transformer."
 
 # Named layer groups for adapter.layer_groups: globs over the DiT's dotted module
 # paths (see networks/adapter_targets.py). "text_fusion" is the conditioning stack —
-# the 12-layer Krea2TextFusion refiner plus the txt_in projection (canonical
-# checkpoint/diffusers name).
+# Krea2TextFusion (2 layerwise blocks over the 12 tapped layers + 2 refiner blocks over
+# the tokens) plus the txt_in projection (canonical checkpoint/diffusers name). The
+# union of every group is the default all-linears scope.
 ADAPTER_LAYER_GROUPS = {
     "text_fusion": ("text_fusion.*", "txt_in.*"),
     "attention": ("transformer_blocks.*.attn.*",),
     "feedforward": ("transformer_blocks.*.ff.*",),
-    "time_modulation": ("time_mod_proj",),
+    "time_modulation": ("time_embed.*", "time_mod_proj"),
     "image_in_out": ("img_in", "final_layer.*"),
 }
 
@@ -108,8 +109,17 @@ class Krea2Pipeline(dit_common.DiTPipeline):
 
         self.vae = loading.load_vae(self._component_path("vae"), dtype)
         self.tokenizer = loading.load_tokenizer(self.model_config.get("tokenizer_path"))
-        self.text_encoder = loading.load_text_encoder(self._component_path("text_encoder"), dtype)
+        text_encoder_path = self._component_path("text_encoder")
+        # Lazy: read from disk only when captions (or new preview prompts) need encoding — a
+        # run with a warm text cache never loads it. Streams its decoder layers from host RAM
+        # when the ~8 GB encoder does not fit in free VRAM.
+        self.text_encoder = LazyStreamedEncoder(
+            lambda: loading.load_text_encoder(text_encoder_path, dtype),
+            layers_of=lambda module: module.layers,
+            name="Qwen3-VL text encoder",
+        )
         self.transformer = None
+        self._preview_embed_cache: dict = {}
 
     def _component_path(self, component: str) -> str:
         """Resolve a component to what the user assigned: ``model.<component>_path`` (a local
@@ -189,7 +199,9 @@ class Krea2Pipeline(dit_common.DiTPipeline):
             p = next(vae.parameters())
             tensor = tensor.to(p.device, p.dtype)
             # Qwen-Image VAE is video-shaped: (B, C, T=1, H, W) in, (B, 16, 1, h, w) out.
-            latents = vae.encode(tensor.unsqueeze(2)).latent_dist.sample().squeeze(2)
+            # The distribution's mode: a cached latent is reused every epoch, so one frozen
+            # random draw would bake that noise in for the whole run.
+            latents = vae.encode(tensor.unsqueeze(2)).latent_dist.mode().squeeze(2)
             mean, std = self._latent_stats(latents.device, latents.dtype)
             return {"latents": (latents - mean) / std}
 
@@ -206,8 +218,13 @@ class Krea2Pipeline(dit_common.DiTPipeline):
                 max_sequence_length=self.max_sequence_length,
                 device=device,
             )
-            embeds, mask = compact_text_embeddings(embeds, mask)
-            return {"prompt_embeds": embeds, "text_mask": mask}
+            # One row per caption at its own valid length: a padded batch tensor would store
+            # every row at the caching batch's longest caption (False tails), which then
+            # stack into padded — masked-attention — training batches.
+            return {
+                "prompt_embeds": [e[m] for e, m in zip(embeds, mask)],
+                "text_mask": [m[m] for m in mask],
+            }
 
         return fn
 
@@ -234,6 +251,11 @@ class Krea2Pipeline(dit_common.DiTPipeline):
 
         return (noisy_latents, t, prompt_embeds, text_mask), (target, mask)
 
+    def trim_micro_batch(self, features):
+        """PipelineDataLoader hook: drop the text lanes this micro-batch does not use, so a
+        GAS split of mixed caption lengths still gets the unmasked (flash) attention path."""
+        return dit_common.trim_text_padding(features)
+
     def to_layers(self):
         from rengu_flow.model.krea2.layers import RouteEndLayer, RouteStartLayer
         from rengu_flow.training.token_routing import resolve_route
@@ -254,7 +276,16 @@ class Krea2Pipeline(dit_common.DiTPipeline):
                 raise ConfigValidationError(
                     f"tread.disable_after_frac must be in (0, 1], got {disable_after_frac}."
                 )
-        layers = [InitialLayer(self.transformer)]
+        # Manual AC (true / an interval) also checkpoints the text branch; "auto" leaves the
+        # save/recompute split to compile's partitioner.
+        ac = self.config.get("activation_checkpointing", False)
+        layers = [
+            InitialLayer(
+                self.transformer,
+                checkpoint_text=bool(ac) and ac != "auto",
+                pipe_parallel=int(self.config.get("pipeline_stages", 1)) > 1,
+            )
+        ]
         for i, block in enumerate(self.transformer.transformer_blocks):
             if route and i == route[0]:
                 layers.append(RouteStartLayer(drop_ratio, disable_after_frac))
@@ -299,12 +330,47 @@ class Krea2Pipeline(dit_common.DiTPipeline):
         self.vae = loading.load_vae(self._component_path("vae"), self.model_config["dtype"])
 
     def _reload_text_encoder_for_preview(self) -> nn.Module:
-        return loading.load_text_encoder(
-            self._component_path("text_encoder"), self.model_config["dtype"]
-        )
+        # The lazy wrapper reloads itself on the next .to(<cuda>) / forward.
+        return self.text_encoder
+
+    def preview_prompt_embeds(self, prompts: list[str], preview_cfg: dict, device) -> list[torch.Tensor]:
+        """``(L, layers, D)`` embeddings on CPU per prompt (valid tokens only). Preview prompts
+        repeat every preview, so they are memoized: the text encoder is loaded only for
+        prompts never seen."""
+        missing = [p for p in dict.fromkeys(prompts) if p not in self._preview_embed_cache]
+        if missing:
+            self.ensure_text_encoder_for_preview(device)
+            # No autocast: encode exactly like the training-caption cache does.
+            with torch.autocast(torch.device(device).type, enabled=False):
+                embeds, mask = encode_prompts(
+                    self.text_encoder,
+                    self.tokenizer,
+                    missing,
+                    select_layers=self.select_layers,
+                    max_sequence_length=self.max_sequence_length,
+                    device=device,
+                )
+            for i, p in enumerate(missing):
+                self._preview_embed_cache[p] = embeds[i][mask[i]].cpu()
+            self.offload_text_encoder_after_encode(preview_cfg)
+        return [self._preview_embed_cache[p] for p in prompts]
 
     def prepare_preview_memory(self, preview_cfg: dict) -> None:
         self._prepare_blocks_preview_memory(preview_cfg)
+
+    def restore_after_preview(self) -> None:
+        state = getattr(self, "_preview_restore_state", None) or {}
+        # The VAE is small: keep a reloaded one in host RAM between previews instead of
+        # parking it on meta and re-reading it from disk every preview.
+        state.pop("vae_was_meta", None)
+        super().restore_after_preview()
+        if next(self.vae.parameters()).device.type != "meta":
+            self.vae.to("cpu")
+        # Preview prompts are memoized, so an encoder that caching had freed is not needed
+        # again: unload it instead of parking ~8 GB of weights in host RAM between previews.
+        if getattr(self, "_preview_te_rest_device", None) is not None and self._preview_te_rest_device.type == "cpu":
+            self.text_encoder.to("meta")
+            self._preview_te_rest_device = None
 
     def generate_preview_image(self, preview_cfg: dict, prompt: str, step: int, seed: int):
         from rengu_flow.model.krea2.preview_sampling import generate_preview_image as _gen

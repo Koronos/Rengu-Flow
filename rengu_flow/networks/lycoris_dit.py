@@ -48,13 +48,13 @@ def configure(transformer, adapter_config, targets=ADAPTER_TARGET_MODULES):
             f"No adapter target blocks ({'/'.join(targets)}) found in transformer"
         )
     # The lycoris backend matches by exact class name "Linear", so quantized linears
-    # (Fp8MatmulLinear / bnb Linear4bit) are silently skipped — only the built-in
+    # (Fp8MatmulLinear / Fp8TensorwiseLinear / bnb Linear4bit) are silently skipped — only the built-in
     # `lokr` is quant-aware. Fail loudly rather than train a partial adapter.
     quantized = {
         type(m).__name__
         for c in containers
         for m in c.modules()
-        if type(m).__name__ in ("Fp8MatmulLinear", "Linear4bit")
+        if type(m).__name__ in ("Fp8MatmulLinear", "Fp8TensorwiseLinear", "Linear4bit")
     }
     if quantized:
         raise RuntimeError(

@@ -55,9 +55,10 @@ FIELD_HELP: dict[str, dict[str, str]] = {
     "model.dtype": {
         "summary": "Default dtype for weights and compute (required).",
         "detail": (
-            "Common: bfloat16, float16. Cosmos: VAE, text encoder (Qwen3/T5), adapters, "
+            "Common: bfloat16, float16. Cosmos: VAE, text encoder (Qwen3/T5) "
             "and sensitive DiT parts (embedders, norms, 1D params). "
-            "Bulk DiT weights use this too unless transformer_dtype is set. SDXL: UNet and encoders."
+            "Bulk DiT weights use this too unless transformer_dtype is set. SDXL: UNet and encoders. "
+            "Adapter weights do not follow it: they default to float32 (adapter.dtype)."
         ),
         "doc": "docs/user/training-sdxl-lora-lokr.md",
     },
@@ -145,8 +146,61 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "detail": (
             "Adapter training only — the quantized base stays frozen while the adapter trains in "
             "full precision on top. Krea 2's DiT drops from ~26 GB bf16 to ~7 GB (text fusion "
-            "stays bf16). Mutually exclusive with model.transformer_fp8_matmul. Use adapter type "
-            "LoKr: it is quantization-aware, while the LyCORIS kinds reject a quantized base."
+            "stays bf16). A 16 GB card needs 4-bit or fp8 (model.transformer_fp8_matmul, the "
+            "faster and more accurate one on RTX 40xx); they are mutually exclusive. Use adapter "
+            "type LoKr: it is quantization-aware, while the LyCORIS kinds reject a quantized base."
+        ),
+        "doc": "docs/user/training-krea2.md",
+    },
+    "model.transformer_fp8_matmul@krea2": {
+        "summary": "fp8 frozen base: DiT block linears stored as tensorwise-scaled e4m3 (1 byte/param).",
+        "detail": (
+            "Adapter training only: the DiT drops from ~25.6 to ~12.9 GB (2.65% RMS weight error vs "
+            "NF4's 9.55%), and with compile = true + compile_scope = \"block\" the matmuls run ~2x "
+            "faster on RTX 40xx (sm89+). Mutually exclusive with transformer_4bit; use adapter type LoKr."
+        ),
+        "doc": "docs/user/training-krea2.md",
+    },
+    "model.transformer_dtype@krea2": {
+        "summary": "Optional: dtype used to load the DiT only (defaults to model.dtype).",
+        "detail": (
+            "The VAE and the Qwen3-VL text encoder keep model.dtype; adapters default to float32 "
+            "(adapter.dtype). Leave empty unless you need a different DiT load precision. For VRAM, "
+            "use transformer_4bit / transformer_fp8_matmul instead."
+        ),
+        "doc": "docs/user/training-krea2.md",
+    },
+    "model.tokenizer_path@krea2": {
+        "summary": "Optional folder with Qwen3-VL tokenizer files (default: the bundled tokenizer).",
+        "detail": (
+            "rengu ships the Qwen3-VL tokenizer, so leave this empty. Changing it re-encodes the "
+            "text-embedding cache."
+        ),
+        "doc": "docs/user/training-krea2.md",
+    },
+    "model.shift@krea2": {
+        "summary": "Advanced: fixed timestep shift; empty keeps the reference resolution-aware shift.",
+        "detail": (
+            "Empty uses the reference Krea 2 schedule: mu from 0.5 at 256 latent tokens to 1.15 at "
+            "6400 (1024x1024 = 4096 tokens), equal to a fixed shift of exp(mu) ~1.65 to ~3.16. A number "
+            "(> 0) replaces it at every resolution — only for a deliberate schedule A/B."
+        ),
+        "doc": "docs/user/training-krea2.md",
+    },
+    "model.sigmoid_scale@krea2": {
+        "summary": "Advanced: scale on the logit-normal sample before the sigmoid (default 1.0 = reference).",
+        "detail": (
+            "Only used with timestep_sample_method = logit_normal. Raising it pushes sampled "
+            "timesteps toward the extremes (near 0 or 1)."
+        ),
+        "doc": "docs/user/training-krea2.md",
+    },
+    "model.timestep_sample_method@krea2": {
+        "summary": "Advanced: training timestep distribution — logit_normal (default, reference) or uniform.",
+        "detail": (
+            "logit_normal concentrates steps on mid-range noise levels, like the reference Krea 2 "
+            "training; uniform samples t evenly in [0, 1]. The resolution-aware shift (or "
+            "model.shift) is applied on top of either."
         ),
         "doc": "docs/user/training-krea2.md",
     },
@@ -832,12 +886,11 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "doc": "docs/user/training-cosmos-predict2-lora-lokr-finetune.md",
     },
     "model.diffusion_model_dtype": {
-        "summary": "DiT forward autocast dtype (Cosmos Predict2, Krea 2).",
+        "summary": "DiT forward autocast dtype (Cosmos Predict2).",
         "detail": (
-            "Sets training forward autocast (main.py), applied regardless of model type. Defaults to "
-            "model.dtype. On Cosmos, when set and transformer_dtype is omitted, defaults copies this "
-            "to transformer_dtype for checkpoint load too; Krea 2 has its own transformer_dtype field "
-            "that is independent of this one."
+            "Sets the training forward autocast dtype (main.py). Defaults to model.dtype. On Cosmos, "
+            "when set and transformer_dtype is omitted, it is also copied to transformer_dtype for "
+            "the checkpoint load."
         ),
         "doc": "docs/user/training-cosmos-predict2-lora-lokr-finetune.md",
     },
@@ -941,11 +994,13 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "summary": "Which PyTorch activation-checkpoint backend to use (reentrant vs non-reentrant).",
         "detail": (
             "Only applies when activation_checkpointing is true. PyTorch has two checkpoint backends: "
-            "reentrant (legacy, re-enters autograd) and non-reentrant (newer, saved-tensor hooks, more "
-            "flexible). Reentrant can be slightly faster on some models (cosmos_predict2 defaults it "
-            "to true) but is more restrictive — leave it off unless your model benefits."
+            "reentrant (legacy, re-enters autograd) and non-reentrant (default, saved-tensor hooks). "
+            "It defaults to true automatically in two cases: a 4-bit base with blocks_to_swap "
+            "(reentrant lets swap eviction actually free blocks) and model.transformer_fp8_matmul + "
+            "compile = true + compile_scope = \"block\" (non-reentrant recompute fails on the "
+            "compiled block). Otherwise leave it unset."
         ),
-        "doc": "docs/user/training-cosmos-predict2-lora-lokr-finetune.md",
+        "doc": "docs/user/training-krea2.md",
     },
     "x_axis_examples": {
         "summary": "Plot TensorBoard/WandB x-axis as total examples seen instead of optimizer steps.",

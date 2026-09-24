@@ -10,9 +10,9 @@ models or touches the Hub:
   architecture is fixed (one public config, ``single_mmdit_large_wide``), so no shape
   inference is needed.
 - **Text encoder**: a transformers folder (``text_encoder/``) or a single ``.safetensors``
-  (ComfyUI's ``qwen3vl_4b_bf16.safetensors`` or an official-layout export). Single files
-  load the text-only decoder (``Qwen3VLTextModel``) from the bundled config — the vision
-  tower is never used for conditioning.
+  (ComfyUI's ``qwen3vl_4b_bf16.safetensors`` or an official-layout export). Both load only
+  the text decoder (``Qwen3VLTextModel``; single files use the bundled config) — the vision
+  tower is never used for conditioning, so its weights are never read.
 - **VAE**: a diffusers folder (``vae/``) or the single ``qwen_image_vae.safetensors``
   (same file cosmos uses), key-converted via diffusers' Wan converter into
   ``AutoencoderKLQwenImage`` with the bundled config.
@@ -79,8 +79,11 @@ def _require_exists(path: str | Path, what: str) -> Path:
     return p
 
 
+_FP8_DTYPES = (torch.float8_e4m3fn, torch.float8_e5m2)
+
+
 def _guard_not_prequantized(state_dict: dict, what: str) -> None:
-    fp8 = {torch.float8_e4m3fn, torch.float8_e5m2} & {v.dtype for v in state_dict.values()}
+    fp8 = set(_FP8_DTYPES) & {v.dtype for v in state_dict.values()}
     scaled = any(k.endswith("scale_weight") for k in state_dict)
     if fp8 or scaled:
         raise ConfigValidationError(
@@ -131,9 +134,15 @@ def load_transformer(path: str | Path, dtype: torch.dtype):
     if not _looks_like_file(path):
         return Krea2Transformer2DModel.from_pretrained(path, torch_dtype=dtype)
 
-    from safetensors.torch import load_file
+    from safetensors import safe_open
 
-    state_dict = load_file(path)
+    # Tensor by tensor, cast as read: peak host RAM is one copy of the DiT in `dtype`, not
+    # the whole file plus a second, cast copy. fp8 tensors keep their dtype for the guard.
+    state_dict = {}
+    with safe_open(str(path), framework="pt") as handle:
+        for key in handle.keys():
+            tensor = handle.get_tensor(key)
+            state_dict[key] = tensor if tensor.dtype in _FP8_DTYPES else tensor.to(dtype)
     _guard_not_prequantized(state_dict, "transformer_path")
     # Some re-exports wrap the original keys in a comfy checkpoint prefix.
     state_dict = {re.sub(r"^(model\.)?diffusion_model\.", "", k): v for k, v in state_dict.items()}
@@ -146,7 +155,6 @@ def load_transformer(path: str | Path, dtype: torch.dtype):
         )
     with torch.device("meta"):
         transformer = Krea2Transformer2DModel()  # single public config; no shape inference needed
-    state_dict = {k: v.to(dtype) for k, v in state_dict.items()}
     transformer.load_state_dict(state_dict, strict=True, assign=True)
     return transformer
 
@@ -180,36 +188,21 @@ def load_vae(path: str | Path, dtype: torch.dtype):
 
 
 def load_text_encoder(path: str | Path, dtype: torch.dtype):
-    """Load the Qwen3-VL conditioner from a transformers folder or a single file.
+    """Load the Qwen3-VL text decoder (``Qwen3VLTextModel``) from a transformers folder or a
+    single file (ComfyUI ``qwen3vl_4b_bf16.safetensors`` or official-layout exports; the
+    bundled config). Vision weights are never read (conditioning never runs the vision tower)."""
+    from transformers import AutoConfig
 
-    Single files (ComfyUI ``qwen3vl_4b_bf16.safetensors`` or official-layout exports) load
-    the text-only decoder from the bundled config; vision weights in the file are ignored
-    (conditioning never runs the vision tower)."""
+    from rengu_flow.model.dit_common.qwen3vl import checkpoint_files, load_qwen3vl_text_model
+
     path = _require_exists(path, "text_encoder_path")
-    if not _looks_like_file(path):
-        from transformers import Qwen3VLModel
-
-        model = Qwen3VLModel.from_pretrained(path, torch_dtype=dtype)
-    else:
-        from transformers import AutoConfig, Qwen3VLTextModel
-
-        from safetensors.torch import load_file
-
-        from rengu_flow.model.dit_common.qwen3vl import remap_qwen3vl_text_state_dict
-
-        # Text-decoder keys only; ComfyUI "scaled fp8" entries are dequantized (shared helper).
-        remapped = remap_qwen3vl_text_state_dict(load_file(path), dtype)
-        config = AutoConfig.from_pretrained(QWEN3VL_ASSETS).text_config
-        from accelerate import init_empty_weights
-
-        # include_buffers=False: params land on meta (replaced below by assign) but
-        # non-persistent buffers (the rotary inv_freq, absent from checkpoints) are
-        # computed for real at init.
-        with init_empty_weights(include_buffers=False):
-            model = Qwen3VLTextModel._from_config(config)
-        model.load_state_dict(remapped, strict=True, assign=True)
-    model.eval().requires_grad_(False)
-    return model
+    config_dir = path if (not _looks_like_file(path) and (path / "config.json").exists()) else QWEN3VL_ASSETS
+    files = checkpoint_files(path)
+    if not files:
+        raise ConfigValidationError(f"model.text_encoder_path: no .safetensors found in {path}.")
+    # Text-decoder tensors only, read shard by shard (a folder's vision tower is never
+    # loaded); ComfyUI "scaled fp8" entries are dequantized (shared helper).
+    return load_qwen3vl_text_model(files, AutoConfig.from_pretrained(config_dir).text_config, dtype)
 
 
 def load_tokenizer(path: str | Path | None):

@@ -74,6 +74,7 @@ ALLOWLIST: frozenset[str] = frozenset(
         "train",  # section/table name, not a leaf key
         "bench",  # section/table name, not a leaf key
         "adapter.alpha",  # rejected by validation; alpha=rank is enforced, never user-settable
+        "adapter.dim",  # TOML-only Kohya alias of adapter.rank (normalized in defaults.py)
         "cache_format",  # rejected legacy key (defaults.py raises if present)
         "pretrained_model_name_or_path",  # vendored diffusers compat key, not a rengu-flow option
         "lr_scheduler_args",  # section name; covered by the lr_scheduler_args.extra_params KV editor

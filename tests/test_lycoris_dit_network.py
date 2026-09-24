@@ -249,6 +249,16 @@ def test_lycoris_rejected_on_quantized_base():
     assert not [i for i in collect_validation_errors(cfg) if "quantized base" in i]
 
 
+@pytest.mark.parametrize("quant_class", ["Fp8MatmulLinear", "Fp8TensorwiseLinear", "Linear4bit"])
+def test_lycoris_configure_refuses_quantized_linears(quant_class):
+    """Runtime guard behind the config check: every quantized linear class (incl. krea2's
+    fp8 tensorwise one) makes configure fail instead of skipping those layers."""
+    model = DummyDiT()
+    model.blocks[0].mlp["up"] = type(quant_class, (nn.Linear,), {})(16, 32)
+    with pytest.raises(RuntimeError, match=quant_class):
+        lycoris_dit.configure(model, _config("lycoris_locon"))
+
+
 def test_train_norm_rejected_on_dit_without_affine_norms():
     """The cosmos-style DiT has no affine LayerNorm/GroupNorm: train_norm must fail
     loudly instead of silently training nothing extra."""

@@ -213,9 +213,9 @@ def _adapter_section_fields() -> list[dict[str, Any]]:
         ),
     ]
     for spec in ADAPTER_FIELD_TEMPLATES["common"]:
-        fields.append(
-            _field_from_template({**spec, "when_model_has_adapter": True}, HAS_ADAPTER)
-        )
+        built = _field_from_template({**spec, "when_model_has_adapter": True}, HAS_ADAPTER)
+        if built is not None:  # ui: false (e.g. adapter.dim, a TOML-only alias of rank)
+            fields.append(built)
     from rengu_flow.networks.lycoris_meta import LYCORIS_ADAPTER_TYPES
 
     # Build reverse map: field path -> list of kinds that use it (preserving first-seen spec)
@@ -242,7 +242,11 @@ def _adapter_section_fields() -> list[dict[str, Any]]:
                 when_kind = {"all": [HAS_ADAPTER, {"field": "adapter.type", "equals": kinds_for_path[0]}]}
             else:
                 when_kind = {"all": [HAS_ADAPTER, {"field": "adapter.type", "in": kinds_for_path}]}
-            f = _field_from_template(path_to_spec[p], None)
+            spec = path_to_spec[p]
+            if hidden_for := spec.get("unless_capability"):
+                # Conv/norm-only knobs: hidden on models whose adapted network has neither.
+                when_kind["all"].append({"capability": hidden_for, "equals": False})
+            f = _field_from_template(spec, None)
             f["when"] = when_kind
             fields.append(f)
 

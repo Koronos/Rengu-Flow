@@ -28,6 +28,17 @@ else:
     DTYPE_MAP = {k: k for k in ("float32", "float16", "bfloat16", "float8", "float8_e4m3fn", "float8_e5m2")}
 
 
+def fp8_block_compile_needs_reentrant(config: dict[str, Any]) -> bool:
+    """True for the fp8-base + block-scope compile + activation checkpointing combo, which
+    only works with reentrant AC (see set_config_defaults)."""
+    return bool(
+        (config.get("model") or {}).get("transformer_fp8_matmul")
+        and config.get("compile")
+        and config.get("compile_scope", "model") == "block"
+        and config.get("activation_checkpointing") is True
+    )
+
+
 def set_config_defaults(config: dict[str, Any]) -> None:
     """Apply default values to config in place.
 
@@ -56,10 +67,14 @@ def set_config_defaults(config: dict[str, Any]) -> None:
     # keeps every packed 4-bit weight referenced from forward until backward, so with
     # non-reentrant AC swap eviction frees nothing (all blocks co-resident). Reentrant runs
     # the first forward under no_grad — eviction works; measured 12.75 -> 6.3 GiB peak on
-    # the krea2 repro. Explicit user values are always respected.
+    # the krea2 repro. It is also required (not just faster) for an fp8 base under
+    # block-scope compile with checkpointing: non-reentrant AC's recompute metadata check
+    # fails on the compiled block (pytorch#166926). Explicit user values are always
+    # respected (collect_validation_warnings flags an explicit false in the fp8 combo).
     config.setdefault(
         "reentrant_activation_checkpointing",
-        bool(config.get("blocks_to_swap") and (config.get("model") or {}).get("transformer_4bit")),
+        bool(config.get("blocks_to_swap") and (config.get("model") or {}).get("transformer_4bit"))
+        or fp8_block_compile_needs_reentrant(config),
     )
     config.setdefault("warmup_steps", 0)
     if "save_dtype" in config:
@@ -74,7 +89,10 @@ def set_config_defaults(config: dict[str, Any]) -> None:
         model_config["diffusion_model_dtype"] = DTYPE_MAP[diffusion_model_dtype]
         if str(model_config.get("type", "")).lower() in ("cosmos_predict2", "anima"):
             model_config.setdefault("transformer_dtype", model_config["diffusion_model_dtype"])
-    model_config.setdefault("guidance", 1.0)
+    model_type = str(model_config.get("type", "")).lower()
+    if model_type == "sdxl":
+        # Legacy diffusion-pipe key (TOML-only, hidden in the UI); no pipeline reads it.
+        model_config.setdefault("guidance", 1.0)
     if str(model_config.get("type", "")).lower() in ("cosmos_predict2", "sdxl", "krea2", "qwen_image21"):
         model_config.setdefault("cache_text_embeddings", True)
 
@@ -83,16 +101,19 @@ def set_config_defaults(config: dict[str, Any]) -> None:
         # Frozen-base quantization knobs (A/B; default-off, mutually exclusive).
         model_config.setdefault("transformer_fp8_matmul", False)
         model_config.setdefault("transformer_4bit", False)
-        model_config.setdefault("fp8_matmul_dtype", "e5m2")
         if model_config["transformer_fp8_matmul"] and model_config["transformer_4bit"]:
             raise ConfigValidationError(
                 "model.transformer_fp8_matmul and model.transformer_4bit are mutually "
                 "exclusive; enable only one."
             )
-        if model_config["fp8_matmul_dtype"] not in ("e5m2", "e4m3"):
-            raise ConfigValidationError(
-                "model.fp8_matmul_dtype must be 'e5m2' (default) or 'e4m3'."
-            )
+        if model_type in ("cosmos_predict2", "anima"):
+            # Only cosmos' scaled-matmul path reads the weight format; krea2 / qwen_image21
+            # always quantize tensorwise e4m3.
+            model_config.setdefault("fp8_matmul_dtype", "e5m2")
+            if model_config["fp8_matmul_dtype"] not in ("e5m2", "e4m3"):
+                raise ConfigValidationError(
+                    "model.fp8_matmul_dtype must be 'e5m2' (default) or 'e4m3'."
+                )
         model_config.setdefault("fp8_grad_mode", "bf16")
         if model_config["fp8_grad_mode"] not in ("bf16", "fp8"):
             raise ConfigValidationError(
@@ -102,7 +123,6 @@ def set_config_defaults(config: dict[str, Any]) -> None:
     if str(model_config.get("type", "")).lower() in ("cosmos_predict2", "anima", "krea2", "qwen_image21"):
         preview_cfg = config.get("preview")
         if isinstance(preview_cfg, dict):
-            model_type = str(model_config.get("type", "")).lower()
             # Krea 2 reference settings: 28 steps, CFG 4.5 (cond + g*(cond - uncond)).
             # Qwen-Image 2.1 samples without CFG (reference true_cfg_scale = 1.0); its reference
             # 40 steps are trimmed to 28 for previews.
@@ -114,7 +134,9 @@ def set_config_defaults(config: dict[str, Any]) -> None:
             preview_cfg.setdefault("width", 1024)
             preview_cfg.setdefault("height", 1024)
             preview_cfg.setdefault("preview_offload_text_encoder", True)
-            preview_cfg.setdefault("preview_offload_dit_for_decode", False)
+            if model_type in ("cosmos_predict2", "anima"):
+                # Only the cosmos preview runner reads it.
+                preview_cfg.setdefault("preview_offload_dit_for_decode", False)
 
     if "adapter" in config:
         adapter_config = config["adapter"]

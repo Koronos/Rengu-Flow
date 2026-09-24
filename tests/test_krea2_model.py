@@ -462,3 +462,348 @@ def test_pipeline_layers_all_valid_mask(tiny_model):
     with torch.no_grad():
         ref = tiny_model(pack_latents(lat), embeds, t, prepare_position_ids(7, 4, 6, "cpu"), encoder_attention_mask=mask)
     assert torch.allclose(x.detach(), unpack_latents(ref, 4, 6), atol=1e-5)
+
+
+# ---- training perf/memory: RoPE grad, GAS text trim, ragged cache, VAE mode, text AC,
+# ---- adapter scope, preview memoization, lazy/streamed loading ------------------------------
+
+
+def _stub_pipeline(transformer=None, **config):
+    """A Krea2Pipeline without its component loads (``__init__`` reads the VAE from disk)."""
+    from rengu_flow.model.krea2.pipeline import Krea2Pipeline
+
+    pipe = object.__new__(Krea2Pipeline)
+    pipe.config = {"model": {"dtype": torch.float32}, **config}
+    pipe.model_config = pipe.config["model"]
+    pipe._init_block_swap_state()
+    pipe.transformer = transformer
+    pipe.cache_text_embeddings = True
+    pipe._preview_embed_cache = {}
+    return pipe
+
+
+def _step_inputs():
+    torch.manual_seed(0)
+    return (torch.randn(2, 4, 8, 12), torch.rand(2).view(-1, 1), torch.randn(2, 7, 3, 24), _text_mask_sample1_from_token4())
+
+
+def _run_layers(layers, inputs, reentrant_ac: bool = False):
+    from torch.utils.checkpoint import checkpoint
+
+    x = inputs
+    for layer in layers:
+        if reentrant_ac and isinstance(layer, TransformerLayer):
+            x = checkpoint(lambda *xs, _l=layer: _l(xs), *x, use_reentrant=True)
+        else:
+            x = layer(x)
+    return x
+
+
+def _trainable(model):
+    model.train()
+    for p in model.parameters():
+        p.requires_grad_(True)
+    return model
+
+
+@pytest.mark.parametrize("reentrant_ac", [False, True], ids=["plain", "reentrant_ac"])
+def test_initial_layer_rope_tables_do_not_require_grad(tiny_model, reentrant_ac):
+    """Only hidden/temb/temb_mod carry gradient: the RoPE tables are constants. Parameter
+    grads (text fusion, img_in, blocks) match the monolithic forward, with and without
+    reentrant AC around the blocks."""
+    model = _trainable(tiny_model)
+    inputs = _step_inputs()
+
+    initial = InitialLayer(model)
+    outputs = initial(inputs)
+    assert [t.requires_grad for t in outputs[:5]] == [True, True, True, False, False]
+
+    # Reentrant AC hands passthrough tensors back requiring grad: the blocks must still see
+    # constant RoPE tables.
+    rope_grad = []
+    hooks = [
+        b.register_forward_pre_hook(lambda _m, args: rope_grad.append(args[2][0].requires_grad))
+        for b in model.transformer_blocks
+    ]
+    blocks = [TransformerLayer(b, i, NoopOffloader()) for i, b in enumerate(model.transformer_blocks)]
+    _run_layers([initial, *blocks, FinalLayer(model)], inputs, reentrant_ac).square().mean().backward()
+    for hook in hooks:
+        hook.remove()
+    assert rope_grad and not any(rope_grad)
+    grads = {n: p.grad.clone() for n, p in model.named_parameters() if p.grad is not None}
+    model.zero_grad(set_to_none=True)
+
+    ref = model(
+        pack_latents(inputs[0]), inputs[2], inputs[1].view(-1), prepare_position_ids(7, 4, 6, "cpu"),
+        encoder_attention_mask=inputs[3],
+    )
+    unpack_latents(ref, 4, 6).square().mean().backward()
+    ref_grads = {n: p.grad for n, p in model.named_parameters() if p.grad is not None}
+    assert grads.keys() == ref_grads.keys()
+    assert any(n.startswith("text_fusion.") for n in grads)
+    for name, grad in ref_grads.items():
+        assert torch.allclose(grads[name], grad, atol=1e-5), name
+
+
+def test_initial_layer_pipe_parallel_marks_every_float_output(tiny_model):
+    """DeepSpeed pipe (> 1 stage) backprops every floating inter-stage tensor."""
+    outputs = InitialLayer(tiny_model, pipe_parallel=True)(_step_inputs())
+    assert all(t.requires_grad for t in outputs if torch.is_floating_point(t))
+
+
+def test_text_branch_checkpointed_under_activation_checkpointing(tiny_model, monkeypatch):
+    """With AC on, text_fusion + txt_in run under non-reentrant checkpoint (grad mode only);
+    outputs and grads match the un-checkpointed layer."""
+    model = _trainable(tiny_model)
+    inputs = _step_inputs()
+    calls = []
+    real_checkpoint = torch.utils.checkpoint.checkpoint
+
+    def spy(fn, *args, **kwargs):
+        calls.append(kwargs.get("use_reentrant"))
+        return real_checkpoint(fn, *args, **kwargs)
+
+    monkeypatch.setattr(torch.utils.checkpoint, "checkpoint", spy)
+
+    results = []
+    for checkpoint_text in (False, True):
+        out = InitialLayer(model, checkpoint_text=checkpoint_text)(inputs)[0]
+        out.square().mean().backward()
+        results.append((out.detach(), {n: p.grad.clone() for n, p in model.named_parameters() if p.grad is not None}))
+        model.zero_grad(set_to_none=True)
+    with torch.no_grad():
+        InitialLayer(model, checkpoint_text=True)(inputs)
+
+    assert calls == [False]
+    (out_a, grads_a), (out_b, grads_b) = results
+    assert torch.allclose(out_a, out_b, atol=1e-6)
+    assert grads_a.keys() == grads_b.keys()
+    for name in grads_a:
+        assert torch.allclose(grads_a[name], grads_b[name], atol=1e-6), name
+
+
+@pytest.mark.parametrize(
+    ("ac", "expected"), [(False, False), (True, True), ("auto", False)], ids=["off", "on", "auto"]
+)
+def test_to_layers_checkpoints_text_only_for_manual_ac(tiny_model, ac, expected):
+    initial = _stub_pipeline(tiny_model, activation_checkpointing=ac).to_layers()[0]
+    assert isinstance(initial, InitialLayer)
+    assert initial.checkpoint_text is expected
+    assert initial.pipe_parallel is False
+    assert _stub_pipeline(tiny_model, pipeline_stages=2).to_layers()[0].pipe_parallel is True
+
+
+def _krea2_step_features(lengths: list[int], tokens: int = 7):
+    """``prepare_inputs``-shaped features of one step: text right-padded to ``tokens``."""
+    mask = torch.zeros(len(lengths), tokens, dtype=torch.bool)
+    for i, n in enumerate(lengths):
+        mask[i, :n] = True
+    embeds = torch.randn(len(lengths), tokens, 3, 24) * mask[..., None, None]
+    return (torch.randn(len(lengths), 4, 8, 12), torch.rand(len(lengths)), embeds, mask)
+
+
+@pytest.mark.parametrize("pipe_parallel", [False, True], ids=["single_stage", "pipe_parallel"])
+def test_loader_trims_text_padding_per_micro_batch(tiny_model, pipe_parallel):
+    """GAS=2 with mixed caption lengths: each micro-batch drops the text lanes only the other
+    one used, so it takes the unmasked attention path — except under pipeline parallelism,
+    where the micro-batches of a step must keep one shape."""
+    from rengu_flow.data import PipelineDataLoader, SyntheticSDXLDataset
+
+    pipe = _stub_pipeline(tiny_model)
+    features = _krea2_step_features([3, 3, 7, 5])
+    label = (torch.randn(4, 16, 8, 12), None)
+
+    class Model:
+        trim_micro_batch = staticmethod(pipe.trim_micro_batch)
+
+        def prepare_inputs(self, batch, timestep_quantile=None):
+            return features, label
+
+    class Engine:
+        is_pipe_parallel = pipe_parallel
+
+        def is_first_stage(self):  # a middle stage: the loader skips the target broadcast
+            return False
+
+        is_last_stage = is_first_stage
+
+    loader = PipelineDataLoader(SyntheticSDXLDataset(num_batches=1, micro_batch_size=1), Engine(), 2, Model())
+    (mb0, _), (mb1, _) = loader._prepare_batch({})
+
+    if pipe_parallel:
+        assert mb0[2].shape[1] == mb1[2].shape[1] == 7
+        return
+    assert mb0[2].shape == (2, 3, 3, 24) and bool(mb0[3].all())
+    assert mb1[2].shape == (2, 7, 3, 24)
+    assert torch.equal(mb0[2], features[2][:2, :3])
+    # The trimmed all-valid micro-batch ships the 0-size "no mask" sentinel (fused SDPA) and
+    # predicts exactly what the padded one did.
+    trimmed = InitialLayer(tiny_model)((mb0[0], mb0[1].view(-1, 1), mb0[2], mb0[3]))
+    assert trimmed[5].numel() == 0
+    padded = (features[0][:2], features[1][:2].view(-1, 1), features[2][:2], features[3][:2])
+    rest = [TransformerLayer(b, i, NoopOffloader()) for i, b in enumerate(tiny_model.transformer_blocks)]
+    rest.append(FinalLayer(tiny_model))
+    with torch.no_grad():
+        assert torch.allclose(_run_layers(rest, trimmed), _run_layers([InitialLayer(tiny_model), *rest], padded), atol=1e-5)
+
+
+def test_text_encoder_fn_returns_per_row_valid_tokens(monkeypatch):
+    """caching_batch_size > 1: each caption is cached at its own length (no False tails)."""
+    from rengu_flow.model.krea2 import pipeline as krea2_pipeline
+
+    embeds = torch.randn(2, 6, 3, 24)
+    mask = torch.zeros(2, 6, dtype=torch.bool)
+    mask[0, [0, 1, 5]] = True  # middle padding: [prompt | PAD | suffix]
+    mask[1, :] = True
+    monkeypatch.setattr(krea2_pipeline, "encode_prompts", lambda *a, **k: (embeds, mask))
+    pipe = _stub_pipeline()
+    pipe.tokenizer, pipe.select_layers, pipe.max_sequence_length = None, (1,), 6
+
+    out = pipe.get_call_text_encoder_fn(torch.nn.Linear(1, 1))(["a", "b"], False)
+
+    assert [tuple(e.shape) for e in out["prompt_embeds"]] == [(3, 3, 24), (6, 3, 24)]
+    assert [m.tolist() for m in out["text_mask"]] == [[True] * 3, [True] * 6]
+    assert torch.equal(out["prompt_embeds"][0], embeds[0][mask[0]])
+    padded, padded_mask = pad_text_embeddings(out["prompt_embeds"], out["text_mask"])
+    assert padded.shape == (2, 6, 3, 24) and padded_mask.sum(1).tolist() == [3, 6]
+
+
+def test_vae_fn_caches_distribution_mode():
+    """The cached latent is the posterior mode (mean), not one frozen random draw."""
+    from types import SimpleNamespace
+
+    class Dist:
+        def mode(self):
+            return torch.full((1, 2, 1, 2, 2), 3.0)
+
+        def sample(self):
+            raise AssertionError("latent_dist.sample() must not be used for caching")
+
+    class Vae(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.w = torch.nn.Parameter(torch.zeros(1))
+            self.config = SimpleNamespace(latents_mean=[1.0, 1.0], latents_std=[2.0, 2.0])
+
+        def encode(self, x):
+            return SimpleNamespace(latent_dist=Dist())
+
+    pipe = _stub_pipeline()
+    pipe.vae = Vae()
+    out = pipe.get_call_vae_fn(pipe.vae)(torch.zeros(1, 3, 16, 16))
+    assert torch.equal(out["latents"], torch.ones(1, 2, 2, 2))
+
+
+def test_adapter_layer_groups_cover_default_scope(tiny_model):
+    """The union of every layer group equals the default all-linears scope (text-fusion
+    projector included)."""
+    from rengu_flow.model.krea2.pipeline import ADAPTER_LAYER_GROUPS
+    from rengu_flow.networks.adapter_targets import filter_target_names
+
+    all_linears = adapter_dit._collect_target_linears(tiny_model, ("Krea2Transformer2DModel",))
+    assert "text_fusion.projector" in all_linears
+    union = [p for patterns in ADAPTER_LAYER_GROUPS.values() for p in patterns]
+    assert sorted(filter_target_names(all_linears, union, None)) == sorted(all_linears)
+
+
+def test_preview_prompt_embeds_memoized_without_autocast(monkeypatch):
+    """Preview prompts are encoded once (no autocast, like the training cache); afterwards the
+    text encoder goes back to meta and the VAE stays in host RAM (no disk reload next time)."""
+    from rengu_flow.model.dit_common.streaming import LazyStreamedEncoder
+    from rengu_flow.model.krea2 import pipeline as krea2_pipeline
+
+    loads, encodes, vae_loads = [], [], []
+
+    class Encoder(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.layers = torch.nn.ModuleList([torch.nn.Linear(1, 1)])
+
+    def fake_encode(text_encoder, tokenizer, prompts, **kwargs):
+        encodes.append((list(prompts), torch.is_autocast_enabled("cpu")))
+        text_encoder.load()
+        mask = torch.zeros(len(prompts), 5, dtype=torch.bool)
+        for i, p in enumerate(prompts):
+            mask[i, : len(p) + 1] = True
+        return torch.randn(len(prompts), 5, 3, 24), mask
+
+    def fake_load_vae(*args, **kwargs):
+        vae_loads.append(1)
+        return torch.nn.Linear(1, 1)
+
+    def fake_load_encoder():
+        loads.append(1)
+        return Encoder()
+
+    monkeypatch.setattr(krea2_pipeline, "encode_prompts", fake_encode)
+    monkeypatch.setattr(krea2_pipeline.loading, "load_vae", fake_load_vae)
+    pipe = _stub_pipeline()
+    pipe.tokenizer, pipe.select_layers, pipe.max_sequence_length = None, (1,), 5
+    pipe._component_path = lambda component: component
+    pipe.text_encoder = LazyStreamedEncoder(fake_load_encoder, layers_of=lambda m: m.layers)
+    pipe.vae = torch.nn.Linear(1, 1, device="meta")
+
+    for _ in range(2):
+        pipe.ensure_vae_for_preview()
+        with torch.autocast("cpu", dtype=torch.bfloat16):
+            rows = pipe.preview_prompt_embeds(["ab", ""], {}, "cpu")
+        pipe.restore_after_preview()
+        assert [r.shape[0] for r in rows] == [3, 1]
+        assert next(pipe.text_encoder.parameters()).device.type == "meta"
+        assert next(pipe.vae.parameters()).device.type == "cpu"
+
+    assert encodes == [(["ab", ""], False)]
+    assert len(loads) == 1 and len(vae_loads) == 1
+
+
+def test_pipeline_init_does_not_load_text_encoder(monkeypatch, tmp_path):
+    """A warm text cache never needs the encoder: construction must not read it."""
+    from rengu_flow.model.krea2 import pipeline as krea2_pipeline
+
+    def eager(*args, **kwargs):
+        raise AssertionError("text encoder loaded eagerly")
+
+    monkeypatch.setattr(krea2_pipeline.loading, "load_vae", lambda *a, **k: torch.nn.Linear(1, 1))
+    monkeypatch.setattr(krea2_pipeline.loading, "load_tokenizer", lambda *a, **k: None)
+    monkeypatch.setattr(krea2_pipeline.loading, "load_text_encoder", eager)
+    pipe = krea2_pipeline.Krea2Pipeline({"model": {"dtype": torch.float32, "checkpoint_path": str(tmp_path)}})
+    assert next(pipe.text_encoder.parameters()).device.type == "meta"
+
+
+def test_load_text_encoder_folder_reads_text_decoder_only(monkeypatch, tmp_path):
+    """A transformers folder goes through the shared text-only loader (no vision tower)."""
+    import shutil
+
+    from rengu_flow.model.dit_common import qwen3vl
+    from rengu_flow.model.krea2 import loading
+
+    shutil.copy(loading.QWEN3VL_ASSETS / "config.json", tmp_path / "config.json")
+    (tmp_path / "model.safetensors").write_bytes(b"")
+    seen = {}
+
+    def fake_loader(files, text_config, dtype):
+        seen.update(files=files, config=type(text_config).__name__, dtype=dtype)
+        return "text-model"
+
+    monkeypatch.setattr(qwen3vl, "load_qwen3vl_text_model", fake_loader)
+    assert loading.load_text_encoder(tmp_path, torch.bfloat16) == "text-model"
+    assert seen == {"files": [tmp_path / "model.safetensors"], "config": "Qwen3VLTextConfig", "dtype": torch.bfloat16}
+
+
+def test_load_transformer_single_file_casts_while_reading(monkeypatch, tmp_path, tiny_model):
+    """Single-file DiT: read tensor by tensor and cast to the load dtype as read."""
+    from safetensors.torch import save_file
+
+    from rengu_flow.model.krea2 import dit, loading
+
+    path = tmp_path / "krea2_raw.safetensors"
+    original = _original_layout_state_dict(tiny_model.state_dict())
+    save_file({k: v.contiguous() for k, v in original.items()}, str(path))
+    config = dict(tiny_model.config)
+    monkeypatch.setattr(dit, "Krea2Transformer2DModel", lambda: Krea2Transformer2DModel(**config))
+
+    loaded = loading.load_transformer(path, torch.bfloat16).state_dict()
+
+    for name, value in tiny_model.state_dict().items():
+        assert loaded[name].dtype == torch.bfloat16, name
+        assert torch.equal(loaded[name], value.to(torch.bfloat16)), name

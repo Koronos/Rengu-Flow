@@ -105,6 +105,74 @@ def validate_model_section(model: dict[str, Any], *, raw_type: str) -> None:
                 f"config['model'] must contain at least one of: '{keys}' (for {canonical})."
             )
 
+    for spec in cap.model_fields:
+        key = _path_to_model_key(spec["path"])
+        if model.get(key) is not None:
+            _check_field_value(spec, key, model[key], canonical)
+
+
+def _check_field_value(spec: dict[str, Any], key: str, value: Any, canonical: str) -> None:
+    """Enforce a field spec's fixed ``options`` and numeric ``min`` / ``gt`` bounds, so a bad
+    value fails at validate time instead of deep in the pipeline (or silently)."""
+    ConfigValidationError = _validation_error()
+    options = spec.get("options")
+    if options and value not in options:
+        allowed = ", ".join(repr(o) for o in options)
+        raise ConfigValidationError(
+            f"model.{key} must be one of {allowed} for {canonical}, got {value!r}."
+        )
+    if spec.get("type") not in ("integer", "number") or ("min" not in spec and "gt" not in spec):
+        return
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ConfigValidationError(f"model.{key} must be a number, got {value!r}.")
+    if spec.get("type") == "integer" and not float(value).is_integer():
+        raise ConfigValidationError(f"model.{key} must be an integer, got {value!r}.")
+    if "min" in spec and value < spec["min"]:
+        raise ConfigValidationError(f"model.{key} must be >= {spec['min']}, got {value!r}.")
+    if "gt" in spec and value <= spec["gt"]:
+        hint = " Remove the key to use the default." if "default" not in spec else ""
+        raise ConfigValidationError(f"model.{key} must be > {spec['gt']}, got {value!r}.{hint}")
+
+
+def validate_tread(config: dict[str, Any], cap: ModelCapability) -> None:
+    """Config-time mirror of the pipeline's ``[tread]`` checks (``Krea2Pipeline.to_layers``
+    keeps its own; this surfaces the error before any model is loaded)."""
+    tread = config.get("tread")
+    if not tread:
+        return
+    ConfigValidationError = _validation_error()
+    if not isinstance(tread, dict):
+        raise ConfigValidationError("[tread] must be a table.")
+    if tread.get("drop_ratio") is None:
+        raise ConfigValidationError(
+            "[tread] needs drop_ratio (fraction of image tokens routed around the middle "
+            "blocks, e.g. 0.5); remove the [tread] table to turn routing off."
+        )
+    try:
+        drop_ratio = float(tread["drop_ratio"])
+        disable_after_frac = float(tread.get("disable_after_frac", 1.0))
+        start_block = int(tread.get("start_block", 2))
+        end_block = int(tread.get("end_block", -3))
+    except (TypeError, ValueError) as e:
+        raise ConfigValidationError(f"[tread] has a non-numeric value: {e}") from e
+    if not 0.0 < drop_ratio < 1.0:
+        raise ConfigValidationError(f"tread.drop_ratio must be in (0, 1), got {drop_ratio}.")
+    if not 0.0 < disable_after_frac <= 1.0:
+        raise ConfigValidationError(
+            f"tread.disable_after_frac must be in (0, 1], got {disable_after_frac}."
+        )
+    n = cap.transformer_blocks
+    if n:
+        # Same normalization as training.token_routing.resolve_route (torch-free here).
+        start = start_block if start_block >= 0 else n + start_block
+        end = end_block if end_block >= 0 else n + end_block
+        if not 0 < start < end < n - 1:
+            raise ConfigValidationError(
+                f"tread route [{start_block}, {end_block}] resolves to [{start}, {end}] on "
+                f"{n} blocks; need 0 < start < end < {n - 1} (keep the first and last block "
+                "unrouted)."
+            )
+
 
 def validate_training_keys_for_model(config: dict[str, Any]) -> None:
     """Warn via exception when training keys are set but unsupported for ``model.type``."""
@@ -145,3 +213,6 @@ def validate_config_model_rules(config: dict[str, Any]) -> None:
         )
     validate_model_section(config["model"], raw_type=raw_type)
     validate_training_keys_for_model(config)
+    cap = get_capability(raw_type)
+    if cap and (cap.features or {}).get("tread"):
+        validate_tread(config, cap)

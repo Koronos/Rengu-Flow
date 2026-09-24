@@ -265,7 +265,14 @@ class PipelineDataLoader:
         target = self._broadcast_target(target)
         label = (target, mask)
         self.num_batches_pulled += 1
-        return split_batch((features, label), self.gradient_accumulation_steps)
+        micro_batches = split_batch((features, label), self.gradient_accumulation_steps)
+        # Optional model hook: per-micro-batch trim of padding the whole-step batch introduced
+        # (e.g. text padded to the longest caption across GAS). Not under pipeline parallelism:
+        # DeepSpeed pipe stages need identical shapes across the micro-batches of a step.
+        trim = getattr(self.model, "trim_micro_batch", None)
+        if trim is not None and not getattr(self.model_engine, "is_pipe_parallel", False):
+            micro_batches = [(trim(mb_features), mb_label) for mb_features, mb_label in micro_batches]
+        return micro_batches
 
     def _iter_raw_batches(self):
         if not self._use_thread_prefetch():

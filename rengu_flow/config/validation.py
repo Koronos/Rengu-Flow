@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import Any
 
 from rengu_flow.config.dataset_library_ref import collect_script_dataset_library_ref_issues
@@ -61,9 +62,88 @@ def _optimizer_type_has_eval_train(optim_type: str) -> bool:
     return callable(getattr(cls, "eval", None)) and callable(getattr(cls, "train", None))
 
 
+# Top-level training keys the trainer reads but set_config_defaults does not default (the
+# defaulted ones are derived from it, see top_level_training_keys). Kept complete by
+# tests/test_config_misplaced_keys.py, which scans the code for top-level config reads.
+_OPTIONAL_TOP_LEVEL_KEYS = frozenset({
+    "activation_checkpoint_interval",
+    "activation_memory_budget",
+    "async_model_export",
+    "block_swap_reclaim_every",
+    "cache_root",
+    "checkpoint_every_n_epochs",
+    "checkpoint_every_n_minutes",
+    "compile_dynamic",
+    "compile_mode",
+    "compile_scope",
+    "ema_decay",
+    "ema_update_interval",
+    "engine",
+    "gradient_clipping",
+    "huber_delta",
+    "image_micro_batch_size_per_gpu",
+    "keep_exports_from_step",
+    "max_checkpoints_to_keep",
+    "max_model_exports_to_keep",
+    "max_steps",
+    "min_image_exposure",
+    "pseudo_huber_c",
+    "resume_from_checkpoint",
+    "run_name",
+    "save_dtype",
+    "save_every_n_examples",
+    "save_every_n_steps",
+    "smooth_l1_beta",
+    "synthetic_num_batches",
+    "video_clip_mode",
+})
+
+
+@lru_cache(maxsize=1)
+def top_level_training_keys() -> frozenset[str]:
+    """Every top-level key the trainer reads: what set_config_defaults defaults, the
+    feature-gated keys, and the optional knobs above."""
+    from rengu_flow.config.defaults import set_config_defaults
+    from rengu_flow.registry.model_config_rules import FEATURE_GATED_TRAINING_KEYS
+
+    stub: dict[str, Any] = {"model": {"type": "", "dtype": "bfloat16"}}
+    set_config_defaults(stub)
+    return (frozenset(stub) | frozenset(FEATURE_GATED_TRAINING_KEYS) | _OPTIONAL_TOP_LEVEL_KEYS) - {"model"}
+
+
+def collect_misplaced_top_level_keys(config: dict[str, Any]) -> list[str]:
+    """Top-level training keys written inside [model] / [adapter]. In TOML every key after a
+    `[section]` header belongs to that table, so e.g. `blocks_to_swap = 20` below `[model]`
+    becomes model.blocks_to_swap, which nothing reads — the setting is silently ignored."""
+    known = top_level_training_keys()
+    issues: list[str] = []
+    for section in ("model", "adapter"):
+        table = config.get(section)
+        if not isinstance(table, dict):
+            continue
+        for key in table:
+            if key in known:
+                issues.append(
+                    f"{section}.{key}: '{key}' belongs at top level (before the first "
+                    f"[section] header), not inside [{section}] — as written it is ignored."
+                )
+    return issues
+
+
 def collect_validation_warnings(config: dict[str, Any]) -> list[str]:
     """Non-blocking advisories for sensitive but allowed config combinations."""
     warnings: list[str] = []
+    from rengu_flow.config.defaults import fp8_block_compile_needs_reentrant
+
+    if fp8_block_compile_needs_reentrant(config) and config.get(
+        "reentrant_activation_checkpointing"
+    ) is False:
+        warnings.append(
+            "reentrant_activation_checkpointing = false with model.transformer_fp8_matmul + "
+            "compile_scope = \"block\" + activation_checkpointing: non-reentrant checkpoint "
+            "recompute fails on the compiled block (pytorch#166926). Remove the explicit "
+            "false to get the reentrant default."
+        )
     optimizer = config.get("optimizer")
     if not isinstance(optimizer, dict) or not optimizer.get("gradient_release"):
         return warnings
@@ -128,6 +208,15 @@ def collect_validation_errors(
             )
         if "dtype" not in model or model.get("dtype") in (None, ""):
             issues.append("model.dtype is required — e.g. `bfloat16` or `float16`.")
+        if "adapter" not in config:
+            quantized = [k for k in ("transformer_4bit", "transformer_fp8_matmul") if model.get(k)]
+            if quantized:
+                issues.append(
+                    f"model.{quantized[0]} quantizes the frozen base and needs an [adapter] "
+                    "section; full finetune (no [adapter]) cannot train quantized weights."
+                )
+
+    issues.extend(collect_misplaced_top_level_keys(config))
 
     optimizer = config.get("optimizer")
     if "optimizer" in config and not isinstance(optimizer, dict):
@@ -208,7 +297,7 @@ def collect_validation_errors(
                 config["model"].get("transformer_fp8_matmul") or config["model"].get("transformer_4bit")
             ):
                 # The LyCORIS backend matches targets by exact class name "Linear", so
-                # it silently skips quantized linears (Fp8MatmulLinear / Linear4bit) —
+                # it silently skips quantized linears (Fp8MatmulLinear / Fp8TensorwiseLinear / Linear4bit) —
                 # adapting only the unquantized minority. Only the built-in `lokr` is
                 # quantization-aware (routes through base_linear). Fail instead of
                 # training a near-empty adapter.

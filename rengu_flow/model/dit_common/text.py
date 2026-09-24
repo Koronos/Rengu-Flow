@@ -31,6 +31,24 @@ def compact_text_embeddings(
     return out, out_mask
 
 
+def trim_text_padding(features: tuple, embeds_idx: int = 2, mask_idx: int = 3) -> tuple:
+    """Drop the text columns no sample of a micro-batch uses.
+
+    ``prepare_inputs`` pads text to the longest caption of the whole step (micro x GAS), so
+    after the loader splits it every micro-batch but one carries all-padding lanes that keep
+    the masked-attention path on. ``features[embeds_idx]`` is ``(B, L, *feature)``,
+    ``features[mask_idx]`` ``(B, L)``; rows are right-padded, so this is a length trim.
+    """
+    text_mask = features[mask_idx]
+    keep = text_mask.bool().any(dim=0)
+    if bool(keep.all()) or not bool(keep.any()):
+        return features
+    features = list(features)
+    features[embeds_idx] = features[embeds_idx][:, keep]
+    features[mask_idx] = text_mask[:, keep]
+    return tuple(features)
+
+
 def pad_text_embeddings(
     embeds: list[torch.Tensor] | torch.Tensor, masks: list[torch.Tensor] | torch.Tensor
 ) -> tuple[torch.Tensor, torch.Tensor]:

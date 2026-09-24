@@ -8,6 +8,8 @@ gradient_accumulation_steps = 1
 activation_checkpointing = true
 save_every_n_epochs = 1
 caching_batch_size = 1
+# 16 GB cards: stream DiT blocks from CPU (top-level key — under [model] it would be ignored).
+# blocks_to_swap = 20
 
 [model]
 type = 'krea2'
@@ -16,9 +18,8 @@ dtype = 'bfloat16'
 transformer_path = 'path/to/krea2_raw_bf16.safetensors'
 vae_path = 'path/to/qwen_image_vae.safetensors'
 text_encoder_path = 'path/to/qwen3vl_4b_bf16.safetensors'
-# Fit the 12B DiT on a 16 GB card: quantize the frozen base + stream blocks from CPU.
+# Fit the 12B DiT on a 16 GB card: quantize the frozen base (plus blocks_to_swap above).
 # transformer_4bit = true
-# blocks_to_swap = 20
 
 [adapter]
 type = 'lokr'

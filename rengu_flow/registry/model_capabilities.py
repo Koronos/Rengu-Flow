@@ -35,12 +35,18 @@ _LOCON_LOHA = frozenset({"lycoris_locon", "lycoris_loha"})
 _LOCON_LOHA_LOKR = frozenset({"lycoris_locon", "lycoris_loha", "lycoris_lokr"})
 _OFT_FAMILY = frozenset({"lycoris_diag_oft", "lycoris_boft"})
 
+# Knobs that only act on Conv modules (train_conv, use_tucker) or on affine LayerNorm/GroupNorm
+# (train_norm) carry "unless_capability": the schema hides them on models whose adapted network
+# has neither (features[LINEAR_ONLY_ADAPTERS]) — there they are no-ops (or, train_norm, a
+# startup error).
+LINEAR_ONLY_ADAPTERS = "linear_only_adapters"
+
 LYCORIS_FIELD_GROUPS: list[tuple[dict[str, Any], frozenset[str]]] = [
     # Shared by all 7 lycoris kinds
     ({"path": "adapter.dropout", "label": "Dropout", "type": "number", "default": 0.0}, _ALL_LYCORIS),
     ({"path": "adapter.rank_dropout", "label": "Rank dropout", "type": "number", "default": 0.0}, _ALL_LYCORIS),
     ({"path": "adapter.module_dropout", "label": "Module dropout", "type": "number", "default": 0.0}, _ALL_LYCORIS),
-    ({"path": "adapter.train_norm", "label": "Train norm layers", "type": "boolean", "default": False}, _ALL_LYCORIS),
+    ({"path": "adapter.train_norm", "label": "Train norm layers", "type": "boolean", "default": False, "unless_capability": LINEAR_ONLY_ADAPTERS}, _ALL_LYCORIS),
     (
         {
             "path": "adapter.target_include",
@@ -60,9 +66,9 @@ LYCORIS_FIELD_GROUPS: list[tuple[dict[str, Any], frozenset[str]]] = [
         _ALL_LYCORIS,
     ),
     # Shared by all except lycoris_dylora
-    ({"path": "adapter.train_conv", "label": "Train conv layers", "type": "boolean", "default": False}, _LYCORIS_WITH_TRAIN_CONV),
+    ({"path": "adapter.train_conv", "label": "Train conv layers", "type": "boolean", "default": False, "unless_capability": LINEAR_ONLY_ADAPTERS}, _LYCORIS_WITH_TRAIN_CONV),
     # locon, loha, lokr — tucker/scalar/wd_on_output
-    ({"path": "adapter.use_tucker", "label": "Tucker decomposition", "type": "boolean", "default": False}, _LOCON_LOHA_LOKR),
+    ({"path": "adapter.use_tucker", "label": "Tucker decomposition", "type": "boolean", "default": False, "unless_capability": LINEAR_ONLY_ADAPTERS}, _LOCON_LOHA_LOKR),
     ({"path": "adapter.use_scalar", "label": "Trained scalar", "type": "boolean", "default": False}, _LOCON_LOHA_LOKR),
     ({"path": "adapter.wd_on_output", "label": "DoRA output axis", "type": "boolean", "default": True}, _LOCON_LOHA_LOKR),
     # DoRA weight decomposition: a toggle on top of locon / loha / lokr.
@@ -99,7 +105,9 @@ ADAPTER_FIELD_TEMPLATES: dict[str, list[dict[str, Any]]] = {
             "default": 16,
             "min": 1,
         },
-        {"path": "adapter.dim", "label": "Dim (alias for rank)", "type": "integer", "min": 1},
+        # Kohya-style alias of rank, accepted in TOML (defaults.py normalizes it); not a UI
+        # field — showing both side by side was two knobs for one value.
+        {"path": "adapter.dim", "label": "Dim (alias for rank)", "type": "integer", "min": 1, "ui": False},
         {
             "path": "adapter.init_from_existing",
             "label": "Init from existing adapter path",
@@ -146,6 +154,21 @@ class ModelCapability:
     # Top-level module names of the adapter-targeted model, for torch-free preflight of
     # target_include/exclude typos (guarded against the real DiT by the same test file).
     adapter_module_roots: list[str] = field(default_factory=list)
+    # Number of DiT transformer blocks (config-time [tread] route range check); 0 = unknown.
+    transformer_blocks: int = 0
+    # [model] keys that change what the text encoder produces, mapped to their default. Set
+    # values (other than the default) join the text-embedding cache key, so changing one
+    # re-encodes instead of silently reusing stale embeddings (see text_cache_identity()).
+    text_cache_keys: dict[str, Any] = field(default_factory=dict)
+
+    def text_cache_identity(self, model_config: dict[str, Any]) -> dict[str, Any]:
+        """The text-encoder settings of ``model_config`` that key the text-embedding cache.
+        Empty when nothing differs from the defaults, which keeps existing caches valid."""
+        return {
+            key: str(model_config[key])
+            for key, default in self.text_cache_keys.items()
+            if model_config.get(key) is not None and model_config[key] != default
+        }
 
     def training_modes(self) -> list[str]:
         modes: list[str] = []
@@ -569,7 +592,11 @@ def _register_builtin_capabilities() -> None:
             adapters=["lora", "lokr", *LYCORIS_ADAPTER_TYPES],
             full_finetune=True,
             preview=True,
-            features={"preview": True, "block_swap": True, "tread": True},
+            features={"preview": True, "block_swap": True, "tread": True, LINEAR_ONLY_ADAPTERS: True},
+            transformer_blocks=28,
+            # ponytail: only the knob users change on purpose; keying on encoder/checkpoint
+            # paths would re-encode every cache on a file move. Add them if encoders diverge.
+            text_cache_keys={"max_sequence_length": 512},
             branding_note=(
                 "Use the Krea 2 Raw open-weights files (raw.safetensors or ComfyUI's "
                 "krea2_raw_bf16.safetensors, plus the Qwen3-VL text encoder and Qwen-Image "
@@ -604,34 +631,36 @@ def _register_builtin_capabilities() -> None:
                     "path": "model.transformer_path",
                     "label": "Main model (.safetensors)",
                     "type": "path",
-                    "required": True,
+                    # Not "required": each component path is one_of(<component>_path,
+                    # checkpoint_path) — the diffusers folder below fills any left empty.
+                    "importance": "recommended",
                     "placeholder": "path/to/krea2_raw_bf16.safetensors",
-                    "description": "The big DiT checkpoint you train (official raw.safetensors or ComfyUI file). A diffusers transformer folder also works.",
+                    "description": "The big DiT checkpoint you train (official raw.safetensors or ComfyUI file). A diffusers transformer folder also works. Optional when the diffusers folder below is set.",
                 },
                 {
                     "path": "model.vae_path",
                     "label": "Image VAE (.safetensors)",
                     "type": "path",
-                    "required": True,
+                    "importance": "recommended",
                     "placeholder": "path/to/qwen_image_vae.safetensors",
-                    "description": "Qwen-Image VAE — the same file Cosmos/Anima setups use. Encodes images to latents for training.",
+                    "description": "Qwen-Image VAE — the same file Cosmos/Anima setups use. Encodes images to latents for training. Optional when the diffusers folder below is set.",
                 },
                 {
                     "path": "model.text_encoder_path",
                     "label": "Text encoder — Qwen3-VL (.safetensors)",
                     "type": "path",
-                    "required": True,
+                    "importance": "recommended",
                     "placeholder": "path/to/qwen3vl_4b_bf16.safetensors",
                     "path_expect": "any",
-                    "description": "Turns captions into conditioning (ComfyUI file or transformers folder). Tokenizer is bundled.",
+                    "description": "Turns captions into conditioning (ComfyUI file or transformers folder). Tokenizer is bundled. Optional when the diffusers folder below is set.",
                 },
                 {
                     "path": "model.checkpoint_path",
                     "label": "Diffusers folder (alternative)",
                     "type": "path",
                     "path_expect": "dir",
-                    "show_if_set": True,
-                    "description": "Full Krea-2-Raw diffusers folder; fills any component path left empty.",
+                    "importance": "recommended",
+                    "description": "Full Krea-2-Raw diffusers folder (transformer/, vae/, text_encoder/); fills any of the three component paths left empty. Set either this or the three files above.",
                 },
                 {
                     "path": "model.tokenizer_path",
@@ -645,6 +674,7 @@ def _register_builtin_capabilities() -> None:
                     "label": "Max caption tokens",
                     "type": "integer",
                     "default": 512,
+                    "min": 1,
                     "description": "Prompt token budget before truncation (default 512). Lower it to shrink the text-embedding cache; captions longer than this lose their tail.",
                 },
                 {
@@ -653,7 +683,7 @@ def _register_builtin_capabilities() -> None:
                     "type": "boolean",
                     "default": False,
                     "when_model_has_adapter": True,
-                    "description": "Stores the frozen DiT block linears as 4-bit NF4 (~7 GB instead of ~26 GB bf16); the adapter trains on top at full precision. Required on 16 GB cards — pair with adapter type LoKr (LyCORIS kinds refuse a quantized base).",
+                    "description": "Stores the frozen DiT block linears as 4-bit NF4 (~7 GB instead of ~26 GB bf16); the adapter trains on top at full precision. A 16 GB card needs 4-bit or fp8 (transformer_fp8_matmul) — pair with adapter type LoKr (LyCORIS kinds refuse a quantized base).",
                 },
                 {
                     "path": "model.transformer_dtype",
@@ -667,17 +697,21 @@ def _register_builtin_capabilities() -> None:
                     "label": "DiT forward dtype",
                     "type": "select",
                     "options_key": "dtypes",
-                    "description": "Autocast dtype for DiT forward; defaults to model.dtype. Sets transformer_dtype when omitted.",
+                    # TOML-only for krea2: it only changes the global training autocast dtype
+                    # (main.py) — overlaps model.dtype / transformer_dtype, never sets the load dtype.
+                    "ui": False,
+                    "description": "Training autocast dtype override (defaults to model.dtype). Does not change the DiT load dtype — that is transformer_dtype.",
                 },
                 {
                     "path": "model.shift",
                     "label": "Fixed timestep shift",
                     "type": "number",
                     "placeholder": "empty = resolution-aware dynamic shift",
+                    "gt": 0,
                     "description": (
-                        "Fixed timestep shift, overriding Krea 2's default resolution-aware dynamic "
-                        "shift (exponential, ~0.5 at short sequences to ~1.15 at long ones by latent "
-                        "sequence length). Empty keeps the dynamic default."
+                        "Advanced — leave empty. Fixed timestep shift (> 0), overriding the reference "
+                        "Krea 2 resolution-aware dynamic shift (mu 0.5 at 256 latent tokens to 1.15 at "
+                        "6400, i.e. an equivalent fixed shift of exp(mu) ~1.65 to ~3.16)."
                     ),
                 },
                 {
@@ -686,9 +720,9 @@ def _register_builtin_capabilities() -> None:
                     "type": "number",
                     "default": 1.0,
                     "description": (
-                        "Scale applied to the logit-normal sample before sigmoid, only used when "
-                        "timestep_sample_method is logit_normal. Raising it pushes sampled timesteps "
-                        "toward the extremes (near 0 or 1)."
+                        "Advanced — the default 1.0 is the reference. Scale applied to the "
+                        "logit-normal sample before sigmoid (logit_normal only); raising it pushes "
+                        "sampled timesteps toward the extremes (near 0 or 1)."
                     ),
                 },
                 {
@@ -698,8 +732,8 @@ def _register_builtin_capabilities() -> None:
                     "options": ["logit_normal", "uniform"],
                     "default": "logit_normal",
                     "description": (
-                        "How training timesteps are sampled per step: logit_normal (default, "
-                        "concentrates around mid-range noise levels) or uniform (uniform in [0, 1])."
+                        "Advanced — logit_normal (default) is the reference Krea 2 training "
+                        "distribution (mid-range noise levels); uniform samples t evenly in [0, 1]."
                     ),
                 },
                 {

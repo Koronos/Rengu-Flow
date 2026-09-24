@@ -246,3 +246,33 @@ def test_te_cache_fingerprint_tracks_variant_config(tmp_path):
     fp5 = content_fingerprint(m5.metadata_dataset, cols)
     assert fp3 == fp3b  # identical config -> identical (cache reused)
     assert fp3 != fp5  # K changed -> fingerprint changed (cache regenerated)
+
+
+def test_te_cache_rekeys_on_text_encoder_settings(tmp_path):
+    """te_cache_args (the model's text-encoder settings, e.g. krea2 max_sequence_length) key the
+    text-embedding cache: same args reuse it, changed args re-encode every row instead of
+    reusing (or salvaging) embeddings built with the old setting."""
+    from rengu_flow.data.dataset import _cache_text_embeddings
+
+    meta = datasets.Dataset.from_dict(
+        {"image_spec": [[None, "a.jpg"], [None, "b.jpg"]], "caption": [["one"], ["two"]]}
+    )
+    encoded = []
+
+    def fake_te_map(example, rank):
+        encoded.extend(example["caption"])
+        return {"prompt_embeds": torch.zeros(len(example["caption"]), 2)}
+
+    def run(args):
+        encoded.clear()
+        _cache_text_embeddings(
+            meta, fake_te_map, 1, tmp_path / "cache", False, 1, cache_num_proc=1, te_cache_args=args
+        )
+        return len(encoded)
+
+    assert run([]) == 2
+    assert run([]) == 0  # unchanged settings (the pre-existing key) -> reused
+    changed = [[("max_sequence_length", "256")]]
+    assert run(changed) == 2  # changed setting -> re-encoded, not salvaged
+    assert run(changed) == 0
+    assert run([]) == 2  # back to the defaults: that key's rows were replaced, re-encode

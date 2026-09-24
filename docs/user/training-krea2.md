@@ -13,6 +13,44 @@ Two checkpoints exist and are **not interchangeable**:
 - **`krea/Krea-2-Turbo`** — a distilled few-step checkpoint for fast inference only. It is not
   a valid training base.
 
+## Recommended defaults
+
+Most runs only need the three component paths plus these; leave everything else unset.
+
+- **Adapter:** LoRA `rank = 32` (the model authors' reference); on a quantized base use the
+  quantization-aware `lokr` instead (recipe below). `alpha` is always `rank` (setting it is
+  rejected).
+- **Timesteps:** keep the defaults — `logit_normal` sampling plus the resolution-aware
+  dynamic shift is the reference Krea 2 scheduler. `shift`, `sigmoid_scale` and
+  `timestep_sample_method` are advanced A/B knobs.
+- **`activation_checkpointing = true`.**
+- **16 GB card:** a quantized base (`model.transformer_4bit = true`, or
+  `model.transformer_fp8_matmul = true` on RTX 40xx) plus `blocks_to_swap = 20`, with an
+  `[adapter]`:
+
+```toml
+activation_checkpointing = true
+blocks_to_swap = 20          # top-level: every key after [model] belongs to [model]
+
+[model]
+type = "krea2"
+dtype = "bfloat16"
+transformer_path = "path/to/krea2_raw_bf16.safetensors"
+vae_path = "path/to/qwen_image_vae.safetensors"
+text_encoder_path = "path/to/qwen3vl_4b_bf16.safetensors"
+transformer_4bit = true
+
+[adapter]
+type = "lokr"                # quantization-aware; lycoris_* refuse a quantized base
+rank = 6
+factor = -1
+```
+
+Top-level training keys (`blocks_to_swap`, `compile*`, `activation_checkpointing`,
+`reentrant_activation_checkpointing`, `gradient_accumulation_steps`, ...) must sit **before**
+the first `[section]` header. Written under `[model]` or `[adapter]` they would be silently
+ignored, so validation rejects them with "belongs at top level".
+
 ## Getting the checkpoint
 
 Krea 2 trains from **per-component local files**, the same pattern as Cosmos/Anima — no full
@@ -54,22 +92,25 @@ nothing is ever downloaded automatically, rengu never resolves repo ids.
 | Config key | What it is | Required | Default |
 |------------|------------|----------|---------|
 | **`type`** | Model type. | Yes | — |
-| **`dtype`** | Load/compute dtype for the VAE, text encoder, adapters, and (unless overridden) the DiT. | Yes | — |
+| **`dtype`** | Load/compute dtype for the VAE, text encoder and (unless `transformer_dtype` is set) the DiT. Adapter weights are separate: `adapter.dtype`, default `float32`. | Yes | — |
 | **`transformer_path`** | DiT: the official `raw.safetensors` / ComfyUI's `krea2_raw_bf16.safetensors`, or a diffusers `transformer/` folder. Rejects pre-quantized fp8/nvfp4 "scaled" files. | One of `transformer_path` / `checkpoint_path` | — |
 | **`vae_path`** | Qwen-Image VAE: `qwen_image_vae.safetensors` (same file Cosmos uses) or a diffusers `vae/` folder. | One of `vae_path` / `checkpoint_path` | — |
 | **`text_encoder_path`** | Qwen3-VL: `qwen3vl_4b_bf16.safetensors` or a transformers `text_encoder/` folder. | One of `text_encoder_path` / `checkpoint_path` | — |
-| **`checkpoint_path`** | Full diffusers-layout folder (`transformer/`, `vae/`, `text_encoder/`); fills any of the three component paths left empty. | No | Unset |
+| **`checkpoint_path`** | Full diffusers-layout folder (`transformer/`, `vae/`, `text_encoder/`); fills any of the three component paths left empty. Set either this or the three component paths. | No | Unset |
 | **`tokenizer_path`** | Folder with tokenizer files. | No | Bundled Qwen3-VL tokenizer (`rengu_flow/model/krea2/assets/qwen3vl_4b`) |
-| **`max_sequence_length`** | Prompt token budget before truncation. Lower it to shrink the text-embedding cache; captions longer than this lose their tail. | No | `512` |
+| **`max_sequence_length`** | Prompt token budget before truncation (integer >= 1). Lower it to shrink the text-embedding cache; captions longer than this lose their tail. | No | `512` |
 | **`transformer_dtype`** | DiT checkpoint load dtype only (VAE/text unaffected). | No | `dtype` |
-| **`transformer_4bit`** | Quantize the frozen DiT's linears to 4-bit NF4 (bitsandbytes). Mutually exclusive with `transformer_fp8_matmul`. | No | `false` |
-| **`transformer_fp8_matmul`** | Quantize the frozen DiT's linears to fp8 (tensorwise-scaled e4m3, 1 byte/param). Mutually exclusive with `transformer_4bit`. | No | `false` |
-| **`fp8_matmul_dtype`** | `"e5m2"` or `"e4m3"`. Not read on this path — Krea 2's tensorwise quantization always uses e4m3 (see below). | No | `"e5m2"` |
+| **`transformer_4bit`** | Quantize the frozen DiT's linears to 4-bit NF4 (bitsandbytes). Adapter training only; mutually exclusive with `transformer_fp8_matmul`. | No | `false` |
+| **`transformer_fp8_matmul`** | Quantize the frozen DiT's linears to fp8 (tensorwise-scaled e4m3, 1 byte/param; always e4m3). Adapter training only; mutually exclusive with `transformer_4bit`. | No | `false` |
 | **`fp8_grad_mode`** | `"bf16"` or `"fp8"`: backward input-gradient GEMM precision, only used when `transformer_fp8_matmul = true`. | No | `"bf16"` |
-| **`timestep_sample_method`** | `"logit_normal"` or `"uniform"` timestep sampling for training. | No | `"logit_normal"` |
-| **`sigmoid_scale`** | Scales the logit-normal sample before the sigmoid; only used when `timestep_sample_method = "logit_normal"`. | No | `1.0` |
-| **`shift`** | Fixed rectified-flow time shift. When set, it **overrides** the default resolution-aware dynamic shift below. | No | Unset (dynamic) |
+| **`timestep_sample_method`** | Advanced. `"logit_normal"` or `"uniform"` timestep sampling for training; other values are rejected. | No | `"logit_normal"` |
+| **`sigmoid_scale`** | Advanced. Scales the logit-normal sample before the sigmoid; only used when `timestep_sample_method = "logit_normal"`. | No | `1.0` |
+| **`shift`** | Advanced. Fixed rectified-flow time shift (must be > 0). When set, it **overrides** the default resolution-aware dynamic shift below. | No | Unset (dynamic) |
 | **`cache_text_embeddings`** | Always required `true` — the tapped 12-layer Qwen3-VL stack cannot run inside the training graph. Setting it `false` is rejected at startup. | No | `true` |
+
+`diffusion_model_dtype` is accepted in TOML but not shown in the web UI for Krea 2: it only
+overrides the training autocast dtype and never the DiT load dtype (that is
+`transformer_dtype`), so `dtype` / `transformer_dtype` already cover it.
 
 ### Minimal `[model]` example
 
@@ -89,8 +130,11 @@ usual flow-matching parameterization). Timesteps are drawn from a logit-normal
 distribution and then passed through an **exponential time shift**: by default this shift
 is **resolution-aware** — `mu` is computed from the packed image sequence length (patch-2
 tokens), interpolating from `0.5` at 256 tokens to `1.15` at 6400 tokens, matching the
-reference Krea 2 scheduler config. Set `model.shift` to a fixed number only if you want to
-override that per-resolution behavior with a single constant.
+reference Krea 2 scheduler config. The exponential shift at `mu` is exactly the usual fixed
+shift `t' = s*t / (1 + (s - 1)*t)` with `s = exp(mu)`, so the default spans `s ~ 1.65` (256
+tokens) to `s ~ 3.16` (6400 tokens); 1024x1024 is 4096 tokens. Use that mapping when comparing
+with trainers that take a single fixed shift value (such as musubi-tuner). Set `model.shift`
+to a fixed number only if you want to override the per-resolution behavior with a constant.
 
 ## Modes
 
@@ -149,14 +193,19 @@ algorithm's mechanism, not from the checkpoint:
   (orthogonal rotation) and are the most VRAM-hungry LyCORIS types — add `blocks_to_swap`
   on 16 GB cards.
 - **Quantized base is not supported with `lycoris_*`**: the LyCORIS backend matches targets
-  by exact class name `Linear`, so it silently skips the quantized linears
-  (`Fp8MatmulLinear` / `Linear4bit`) — config validation rejects `transformer_4bit` /
-  `transformer_fp8_matmul` together with any `lycoris_*` adapter. Use `adapter.type = "lokr"`
-  (quantization-aware) on a quantized base instead.
+  by exact class name `Linear`, so it would silently skip the quantized linears
+  (`Fp8TensorwiseLinear` for Krea 2's fp8 base, `Linear4bit` for 4-bit) — config validation
+  rejects `transformer_4bit` / `transformer_fp8_matmul` together with any `lycoris_*` adapter.
+  Use `adapter.type = "lokr"` (quantization-aware) on a quantized base instead.
+- **`train_conv`, `use_tucker`, `train_norm` do nothing here** (hidden in the web UI): the DiT
+  has no Conv layers, and its norms are Krea's own RMSNorm, which LyCORIS' norm training
+  (affine LayerNorm/GroupNorm only) does not match — `train_norm = true` fails at startup.
 
 ### Full finetune
 
-Omit the `[adapter]` section. All DiT parameters with `requires_grad` are trained; export
+Omit the `[adapter]` section. All DiT parameters with `requires_grad` are trained (a quantized
+base — `transformer_4bit` / `transformer_fp8_matmul` — is rejected at validation: it is
+frozen by design); export
 writes a diffusers-layout transformer folder (`config.json` + `diffusion_pytorch_model.safetensors`)
 loadable by `Krea2Transformer2DModel.from_pretrained` / diffusers' `Krea2Pipeline`, not
 `adapter_model.safetensors`.
@@ -241,14 +290,17 @@ Three knobs combine into an "F8T" recipe that measured a large per-step speedup 
 card, at the cost of some setup complexity and an open quality A/B:
 
 ```toml
-[model]
-transformer_fp8_matmul = true
-
+# Top-level keys first — anything after [model] belongs to [model].
 compile = true
 compile_dynamic = true
 compile_scope = "block"
-reentrant_activation_checkpointing = true
+activation_checkpointing = true
 blocks_to_swap = 16
+# reentrant_activation_checkpointing defaults to true for this combo (see below)
+
+[model]
+# ...type / dtype / component paths...
+transformer_fp8_matmul = true
 
 [tread]
 drop_ratio = 0.5
@@ -267,10 +319,14 @@ disable_after_frac = 0.85
   on a random batch-shared subset of image tokens instead of the full sequence; text tokens
   are always kept, and dropped tokens still get gradient through the bypass. Leaving
   `drop_ratio` unset keeps the `[tread]` table out of the TOML entirely (routing off — there
-  is no default). Training-only: never active for eval, previews, or val probes.
+  is no default). Training-only: never active for eval, previews, or val probes. Checked at
+  validation: `drop_ratio` in (0, 1), `disable_after_frac` in (0, 1], and the route must
+  satisfy `0 < start < end < 27` (28 blocks; the first and last block stay unrouted).
 
-**Constraint:** `transformer_fp8_matmul` + `compile_scope = "block"` requires
-`reentrant_activation_checkpointing = true`. Non-reentrant AC's recompute compares checkpoint
+**Constraint:** `transformer_fp8_matmul` + `compile_scope = "block"` with activation
+checkpointing requires `reentrant_activation_checkpointing = true`, so it **defaults to
+`true`** for that combination (an explicit `false` is kept but logs a warning). Non-reentrant
+AC's recompute compares checkpoint
 metadata against the forward graph, and that comparison fails once the block is compiled
 (static-vs-dynamic-shape divergence, pytorch#166926); reentrant AC runs the recompute under
 `no_grad` and skips the comparison entirely.
@@ -312,6 +368,10 @@ written to disk (padding lanes are dropped), so cache size scales with actual ca
 length rather than the fixed prompt budget. `model.max_sequence_length` (default `512`)
 caps that budget — lower it to shrink the cache further if your captions are short;
 captions longer than the limit lose their tail.
+
+Changing `max_sequence_length` changes the cache key, so the next run re-encodes the
+captions instead of reusing embeddings built with the old setting. Swapping the text
+encoder or tokenizer does not: delete the text-embedding cache yourself in that case.
 
 Run the cache pass before training:
 
@@ -360,3 +420,8 @@ per-prompt tables, signal files).
 ```bash
 python -m rengu_flow.main --config my.toml --validate-only
 ```
+
+To check the whole training path on your GPU: `python scripts/smoke_krea2_mini.py` trains a
+few steps on a small random-weight Krea 2 (no downloads, any 4 GB+ GPU); with the real files
+in `.env` (`RENGU_KREA2_*`, see `.env.example`), `scripts/run_model_smoke.sh krea2` runs a
+16 GB-sized LoRA smoke (Linux/WSL). See [Smoke tests](../developer/smoke-tests.md).

@@ -163,6 +163,19 @@ class TextEmbeddingDataset:
         ]
 
 
+def text_cache_fingerprint_args(training_config: dict | None) -> list:
+    """Extra text-embedding cache key parts: the model's text-encoder settings that change what
+    the encoder produces (``ModelCapability.text_cache_keys``, e.g. krea2's
+    max_sequence_length / text_encoder_path). Empty when they are all at their defaults, so
+    caches built before this key existed stay valid."""
+    from rengu_flow.registry.model_capabilities import get_capability
+
+    model_cfg = (training_config or {}).get("model") or {}
+    cap = get_capability(model_cfg.get("type"))
+    identity = cap.text_cache_identity(model_cfg) if cap else {}
+    return [sorted(identity.items())] if identity else []
+
+
 def _cache_text_embeddings(
     metadata_dataset,
     map_fn,
@@ -172,8 +185,14 @@ def _cache_text_embeddings(
     caching_batch_size: int,
     cache_num_proc: int | None = None,
     cache_keep_in_memory: bool = False,
+    te_cache_args: list | None = None,
 ):
-    """Flatten captions to one row per (image, caption), then map_and_cache."""
+    """Flatten captions to one row per (image, caption), then map_and_cache.
+
+    ``te_cache_args`` (see :func:`text_cache_fingerprint_args`) joins the cache key and the
+    reuse key, so a changed text-encoder setting re-encodes instead of reusing (or salvaging)
+    embeddings built with the old one.
+    """
     # Collapse a root image's augmentation variants to ONE row per (root image, caption): text
     # embeddings depend only on the caption, not the image crop, and once caption variants are
     # seeded by the base image (image_spec_base) every augmentation of a source carries identical
@@ -245,7 +264,7 @@ def _cache_text_embeddings(
         map_fn,
         cache_dir,
         cache_file_prefix=te_prefix,
-        new_fingerprint_args=[i],
+        new_fingerprint_args=[i, *(te_cache_args or [])],
         fingerprint_override=te_fp_override,
         regenerate_cache=regenerate_cache,
         caching_batch_size=caching_batch_size,
@@ -787,6 +806,7 @@ class SizeBucketDataset:
         caching_batch_size: int = 1,
         cache_num_proc: int | None = None,
         cache_keep_in_memory: bool = False,
+        te_cache_args: list | None = None,
     ) -> None:
         te_dataset = _cache_text_embeddings(
             self.metadata_dataset,
@@ -797,6 +817,7 @@ class SizeBucketDataset:
             caching_batch_size,
             cache_num_proc=cache_num_proc,
             cache_keep_in_memory=cache_keep_in_memory,
+            te_cache_args=te_cache_args,
         )
         self.text_embedding_datasets.append(te_dataset)
 
@@ -1171,6 +1192,7 @@ class ARBucketDataset:
         caching_batch_size: int = 1,
         cache_num_proc: int | None = None,
         cache_keep_in_memory: bool = False,
+        te_cache_args: list | None = None,
     ) -> None:
         # Expand caption variants to match each size bucket's iteration order, which expands
         # them too (maybe_expand_caption_variants in SizeBucketDataset). Without this the te
@@ -1187,6 +1209,7 @@ class ARBucketDataset:
                     caching_batch_size=caching_batch_size,
                     cache_num_proc=cache_num_proc,
                     cache_keep_in_memory=cache_keep_in_memory,
+                    te_cache_args=te_cache_args,
                 )
             return
         metadata, _ = maybe_expand_caption_variants(
@@ -1201,6 +1224,7 @@ class ARBucketDataset:
             caching_batch_size,
             cache_num_proc=cache_num_proc,
             cache_keep_in_memory=cache_keep_in_memory,
+            te_cache_args=te_cache_args,
         )
         for sb in self.size_buckets:
             sb.text_embedding_datasets.append(te_dataset)
@@ -2167,6 +2191,7 @@ class DirectoryDataset:
         cache_keep_in_memory: bool = False,
     ) -> None:
         caching_progress.note(f"directory {self.path}")
+        te_cache_args = text_cache_fingerprint_args(self._training_config)
         datasets_list = (
             self.size_bucket_datasets
             if self.use_size_buckets
@@ -2185,6 +2210,7 @@ class DirectoryDataset:
                     caching_batch_size=caching_batch_size,
                     cache_num_proc=cache_num_proc,
                     cache_keep_in_memory=cache_keep_in_memory,
+                    te_cache_args=te_cache_args,
                 )
         empty_ds = datasets.Dataset.from_dict(
             {
@@ -2198,6 +2224,7 @@ class DirectoryDataset:
             map_fn,
             cache_dir=self.cache_dir,
             cache_file_prefix=f"uncond_text_embeddings_{i}_",
+            new_fingerprint_args=te_cache_args or None,
             regenerate_cache=regenerate_cache,
             num_proc=cache_num_proc,
             keep_in_memory=cache_keep_in_memory,

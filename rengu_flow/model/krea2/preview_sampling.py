@@ -9,7 +9,7 @@ import torch.nn.functional as F
 
 from rengu_flow.model.dit_common import preview_autocast as _autocast
 from rengu_flow.model.krea2.dit import pack_latents, prepare_position_ids, unpack_latents
-from rengu_flow.model.krea2.text import compact_text_embeddings, encode_prompts
+from rengu_flow.model.krea2.text import pad_text_embeddings
 from rengu_flow.utils.common import round_to_nearest_multiple
 
 
@@ -50,20 +50,10 @@ def generate_preview_image(pipeline, preview_cfg: dict, prompt: str, step: int, 
     do_cfg = guidance > 0
 
     pipeline.ensure_vae_for_preview()
-    pipeline.ensure_text_encoder_for_preview(device)
 
-    with _autocast(pipeline):
-        prompts = [prompt, negative_prompt] if do_cfg else [prompt]
-        embeds, text_mask = encode_prompts(
-            pipeline.text_encoder,
-            pipeline.tokenizer,
-            prompts,
-            select_layers=pipeline.select_layers,
-            max_sequence_length=pipeline.max_sequence_length,
-            device=device,
-        )
-        embeds, text_mask = compact_text_embeddings(embeds, text_mask)
-    pipeline.offload_text_encoder_after_encode(preview_cfg)
+    prompts = [prompt, negative_prompt] if do_cfg else [prompt]
+    rows = pipeline.preview_prompt_embeds(prompts, preview_cfg, device)
+    embeds, text_mask = pad_text_embeddings(rows, [row.new_ones(row.shape[0], dtype=torch.bool) for row in rows])
 
     transformer = pipeline.transformer
     grid_h, grid_w = height // 16, width // 16
