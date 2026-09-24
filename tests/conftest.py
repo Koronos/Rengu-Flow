@@ -101,6 +101,9 @@ def _isolated_ui_sqlite(
     enumerate their own ``tmp_path`` (e.g. checkpoint/export retention).
     """
     if request.node.get_closest_marker("no_ui_db"):
+        # No jobs.db, but prep artifacts (backups, quarantine) still resolve under
+        # RENGU_FLOW_UI_DATA — without this they leaked into the real <repo>/data/prep.
+        monkeypatch.setenv("RENGU_FLOW_UI_DATA", str(tmp_path_factory.mktemp("ui_data_no_db")))
         return
     if "ui_data_tmp" in request.fixturenames:
         return
