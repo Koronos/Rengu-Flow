@@ -33,33 +33,21 @@ fi
 
 source_env_and_paths() {
   ENV_FILE="${REPO_ROOT}/.env"
-  if [[ ! -f "${ENV_FILE}" ]]; then
-    echo "Missing ${ENV_FILE}. Copy .env.example and set model paths." >&2
-    exit 1
-  fi
+  [[ -f "${ENV_FILE}" ]] || smoke_skip "missing ${ENV_FILE} (copy .env.example, set model paths)"
   set -a
   # shellcheck disable=SC1090
   source "${ENV_FILE}"
   set +a
   VENV="${REPO_ROOT}/.venv"
   DEEPSPEED="${VENV}/bin/deepspeed"
-  if [[ ! -x "${DEEPSPEED}" ]]; then
-    echo "Missing ${DEEPSPEED}" >&2
-    exit 1
-  fi
+  [[ -x "${DEEPSPEED}" ]] || smoke_skip "missing ${DEEPSPEED}"
   export PATH="${VENV}/bin:${PATH}"
   if [[ "${MODEL}" == "sdxl" ]]; then
-    [[ -f "${RENGU_SDXL_CHECKPOINT_PATH:-}" ]] || {
-      echo "Set RENGU_SDXL_CHECKPOINT_PATH in .env" >&2
-      exit 1
-    }
+    [[ -f "${RENGU_SDXL_CHECKPOINT_PATH:-}" ]] || smoke_skip "set RENGU_SDXL_CHECKPOINT_PATH in .env"
     BASE_CONFIG="${REPO_ROOT}/tests/fixtures/smoke/train_sdxl.toml"
   else
     for var in RENGU_COSMOS_TRANSFORMER_PATH RENGU_COSMOS_VAE_PATH RENGU_COSMOS_LLM_PATH; do
-      [[ -f "${!var:-}" ]] || {
-        echo "Set ${var} in .env" >&2
-        exit 1
-      }
+      [[ -f "${!var:-}" ]] || smoke_skip "set ${var} in .env"
     done
     BASE_CONFIG="${REPO_ROOT}/tests/fixtures/smoke/train_cosmos_predict2.toml"
   fi

@@ -89,3 +89,70 @@ def test_run_prepared_applies_externally_set_env_model_paths(tmp_path, monkeypat
     # validate-only exercises load_config -> env apply -> defaults -> validate_config;
     # without the env application this raises SystemExit("Config validation failed ...").
     run_prepared(parse_args(["--config", str(config_file), "--validate-only"]))
+
+
+def test_apply_krea2_paths(monkeypatch):
+    for key, value in {
+        "RENGU_KREA2_TRANSFORMER_PATH": "/t.safetensors",
+        "RENGU_KREA2_VAE_PATH": "/v.safetensors",
+        "RENGU_KREA2_TEXT_ENCODER_PATH": "/te.safetensors",
+        "RENGU_KREA2_CHECKPOINT_PATH": "/Krea-2-Raw",
+    }.items():
+        monkeypatch.setenv(key, value)
+    config = {"model": {"type": "krea2", "dtype": "bfloat16"}}
+    apply_model_paths_from_env(config)
+    assert config["model"]["transformer_path"] == "/t.safetensors"
+    assert config["model"]["vae_path"] == "/v.safetensors"
+    assert config["model"]["text_encoder_path"] == "/te.safetensors"
+    assert config["model"]["checkpoint_path"] == "/Krea-2-Raw"
+
+
+def test_model_path_errors_krea2_one_of(tmp_path):
+    """krea2 components are one_of(<component>_path, checkpoint_path) and may be folders."""
+    ckpt_dir = tmp_path / "Krea-2-Raw"
+    ckpt_dir.mkdir()
+    te_dir = tmp_path / "text_encoder"
+    te_dir.mkdir()
+    dit = tmp_path / "dit.safetensors"
+    dit.write_bytes(b"x")
+
+    missing = model_path_errors({"model": {"type": "krea2"}})
+    assert len(missing) == 3
+    assert all("checkpoint_path" in e for e in missing)
+
+    assert model_path_errors({"model": {"type": "krea2", "checkpoint_path": str(ckpt_dir)}}) == []
+
+    components = {"transformer_path": str(dit), "vae_path": str(dit), "text_encoder_path": str(te_dir)}
+    assert model_path_errors({"model": {"type": "krea2", **components}}) == []
+
+    # A partial set is fine when checkpoint_path fills the rest.
+    partial = {"type": "krea2", "transformer_path": str(dit), "checkpoint_path": str(ckpt_dir)}
+    assert model_path_errors({"model": partial}) == []
+
+    bad = {"type": "krea2", **components, "vae_path": str(tmp_path / "nope.safetensors")}
+    errors = model_path_errors({"model": bad})
+    assert errors == [f"[model].vae_path not found: {tmp_path / 'nope.safetensors'}"]
+
+
+def test_check_config_model_paths_cli(tmp_path, monkeypatch, capsys):
+    """`python -m rengu_flow.config.local_env CONFIG` (smoke pre-check) exits 77 (skip) on
+    missing paths."""
+    import pytest
+
+    from rengu_flow.config.local_env import SMOKE_SKIP_EXIT, check_config_model_paths
+
+    for key in ("RENGU_KREA2_TRANSFORMER_PATH", "RENGU_KREA2_VAE_PATH",
+                "RENGU_KREA2_TEXT_ENCODER_PATH", "RENGU_KREA2_CHECKPOINT_PATH"):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setattr("rengu_flow.config.local_env.load_repo_dotenv", lambda *a, **k: False)
+    config_file = tmp_path / "train.toml"
+    config_file.write_text('[model]\ntype = "krea2"\ndtype = "bfloat16"\n', encoding="utf-8")
+    with pytest.raises(SystemExit) as exc:
+        check_config_model_paths(config_file)
+    assert exc.value.code == SMOKE_SKIP_EXIT == 77
+    assert "checkpoint_path" in capsys.readouterr().err
+
+    ckpt_dir = tmp_path / "Krea-2-Raw"
+    ckpt_dir.mkdir()
+    monkeypatch.setenv("RENGU_KREA2_CHECKPOINT_PATH", str(ckpt_dir))
+    check_config_model_paths(config_file)  # no SystemExit

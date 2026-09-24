@@ -21,9 +21,9 @@ fi
 DEEPSPEED="${VENV}/bin/deepspeed"
 PYTHON="${VENV}/bin/python"
 
-[[ -f "${REPO_ROOT}/.env" ]] || { echo "Missing .env (RENGU_SDXL_CHECKPOINT_PATH)" >&2; exit 1; }
-
+# Exit 77 (skip) when RENGU_SDXL_CHECKPOINT_PATH is missing from .env / the environment.
 "${PYTHON}" -m rengu_flow.config.local_env "${CONFIG}"
+load_smoke_dotenv
 
 if [[ "${ENSURE_FIXTURES:-1}" == "1" ]]; then
   need_vendor=0

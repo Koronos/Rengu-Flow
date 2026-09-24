@@ -31,7 +31,7 @@ bite agents and contributors.
 | Web UI (dev) | `uv run rengu ui dev --no-open` → Vite `http://127.0.0.1:5173`, API `:8765` |
 | Tests | `uv run --extra dev pytest` (pytest is in the `dev` extra) |
 | UI/Cosmos/LoKr tests | add `--extra ui --extra cosmos_predict2 --extra lycoris` |
-| GPU smoke | `./scripts/run_model_smoke.sh sdxl\|sdxl_lokr\|cosmos\|cosmos_lokr` |
+| GPU smoke | `./scripts/run_model_smoke.sh sdxl\|sdxl_lokr\|cosmos\|cosmos_lokr\|krea2` ([smoke tests](smoke-tests.md)) |
 
 Open the dev UI from a **Windows browser** at `http://127.0.0.1:5173` — WSL2 forwards `localhost`,
 so no extra config is needed. The FastAPI/Vite servers themselves must run in WSL (GPU + deps).

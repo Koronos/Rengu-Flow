@@ -13,24 +13,17 @@ source "${REPO_ROOT}/scripts/lib/smoke_common.sh"
 SMOKE_IMAGES_DIR="${REPO_ROOT}/tests/fixtures/smoke_cc0/images"
 SMOKE_OUTPUT_DIR="${REPO_ROOT}/output"
 SMOKE_LOG_DIR="${REPO_ROOT}/tmp"
-DEEPSPEED="${VENV}/bin/deepspeed"
 SIGNALS_CONFIG="${REPO_ROOT}/tests/fixtures/smoke/train_cosmos_predict2_signals.toml"
 GENERIC_CONFIG="${REPO_ROOT}/tests/fixtures/smoke/train_cosmos_predict2_genericoptim.toml"
 RUN_NAME="smoke_signals"
 GENERIC_RUN_NAME="smoke_genericoptim"
 
-if [[ ! -x "${DEEPSPEED}" ]]; then
-  echo "Missing ${DEEPSPEED}. Run: uv sync or pip install -e ." >&2
-  exit 1
-fi
+require_deepspeed
 
-if [[ ! -f "${REPO_ROOT}/.env" ]]; then
-  echo "Missing ${REPO_ROOT}/.env. Copy .env.example to .env and set RENGU_COSMOS_* paths." >&2
-  exit 1
-fi
-
+# Exit 77 (skip) when RENGU_COSMOS_* are missing from .env / the environment.
 "${VENV}/bin/python" -m rengu_flow.config.local_env "${SIGNALS_CONFIG}"
 "${VENV}/bin/python" -m rengu_flow.config.local_env "${GENERIC_CONFIG}"
+load_smoke_dotenv
 
 export PATH="${VENV}/bin:${PATH}"
 setup_smoke_gpu_env

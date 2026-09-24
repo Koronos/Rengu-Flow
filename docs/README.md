@@ -26,6 +26,7 @@
   - [Documentation conventions](developer/documentation-conventions.md) — User vs developer vs spec docs, optional-parameter tables, feature checklist.
   - [Architecture and design goals](developer/architecture.md) — Registries, execution flow, extensibility principles.
   - [Testing](developer/testing.md) — How to run tests, layout, fixtures, and dataset/data loading tests.
+  - [Smoke tests](developer/smoke-tests.md) — GPU smoke convention (paths via `.env`, artifacts, exit codes), inventory, adding a smoke.
   - [Dataset and cache](developer/dataset-and-cache.md) — Dataset config contract, code locations, cache v1/v2.
   - [CPU/RAM and disk cache performance](developer/performance-cpu-ram.md) — dataloader/cache tuning, smoke A/B.
   - [POC CPU/RAM results](developer/poc-cpu-ram-results.md) — Benchmark verdicts and default policy for cache/dataloader flags.

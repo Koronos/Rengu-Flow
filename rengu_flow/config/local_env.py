@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 from typing import Any
 
 from rengu_flow.config.local_config import load_local_config, repo_root
+
+# Smoke "skipped: prerequisites missing" exit code (autotools convention); see
+# docs/developer/smoke-tests.md. scripts/lib/smoke_common.sh uses the same value.
+SMOKE_SKIP_EXIT = 77
 
 # Env var name -> config['model'] key per model type (optional override when env is set externally).
 _MODEL_PATH_ENV: dict[str, dict[str, str]] = {
@@ -15,6 +20,12 @@ _MODEL_PATH_ENV: dict[str, dict[str, str]] = {
         "transformer_path": "RENGU_COSMOS_TRANSFORMER_PATH",
         "vae_path": "RENGU_COSMOS_VAE_PATH",
         "llm_path": "RENGU_COSMOS_LLM_PATH",
+    },
+    "krea2": {
+        "transformer_path": "RENGU_KREA2_TRANSFORMER_PATH",
+        "vae_path": "RENGU_KREA2_VAE_PATH",
+        "text_encoder_path": "RENGU_KREA2_TEXT_ENCODER_PATH",
+        "checkpoint_path": "RENGU_KREA2_CHECKPOINT_PATH",
     },
 }
 
@@ -70,21 +81,68 @@ def apply_model_paths_from_env(config: dict[str, Any]) -> list[str]:
     return applied
 
 
+def _one_of_groups(model_type: str) -> list[list[str]]:
+    from rengu_flow.registry.model_capabilities import get_capability
+    from rengu_flow.registry.model_config_rules import one_of_groups
+
+    cap = get_capability(model_type)
+    return one_of_groups(cap) if cap else []
+
+
 def model_path_errors(config: dict[str, Any]) -> list[str]:
-    """Human-readable errors for missing or invalid model paths in the training config."""
+    """Human-readable errors for missing or invalid model paths in the training config.
+
+    Keys in a capability ``one_of`` group (krea2: ``<component>_path`` or
+    ``checkpoint_path``) only need one member set, and may be folders; other keys must be
+    existing files.
+    """
     model = config.get("model")
     if not isinstance(model, dict):
         return []
     model_type = str(model.get("type", "")).lower()
     mapping = _MODEL_PATH_ENV.get(model_type, {})
+    groups = [g for g in _one_of_groups(model_type) if all(k in mapping for k in g)]
+    grouped = {k for g in groups for k in g}
+
+    def _is_set(key: str) -> bool:
+        return bool(str(model.get(key) or "").strip())
+
     errors: list[str] = []
+    for group in groups:
+        if not any(_is_set(k) for k in group):
+            errors.append(f"Set one of [model].{' / [model].'.join(group)} in your training config")
     for model_key in mapping:
-        path = str(model.get(model_key, "")).strip()
+        path = str(model.get(model_key) or "").strip()
         if not path:
-            errors.append(f"Set [model].{model_key} in your training config")
+            if model_key not in grouped:
+                errors.append(f"Set [model].{model_key} in your training config")
             continue
-        if not Path(path).is_file():
+        exists = Path(path).exists() if model_key in grouped else Path(path).is_file()
+        if not exists:
             errors.append(f"[model].{model_key} not found: {path}")
     return errors
 
 
+def check_config_model_paths(config_path: str | Path) -> None:
+    """Load config (+ repo-root ``.env``); exit ``SMOKE_SKIP_EXIT`` if model paths are missing.
+
+    Smoke pre-check: missing weights mean the smoke is skipped, not failed.
+    """
+    from rengu_flow.config.loader import load_config
+
+    load_local_config()
+    load_repo_dotenv()
+    config = load_config(config_path)
+    apply_model_paths_from_env(config)
+    errors = model_path_errors(config)
+    if errors:
+        for msg in errors:
+            print(f"SKIP: {msg}", file=sys.stderr)
+        raise SystemExit(SMOKE_SKIP_EXIT)
+
+
+if __name__ == "__main__":
+    if len(sys.argv) != 2:
+        print("Usage: python -m rengu_flow.config.local_env CONFIG.toml", file=sys.stderr)
+        raise SystemExit(2)
+    check_config_model_paths(sys.argv[1])

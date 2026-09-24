@@ -31,8 +31,9 @@ uv run --extra dev pytest tests/test_dataset_config.py            # single file
 uv run --extra dev pytest tests/test_install.py::test_name        # single test
 uv run --extra dev pytest -k augmentation -x
 
-# GPU smoke tests (optional, local, needs real checkpoints via .env)
-scripts/run_model_smoke.sh sdxl|sdxl_lokr|cosmos|cosmos_lokr
+# GPU smoke tests (optional, local, needs real checkpoints via .env) — docs/developer/smoke-tests.md
+scripts/run_model_smoke.sh sdxl|sdxl_lokr|cosmos|cosmos_lokr|krea2
+python scripts/smoke_krea2_mini.py   # random mini Krea 2, no weights/DeepSpeed (native Windows ok)
 ```
 
 There is **no linter/formatter/typechecker configured** for the Python side. Don't invent a `ruff`/`black` step. The Vue frontend in `ui/web/` uses `npm` (`npm run build`, `npm run dev`, `npm run test` via Vitest, `vue-tsc` for types) — separate from Python.

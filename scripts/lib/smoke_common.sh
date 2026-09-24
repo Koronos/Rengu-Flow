@@ -4,6 +4,33 @@
 : "${REPO_ROOT:?REPO_ROOT required}"
 VENV="${VENV:-${REPO_ROOT}/.venv}"
 
+# Exit code for "prerequisites missing (model weights, .env, DeepSpeed)": the smoke was
+# skipped, not failed. Same code `python -m rengu_flow.config.local_env CONFIG` exits with.
+# Convention: docs/developer/smoke-tests.md.
+SMOKE_SKIP_EXIT=77
+
+smoke_skip() {
+  echo "SKIP: $*" >&2
+  exit "${SMOKE_SKIP_EXIT}"
+}
+
+require_deepspeed() {
+  DEEPSPEED="${VENV}/bin/deepspeed"
+  [[ -x "${DEEPSPEED}" ]] || smoke_skip "missing ${DEEPSPEED} (Linux/WSL + uv sync)"
+}
+
+# Export RENGU_*_PATH from the repo-root .env so fixtures without [model] paths resolve
+# inside the launched trainer. Normal runs never read .env — the trainer only honors
+# model-path env vars already present in its environment.
+load_smoke_dotenv() {
+  if [[ -f "${REPO_ROOT}/.env" ]]; then
+    set -a
+    # shellcheck disable=SC1091
+    source "${REPO_ROOT}/.env"
+    set +a
+  fi
+}
+
 setup_smoke_gpu_env() {
   export NCCL_P2P_DISABLE="${NCCL_P2P_DISABLE:-1}"
   export NCCL_IB_DISABLE="${NCCL_IB_DISABLE:-1}"

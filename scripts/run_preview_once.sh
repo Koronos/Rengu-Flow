@@ -9,7 +9,7 @@ source "${REPO_ROOT}/scripts/lib/smoke_common.sh"
 
 SMOKE_OUTPUT_DIR="${REPO_ROOT}/output"
 SMOKE_LOG_DIR="${REPO_ROOT}/tmp"
-DEEPSPEED="${VENV}/bin/deepspeed"
+require_deepspeed
 CONFIG="${REPO_ROOT}/tmp/preview_visual_config.toml"
 PREVIEW_STEPS="${PREVIEW_STEPS:-10}"
 STALE_SEC="${STALE_SEC:-180}"
@@ -26,6 +26,7 @@ setup_smoke_gpu_env
 select_master_port_if_unset
 
 "${VENV}/bin/python" -m rengu_flow.config.local_env "${CONFIG}"
+load_smoke_dotenv
 
 LOG_FILE="${SMOKE_LOG_DIR}/preview_visual_$(date +%Y%m%d_%H%M%S).log"
 mkdir -p "${SMOKE_LOG_DIR}"
@@ -147,7 +148,7 @@ echo "Touched preview signal" | tee -a "${LOG_FILE}"
 wait_for_preview_done "${pid}"
 stop_train
 
-preview_png="${run_dir}/preview/prompt_0_step"*
+preview_png="${run_dir}/preview/"*.png  # utils/preview.py: step########_<prompt>.png
 # shellcheck disable=SC2086
 matches=( ${preview_png} )
 if [[ ! -f "${matches[0]:-}" ]]; then

@@ -12,11 +12,7 @@ source "${REPO_ROOT}/scripts/lib/smoke_common.sh"
 SMOKE_IMAGES_DIR="${REPO_ROOT}/tests/fixtures/smoke_cc0/images"
 SMOKE_OUTPUT_DIR="${REPO_ROOT}/output"
 SMOKE_LOG_DIR="${REPO_ROOT}/tmp"
-DEEPSPEED="${VENV}/bin/deepspeed"
-if [[ ! -x "${DEEPSPEED}" ]]; then
-  echo "Missing ${DEEPSPEED}. Run: uv sync or pip install -e ." >&2
-  exit 1
-fi
+require_deepspeed
 
 MODEL="${1:-}"
 IS_LYCORIS=0
@@ -30,12 +26,14 @@ COSMOS_LYCORIS_ALGOS="locon loha lokr dylora glora diag_oft boft"
 LYCORIS_STYLE="kohya"
 LYCORIS_STEM="${SDXL_LYCORIS_STEM}"
 LYCORIS_ALGOS="${SDXL_LYCORIS_ALGOS}"
+EXPORT_CHECK=""
 
 case "${MODEL}" in
   sdxl)        CONFIG="${REPO_ROOT}/tests/fixtures/smoke/train_sdxl.toml" ;;
   sdxl_lokr)   CONFIG="${REPO_ROOT}/tests/fixtures/smoke/train_sdxl_lokr.toml" ;;
   cosmos)      CONFIG="${REPO_ROOT}/tests/fixtures/smoke/train_cosmos_predict2.toml" ;;
   cosmos_lokr) CONFIG="${REPO_ROOT}/tests/fixtures/smoke/train_cosmos_predict2_lokr.toml" ;;
+  krea2)       CONFIG="${REPO_ROOT}/tests/fixtures/smoke/train_krea2.toml"; EXPORT_CHECK="krea2" ;;
   cosmos_lokr_autolr) CONFIG="${REPO_ROOT}/tests/fixtures/smoke/train_cosmos_predict2_lokr_autolr.toml" ;;
   sdxl_lycoris_locon|sdxl_lycoris_loha|sdxl_lycoris_lokr|sdxl_lycoris_dylora|sdxl_lycoris_glora|sdxl_lycoris_diag_oft|sdxl_lycoris_boft)
     IS_LYCORIS=1; ALGO="${MODEL#sdxl_lycoris_}"
@@ -58,24 +56,16 @@ case "${MODEL}" in
     LYCORIS_STEM="${COSMOS_LYCORIS_STEM}"; LYCORIS_ALGOS="${COSMOS_LYCORIS_ALGOS}"
     CONFIG="${REPO_ROOT}/tests/fixtures/smoke/${COSMOS_LYCORIS_STEM}_locon.toml" ;;
   *)
-    echo "Usage: $0 sdxl|sdxl_lokr|cosmos|cosmos_lokr|cosmos_lokr_autolr|sdxl_lycoris_<algo>|sdxl_lycoris_extras|sdxl_lycoris_all|cosmos_lycoris_<algo>|cosmos_lycoris_extras|cosmos_lycoris_all" >&2
+    echo "Usage: $0 sdxl|sdxl_lokr|cosmos|cosmos_lokr|cosmos_lokr_autolr|krea2|sdxl_lycoris_<algo>|sdxl_lycoris_extras|sdxl_lycoris_all|cosmos_lycoris_<algo>|cosmos_lycoris_extras|cosmos_lycoris_all" >&2
     echo "  sdxl lycoris algos:   ${SDXL_LYCORIS_ALGOS// /|}" >&2
     echo "  cosmos lycoris algos: ${COSMOS_LYCORIS_ALGOS// /|}" >&2
     exit 1
     ;;
 esac
 
+# Exits SMOKE_SKIP_EXIT (77) when model paths are missing from .env / the environment.
 "${VENV}/bin/python" -m rengu_flow.config.local_env "${CONFIG}"
-
-# Smoke-only: export RENGU_*_PATH from the repo-root .env so fixtures without
-# [model] paths resolve inside the launched trainer. Normal runs never read .env —
-# the trainer only honors model-path env vars already present in its environment.
-if [[ -f "${REPO_ROOT}/.env" ]]; then
-  set -a
-  # shellcheck disable=SC1091
-  source "${REPO_ROOT}/.env"
-  set +a
-fi
+load_smoke_dotenv
 
 ENSURE_FIXTURES="${ENSURE_FIXTURES:-1}"
 need_vendor=0
@@ -128,6 +118,33 @@ lycoris_export_check() {
     --algo "lycoris_${algo}" --style "${LYCORIS_STYLE}"
 }
 
+# Krea 2 LoRA: official `transformer.*` prefix, lora_A/lora_B pairs, every tensor finite.
+krea2_export_check() {
+  local adapter_file
+  adapter_file="$(find "${SMOKE_OUTPUT_DIR}" -name "adapter_model.safetensors" | sort | tail -1)"
+  if [[ -z "${adapter_file}" ]]; then
+    echo "ERROR: no adapter_model.safetensors found in ${SMOKE_OUTPUT_DIR} after ${MODEL} run." >&2
+    return 1
+  fi
+  echo "=== export check: ${adapter_file} (${MODEL}) ==="
+  "${VENV}/bin/python" - "${adapter_file}" <<'PY'
+import sys
+
+import torch
+from safetensors.torch import load_file
+
+sd = load_file(sys.argv[1])
+bad = [k for k in sd if not k.startswith("transformer.")]
+assert sd and not bad, f"keys without transformer. prefix: {bad[:5]}"
+n_a = sum(".lora_A." in k or k.endswith((".lokr_w1", ".lokr_w1_a")) for k in sd)
+n_b = sum(".lora_B." in k or k.endswith((".lokr_w2", ".lokr_w2_a")) for k in sd)
+assert n_a and n_a == n_b, "adapter factor keys missing or unpaired (lora_A/B or lokr_w1/w2)"
+nonfinite = [k for k, v in sd.items() if not torch.isfinite(v.float()).all()]
+assert not nonfinite, f"non-finite tensors: {nonfinite[:5]}"
+print(f"export OK: {len(sd)} tensors, {n_a} adapted modules")
+PY
+}
+
 if [[ "${KEEP_SMOKE_ARTIFACTS:-0}" != "1" ]]; then
   purge_smoke_data
 fi
@@ -175,12 +192,16 @@ elif [[ "${IS_LYCORIS}" == "1" ]]; then
   } 2>&1 | tee "${LOG_FILE}" || SMOKE_EXIT=$?
 
 else
-  echo "Smoke ${MODEL} (cache_only + 30 steps) -> ${LOG_FILE}"
+  STEPS="$(sed -n 's/^max_steps *= *\([0-9]*\).*/\1/p' "${CONFIG}" | head -1)"
+  echo "Smoke ${MODEL} (cache_only + ${STEPS} steps) -> ${LOG_FILE}"
   {
     echo "=== cache_only ==="
     "${DEEPSPEED}" --num_gpus=1 --master_port="${MASTER_PORT}" --module rengu_flow.main --config "${CONFIG}" --cache_only
-    echo "=== train max_steps=30 ==="
+    echo "=== train max_steps=${STEPS} ==="
     "${DEEPSPEED}" --num_gpus=1 --master_port="${MASTER_PORT}" --module rengu_flow.main --config "${CONFIG}" --trust_cache
+    if [[ -n "${EXPORT_CHECK}" ]]; then
+      "${EXPORT_CHECK}_export_check"
+    fi
   } 2>&1 | tee "${LOG_FILE}" || SMOKE_EXIT=$?
 fi
 

@@ -1,0 +1,36 @@
+# Krea 2 LoKr smoke (10 steps x GAS 2) with the versioned CC0 dataset, sized for a 16 GB card.
+# Model paths: RENGU_KREA2_{TRANSFORMER,VAE,TEXT_ENCODER}_PATH, or RENGU_KREA2_CHECKPOINT_PATH
+# (diffusers Krea-2-Raw folder), in repo-root `.env` (see `.env.example`).
+#   scripts/run_model_smoke.sh krea2
+# No real weights? scripts/smoke_krea2_mini.py runs the same pipeline on a random mini model.
+
+dataset = "tests/fixtures/smoke/dataset_cc0.toml"
+output_dir = "output"
+max_steps = 10
+epochs = 999
+micro_batch_size_per_gpu = 1
+gradient_accumulation_steps = 2
+pipeline_stages = 1
+activation_checkpointing = true
+logging_steps = 1
+caching_batch_size = 1
+save_every_n_epochs = 999
+bench = true
+# 16 GB: stream DiT blocks from CPU (top-level key; under [model] it would be ignored).
+# 24 GB+ can drop this and transformer_4bit below.
+blocks_to_swap = 20
+
+[model]
+type = "krea2"
+dtype = "bfloat16"
+# Quantize the frozen 12B base to NF4 (~7 GB instead of ~26 GB bf16); the quantization-aware lokr trains on top.
+transformer_4bit = true
+
+[adapter]
+type = "lokr"
+rank = 6
+factor = -1
+
+[optimizer]
+type = "adamw"
+lr = 3.0e-5
