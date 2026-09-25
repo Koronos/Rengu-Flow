@@ -306,7 +306,12 @@ class CosmosPredict2Pipeline(dit_common.DiTPipeline):
         transformer = self.transformer
         text_encoder = None if self.cache_text_embeddings else self.text_encoder
         layers = [
-            InitialLayer(transformer, text_encoder, self.is_generic_llm),
+            InitialLayer(
+                transformer,
+                text_encoder,
+                self.is_generic_llm,
+                pipe_parallel=int(self.config.get("pipeline_stages", 1)) > 1,
+            ),
             LLMAdapterLayer(transformer.llm_adapter if self.use_llm_adapter else None),
         ]
         for i, block in enumerate(transformer.blocks):

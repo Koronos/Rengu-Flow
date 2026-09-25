@@ -19,6 +19,7 @@ import torch
 from PIL import Image
 from torch import nn
 
+from rengu_flow.model.dit_common import pad_text_embeddings
 from rengu_flow.model.dit_common.streaming import LazyStreamedEncoderWithCompanion
 from rengu_flow.model.qwen_image21 import loading, preview_sampling
 from rengu_flow.model.qwen_image21.dit import (
@@ -298,7 +299,14 @@ def _te_pipeline(encoder, calls):
     return p
 
 
+def _rows(embeds, mask):
+    """Per-row valid tokens of a right-padded ``(B, L, ...)`` batch."""
+    return [e[m] for e, m in zip(embeds, mask)]
+
+
 def test_text_encoder_fn_t2i_is_unchanged_and_edit_adds_image_pad_mask(monkeypatch):
+    """Every output is one row per caption at its own valid length (no False tails from the
+    caching batch's longest caption), in the reference encode's values."""
     encoder = _tiny_qwen3vl()
     monkeypatch.setattr(loading, "load_qwen3vl_config", lambda _path: encoder.config)
     calls = []
@@ -307,21 +315,32 @@ def test_text_encoder_fn_t2i_is_unchanged_and_edit_adds_image_pad_mask(monkeypat
     fn = p.get_call_text_encoder_fn(p.text_encoder)
     tokenizer = p.tokenizer
 
-    # Text-to-image captions: the old output exactly, and the vision tower is never read.
-    plain = fn(["a cat", "a dog"], [False, False])
-    ref, ref_mask = encode_prompts(encoder.model.language_model, tokenizer, ["a cat", "a dog"], device="cpu")
+    # Text-to-image captions: the old values per row, and the vision tower is never read.
+    captions = ["a cat", "a much longer caption about a dog"]
+    plain = fn(captions, [False, False])
+    ref, ref_mask = encode_prompts(encoder.model.language_model, tokenizer, captions, device="cpu")
+    assert not bool(ref_mask.all())  # the reference batch is padded
     assert set(plain) == {"prompt_embeds", "text_mask"}
-    assert torch.equal(plain["prompt_embeds"], ref) and torch.equal(plain["text_mask"], ref_mask)
-    assert fn(["a cat"], [False], [None])["prompt_embeds"].shape[0] == 1
+    assert [e.shape[0] for e in plain["prompt_embeds"]] == ref_mask.sum(1).tolist()
+    for got, want in zip(plain["prompt_embeds"], _rows(ref, ref_mask)):
+        assert torch.equal(got, want)
+    assert all(bool(m.all()) for m in plain["text_mask"])
+    padded, padded_mask = pad_text_embeddings(plain["prompt_embeds"], plain["text_mask"])
+    assert torch.equal(padded, ref) and torch.equal(padded_mask, ref_mask)
+    assert len(fn(["a cat"], [False], [None])["prompt_embeds"]) == 1
     assert calls == ["text"]
 
     # Edit captions: the reference encode + image_pad_mask; the vision tower loads once.
     images = _images()
     out = fn(["make it snowy", "add a hat"], [False, False], [images[:1], images[:1]])
     ref_e, ref_m, ref_p, _ = _reference_ti2i_prompt_embeds(encoder, p._processor, ["make it snowy", "add a hat"], images[:1])
-    assert torch.equal(out["prompt_embeds"], ref_e) and torch.equal(out["image_pad_mask"], ref_p.bool())
+    ref_m = ref_m.bool()
+    for got, want in zip(out["prompt_embeds"], _rows(ref_e, ref_m)):
+        assert torch.equal(got, want)
+    for got, want in zip(out["image_pad_mask"], _rows(ref_p.bool(), ref_m)):
+        assert torch.equal(got, want)
     out = fn(["x"], [False], [images])
-    assert int(out["image_pad_mask"].sum()) == 64 + 80
+    assert int(out["image_pad_mask"][0].sum()) == 64 + 80
     assert calls == ["text", "vision"]
     assert p.text_encoder.companion is encoder.model.visual
     # The shell never keeps the encoder alive: unloading it must be able to free the weights.
@@ -329,8 +348,10 @@ def test_text_encoder_fn_t2i_is_unchanged_and_edit_adds_image_pad_mask(monkeypat
 
     # A mixed batch: the t2i row equals its text-only encode, with an all-False image_pad_mask.
     mixed = fn(["make it snowy", "a cat"], [False, False], [images[:1], None])
-    n = int(mixed["text_mask"][1].sum())
-    assert torch.equal(mixed["prompt_embeds"][1, :n], ref[0, : int(ref_mask[0].sum())])
+    ref_cat, _ = encode_prompts(encoder.model.language_model, tokenizer, ["a cat"], device="cpu")
+    assert torch.equal(mixed["prompt_embeds"][1], ref_cat[0])
+    assert [m.shape[0] for m in mixed["text_mask"]] == [e.shape[0] for e in mixed["prompt_embeds"]]
+    assert [m.shape[0] for m in mixed["image_pad_mask"]] == [e.shape[0] for e in mixed["prompt_embeds"]]
     assert not mixed["image_pad_mask"][1].any() and int(mixed["image_pad_mask"][0].sum()) == 64
 
     # Condition images the processor would resize (area < 256x256) are refused.
@@ -409,7 +430,7 @@ def test_vae_fn_encodes_condition_images_with_alpha_mode_and_normalization():
     controls = [torch.zeros(2, 3, 1, 64, 32), torch.zeros(2, 4, 1, 32, 32)]
     out = fn(target, controls)
     assert set(out) == {"latents", "control_latents_0", "control_latents_1"}
-    assert out["latents"].shape == (2, 64, 2, 4) and torch.all(out["latents"] == 2.0)  # sample: (5 - 1) / 2
+    assert out["latents"].shape == (2, 64, 2, 4) and torch.all(out["latents"] == 2.5)  # mode: (6 - 1) / 2
     assert out["control_latents_0"].shape == (2, 64, 1, 4, 2)
     assert out["control_latents_1"].shape == (2, 64, 1, 2, 2)
     assert torch.all(out["control_latents_0"] == 2.5)  # mode: (6 - 1) / 2

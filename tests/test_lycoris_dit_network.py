@@ -268,3 +268,24 @@ def test_train_norm_rejected_on_dit_without_affine_norms():
     cfg["train_norm"] = True
     with pytest.raises(RuntimeError, match="no trainable LayerNorm/GroupNorm"):
         lycoris_dit.configure(model, cfg)
+
+
+def test_cosmos_lycoris_targets_are_linear_only():
+    """Backs cosmos' linear_only_adapters capability (the UI hides train_conv / use_tucker /
+    train_norm): the real DiT's LyCORIS containers hold no Conv and no affine LayerNorm/GroupNorm."""
+    from rengu_flow.model.cosmos_predict2.dit import MiniTrainDIT
+    from rengu_flow.registry.model_capabilities import LINEAR_ONLY_ADAPTERS, get_capability
+
+    model = MiniTrainDIT(
+        max_img_h=32, max_img_w=32, max_frames=1, in_channels=4, out_channels=4, patch_spatial=2,
+        patch_temporal=1, model_channels=32, num_blocks=2, num_heads=2, crossattn_emb_channels=1024,
+        pos_emb_cls="rope3d", use_adaln_lora=True, use_llm_adapter=True,
+    )
+    modules = [m for c in lycoris_dit._block_containers(model) for m in c.modules()]
+    assert modules
+    assert not [m for m in modules if isinstance(m, nn.modules.conv._ConvNd)]
+    assert not [
+        m for m in modules
+        if isinstance(m, (nn.LayerNorm, nn.GroupNorm)) and getattr(m, "weight", None) is not None
+    ]
+    assert get_capability("cosmos_predict2").features[LINEAR_ONLY_ADAPTERS] is True

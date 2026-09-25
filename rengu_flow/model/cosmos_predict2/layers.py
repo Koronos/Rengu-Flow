@@ -14,7 +14,7 @@ __all__ = ["NoopOffloader", "tokenize", "compute_text_embeddings", "InitialLayer
 
 
 class InitialLayer(nn.Module):
-    def __init__(self, model, text_encoder, is_generic_llm):
+    def __init__(self, model, text_encoder, is_generic_llm, pipe_parallel: bool = False):
         super().__init__()
         self.x_embedder = model.x_embedder
         self.pos_embedder = model.pos_embedder
@@ -25,6 +25,9 @@ class InitialLayer(nn.Module):
         self.text_encoder = text_encoder
         self.model = [model]
         self.is_generic_llm = is_generic_llm
+        # DeepSpeed pipe (> 1 stage) backprops every floating inter-stage tensor, so they
+        # must all require grad there; single-stage marks only what carries gradient.
+        self.pipe_parallel = pipe_parallel
 
     def forward(self, inputs):
         with cuda_autocast():
@@ -56,8 +59,13 @@ class InitialLayer(nn.Module):
                 x_B_T_H_W_D, t_embedding_B_T_D, crossattn_emb, t5_input_ids, attn_mask,
                 t5_attn_mask, rope_emb_L_1_1_D, adaln_lora_B_T_3D, timesteps_B_T,
             )
-            for tensor in outputs:
-                if torch.is_floating_point(tensor):
+            # x / t_embedding / adaln_lora only: the RoPE table and timesteps are constants, and
+            # the text embedding is a cached (or no_grad-encoded) leaf — it gets its grad from
+            # the LLM adapter when that trains. Marking the RoPE table would make every block
+            # backprop into a leaf nobody reads.
+            marked = outputs if self.pipe_parallel else (outputs[0], outputs[1], outputs[7])
+            for tensor in marked:
+                if tensor is not None and torch.is_floating_point(tensor):
                     tensor.requires_grad_(True)
             return outputs
 
@@ -101,9 +109,11 @@ class TransformerLayer(nn.Module):
             x_B_T_H_W_D, t_embedding_B_T_D, crossattn_emb, rope_emb_L_1_1_D, adaln_lora_B_T_3D, timesteps_B_T = inputs
 
             self.offloader.wait_for_block(self.block_idx)
+            # Detached: reentrant AC (and pipe stages) hand the passthrough RoPE table back
+            # requiring grad; the block must still treat it as a constant.
             x_B_T_H_W_D = self.block(
                 x_B_T_H_W_D, t_embedding_B_T_D, crossattn_emb,
-                rope_emb_L_1_1_D=rope_emb_L_1_1_D, adaln_lora_B_T_3D=adaln_lora_B_T_3D,
+                rope_emb_L_1_1_D=rope_emb_L_1_1_D.detach(), adaln_lora_B_T_3D=adaln_lora_B_T_3D,
             )
             self.offloader.submit_move_blocks_forward(self.block_idx)
 

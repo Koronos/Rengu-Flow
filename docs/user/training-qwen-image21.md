@@ -58,7 +58,7 @@ Each component resolves to `<diffusers_path>/<subfolder>`; a per-component path 
 | **`fp8_grad_mode`** | Precision of the input-gradient GEMM through the fp8 base. `fp8` is faster, `bf16` keeps the clean gradient. | `bf16`, `fp8` | `bf16` |
 | **`transformer_4bit`** | Store the frozen DiT's block linears as 4-bit NF4 (bitsandbytes), ~4 GB. Adapter training only; pair with `lokr` (LyCORIS types refuse a quantized base). Mutually exclusive with `transformer_fp8_matmul`. | `true` / `false` | `false` |
 | **`transformer_dtype`** | DiT load dtype. | a dtype | `dtype` |
-| **`shift`** | Fixed timestep shift overriding the dynamic one (below). | number | unset (dynamic) |
+| **`shift`** | Fixed timestep shift (> 0) overriding the dynamic one (below). | number | unset (dynamic) |
 | **`timestep_sample_method`** | Training timestep distribution. | `logit_normal`, `uniform` | `logit_normal` |
 | **`sigmoid_scale`** | Scale on the logit-normal sample before the sigmoid. | number | `1.0` |
 

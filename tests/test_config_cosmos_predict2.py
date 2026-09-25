@@ -66,3 +66,14 @@ def test_cosmos_dataset_validation_requires_frame_bucket_one(monkeypatch):
     with pytest.raises(ConfigValidationError, match="frame_buckets"):
         pipe.model_specific_dataset_config_validation({"frame_buckets": [4, 8]})
     pipe.model_specific_dataset_config_validation({"frame_buckets": [1, 4]})
+
+
+@pytest.mark.parametrize("shift,ok", [(0, False), (-1.0, False), (3.0, True)])
+def test_shift_must_be_positive(shift, ok):
+    """0 would silently mean no fixed shift (flux_shift or unshifted), not a shift of 0."""
+    cfg = _cosmos_config(shift=shift)
+    if ok:
+        validate_config(cfg)
+    else:
+        with pytest.raises(ConfigValidationError, match="model.shift must be > 0"):
+            validate_config(cfg)

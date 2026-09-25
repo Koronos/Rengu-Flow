@@ -77,3 +77,25 @@ def test_get_call_text_encoder_fn_returns_dict_keys(sdxl_config):
         out2 = fn2(["a caption"], False)
         assert "prompt_embeds_2" in out2 and "pooled_prompt_embeds" in out2
         assert mock_encode.call_count == 2
+
+
+def test_vae_fn_caches_distribution_mode(sdxl_config):
+    """The cached latent is the posterior mode (mean), scaled like before — not one frozen
+    random draw reused every epoch."""
+    from types import SimpleNamespace
+
+    class Dist:
+        def mode(self):
+            return torch.full((1, 4, 2, 2), 3.0)
+
+        def sample(self):
+            raise AssertionError("latent_dist.sample() must not be used for caching")
+
+    vae = SimpleNamespace(
+        device="cpu",
+        dtype=torch.float32,
+        config=SimpleNamespace(scaling_factor=0.5, shift_factor=1.0),
+        encode=lambda x: SimpleNamespace(latent_dist=Dist()),
+    )
+    out = SDXLPipeline(sdxl_config).get_call_vae_fn(vae)(torch.zeros(1, 3, 16, 16))
+    assert torch.equal(out["latents"], torch.full((1, 4, 2, 2), 1.0))  # (3 - 1) * 0.5

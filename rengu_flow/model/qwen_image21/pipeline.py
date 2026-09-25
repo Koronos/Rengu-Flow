@@ -304,8 +304,10 @@ class QwenImage21Pipeline(dit_common.DiTPipeline):
             if tensor.shape[1] == 3:
                 # The VAE reads RGBA; dataset images are RGB -> fully opaque alpha (1 in [-1, 1]).
                 tensor = torch.cat([tensor, torch.ones_like(tensor[:, :1])], dim=1)
-            # (B, 4, T=1, H, W) in -> (B, 64, 1, H/16, W/16) out.
-            latents = vae.encode(tensor.unsqueeze(2)).latent_dist.sample().squeeze(2)
+            # (B, 4, T=1, H, W) in -> (B, 64, 1, H/16, W/16) out. The distribution's mode: a
+            # cached latent is reused every epoch, so one frozen random draw would bake that
+            # noise in for the whole run.
+            latents = vae.encode(tensor.unsqueeze(2)).latent_dist.mode().squeeze(2)
             mean, std = self._latent_stats(latents.device, latents.dtype)
             out = {"latents": (latents - mean) / std}
             if control_tensors is not None:
@@ -392,11 +394,17 @@ class QwenImage21Pipeline(dit_common.DiTPipeline):
             # encoder that was never placed).
             device = next(text_model_of(text_encoder).parameters()).device
             edit_rows = [i for i, imgs in enumerate(control_images or []) if imgs]
+            # One row per caption at its own valid length: a padded batch tensor would store
+            # every row at the caching batch's longest caption (False tails), which then stack
+            # into padded — masked-attention — training batches.
             if not edit_rows:
                 embeds, mask = encode_prompts(
                     text_encoder, self.tokenizer, captions, device=device, drop_idx=self.drop_idx
                 )
-                return {"prompt_embeds": embeds, "text_mask": mask}
+                return {
+                    "prompt_embeds": [e[m] for e, m in zip(embeds, mask)],
+                    "text_mask": [m[m] for m in mask],
+                }
             # Captions with condition images go through the full VLM; any without (a mixed batch)
             # through the unchanged text-only path. image_pad_mask is ragged like the embeddings.
             rows = {}
@@ -416,16 +424,12 @@ class QwenImage21Pipeline(dit_common.DiTPipeline):
                 )
                 for j, i in enumerate(plain_rows):
                     rows[i] = (embeds[j], mask[j], torch.zeros_like(mask[j]))
-            max_len = max(r[0].shape[0] for r in rows.values())
-            first = rows[edit_rows[0]][0]
-            embeds = first.new_zeros((len(captions), max_len, first.shape[-1]))
-            mask = torch.zeros((len(captions), max_len), dtype=torch.bool, device=first.device)
-            image_pad_mask = torch.zeros_like(mask)
-            for i, (e, m, pad) in rows.items():
-                embeds[i, : e.shape[0]] = e
-                mask[i, : m.shape[0]] = m
-                image_pad_mask[i, : pad.shape[0]] = pad
-            return {"prompt_embeds": embeds, "text_mask": mask, "image_pad_mask": image_pad_mask}
+            ordered = [rows[i] for i in range(len(captions))]
+            return {
+                "prompt_embeds": [e[m] for e, m, _ in ordered],
+                "text_mask": [m[m] for _, m, _ in ordered],
+                "image_pad_mask": [pad[m] for _, m, pad in ordered],
+            }
 
         return fn
 

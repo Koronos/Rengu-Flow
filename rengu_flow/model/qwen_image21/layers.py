@@ -131,7 +131,9 @@ class TransformerLayer(nn.Module):
             hidden = self.block(
                 hidden,
                 modulation,
-                rotary_emb=torch.view_as_complex(rope),
+                # Reentrant AC hands pass-through outputs back requiring grad: detach the
+                # constant table so blocks don't backprop into it (see krea2/layers.py).
+                rotary_emb=torch.view_as_complex(rope.detach()),
                 target_token_mask=_target_token_mask(hidden.shape[1], prefix_len, hidden.device),
                 segments=segments,
                 key_valid=key_valid if key_valid.numel() else None,  # 0-size sentinel = no padding

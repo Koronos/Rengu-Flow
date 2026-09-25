@@ -29,7 +29,7 @@ def _visible(schema, form) -> dict[str, dict]:
 
 
 @pytest.mark.parametrize("path", ["adapter.train_conv", "adapter.use_tucker", "adapter.train_norm"])
-@pytest.mark.parametrize("model_type,shown", [("krea2", False), ("sdxl", True)])
+@pytest.mark.parametrize("model_type,shown", [("krea2", False), ("cosmos_predict2", False), ("sdxl", True)])
 def test_conv_and_norm_lycoris_knobs_hidden_on_linear_only_models(schema, path, model_type, shown):
     """Krea 2's DiT has no Conv modules and only custom Krea2RMSNorm (LyCORIS' train_norm
     matches affine LayerNorm/GroupNorm only), so these knobs are no-ops there."""

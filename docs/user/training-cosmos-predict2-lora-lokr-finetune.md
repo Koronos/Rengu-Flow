@@ -81,13 +81,12 @@ trade-offs:
 | | `lokr` (built-in) | `lycoris_lokr` (LyCORIS library) |
 |---|---|---|
 | Backend | rengu's own implementation, params injected onto each `nn.Linear` | `lycoris-lora` `LokrModule` via the shared attach seam |
-| Extra knobs | `factor`, `decompose_both`, `full_matrix` | all of those **plus** `dropout`/`rank_dropout`/`module_dropout`, `use_tucker`, `use_scalar`, `dora_wd` (DoRA on top), `unbalanced_factorization`, and `target_include`/`target_exclude` |
+| Extra knobs | `factor`, `decompose_both`, `full_matrix` | all of those **plus** `dropout`/`rank_dropout`/`module_dropout`, `use_scalar`, `dora_wd` (DoRA on top), `unbalanced_factorization`, and `target_include`/`target_exclude` |
 | Quantized base (`transformer_fp8_matmul` / `transformer_4bit`) | **Supported** — quantization-aware (routes the base matmul through the quantized `base_linear`, adds the Kronecker delta on top) | **Not supported** — the LyCORIS backend matches targets by exact class name `Linear`, so it skips the quantized linears (`Fp8MatmulLinear` / `Linear4bit`) entirely; config validation rejects the combination |
 
 **Rule of thumb:** use the built-in **`lokr`** for the canonical/quantized-base
 recipe; reach for **`lycoris_lokr`** (or another `lycoris_*` type) on an
-unquantized base when you want the extra knobs (DoRA, dropout, Tucker, module
-targeting).
+unquantized base when you want the extra knobs (DoRA, dropout, module targeting).
 
 #### A note on VRAM (why the LyCORIS types can need more than the built-in LoKr)
 
@@ -136,8 +135,9 @@ Anima checkpoint):
   needs `rank` large enough to factorize every layer width: the DiT has widths with
   a factor of 5, so use `rank = 16` (smaller ranks fail at startup with "impossible
   to decompose").
-- **`train_norm`** is *not* available here: the Cosmos DiT has no affine norm
-  weights, and requesting it fails at startup.
+- **`train_conv`, `use_tucker`, `train_norm` do nothing here** (hidden in the web UI): the
+  Cosmos DiT has no Conv layers and no affine norm weights, and `train_norm = true` fails
+  at startup.
 - **Quantized base (`transformer_fp8_matmul` / `transformer_4bit`):** not supported
   with `lycoris_*`. The LyCORIS backend matches targets by exact class name
   (`Linear`), so it silently skips the quantized linears (`Fp8MatmulLinear` /

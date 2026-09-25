@@ -208,8 +208,11 @@ def test_vae_fn_adds_opaque_alpha_and_normalizes():
         def __init__(self, x):
             self.x = x
 
-        def sample(self):
+        def mode(self):
             return self.x
+
+        def sample(self):
+            raise AssertionError("cached target latents are the posterior mode, not a random draw")
 
     class _Vae(nn.Module):
         def __init__(self):

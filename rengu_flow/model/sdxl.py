@@ -576,7 +576,9 @@ class SDXLPipeline(BasePipeline):
 
     def get_call_vae_fn(self, vae):
         def fn(tensor):
-            latents = vae.encode(tensor.to(vae.device, vae.dtype)).latent_dist.sample()
+            # The distribution's mode: a cached latent is reused every epoch, so one frozen
+            # random draw would bake that noise in for the whole run.
+            latents = vae.encode(tensor.to(vae.device, vae.dtype)).latent_dist.mode()
             if hasattr(vae.config, "shift_factor") and vae.config.shift_factor is not None:
                 latents = latents - vae.config.shift_factor
             latents = latents * vae.config.scaling_factor

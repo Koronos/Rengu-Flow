@@ -380,7 +380,9 @@ def _register_builtin_capabilities() -> None:
             adapters=["lora", "lokr", *LYCORIS_ADAPTER_TYPES],
             full_finetune=True,
             preview=True,
-            features={"preview": True, "block_swap": True},
+            # No Conv modules and only non-affine LayerNorm / custom RMSNorm in the adapted blocks
+            # (the LLM adapter is never a LyCORIS target): train_conv/use_tucker/train_norm are no-ops.
+            features={"preview": True, "block_swap": True, LINEAR_ONLY_ADAPTERS: True},
             branding_note=(
                 "Use checkpoints released for Cosmos Predict2 / Anima-style bundles "
                 "(main, VAE, and Qwen3 text encoder paths below)."
@@ -515,10 +517,11 @@ def _register_builtin_capabilities() -> None:
                     "label": "Fixed timestep shift",
                     "type": "number",
                     "placeholder": "empty = no shift (unless flux_shift is on)",
+                    "gt": 0,
                     "description": (
-                        "Fixed timestep-shift transform t' = (t*shift)/(1+(shift-1)*t) applied after "
-                        "sampling; overrides flux_shift when set. Empty leaves timesteps unshifted "
-                        "unless flux_shift is enabled."
+                        "Fixed timestep-shift transform t' = (t*shift)/(1+(shift-1)*t) (> 0) applied "
+                        "after sampling; overrides flux_shift when set. Empty leaves timesteps "
+                        "unshifted unless flux_shift is enabled."
                     ),
                 },
                 {
@@ -929,8 +932,9 @@ def _register_builtin_capabilities() -> None:
                     "label": "Fixed timestep shift",
                     "type": "number",
                     "placeholder": "empty = resolution-aware dynamic shift",
+                    "gt": 0,
                     "description": (
-                        "Fixed timestep shift, overriding the resolution-aware dynamic shift of the "
+                        "Fixed timestep shift (> 0), overriding the resolution-aware dynamic shift of the "
                         "reference scheduler (exponential, mu 0.5 at 256 latent tokens to 0.9 at 8192; "
                         "1024x1024 = 4096 tokens). Empty keeps the dynamic default."
                     ),

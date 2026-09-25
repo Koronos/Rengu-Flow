@@ -133,3 +133,14 @@ def test_install_profile_includes_transformers_stack():
     from rengu_flow.install.manager import profiles_for_config_dict
 
     assert "cosmos" in profiles_for_config_dict({"model": {"type": "qwen_image21"}})
+
+
+@pytest.mark.parametrize("shift,ok", [(0, False), (-1.0, False), (3.0, True)])
+def test_shift_must_be_positive(shift, ok):
+    """0 would silently fall back to the dynamic shift (shift_timesteps treats it as unset)."""
+    cfg = _config(shift=shift)
+    if ok:
+        validate_config(cfg)
+    else:
+        with pytest.raises(ConfigValidationError, match="model.shift must be > 0"):
+            validate_config(cfg)
