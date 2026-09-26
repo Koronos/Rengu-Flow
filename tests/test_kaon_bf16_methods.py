@@ -1,9 +1,17 @@
-"""Kaon 0.7.15 bf16_method values through Rengu's optimizer resolution and form pre-fill.
+"""Kaon 0.7.15/0.7.16 bf16_method values through Rengu's optimizer resolution and form pre-fill.
 
 Rengu forwards ``[optimizer]`` keys verbatim to the kaon constructor, so this pins that every
 kaon alias pre-filling ``bf16_method`` accepts the compact Kahan methods on bf16 weights (and
 allocates the residual Rengu's docs promise), and that ScheduleFree still rejects them.
+
+0.7.16 additions: Adakaon's kahan16 update (weight decay + gradient centralization + cautious)
+is bit-exact vs. an equivalent fp32-weight run; Nekaon is fully usable with kahan8/kahan16
+(weight decay and GC read the corrected full-precision value); and the streaming fp32 export
+(``kaon.decode_weights`` / ``kaon.full_precision_state_dict``) round-trips through
+``opt.eval()``/``opt.train()`` and a save/load cycle.
 """
+
+import io
 
 import pytest
 import torch
@@ -78,3 +86,91 @@ def test_schedulefree_rejects_compact_kahan(method: str) -> None:
     p = torch.nn.Parameter(torch.randn(4, 4, dtype=torch.bfloat16))
     with pytest.raises(ValueError, match="bf16_method"):
         get_optimizer_class("schedulefree")([p], **kwargs)
+
+
+def test_adakaon_kahan16_bitexact_with_wd_gc_cautious() -> None:
+    """0.7.16: kahan16 keeps weight decay, gradient centralization and cautious masking
+    reading the corrected full-precision value, matching an fp32-weight run bit for bit."""
+    torch.manual_seed(0)
+    # Start from a value already representable in bf16, so the bf16+residual pair encodes
+    # it exactly — the "exact vs fp32" guarantee is about the update math, not recovering
+    # precision lost before kaon ever sees the weight.
+    base = torch.randn(16, 8).to(torch.bfloat16)
+    p_fp32 = torch.nn.Parameter(base.float())
+    p_bf16 = torch.nn.Parameter(base.clone())
+    p_bf16.grad_dtype = None  # allow assigning the same fp32-valued grad as the fp32 run
+
+    common = dict(
+        lr=1e-3, weight_decay=0.05, cautious=True, gradient_centralization=True,
+        momentum_dtype="bfloat16", fused=False, foreach=False,
+    )
+    opt_fp32 = kaon.Adakaon([p_fp32], bf16_method="stochastic_rounding", **common)
+    opt_bf16 = kaon.Adakaon([p_bf16], bf16_method="kahan16", **common)
+
+    for _ in range(5):
+        grad = torch.randn_like(p_fp32)
+        p_fp32.grad = grad.clone()
+        p_bf16.grad = grad.clone()
+        opt_fp32.step()
+        opt_bf16.step()
+
+    decoded = kaon.decode_weights(opt_bf16)[p_bf16]
+    assert torch.equal(decoded, p_fp32.detach())
+
+
+@pytest.mark.parametrize("method", ["kahan8", "kahan16"])
+def test_nekaon_usable_with_compact_kahan_wd_and_gc(method: str) -> None:
+    """0.7.16: Nekaon (wd=0.1, cautious=True by Rengu's own defaults) trains normally and
+    stays much closer to an fp32 run than a plain bf16 rounding would (SR's ~4e-3 bf16 ulp),
+    through the wrapper's lookahead/climb."""
+    kwargs = optimizer_extra_params_defaults("nekaon")
+    assert kwargs["weight_decay"] > 0 and kwargs["cautious"] is True
+
+    torch.manual_seed(0)
+    base = torch.randn(16, 8).to(torch.bfloat16)
+    p_fp32 = torch.nn.Parameter(base.float())
+    p_bf16 = torch.nn.Parameter(base.clone())
+    p_bf16.grad_dtype = None
+
+    opt_fp32 = get_optimizer_class("nekaon")([p_fp32], **{**kwargs, "bf16_method": "stochastic_rounding"})
+    opt_bf16 = get_optimizer_class("nekaon")([p_bf16], **{**kwargs, "bf16_method": method})
+
+    for _ in range(5):
+        grad = torch.randn_like(p_fp32)
+        p_fp32.grad = grad.clone()
+        p_bf16.grad = grad.clone()
+        opt_fp32.step()
+        opt_bf16.step()
+
+    opt_bf16.eval()
+    decoded = kaon.decode_weights(opt_bf16)[p_bf16]
+    opt_bf16.train()
+    assert torch.isfinite(decoded).all()
+    # Much tighter than a plain bf16 round-to-nearest (~half a bf16 ulp, ~2e-3 at this scale).
+    assert (decoded - p_fp32.detach()).abs().max().item() < 5e-4
+
+
+def test_nekaon_kahan16_fp32_export_survives_save_load_eval_train() -> None:
+    """0.7.16 fp32 streaming export: kaon.full_precision_state_dict(model, opt, device="cpu")
+    round-trips through opt.eval()/opt.train() and a torch.save/load cycle."""
+    torch.manual_seed(0)
+    model = torch.nn.Linear(8, 4, bias=False).to(torch.bfloat16)
+    kwargs = {**optimizer_extra_params_defaults("nekaon"), "bf16_method": "kahan16"}
+    opt = get_optimizer_class("nekaon")(model.parameters(), **kwargs)
+
+    for _ in range(3):
+        model.weight.grad = torch.randn_like(model.weight)
+        opt.step()
+
+    opt.eval()  # Nekaon's train-mode view sits at the lookahead point; decode refuses there
+    fp32_sd = kaon.full_precision_state_dict(model, opt, device="cpu")
+    opt.train()
+
+    assert fp32_sd["weight"].dtype == torch.float32
+    assert torch.isfinite(fp32_sd["weight"]).all()
+
+    buf = io.BytesIO()
+    torch.save(fp32_sd, buf)
+    buf.seek(0)
+    reloaded = torch.load(buf, weights_only=True)
+    assert torch.equal(reloaded["weight"], fp32_sd["weight"])

@@ -466,7 +466,11 @@ FIELD_HELP: dict[str, dict[str, str]] = {
             "matmuls still run in model.dtype via autocast. In bfloat16 a plain-optimizer "
             "update below ~0.2% of a weight's magnitude rounds to zero, so training can stall "
             "(flat loss, normal grad norm) — keep float32 unless you pair 16-bit with a "
-            "Kahan/stochastic-rounding optimizer (adamw8bitkahan, adamw_optimi)."
+            "Kahan/stochastic-rounding optimizer (adamw8bitkahan, adamw_optimi). A kaon "
+            "optimizer (adakaon, nekaon, …) instead handles this through its own "
+            "bf16_method kwarg: \"stochastic_rounding\" (default, no extra state), "
+            "\"kahan8\"/\"kahan16\" (compact Kahan, for low LR or fp32 fidelity), "
+            "\"kahan\" (legacy, fp16 only), or \"none\". See the optimizer guide."
         ),
         "doc": "docs/user/training-sdxl-lora-lokr.md",
     },

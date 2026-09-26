@@ -134,11 +134,22 @@ Only matters when the trainable weights themselves are bf16 (for example a bf16 
 | `"kahan"` (legacy) | +2 B/param | Only for **fp16** weights, or to resume an older checkpoint that used it. Slower on many small tensors (no batched path) |
 | `"none"` | none | Plain round-to-nearest write: updates smaller than half a bf16 step of the weight are lost, so low-LR runs stall |
 
-Notes (kaon 0.7.15):
+Notes (kaon 0.7.15–0.7.16):
 
 - `"kahan8"` and `"kahan16"` refuse fp16 weights — use `"kahan"` there. **schedulefree** rejects both.
 - They keep the batched (`foreach`) and Adakaon/Nekaon `fused` fast paths. **adapnm**'s `fused` step does not support them: those weights run on its non-fused path.
 - Switching an existing run to `"kahan8"`/`"kahan16"` on resume is allowed: kaon starts a zero residual (or converts it between `"kahan8"` and `"kahan16"`) and logs one warning.
+- **nekaon** is fully usable with `"kahan8"`/`"kahan16"` (0.7.16): weight decay and gradient centralization read the corrected full-precision value, and `"kahan16"` is bit-exact vs. an fp32-weight run through weight decay, GC and cautious masking.
+
+#### Exporting fp32 weights from a bf16 run (kaon 0.7.16)
+
+With `"kahan8"`/`"kahan16"`, kaon can hand back the fp32 value of every trained weight without materializing a full fp32 copy of the model: `kaon.decode_weights(opt, device=...)` returns `{param: fp32 tensor}`, and `kaon.full_precision_state_dict(model, opt, device="cpu")` returns a ready-to-save state dict (`device="cpu"` streams one tensor at a time, so the GPU never holds more than one extra fp32 tensor). Put the **optimizer** — not the model — in eval mode first: `opt.eval()` for Nekaon/MSAM (their train-mode view sits at the lookahead point and is refused there), train mode for Lookahead (its eval view is the slow weights, which carry no residual). Then switch back to resume:
+
+```python
+opt.eval()
+torch.save(kaon.full_precision_state_dict(model, opt), "model_fp32.pt")
+opt.train()
+```
 
 For the full kaon parameter set (e.g. `auto_lr_d0`, `auto_lr_scale`, `auto_lr_fuse_rel`, `foreach` batching, `momentum_4bit_block`, momentum quantization, and AdamP's `nesterov`), see the [kaon docs](https://github.com/Koronos/K-Optimizers/tree/main/docs). Any key under `[optimizer]` is forwarded to the constructor, so unlisted kwargs work too.
 

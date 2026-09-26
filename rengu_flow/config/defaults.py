@@ -180,7 +180,9 @@ def set_config_defaults(config: dict[str, Any]) -> None:
                 "NOTE: adapter.dtype is 16-bit; plain optimizers (adamw, adam, sgd) lose "
                 "updates below ~0.2% of a weight's magnitude to rounding, which can stall "
                 "training (flat loss, normal grad norm). Use the float32 default, or a "
-                "Kahan/stochastic-rounding optimizer (adamw8bitkahan, adamw_optimi).",
+                "Kahan/stochastic-rounding optimizer (adamw8bitkahan, adamw_optimi). kaon "
+                "optimizers set bf16_method instead: \"stochastic_rounding\" (default) or "
+                "\"kahan8\"/\"kahan16\" for low learning rates or fp32 fidelity.",
                 flush=True,
             )
 

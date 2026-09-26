@@ -156,15 +156,21 @@ torch = { index = "pytorch-cu130" }
 torchvision = { index = "pytorch-cu130" }
 # Memory-efficient optimizers (Adakaon, AdaMuon, KProdigy, Lion, AdaPNM,
 # AdaBelief, AdamP, ADOPT, ScheduleFree, Lookahead, SAM, MSAM, Nekaon, Rakaon).
-# Kaon 0.7.15 adds bf16_method "kahan8" (compact Kahan, +1 B/param) and "kahan16" (exact
-# fp32 master split in two, +2 B/param) on the per-param, foreach and fused paths; the legacy
-# "kahan" stays per-param only (and the fp16 option). The default stays stochastic_rounding.
-# Experimental Antikaon was retired to kaon's graveyard (Rengu never exposed it). 0.7.14 added
-# experimental Rakaon; the 0.7.13 audit fixed Lookahead + kahan, wrapper resume on
-# map_location="cpu", ADOPT's 0/0 NaN and made SR streams checkpointable (see kaon's CHANGELOG).
+# Kaon 0.7.16: Nekaon is fully usable with bf16_method "kahan8"/"kahan16" (weight decay and
+# GC read the full value; kahan16 is bit-exact vs fp32 weights with wd, GC and cautious).
+# Streaming fp32 export without materializing fp32 state: `kaon.decode_weights(opt,
+# device=...)` and `kaon.full_precision_state_dict(model, opt, device="cpu")`. Fixes: the
+# fused partition ignored a mid-run bf16_method change; `add_param_group` on wrappers
+# (Nekaon/MSAM/SAM/Lookahead); an fp32/bf16 collision in Nekaon's climb; a warning when
+# `load_state_dict` brings a different bf16_method. stochastic_rounding stays bit-identical.
+# 0.7.15 added bf16_method "kahan8" (+1 B/param) and "kahan16" (+2 B/param, exact fp32 split)
+# on the per-param/foreach/fused paths (legacy "kahan" stays per-param, fp16 only); retired
+# the experimental Antikaon (never exposed in Rengu). 0.7.14 added experimental Rakaon; the
+# 0.7.13 audit fixed Lookahead + kahan, wrapper resume on map_location="cpu", ADOPT's 0/0 NaN
+# and made SR streams checkpointable (see kaon's CHANGELOG).
 # K-Optimizers (the `kaon` package) ships no release tags, so we pin an
 # exact commit — that SHA *is* kaon's version here: reproducible, and it only changes when this
 # `rev` is bumped (then committed to renga). Bump it to ship a newer kaon; users pick it up on
 # their next `rengu update` (only if the kaon extra is already installed). Only installed when
 # the `kaon` extra is selected (see rengu_flow/install/profiles.py).
-kaon = { git = "https://github.com/Koronos/K-Optimizers", rev = "6201c1f434b43eb43c75eebec678b3a8642e5a49" }
+kaon = { git = "https://github.com/Koronos/K-Optimizers", rev = "00a6d846fd4685ba44c18a90c8602d03e252a379" }
