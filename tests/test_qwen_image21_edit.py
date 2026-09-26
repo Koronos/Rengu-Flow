@@ -270,8 +270,27 @@ def test_vision_tower_loads_from_the_text_encoder_checkpoint(tmp_path):
     save_file({k: v.contiguous() for k, v in full.state_dict().items() if "visual" not in k}, str(text_only))
     from rengu_flow.config.validation import ConfigValidationError
 
-    with pytest.raises(ConfigValidationError, match="vision tower"):
+    with pytest.raises(ConfigValidationError, match="vision tower.*qwen3vl_8b_bf16.safetensors"):
         loading.load_vision_encoder(text_only, torch.float32)
+
+
+def test_vision_tower_loads_from_comfy_single_file(tmp_path, monkeypatch):
+    """ComfyUI's qwen3vl_8b_bf16.safetensors keeps the vision tower as ``model.visual.*`` next to
+    the ``model.layers.*`` text decoder (no ``language_model.`` level, no config.json)."""
+    from safetensors.torch import save_file
+
+    full = _tiny_qwen3vl()
+    comfy = {
+        k.replace("model.language_model.", "model."): v.contiguous() for k, v in full.state_dict().items()
+    }
+    assert any(k.startswith("model.visual.") for k in comfy)
+    single = tmp_path / "qwen3vl_8b_bf16.safetensors"
+    save_file(comfy, str(single))
+    monkeypatch.setattr(loading, "load_qwen3vl_config", lambda _path: full.config)
+    vision = loading.load_vision_encoder(single, torch.float32)
+    ref = full.model.visual.state_dict()
+    assert set(vision.state_dict()) == set(ref)
+    assert all(torch.equal(v, ref[k]) for k, v in vision.state_dict().items())
 
 
 # ---- pipeline text-encoder fn ---------------------------------------------------------------

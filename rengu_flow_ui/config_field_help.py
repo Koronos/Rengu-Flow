@@ -214,47 +214,47 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         ),
         "doc": "docs/user/training-krea2.md",
     },
-    "model.diffusers_path@qwen_image21": {
-        "summary": "The downloaded Qwen/Qwen-Image-2.1 folder (diffusers layout).",
-        "detail": (
-            "Point at the folder that holds transformer/, vae/, text_encoder/ and processor/ (e.g. "
-            "the Hugging Face cache snapshot). Each component resolves to <folder>/<subfolder>; a "
-            "per-component path you set explicitly always wins. Never a repo id; nothing is downloaded."
-        ),
-        "doc": "docs/user/training-qwen-image21.md",
-    },
     "model.transformer_path@qwen_image21": {
-        "summary": "Optional DiT override — folder or single .safetensors.",
+        "summary": "Main DiT — one .safetensors file (the ~14 GB checkpoint you train).",
         "detail": (
-            "A diffusers transformer/ folder, or one file: diffusers keys or ComfyUI's "
-            "qwen_image_2.1_bf16.safetensors (its fused img_mlp.gate_up is split on load). "
-            "Pre-quantized int8_convrot / fp8 files cannot be trained."
+            "ComfyUI's qwen_image_2.1_bf16.safetensors (its fused img_mlp.gate_up is split on load), a "
+            "diffusers-layout file or the diffusers transformer/ folder. Pre-quantized int8_convrot / "
+            "fp8 files cannot be trained; use the bf16 file."
         ),
         "doc": "docs/user/training-qwen-image21.md",
     },
     "model.vae_path@qwen_image21": {
-        "summary": "Optional VAE override — the diffusers vae/ folder.",
+        "summary": "Image VAE — Qwen-Image 2.1's own RGBA VAE (not the Qwen-Image / Cosmos one).",
         "detail": (
-            "AutoencoderKLQwenImage21 (RGBA, 16x, 64 latent channels) as a diffusers folder or a "
-            "diffusers-layout .safetensors. ComfyUI's qwen_image_2.1_vae_bf16.safetensors uses the "
-            "original layout and is not converted."
+            "ComfyUI's qwen_image_2.1_vae_bf16.safetensors (original layout, converted on load), a "
+            "diffusers-layout file or the diffusers vae/ folder. Training reads your images through "
+            "it to build the latent cache."
         ),
         "doc": "docs/user/training-qwen-image21.md",
     },
     "model.text_encoder_path@qwen_image21": {
-        "summary": "Optional text-encoder override — Qwen3-VL-8B folder or single file.",
+        "summary": "Text encoder (Qwen3-VL-8B) — one .safetensors file or a transformers folder.",
         "detail": (
-            "The transformers text_encoder/ folder or ComfyUI's qwen3vl_8b_bf16.safetensors. Only the "
-            "text decoder is loaded; captions are encoded once into the cache and the encoder never "
-            "runs during training steps. int8 / w4a8 files are refused."
+            "ComfyUI's qwen3vl_8b_bf16.safetensors or the diffusers text_encoder/ folder; both carry the "
+            "vision tower that edit training (control_path) uses. Captions are encoded once into the "
+            "cache; int8 / w4a8 files are refused."
+        ),
+        "doc": "docs/user/training-qwen-image21.md",
+    },
+    "model.diffusers_path@qwen_image21": {
+        "summary": "Alternative to the three file fields: the whole Qwen/Qwen-Image-2.1 diffusers download.",
+        "detail": (
+            "Optional. Point at the folder holding transformer/, vae/, text_encoder/ and processor/ "
+            "(e.g. the Hugging Face cache snapshot) and leave the file fields empty — each resolves to "
+            "<folder>/<subfolder>; files you set explicitly always win. Never a repo id; nothing is downloaded."
         ),
         "doc": "docs/user/training-qwen-image21.md",
     },
     "model.processor_path@qwen_image21": {
         "summary": "Optional tokenizer folder (the processor/ subfolder).",
         "detail": (
-            "Defaults to <diffusers_path>/processor, else the Qwen3-VL tokenizer bundled with rengu "
-            "(identical tokenization of the Qwen-Image 2.1 prompt template)."
+            "Defaults to <diffusers_path>/processor, else the Qwen3-VL tokenizer and image processor "
+            "bundled with rengu (identical tokenization of the Qwen-Image 2.1 prompt template)."
         ),
         "doc": "docs/user/training-qwen-image21.md",
     },

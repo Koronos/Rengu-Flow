@@ -55,14 +55,14 @@ ignored, so validation rejects them with "belongs at top level".
 
 Krea 2 trains from **per-component local files**, the same pattern as Cosmos/Anima — no full
 diffusers folder required. Recommended route: download the three files from
-[Comfy-Org/Krea-2](https://huggingface.co/Comfy-Org/Krea-2) on Hugging Face (or use the
-official `raw.safetensors` for the DiT):
+[Comfy-Org/Krea-2](https://huggingface.co/Comfy-Org/Krea-2) on Hugging Face (public, no login),
+or use the official `raw.safetensors` for the DiT:
 
-| Component | Config key | File |
-|-----------|------------|------|
-| DiT | `model.transformer_path` | `diffusion_models/krea2_raw_bf16.safetensors` (or the official `raw.safetensors`) |
-| Text encoder | `model.text_encoder_path` | `text_encoders/qwen3vl_4b_bf16.safetensors` |
-| Image VAE | `model.vae_path` | `vae/qwen_image_vae.safetensors` — **the same file Cosmos/Anima setups use**; point at your existing copy instead of downloading a second one |
+| Component | Config key | File | Direct download | Size | Notes |
+|-----------|------------|------|-----------------|------|-------|
+| DiT | `model.transformer_path` | `diffusion_models/krea2_raw_bf16.safetensors` | [krea2_raw_bf16.safetensors](https://huggingface.co/Comfy-Org/Krea-2/resolve/main/diffusion_models/krea2_raw_bf16.safetensors) | 26.3 GB | Train on **Raw**, not `krea2_turbo_*` (distilled, for inference). The official `raw.safetensors` of [krea/Krea-2-Raw](https://huggingface.co/krea/Krea-2-Raw) is the same size and also works; that repo is gated — log in and accept its license on the model page first. |
+| Text encoder | `model.text_encoder_path` | `text_encoders/qwen3vl_4b_bf16.safetensors` | [qwen3vl_4b_bf16.safetensors](https://huggingface.co/Comfy-Org/Krea-2/resolve/main/text_encoders/qwen3vl_4b_bf16.safetensors) | 8.9 GB | Not the `_fp8_scaled` variant. |
+| Image VAE | `model.vae_path` | `vae/qwen_image_vae.safetensors` | [qwen_image_vae.safetensors](https://huggingface.co/Comfy-Org/Krea-2/resolve/main/vae/qwen_image_vae.safetensors) | 0.25 GB | **The same file Cosmos/Anima setups use**; point at your existing copy instead of downloading a second one. |
 
 The tokenizer is bundled with rengu — no download or path needed unless you want to override it
 with `model.tokenizer_path`. These are the same files ComfyUI loads and the same layout
@@ -75,8 +75,9 @@ single files are rejected with a clear error: train from the bf16 file; use
 `model.transformer_4bit` / `model.transformer_fp8_matmul` for VRAM instead.
 
 **Full diffusers folder (alternative):** if you already have the diffusers-layout release
-(`transformer/`, `vae/`, `text_encoder/`, `tokenizer/` subfolders), point `model.checkpoint_path`
-at it instead:
+[krea/Krea-2-Raw](https://huggingface.co/krea/Krea-2-Raw) (`transformer/`, `vae/`,
+`text_encoder/`, `tokenizer/` subfolders; gated — accept the license on the model page and log in
+with `huggingface-cli login` first), point `model.checkpoint_path` at it instead:
 
 ```bash
 huggingface-cli download krea/Krea-2-Raw --local-dir /path/to/Krea-2-Raw

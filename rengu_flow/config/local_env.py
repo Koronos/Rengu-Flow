@@ -27,6 +27,12 @@ _MODEL_PATH_ENV: dict[str, dict[str, str]] = {
         "text_encoder_path": "RENGU_KREA2_TEXT_ENCODER_PATH",
         "checkpoint_path": "RENGU_KREA2_CHECKPOINT_PATH",
     },
+    "qwen_image21": {
+        "transformer_path": "RENGU_QWEN_IMAGE21_TRANSFORMER_PATH",
+        "vae_path": "RENGU_QWEN_IMAGE21_VAE_PATH",
+        "text_encoder_path": "RENGU_QWEN_IMAGE21_TEXT_ENCODER_PATH",
+        "diffusers_path": "RENGU_QWEN_IMAGE21_DIFFUSERS_PATH",
+    },
 }
 
 

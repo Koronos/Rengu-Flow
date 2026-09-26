@@ -20,8 +20,12 @@ blocks_to_swap = 24
 [model]
 type = 'qwen_image21'
 dtype = 'bfloat16'
-# The Qwen/Qwen-Image-2.1 download (transformer/, vae/, text_encoder/, processor/).
-diffusers_path = 'path/to/Qwen-Image-2.1'
+# ComfyUI's bf16 files (Comfy-Org/Qwen-Image-2.1; links in docs/user/training-qwen-image21.md).
+transformer_path = 'path/to/qwen_image_2.1_bf16.safetensors'
+vae_path = 'path/to/qwen_image_2.1_vae_bf16.safetensors'
+text_encoder_path = 'path/to/qwen3vl_8b_bf16.safetensors'
+# Alternative: the whole Qwen/Qwen-Image-2.1 diffusers download instead of the three files.
+# diffusers_path = 'path/to/Qwen-Image-2.1'
 # 14.2 GB bf16 -> ~7.3 GB: tensorwise fp8 frozen base (sm89+ GPU, e.g. RTX 40xx / Ada).
 transformer_fp8_matmul = true
 

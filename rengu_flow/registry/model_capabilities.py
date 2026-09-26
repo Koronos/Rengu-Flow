@@ -792,9 +792,9 @@ def _register_builtin_capabilities() -> None:
             # with control_images.
             features={"preview": True, "block_swap": True, "edit": True},
             branding_note=(
-                "Use the Qwen/Qwen-Image-2.1 diffusers download (transformer/, vae/, text_encoder/, "
-                "processor/). Trains text-to-image and image editing (dataset control_path), also "
-                "mixed in one run."
+                "Use ComfyUI's bf16 files (qwen_image_2.1_bf16, qwen_image_2.1_vae_bf16, "
+                "qwen3vl_8b_bf16) or the Qwen/Qwen-Image-2.1 diffusers download. Trains text-to-image "
+                "and image editing (dataset control_path), also mixed in one run."
             ),
             model_validation={
                 "one_of": [
@@ -822,42 +822,56 @@ def _register_builtin_capabilities() -> None:
             ],
             model_fields=[
                 {
-                    "path": "model.diffusers_path",
-                    "label": "Qwen-Image-2.1 folder (diffusers)",
+                    "path": "model.transformer_path",
+                    "label": "Main model (.safetensors)",
                     "type": "path",
-                    "path_expect": "dir",
-                    "required": True,
-                    "placeholder": "path/to/Qwen-Image-2.1",
+                    "path_expect": "any",
+                    # Not "required": each component path is one_of(<component>_path,
+                    # diffusers_path) — the diffusers folder below fills any left empty.
+                    "importance": "recommended",
+                    "placeholder": "path/to/qwen_image_2.1_bf16.safetensors",
                     "description": (
-                        "The downloaded Qwen/Qwen-Image-2.1 folder (transformer/, vae/, text_encoder/, "
-                        "processor/). Each component resolves to its subfolder unless overridden below."
+                        "The 14 GB DiT you train: ComfyUI's qwen_image_2.1_bf16.safetensors (a diffusers "
+                        "transformer/ folder also works). Optional when the diffusers folder below is set."
                     ),
                 },
                 {
-                    "path": "model.transformer_path",
-                    "label": "Main model override",
-                    "type": "path",
-                    "path_expect": "any",
-                    "show_if_set": True,
-                    "placeholder": "path/to/qwen_image_2.1_bf16.safetensors",
-                    "description": "DiT folder or single file (diffusers or ComfyUI bf16 layout); defaults to <folder>/transformer.",
-                },
-                {
                     "path": "model.vae_path",
-                    "label": "VAE override",
+                    "label": "Image VAE (.safetensors)",
                     "type": "path",
                     "path_expect": "any",
-                    "show_if_set": True,
-                    "description": "Diffusers VAE folder or diffusers-layout file; defaults to <folder>/vae.",
+                    "importance": "recommended",
+                    "placeholder": "path/to/qwen_image_2.1_vae_bf16.safetensors",
+                    "description": (
+                        "Qwen-Image 2.1's own RGBA VAE: ComfyUI's qwen_image_2.1_vae_bf16.safetensors (or "
+                        "the diffusers vae/ folder). Optional when the diffusers folder below is set."
+                    ),
                 },
                 {
                     "path": "model.text_encoder_path",
-                    "label": "Text encoder override (Qwen3-VL-8B)",
+                    "label": "Text encoder — Qwen3-VL-8B (.safetensors)",
                     "type": "path",
                     "path_expect": "any",
-                    "show_if_set": True,
+                    "importance": "recommended",
                     "placeholder": "path/to/qwen3vl_8b_bf16.safetensors",
-                    "description": "Transformers folder or ComfyUI qwen3vl_8b_bf16.safetensors; defaults to <folder>/text_encoder.",
+                    "description": (
+                        "ComfyUI's qwen3vl_8b_bf16.safetensors (or the transformers text_encoder/ folder); "
+                        "includes the vision tower edit training needs. Optional when the diffusers folder "
+                        "below is set."
+                    ),
+                },
+                {
+                    "path": "model.diffusers_path",
+                    "label": "Diffusers folder (alternative)",
+                    "type": "path",
+                    "path_expect": "dir",
+                    "importance": "recommended",
+                    "placeholder": "path/to/Qwen-Image-2.1",
+                    "description": (
+                        "The whole Qwen/Qwen-Image-2.1 diffusers download (transformer/, vae/, text_encoder/, "
+                        "processor/); fills any of the three file fields above left empty. Set either this "
+                        "or the three files."
+                    ),
                 },
                 {
                     "path": "model.processor_path",
@@ -865,7 +879,7 @@ def _register_builtin_capabilities() -> None:
                     "type": "path",
                     "path_expect": "dir",
                     "show_if_set": True,
-                    "description": "Folder with the tokenizer files; defaults to <folder>/processor, else the bundled Qwen3-VL tokenizer.",
+                    "description": "Folder with the tokenizer files; defaults to <diffusers folder>/processor, else the bundled Qwen3-VL tokenizer.",
                 },
                 {
                     "path": "model.text_encoder_offload",

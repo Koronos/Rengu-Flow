@@ -156,3 +156,31 @@ def test_check_config_model_paths_cli(tmp_path, monkeypatch, capsys):
     ckpt_dir.mkdir()
     monkeypatch.setenv("RENGU_KREA2_CHECKPOINT_PATH", str(ckpt_dir))
     check_config_model_paths(config_file)  # no SystemExit
+
+
+def test_model_path_errors_qwen_image21_one_of(tmp_path, monkeypatch):
+    """qwen_image21 components are one_of(<component>_path, diffusers_path); the env vars map
+    the three ComfyUI files or the diffusers folder."""
+    folder = tmp_path / "Qwen-Image-2.1"
+    folder.mkdir()
+    f = tmp_path / "qwen_image_2.1_bf16.safetensors"
+    f.write_bytes(b"x")
+
+    missing = model_path_errors({"model": {"type": "qwen_image21"}})
+    assert len(missing) == 3 and all("diffusers_path" in e for e in missing)
+    assert model_path_errors({"model": {"type": "qwen_image21", "diffusers_path": str(folder)}}) == []
+
+    for key, value in {
+        "RENGU_QWEN_IMAGE21_TRANSFORMER_PATH": str(f),
+        "RENGU_QWEN_IMAGE21_VAE_PATH": str(f),
+        "RENGU_QWEN_IMAGE21_TEXT_ENCODER_PATH": str(f),
+    }.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.delenv("RENGU_QWEN_IMAGE21_DIFFUSERS_PATH", raising=False)
+    config = {"model": {"type": "qwen_image21", "dtype": "bfloat16"}}
+    apply_model_paths_from_env(config)
+    assert {k: config["model"][k] for k in ("transformer_path", "vae_path", "text_encoder_path")} == {
+        "transformer_path": str(f), "vae_path": str(f), "text_encoder_path": str(f)
+    }
+    assert "diffusers_path" not in config["model"]
+    assert model_path_errors(config) == []

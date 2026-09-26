@@ -14,33 +14,59 @@ type, and full finetune of the DiT. The VAE and the text encoder are always froz
 
 ## Getting the checkpoint
 
-Download the official diffusers release and point `model.diffusers_path` at it:
+Qwen-Image 2.1 trains from **three local files**, one per component — the same pattern as
+Krea 2 and Cosmos/Anima. Download the bf16 files from
+[Comfy-Org/Qwen-Image-2.1](https://huggingface.co/Comfy-Org/Qwen-Image-2.1) (public, no login)
+and point one config key at each:
+
+| Component | Config key | File | Direct download | Size | Notes |
+|-----------|------------|------|-----------------|------|-------|
+| DiT (the model you train) | `model.transformer_path` | `diffusion_models/qwen_image_2.1_bf16.safetensors` | [qwen_image_2.1_bf16.safetensors](https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/diffusion_models/qwen_image_2.1_bf16.safetensors) | 14.2 GB | ComfyUI layout; its fused `img_mlp.gate_up` is split on load. |
+| Image VAE | `model.vae_path` | `vae/qwen_image_2.1_vae_bf16.safetensors` | [qwen_image_2.1_vae_bf16.safetensors](https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/vae/qwen_image_2.1_vae_bf16.safetensors) | 0.68 GB | Qwen-Image 2.1's own RGBA VAE — **not** the Qwen-Image VAE Cosmos/Anima and Krea 2 use. Original key layout, converted on load (bit-identical to the diffusers `vae/` weights in bf16). |
+| Text encoder (Qwen3-VL-8B) | `model.text_encoder_path` | `text_encoders/qwen3vl_8b_bf16.safetensors` | [qwen3vl_8b_bf16.safetensors](https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/text_encoders/qwen3vl_8b_bf16.safetensors) | 17.5 GB | Text decoder **and vision tower** (`model.visual.*`) in one file, so it also covers [edit training](#image-editing-edit-training). |
+
+```toml
+[model]
+type = "qwen_image21"
+dtype = "bfloat16"
+transformer_path = "/path/to/qwen_image_2.1_bf16.safetensors"
+vae_path = "/path/to/qwen_image_2.1_vae_bf16.safetensors"
+text_encoder_path = "/path/to/qwen3vl_8b_bf16.safetensors"
+```
+
+The tokenizer and the Qwen3-VL image processor are bundled with rengu (they tokenize the
+Qwen-Image 2.1 prompt template identically) — no download or path needed unless you override
+them with `model.processor_path`.
+
+Do **not** use the other files of that repo for training — rengu refuses them with an error:
+
+- `qwen_image_2.1_int8_convrot`, `qwen3vl_8b_int8_convrot`, `qwen3vl_8b_w4a8` and any fp8
+  "scaled" re-export are pre-quantized inference files; train from bf16 and use
+  `model.transformer_fp8_matmul` / `model.transformer_4bit` for VRAM instead.
+- `qwen3.5_9b_qwen_image_2.1_pe_*` are ComfyUI's prompt-enhancer models, not the text encoder.
+
+**Full diffusers folder (alternative):** if you already have (or prefer) the official diffusers
+release [Qwen/Qwen-Image-2.1](https://huggingface.co/Qwen/Qwen-Image-2.1), point
+`model.diffusers_path` at the whole folder instead of setting the three files:
 
 ```bash
 huggingface-cli download Qwen/Qwen-Image-2.1 --local-dir /path/to/Qwen-Image-2.1
 ```
 
-The folder holds `transformer/` (~14.2 GB bf16, 2 shards), `text_encoder/` (Qwen3-VL-8B,
-~17.5 GB, 4 shards), `vae/` (~1.35 GB) and `processor/`. A Hugging Face cache snapshot
-(`~/.cache/huggingface/hub/models--Qwen--Qwen-Image-2.1/snapshots/<sha>/`) works as-is.
-Nothing is ever downloaded automatically; rengu never resolves repo ids.
+It holds `transformer/` (14.2 GB bf16, 2 shards), `text_encoder/` (Qwen3-VL-8B, 17.5 GB, 4 shards,
+vision tower included), `vae/` (1.35 GB, fp32) and `processor/`. A Hugging Face cache snapshot
+(`~/.cache/huggingface/hub/models--Qwen--Qwen-Image-2.1/snapshots/<sha>/`) works as-is. Each
+component left empty resolves to `<diffusers_path>/<transformer|vae|text_encoder|processor>`; a
+`transformer_path` / `vae_path` / `text_encoder_path` set alongside it always overrides that one
+component. Either route works — nothing is ever downloaded automatically, rengu never resolves
+repo ids.
 
-Each component resolves to `<diffusers_path>/<subfolder>`; a per-component path overrides it:
-
-| Component | Override key | Accepted |
-|-----------|--------------|----------|
-| DiT | `model.transformer_path` | the diffusers `transformer/` folder, or one `.safetensors` in diffusers keys or ComfyUI's layout (`Comfy-Org/Qwen-Image-2.1` → `diffusion_models/qwen_image_2.1_bf16.safetensors`; its fused `img_mlp.gate_up` is split on load) |
-| Text encoder | `model.text_encoder_path` | the transformers `text_encoder/` folder, or ComfyUI's `text_encoders/qwen3vl_8b_bf16.safetensors` |
-| VAE | `model.vae_path` | the diffusers `vae/` folder, or a diffusers-layout `.safetensors` |
-| Tokenizer | `model.processor_path` | the `processor/` folder |
-
-- Pre-quantized files (`*_int8_convrot`, `*_w4a8`, fp8 "scaled") cannot be trained and are
-  refused with an error; train from bf16 and use `model.transformer_fp8_matmul` /
-  `model.transformer_4bit` for VRAM instead.
-- ComfyUI's VAE file (`vae/qwen_image_2.1_vae_bf16.safetensors`) uses the original key layout
-  and is **not** converted — use the diffusers `vae/` folder.
-- Without `processor/`, the Qwen3-VL tokenizer bundled with rengu is used (it tokenizes the
-  Qwen-Image 2.1 prompt template identically).
+| Component | Config key | Accepted |
+|-----------|------------|----------|
+| DiT | `model.transformer_path` | ComfyUI's `qwen_image_2.1_bf16.safetensors`, a diffusers-layout `.safetensors`, or the diffusers `transformer/` folder |
+| Image VAE | `model.vae_path` | ComfyUI's `qwen_image_2.1_vae_bf16.safetensors`, a diffusers-layout `.safetensors`, or the diffusers `vae/` folder |
+| Text encoder | `model.text_encoder_path` | ComfyUI's `qwen3vl_8b_bf16.safetensors` or the transformers `text_encoder/` folder |
+| Tokenizer / image processor | `model.processor_path` | the diffusers `processor/` folder (optional; bundled copy otherwise) |
 
 ## `[model]` fields
 
@@ -48,11 +74,14 @@ Each component resolves to `<diffusers_path>/<subfolder>`; a per-component path 
 |------------|------------|----------|---------|
 | **`type`** | `"qwen_image21"`. | Yes | — |
 | **`dtype`** | Load/compute dtype for the VAE, text encoder, adapters and (unless overridden) the DiT. | Yes | — |
-| **`diffusers_path`** | The Qwen-Image-2.1 download (see above). | Unless all three of `transformer_path` / `vae_path` / `text_encoder_path` are set | — |
-| **`transformer_path`**, **`vae_path`**, **`text_encoder_path`**, **`processor_path`** | Per-component overrides (see the table above). | No | `<diffusers_path>/<component>` |
+| **`transformer_path`** | DiT file or folder (see [Getting the checkpoint](#getting-the-checkpoint)). | One of `transformer_path` / `diffusers_path` | `<diffusers_path>/transformer` |
+| **`vae_path`** | VAE file or folder. | One of `vae_path` / `diffusers_path` | `<diffusers_path>/vae` |
+| **`text_encoder_path`** | Qwen3-VL-8B file or folder. | One of `text_encoder_path` / `diffusers_path` | `<diffusers_path>/text_encoder` |
+| **`diffusers_path`** | The whole Qwen/Qwen-Image-2.1 diffusers folder (alternative to the three files). | Unless all three files above are set | — |
 
 | Optional key | Purpose | Values | Default |
 |--------------|---------|--------|---------|
+| **`processor_path`** | Tokenizer / Qwen3-VL image-processor folder (the diffusers `processor/`). | a folder | `<diffusers_path>/processor`, else the bundled copy |
 | **`text_encoder_offload`** | Where the 17.5 GB text encoder runs while captions are cached (see [Text encoder and the embedding cache](#text-encoder-and-the-embedding-cache)). | `auto`, `stream`, `none` | `auto` |
 | **`transformer_fp8_matmul`** | Store the frozen DiT's block linears as tensorwise-scaled e4m3 fp8 (1 byte/param): ~14.2 → ~7.3 GB. Adapter training only; needs an sm89+ GPU (RTX 40xx / Ada). | `true` / `false` | `false` |
 | **`fp8_grad_mode`** | Precision of the input-gradient GEMM through the fp8 base. `fp8` is faster, `bf16` keeps the clean gradient. | `bf16`, `fp8` | `bf16` |
@@ -71,7 +100,10 @@ Each component resolves to `<diffusers_path>/<subfolder>`; a per-component path 
 [model]
 type = "qwen_image21"
 dtype = "bfloat16"
-diffusers_path = "/path/to/Qwen-Image-2.1"
+transformer_path = "/path/to/qwen_image_2.1_bf16.safetensors"
+vae_path = "/path/to/qwen_image_2.1_vae_bf16.safetensors"
+text_encoder_path = "/path/to/qwen3vl_8b_bf16.safetensors"
+# or, instead of the three files: diffusers_path = "/path/to/Qwen-Image-2.1"
 ```
 
 ### Training objective
@@ -162,7 +194,9 @@ activation_checkpointing = true
 [model]
 type = "qwen_image21"
 dtype = "bfloat16"
-diffusers_path = "/path/to/Qwen-Image-2.1"
+transformer_path = "/path/to/qwen_image_2.1_bf16.safetensors"
+vae_path = "/path/to/qwen_image_2.1_vae_bf16.safetensors"
+text_encoder_path = "/path/to/qwen3vl_8b_bf16.safetensors"
 transformer_fp8_matmul = true
 
 [adapter]
@@ -238,6 +272,11 @@ the edited image. Rengu trains this the way the reference pipeline samples it:
 - **noise, the loss and the timestep shift involve the target only** (the shift uses the
   target's own token count, like the reference); the prompt and the condition blocks are
   modulated at `t = 0`.
+
+The vision tower comes from the same text-encoder checkpoint: ComfyUI's
+`qwen3vl_8b_bf16.safetensors` and the diffusers `text_encoder/` folder both include it, so edit
+training needs no extra download. A text-only re-export (no `visual.*` tensors) works for
+text-to-image but stops with an error on the first edit caption.
 
 ### Dataset format
 

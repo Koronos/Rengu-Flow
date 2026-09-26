@@ -92,11 +92,13 @@ Tests: `tests/test_dit_common.py` (bit-exact against the pre-extraction krea2/co
   tokens before the output norm.
 - `preview_sampling.py` — reference scheduler sigmas (shift + `shift_terminal`), Euler, prefix KV
   cache (`extract` on step 0, `cached` after), CFG by batching the negative prompt.
-- `loading.py` — diffusers folders, ComfyUI DiT/TE single files (fused-MLP split), bundled configs
-  under `assets/`.
+- `loading.py` — diffusers folders, ComfyUI DiT/TE/VAE single files (DiT fused-MLP split;
+  `convert_original_vae_state_dict`: original Wan-style VAE keys → diffusers names, 1-frame conv
+  kernels squeezed to 2D), vision tower from the same TE checkpoint (`model.visual.*`), bundled
+  configs under `assets/`.
 
-Not implemented: image-conditioned (edit) training — it needs condition-image VAE latents in the
-cache, the ti2i template with vision inputs through the full Qwen3-VL, and per-sample image
-blocks in the joint sequence.
+Image-conditioned (edit) training is supported: `[[directory]] control_path` condition images
+become cached control latents plus vision-tower prompt embeddings (see
+[Image editing](../user/training-qwen-image21.md#image-editing-edit-training)).
 
 See also [Dataset and cache — model hooks](dataset-and-cache.md#model-hooks-for-cache).

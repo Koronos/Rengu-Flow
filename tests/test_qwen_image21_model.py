@@ -640,13 +640,100 @@ def test_prequantized_dit_is_refused():
         loading._guard_not_prequantized({"a.weight": torch.zeros(1), "a.comfy_quant": torch.zeros(1)}, "transformer_path")
 
 
-def test_comfy_layout_vae_file_is_refused_with_guidance(tmp_path):
+_TINY_VAE_CONFIG = {"base_dim": 8, "decoder_base_dim": 12, "z_dim": 8, "latents_mean": [0.0] * 8, "latents_std": [1.0] * 8}
+
+
+def _to_original_vae_layout(state_dict: dict) -> dict:
+    """Test-side inverse (written independently of the converter's rules): diffusers
+    AutoencoderKLQwenImage21 keys -> the original / ComfyUI layout, conv kernels 5D."""
+    import re
+
+    out = {}
+    for key, value in state_dict.items():
+        k = key
+        for new, old in (
+            (".norm1.", ".residual.0."), (".conv1.", ".residual.2."), (".norm2.", ".residual.3."),
+            (".conv2.", ".residual.6."), (".conv_shortcut.", ".shortcut."),
+        ):
+            if ".resnets." in k:
+                k = k.replace(new, old)
+        k = re.sub(r"^(encoder|decoder)\.mid_block\.resnets\.(\d)\.", lambda m: f"{m[1]}.middle.{2 * int(m[2])}.", k)
+        k = re.sub(r"^(encoder|decoder)\.mid_block\.attentions\.0\.", r"\1.middle.1.", k)
+        # Each level: resnets 0..R-1, then its resampler at index R (R = 2 encoder, 3 decoder).
+        k = re.sub(r"^encoder\.down_blocks\.(\d+)\.resnets\.(\d+)\.", r"encoder.downsamples.\1.downsamples.\2.", k)
+        k = re.sub(r"^encoder\.down_blocks\.(\d+)\.downsampler\.", r"encoder.downsamples.\1.downsamples.2.", k)
+        k = re.sub(r"^decoder\.up_blocks\.(\d+)\.resnets\.(\d+)\.", r"decoder.upsamples.\1.upsamples.\2.", k)
+        k = re.sub(r"^decoder\.up_blocks\.(\d+)\.upsampler\.", r"decoder.upsamples.\1.upsamples.3.", k)
+        k = {"quant_conv": "conv1", "post_quant_conv": "conv2"}.get(k.split(".")[0], k.split(".")[0]) + k[len(k.split(".")[0]):]
+        k = re.sub(r"^(encoder|decoder)\.conv_in\.", r"\1.conv1.", k)
+        k = re.sub(r"^(encoder|decoder)\.norm_out\.", r"\1.head.0.", k)
+        k = re.sub(r"^(encoder|decoder)\.conv_out\.", r"\1.head.2.", k)
+        # Causal convs are 5D (one frame deep) in the original; attention 1x1 and the spatial
+        # resample convs are plain Conv2d there too.
+        is_conv_kernel = value.ndim == 4 and key.endswith(".weight") and not any(s in key for s in (".attentions.", ".resample."))
+        out[k] = value.unsqueeze(2) if is_conv_kernel else value
+    return out
+
+
+@pytest.mark.parametrize(
+    ("original", "diffusers"),
+    [  # literal pairs from ComfyUI's qwen_image_2.1_vae_bf16.safetensors vs the diffusers vae/
+        ("conv1.weight", "quant_conv.weight"),
+        ("conv2.bias", "post_quant_conv.bias"),
+        ("encoder.conv1.weight", "encoder.conv_in.weight"),
+        ("encoder.head.0.gamma", "encoder.norm_out.gamma"),
+        ("decoder.head.2.weight", "decoder.conv_out.weight"),
+        ("encoder.middle.2.residual.3.gamma", "encoder.mid_block.resnets.1.norm2.gamma"),
+        ("decoder.middle.1.to_qkv.weight", "decoder.mid_block.attentions.0.to_qkv.weight"),
+        ("encoder.downsamples.1.downsamples.0.shortcut.bias", "encoder.down_blocks.1.resnets.0.conv_shortcut.bias"),
+        ("encoder.downsamples.1.downsamples.2.time_conv.weight", "encoder.down_blocks.1.downsampler.time_conv.weight"),
+        ("encoder.downsamples.0.downsamples.2.resample.1.bias", "encoder.down_blocks.0.downsampler.resample.1.bias"),
+        ("decoder.upsamples.2.upsamples.2.residual.6.weight", "decoder.up_blocks.2.resnets.2.conv2.weight"),
+        ("decoder.upsamples.0.upsamples.3.time_conv.bias", "decoder.up_blocks.0.upsampler.time_conv.bias"),
+    ],
+)
+def test_original_vae_keys_map_to_diffusers(original, diffusers):
+    assert list(loading.convert_original_vae_state_dict({original: torch.zeros(1)})) == [diffusers]
+
+
+def test_original_layout_vae_file_converts_exactly(tmp_path, monkeypatch):
+    """ComfyUI's original-layout VAE file loads strict and reproduces the diffusers VAE bit for bit."""
     from safetensors.torch import save_file
 
+    from rengu_flow.model.qwen_image21.vae import AutoencoderKLQwenImage21
+
+    torch.manual_seed(0)
+    ref = AutoencoderKLQwenImage21(**_TINY_VAE_CONFIG).eval()
+    sd = ref.state_dict()
+    original = _to_original_vae_layout(sd)
+    assert not set(original) & set(sd)  # really a different layout
+    converted = loading.convert_original_vae_state_dict(original)
+    assert set(converted) == set(sd)
+    assert all(torch.equal(converted[k], sd[k]) for k in sd)
+
     f = tmp_path / "qwen_image_2.1_vae_bf16.safetensors"
+    save_file({k: v.contiguous() for k, v in original.items()}, str(f))
+    monkeypatch.setattr(loading, "_config_kwargs", lambda _path: dict(_TINY_VAE_CONFIG))
+    loaded = loading.load_vae(f, torch.float32)
+    image = torch.rand(1, 4, 1, 32, 32) * 2 - 1
+    with torch.no_grad():
+        z = loaded.encode(image).latent_dist.mode()
+        assert torch.equal(z, ref.encode(image).latent_dist.mode())
+        assert torch.equal(loaded.decode(z).sample, ref.decode(z).sample)
+
+
+def test_foreign_vae_file_is_refused_with_guidance(tmp_path, monkeypatch):
+    from safetensors.torch import save_file
+
+    monkeypatch.setattr(loading, "_config_kwargs", lambda _path: dict(_TINY_VAE_CONFIG))
+    f = tmp_path / "other_vae.safetensors"
     save_file({"encoder.conv1.weight": torch.zeros(1)}, str(f))
-    with pytest.raises(ConfigValidationError, match="diffusers vae/ folder"):
+    with pytest.raises(ConfigValidationError, match="not a Qwen-Image 2.1 VAE"):
         loading.load_vae(f, torch.float32)
+    multi_frame = tmp_path / "video_vae.safetensors"
+    save_file({"encoder.conv1.weight": torch.zeros(8, 4, 3, 3, 3)}, str(multi_frame))
+    with pytest.raises(ConfigValidationError, match="3-frame conv kernel"):
+        loading.load_vae(multi_frame, torch.float32)
 
 
 def test_missing_component_path_is_a_config_error(tmp_path):

@@ -44,7 +44,6 @@ def test_qwen_image21_is_a_selectable_model(schema) -> None:
 
 def test_qwen_image21_component_fields_visible(schema) -> None:
     visible = _visible(schema, _form())
-    assert visible["model.diffusers_path"]["required"] is True
     for path in (
         "model.text_encoder_offload",
         "model.transformer_fp8_matmul",
@@ -64,12 +63,27 @@ def test_qwen_image21_component_fields_visible(schema) -> None:
     assert visible["model.text_encoder_offload"]["default"] == "auto"
 
 
-def test_qwen_image21_overrides_are_expert_fields_until_set(schema) -> None:
-    overrides = ("model.transformer_path", "model.vae_path", "model.text_encoder_path", "model.processor_path")
+FILE_FIELDS = ("model.transformer_path", "model.vae_path", "model.text_encoder_path")
+
+
+def test_qwen_image21_per_file_paths_are_primary_and_folder_is_the_alternative(schema) -> None:
+    """Like krea2: the three component files are shown first, none is required on its own (each is
+    one_of(file, diffusers_path)); the diffusers folder is shown as the alternative."""
     visible = _visible(schema, _form())
-    assert not set(overrides) & set(visible)
-    filled = _visible(schema, _form(**{p: "/x" for p in overrides}))
-    assert set(overrides) <= set(filled)
+    order = list(visible)
+    for path in (*FILE_FIELDS, "model.diffusers_path"):
+        assert path in visible, path
+        assert visible[path]["importance"] == "recommended" and not visible[path].get("required"), path
+    assert max(order.index(p) for p in FILE_FIELDS) < order.index("model.diffusers_path")
+    assert visible["model.diffusers_path"]["label"] == "Diffusers folder (alternative)"
+    assert visible["model.vae_path"]["placeholder"] == "path/to/qwen_image_2.1_vae_bf16.safetensors"
+    cap = schema["registries"]["model_capabilities"]["qwen_image21"]
+    assert cap["model_validation"]["one_of"] == [[p.split(".")[1], "diffusers_path"] for p in FILE_FIELDS]
+
+
+def test_qwen_image21_processor_is_an_expert_field_until_set(schema) -> None:
+    assert "model.processor_path" not in _visible(schema, _form())
+    assert "model.processor_path" in _visible(schema, _form(**{"model.processor_path": "/x"}))
 
 
 def test_qwen_image21_hides_other_models_fields(schema) -> None:

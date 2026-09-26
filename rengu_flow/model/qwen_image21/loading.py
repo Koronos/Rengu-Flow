@@ -11,9 +11,13 @@ resolves repo ids:
 - **Text encoder**: the transformers ``text_encoder/`` folder (Qwen3-VL-8B, sharded) or a
   single ``.safetensors`` (ComfyUI ``qwen3vl_8b_bf16.safetensors``). Only the text decoder
   (``Qwen3VLTextModel``) is loaded for text-to-image; the vision tower (``Qwen3VLVisionModel``)
-  is read separately, and only when a caption comes with condition images (edit training).
-- **VAE**: the diffusers ``vae/`` folder or a single diffusers-layout ``.safetensors``
-  (``AutoencoderKLQwenImage21``). ComfyUI's original-layout VAE file is not converted.
+  is read separately, and only when a caption comes with condition images (edit training). Both
+  sources carry it (``model.visual.*``).
+- **VAE**: the diffusers ``vae/`` folder or a single ``.safetensors`` (``AutoencoderKLQwenImage21``)
+  in the diffusers layout or the original (Wan-style) layout of ComfyUI's
+  ``qwen_image_2.1_vae_bf16.safetensors``, which :func:`convert_original_vae_state_dict` renames
+  (``downsamples.N.downsamples.M.residual.K`` -> ``down_blocks.N.resnets.M.<norm|conv>``, ...) and
+  whose ``[out, in, 1, kh, kw]`` conv kernels are squeezed to the 2D kernels of the image-only VAE.
 - **Tokenizer**: ``model.processor_path`` (the ``processor/`` folder), else
   ``<diffusers_path>/processor``, else the bundled Qwen3-VL tokenizer (byte-identical
   tokenization of the Qwen-Image 2.1 template).
@@ -111,8 +115,59 @@ def load_transformer(path: str | Path, dtype: torch.dtype):
     return transformer
 
 
+# Original (Wan-style) VAE key layout -> diffusers AutoencoderKLQwenImage21, applied in order
+# (the pattern of diffusers' convert_wan_vae_to_diffusers, as rules instead of per-key tables).
+_ORIGINAL_VAE_KEY_RULES = [
+    (r"^conv1\.", "quant_conv."),
+    (r"^conv2\.", "post_quant_conv."),
+    (r"^(encoder|decoder)\.conv1\.", r"\1.conv_in."),
+    (r"^(encoder|decoder)\.head\.0\.", r"\1.norm_out."),
+    (r"^(encoder|decoder)\.head\.2\.", r"\1.conv_out."),
+    (r"^(encoder|decoder)\.middle\.0\.", r"\1.mid_block.resnets.0."),
+    (r"^(encoder|decoder)\.middle\.1\.", r"\1.mid_block.attentions.0."),
+    (r"^(encoder|decoder)\.middle\.2\.", r"\1.mid_block.resnets.1."),
+    # The last entry of each level is its resampler (resample.1 / time_conv), the rest resnets.
+    (r"^encoder\.downsamples\.(\d+)\.downsamples\.\d+\.(resample|time_conv)\.", r"encoder.down_blocks.\1.downsampler.\2."),
+    (r"^encoder\.downsamples\.(\d+)\.downsamples\.(\d+)\.", r"encoder.down_blocks.\1.resnets.\2."),
+    (r"^decoder\.upsamples\.(\d+)\.upsamples\.\d+\.(resample|time_conv)\.", r"decoder.up_blocks.\1.upsampler.\2."),
+    (r"^decoder\.upsamples\.(\d+)\.upsamples\.(\d+)\.", r"decoder.up_blocks.\1.resnets.\2."),
+    (r"\.residual\.0\.", ".norm1."),
+    (r"\.residual\.2\.", ".conv1."),
+    (r"\.residual\.3\.", ".norm2."),
+    (r"\.residual\.6\.", ".conv2."),
+    (r"\.shortcut\.", ".conv_shortcut."),
+]
+
+
+def is_original_vae_layout(state_dict: dict) -> bool:
+    return "encoder.conv1.weight" in state_dict and not any(k.startswith("encoder.down_blocks.") for k in state_dict)
+
+
+def convert_original_vae_state_dict(state_dict: dict) -> dict:
+    """ComfyUI / original-layout Qwen-Image 2.1 VAE -> diffusers ``AutoencoderKLQwenImage21`` keys.
+
+    The original checkpoint is a causal-3D (Wan-style) VAE whose conv kernels are all one frame
+    deep (``[out, in, 1, kh, kw]``); the vendored image-only VAE uses ``Conv2d`` kernels, so the
+    singleton time axis is squeezed. Values are otherwise untouched (same dtype, same data)."""
+    out = {}
+    for key, value in state_dict.items():
+        new = key
+        for pattern, repl in _ORIGINAL_VAE_KEY_RULES:
+            new = re.sub(pattern, repl, new)
+        if value.ndim == 5:
+            if value.shape[2] != 1:
+                raise ConfigValidationError(
+                    f"model.vae_path: {key} has a {value.shape[2]}-frame conv kernel; the "
+                    "Qwen-Image 2.1 VAE uses single-frame kernels. Is this another model's VAE?"
+                )
+            value = value.squeeze(2)
+        out[new] = value
+    return out
+
+
 def load_vae(path: str | Path, dtype: torch.dtype):
-    """Load the Qwen-Image 2.1 VAE from a diffusers folder or a diffusers-layout single file."""
+    """Load the Qwen-Image 2.1 VAE from a diffusers folder or a single file (diffusers layout or
+    ComfyUI's original layout, converted here)."""
     from rengu_flow.model.qwen_image21.vae import AutoencoderKLQwenImage21
 
     path = _require_exists(path, "vae_path")
@@ -122,15 +177,19 @@ def load_vae(path: str | Path, dtype: torch.dtype):
         from safetensors.torch import load_file
 
         state_dict = load_file(path)
-        if not any(k.startswith("encoder.down_blocks.") for k in state_dict):
-            raise ConfigValidationError(
-                "model.vae_path: this looks like ComfyUI's original-layout Qwen-Image 2.1 VAE "
-                "(qwen_image_2.1_vae_bf16.safetensors), which rengu does not convert. Point "
-                "vae_path at the diffusers vae/ folder of Qwen/Qwen-Image-2.1 (or set "
-                "model.diffusers_path to the whole download)."
-            )
+        if is_original_vae_layout(state_dict):
+            state_dict = convert_original_vae_state_dict(state_dict)
         vae = AutoencoderKLQwenImage21.from_config(_config_kwargs(VAE_CONFIG_PATH))
-        vae.load_state_dict(state_dict)
+        expected = set(vae.state_dict())
+        missing, unexpected = expected - set(state_dict), set(state_dict) - expected
+        if missing or unexpected:
+            raise ConfigValidationError(
+                "model.vae_path: not a Qwen-Image 2.1 VAE (expected ComfyUI's "
+                "qwen_image_2.1_vae_bf16.safetensors, a diffusers-layout file or the diffusers "
+                f"vae/ folder); {len(missing)} missing keys (e.g. {sorted(missing)[:3]}), "
+                f"{len(unexpected)} unexpected (e.g. {sorted(unexpected)[:3]})."
+            )
+        vae.load_state_dict(state_dict, strict=True)
         vae = vae.to(dtype)
     vae.eval().requires_grad_(False)
     return vae
@@ -184,7 +243,8 @@ def load_vision_encoder(path: str | Path, dtype: torch.dtype):
     except ValueError as e:
         raise ConfigValidationError(
             f"model.text_encoder_path: {e} Edit training (control_path / preview control_images) "
-            "needs it: point text_encoder_path at the Qwen-Image-2.1 text_encoder/ folder."
+            "needs it: use ComfyUI's qwen3vl_8b_bf16.safetensors (Comfy-Org/Qwen-Image-2.1, "
+            "text_encoders/) or the Qwen/Qwen-Image-2.1 text_encoder/ folder — both include it."
         ) from e
 
 
