@@ -156,13 +156,16 @@ torch = { index = "pytorch-cu130" }
 torchvision = { index = "pytorch-cu130" }
 # Memory-efficient optimizers (Adakaon, AdaMuon, KProdigy, Lion, AdaPNM,
 # AdaBelief, AdamP, ADOPT, ScheduleFree, Lookahead, SAM, MSAM, Nekaon, Rakaon).
-# Kaon 0.7.16: Nekaon is fully usable with bf16_method "kahan8"/"kahan16" (weight decay and
-# GC read the full value; kahan16 is bit-exact vs fp32 weights with wd, GC and cautious).
-# Streaming fp32 export without materializing fp32 state: `kaon.decode_weights(opt,
-# device=...)` and `kaon.full_precision_state_dict(model, opt, device="cpu")`. Fixes: the
-# fused partition ignored a mid-run bf16_method change; `add_param_group` on wrappers
-# (Nekaon/MSAM/SAM/Lookahead); an fp32/bf16 collision in Nekaon's climb; a warning when
-# `load_state_dict` brings a different bf16_method. stochastic_rounding stays bit-identical.
+# Kaon 0.7.17: on the fused CUDA path, a bf16 weight paired with an off-dtype grad (e.g. an
+# fp32 grad via `p.grad_dtype = None`, or the reverse) produced NaN/garbage; that param now
+# falls back to the native (non-fused) path for that step (Adakaon, Nekaon, AdaPNM). Gradient
+# centralization under kahan8/kahan16 now decides per row: grad or weight not fp32 runs GC in
+# fp32 inside the step instead of leaving `p.grad` uncentralized. Same host cost as 0.7.16.
+# 0.7.16: Nekaon fully usable with bf16_method "kahan8"/"kahan16" (weight decay and GC read the
+# full value; kahan16 is bit-exact vs fp32 weights with wd, GC and cautious); streaming fp32
+# export without materializing fp32 state (`kaon.decode_weights` / `full_precision_state_dict`);
+# fixes: fused partition ignoring a mid-run bf16_method change, `add_param_group` on wrappers,
+# an fp32/bf16 collision in Nekaon's climb, a warning on `load_state_dict` bf16_method mismatch.
 # 0.7.15 added bf16_method "kahan8" (+1 B/param) and "kahan16" (+2 B/param, exact fp32 split)
 # on the per-param/foreach/fused paths (legacy "kahan" stays per-param, fp16 only); retired
 # the experimental Antikaon (never exposed in Rengu). 0.7.14 added experimental Rakaon; the
@@ -173,4 +176,4 @@ torchvision = { index = "pytorch-cu130" }
 # `rev` is bumped (then committed to renga). Bump it to ship a newer kaon; users pick it up on
 # their next `rengu update` (only if the kaon extra is already installed). Only installed when
 # the `kaon` extra is selected (see rengu_flow/install/profiles.py).
-kaon = { git = "https://github.com/Koronos/K-Optimizers", rev = "00a6d846fd4685ba44c18a90c8602d03e252a379" }
+kaon = { git = "https://github.com/Koronos/K-Optimizers", rev = "043dc7c3b18f89f3124ce68429eb77498aecb279" }

@@ -9,6 +9,10 @@ is bit-exact vs. an equivalent fp32-weight run; Nekaon is fully usable with kaha
 (weight decay and GC read the corrected full-precision value); and the streaming fp32 export
 (``kaon.decode_weights`` / ``kaon.full_precision_state_dict``) round-trips through
 ``opt.eval()``/``opt.train()`` and a save/load cycle.
+
+0.7.17: on the fused CUDA path, a param whose grad dtype doesn't match its weight dtype
+(``p.grad_dtype = None`` plus an off-dtype grad, e.g. fp32 grad on a bf16 weight) used to
+produce NaN/garbage; that param now falls back to the native path for that step instead.
 """
 
 import io
@@ -185,3 +189,21 @@ def test_nekaon_kahan16_fp32_export_survives_save_load_eval_train() -> None:
     buf.seek(0)
     reloaded = torch.load(buf, weights_only=True)
     assert torch.equal(reloaded["weight"], fp32_sd["weight"])
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="0.7.17 fused-path fix is CUDA-only")
+def test_nekaon_fused_mismatched_grad_dtype_stays_finite() -> None:
+    """0.7.17: a bf16 weight with an off-dtype (fp32) grad on the fused CUDA path used to
+    produce NaN/garbage; that param now falls back to the native path for that step."""
+    torch.manual_seed(0)
+    device = "cuda"
+    kwargs = {**optimizer_extra_params_defaults("nekaon"), "fused": True, "bf16_method": "kahan16"}
+    p = torch.nn.Parameter(torch.randn(16, 8, device=device, dtype=torch.bfloat16))
+    p.grad_dtype = None  # allow an fp32 grad on this bf16 param
+    opt = get_optimizer_class("nekaon")([p], **kwargs)
+
+    for _ in range(3):
+        p.grad = torch.randn(16, 8, device=device, dtype=torch.float32)
+        opt.step()
+
+    assert torch.isfinite(p.detach()).all()
