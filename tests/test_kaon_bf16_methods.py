@@ -120,9 +120,14 @@ def test_adakaon_kahan16_bitexact_with_wd_gc_cautious() -> None:
 
 @pytest.mark.parametrize("method", ["kahan8", "kahan16"])
 def test_nekaon_usable_with_compact_kahan_wd_and_gc(method: str) -> None:
-    """0.7.16: Nekaon (wd=0.1, cautious=True by Rengu's own defaults) trains normally and
-    stays much closer to an fp32 run than a plain bf16 rounding would (SR's ~4e-3 bf16 ulp),
-    through the wrapper's lookahead/climb."""
+    """0.7.16: Nekaon (wd=0.1, cautious=True by Rengu's own defaults) through the wrapper's
+    lookahead/climb. Given the same bf16 gradients, kahan16 is bit-exact vs. an fp32-weight
+    twin with the same kwargs; kahan8 stays much closer than a plain bf16 rounding would.
+
+    Both runs are compared in the SAME view (eval): Nekaon's train-mode weight sits at the
+    lookahead point, ~k*lr away from the true weight, so decoding the bf16 run in eval against
+    the fp32 twin still in train measures that gap (1.5e-4 = k*lr with Rengu's defaults), not
+    kahan's error."""
     kwargs = optimizer_extra_params_defaults("nekaon")
     assert kwargs["weight_decay"] > 0 and kwargs["cautious"] is True
 
@@ -130,24 +135,30 @@ def test_nekaon_usable_with_compact_kahan_wd_and_gc(method: str) -> None:
     base = torch.randn(16, 8).to(torch.bfloat16)
     p_fp32 = torch.nn.Parameter(base.float())
     p_bf16 = torch.nn.Parameter(base.clone())
-    p_bf16.grad_dtype = None
 
-    opt_fp32 = get_optimizer_class("nekaon")([p_fp32], **{**kwargs, "bf16_method": "stochastic_rounding"})
+    # Same kwargs on both (bf16_method is inert on fp32 weights).
+    opt_fp32 = get_optimizer_class("nekaon")([p_fp32], **kwargs)
     opt_bf16 = get_optimizer_class("nekaon")([p_bf16], **{**kwargs, "bf16_method": method})
 
     for _ in range(5):
-        grad = torch.randn_like(p_fp32)
-        p_fp32.grad = grad.clone()
+        grad = torch.randn_like(p_bf16)  # bf16, as a real backward yields on a bf16 weight
+        p_fp32.grad = grad.float()
         p_bf16.grad = grad.clone()
         opt_fp32.step()
         opt_bf16.step()
 
+    opt_fp32.eval()
     opt_bf16.eval()
     decoded = kaon.decode_weights(opt_bf16)[p_bf16]
+    reference = p_fp32.detach().clone()
     opt_bf16.train()
+    opt_fp32.train()
     assert torch.isfinite(decoded).all()
-    # Much tighter than a plain bf16 round-to-nearest (~half a bf16 ulp, ~2e-3 at this scale).
-    assert (decoded - p_fp32.detach()).abs().max().item() < 5e-4
+    if method == "kahan16":
+        assert torch.equal(decoded, reference)
+    else:
+        # Much tighter than a plain bf16 round-to-nearest (~half a bf16 ulp, ~2e-3 at this scale).
+        assert (decoded - reference).abs().max().item() < 5e-4
 
 
 def test_nekaon_kahan16_fp32_export_survives_save_load_eval_train() -> None:
