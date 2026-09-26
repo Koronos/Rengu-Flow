@@ -8,6 +8,9 @@ const SANITIZE_OPTS = {
   ADD_TAGS: ["table", "thead", "tbody", "tr", "th", "td"],
 };
 
+/** Fenced code languages that get an "Open in modal" + "Copy" toolbar instead of a plain <pre>. */
+export const SNIPPET_MODAL_LANGS = new Set(["toml"]);
+
 const parseContext = { docPath: "" };
 
 marked.setOptions({ gfm: true, breaks: false });
@@ -23,6 +26,24 @@ marked.use({
       }
       const safeHref = escapeAttr(href || "#");
       return `<a href="${safeHref}" target="_blank" rel="noopener noreferrer"${titleAttr}>${text}</a>`;
+    },
+    code({ text, lang }) {
+      const language = (lang || "").trim().toLowerCase();
+      if (!SNIPPET_MODAL_LANGS.has(language)) {
+        return false;
+      }
+      const escapedLang = escapeAttr(language);
+      const escaped = escapeAttr(text);
+      return (
+        `<div class="md-code-block">` +
+        `<div class="md-code-toolbar">` +
+        `<span class="md-code-lang">${escapedLang}</span>` +
+        `<button type="button" class="md-code-btn md-snippet-open" data-snippet="${escaped}" data-snippet-lang="${escapedLang}">Open</button>` +
+        `<button type="button" class="md-code-btn md-snippet-copy" data-snippet="${escaped}">Copy</button>` +
+        `</div>` +
+        `<pre><code class="language-${escapedLang}">${escaped}\n</code></pre>` +
+        `</div>`
+      );
     },
   },
 });

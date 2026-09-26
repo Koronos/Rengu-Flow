@@ -16,6 +16,11 @@
         @click="onArticleClick"
       />
     </div>
+    <CodeSnippetDialog
+      v-model="snippetVisible"
+      :title="snippetTitle"
+      :content="snippetContent"
+    />
   </el-drawer>
 </template>
 
@@ -25,6 +30,8 @@ import { ElLoadingDirective } from "element-plus";
 import { api } from "../api";
 import { formatError } from "../lib/formatError";
 import { renderMarkdown } from "../lib/markdown";
+import { useCodeSnippetDialog } from "../composables/useCodeSnippetDialog";
+import CodeSnippetDialog from "./CodeSnippetDialog.vue";
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -39,6 +46,13 @@ const error = ref("");
 const html = ref("");
 const title = ref("");
 const activePath = ref("");
+
+const {
+  dialogVisible: snippetVisible,
+  dialogTitle: snippetTitle,
+  dialogContent: snippetContent,
+  onCodeSnippetClick,
+} = useCodeSnippetDialog();
 
 async function load(path: string) {
   if (!path) return;
@@ -60,6 +74,7 @@ async function load(path: string) {
 }
 
 function onArticleClick(event: MouseEvent) {
+  if (onCodeSnippetClick(event)) return;
   const target = event.target;
   if (!(target instanceof Element)) return;
   const link = target.closest("a.md-doc-link");

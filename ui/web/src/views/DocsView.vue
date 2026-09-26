@@ -41,6 +41,11 @@
         </el-card>
       </el-col>
     </el-row>
+    <CodeSnippetDialog
+      v-model="snippetVisible"
+      :title="snippetTitle"
+      :content="snippetContent"
+    />
   </div>
 </template>
 
@@ -51,6 +56,8 @@ import { ElLoadingDirective } from "element-plus";
 import { api } from "../api";
 import { formatError } from "../lib/formatError";
 import { renderMarkdown } from "../lib/markdown";
+import { useCodeSnippetDialog } from "../composables/useCodeSnippetDialog";
+import CodeSnippetDialog from "../components/CodeSnippetDialog.vue";
 import type { DocContentResult, DocIndexItem, DocsIndexResult } from "../types/api";
 
 const route = useRoute();
@@ -63,6 +70,13 @@ const error = ref("");
 const indexItems = ref<DocIndexItem[]>([]);
 const activePath = ref("");
 const html = ref("");
+
+const {
+  dialogVisible: snippetVisible,
+  dialogTitle: snippetTitle,
+  dialogContent: snippetContent,
+  onCodeSnippetClick,
+} = useCodeSnippetDialog();
 
 async function loadIndex() {
   loadingIndex.value = true;
@@ -104,6 +118,7 @@ function onSelectDoc(path: string) {
 }
 
 function onArticleClick(event: MouseEvent) {
+  if (onCodeSnippetClick(event)) return;
   const target = event.target;
   if (!(target instanceof Element)) return;
   const link = target.closest("a.md-doc-link");
