@@ -111,7 +111,7 @@ When you pick a built-in name in the form, common keys are pre-filled (edit as n
 | **fused** | **adakaon**, **adapnm**, **nekaon** | `true`/`false` (Rengu pre-fills `true`). Triton-fused GPU step: same optimizer semantics, substantially faster across LoRA, 1-D, conv and large tensors. Native Windows installs `triton-windows`; set `false` only for diagnosis or unsupported environments |
 | **gradient_centralization** | **adakaon**, **adamuon**, **kprodigy**, **lion**, **adapnm**, **adabelief**, **adamp**, **adopt**, **schedulefree** | Subtract the per-tensor gradient mean before the step (default `true`, off for AdaMuon). Cheap regularizer; rarely needs changing |
 | **ns_steps** | **adamuon** | Newton-Schulz orthogonalization steps (default `2`). `2` is the validated sweet spot for diffusion; `5` (LLM Muon) over-orthogonalizes |
-| **bf16_method** | **adakaon**, **adamuon**, **kprodigy**, **lion**, **adapnm**, **adabelief**, **adamp**, **adopt**, **schedulefree** | bf16-correct weight update: `"stochastic_rounding"` (no extra buffer), `"kahan"`, or `"none"` |
+| **bf16_method** | **adakaon**, **adamuon**, **kprodigy**, **lion**, **adapnm**, **adabelief**, **adamp**, **adopt**, **schedulefree**; **lookahead**, **sam**, **msam**, **nekaon** pass it to their inner Adakaon | How updates are written into bf16/fp16 trainable weights (fp32 weights ignore it). Values: `"stochastic_rounding"` (default, no extra state), `"kahan8"` (+1 B/param), `"kahan16"` (+2 B/param), `"kahan"` (legacy, +2 B/param), `"none"`. **schedulefree** accepts only `"stochastic_rounding"`/`"kahan"`/`"none"`. See [Choosing `bf16_method`](#choosing-bf16_method) |
 | **compile** | **adamuon** | Optional whole-step `torch.compile` (off by default; workload-dependent) |
 | **betas** (Lion dial) | **lion** | `β2` trades loss vs generalization: `[0.95, 0.98]` (classic Lion) lowest loss; `[0.9, 0.99]` balanced |
 | **betas**, **beta0** | **adapnm** | `beta1` is the loss↔gap dial (default `0.8`); `beta0` ∈ [0,1] is the positive-negative coefficient (default `0.5`; `0` = plain Adam, `1` = canonical PNM) |
@@ -121,6 +121,24 @@ When you pick a built-in name in the form, common keys are pre-filled (edit as n
 | **rho**, **adaptive** | **sam** | `rho` = sharpness neighborhood radius (default `0.05`); `adaptive` toggles element-wise scaling. Inner Adakaon kwargs pass through. **Two forward/backward passes per step** (≈2× compute) |
 | **rho**, **norm** | **msam** | `rho` = perturbation radius (default `0.3`); **negative `rho` probes the downhill/Nesterov direction** (the sign is an empirical choice). `norm` ∈ `"global"`/`"tensor"`/`"none"` scales by the momentum norm (default `"global"`). Inner Adakaon kwargs pass through. **One** forward/backward per step (no extra pass) |
 | **k**, **betas** | **nekaon** | `k` = lookahead distance in optimizer steps (default `1.5`; `0` = plain Adakaon). `betas[0]` is the regime knob (**must be `> 0`** — the lookahead rides the momentum): `0.5` default, `0.2` anti-memorization (small-data LoRA), `0.9` fidelity (abundant data). `weight_decay` default `0.1`. Inner Adakaon kwargs pass through. **No extra forward/backward** |
+
+#### Choosing `bf16_method`
+
+Only matters when the trainable weights themselves are bf16 (for example a bf16 full finetune, or an adapter with a 16-bit `dtype`). Rengu pre-fills `"stochastic_rounding"`, which is also kaon's default.
+
+| Value | Extra optimizer state | Use it when |
+|-------|-----------------------|-------------|
+| `"stochastic_rounding"` (default) | none | The typical update is at least about one bf16 step of the weight: LoRA/adapter learning rates around `1e-4` and up, or memory is the constraint |
+| `"kahan8"` | +1 B/param | Low learning rates (full finetunes around `1e-5` and below) where the loss stalls or drifts with bf16 weights; kaon's recommended Kahan. bf16 weights only |
+| `"kahan16"` | +2 B/param | You want exact fp32-master-weight updates without keeping fp32 weights (the stored pair *is* an fp32 value); very long low-LR runs. bf16 weights only |
+| `"kahan"` (legacy) | +2 B/param | Only for **fp16** weights, or to resume an older checkpoint that used it. Slower on many small tensors (no batched path) |
+| `"none"` | none | Plain round-to-nearest write: updates smaller than half a bf16 step of the weight are lost, so low-LR runs stall |
+
+Notes (kaon 0.7.15):
+
+- `"kahan8"` and `"kahan16"` refuse fp16 weights — use `"kahan"` there. **schedulefree** rejects both.
+- They keep the batched (`foreach`) and Adakaon/Nekaon `fused` fast paths. **adapnm**'s `fused` step does not support them: those weights run on its non-fused path.
+- Switching an existing run to `"kahan8"`/`"kahan16"` on resume is allowed: kaon starts a zero residual (or converts it between `"kahan8"` and `"kahan16"`) and logs one warning.
 
 For the full kaon parameter set (e.g. `auto_lr_d0`, `auto_lr_scale`, `auto_lr_fuse_rel`, `foreach` batching, `momentum_4bit_block`, momentum quantization, and AdamP's `nesterov`), see the [kaon docs](https://github.com/Koronos/K-Optimizers/tree/main/docs). Any key under `[optimizer]` is forwarded to the constructor, so unlisted kwargs work too.
 
@@ -301,6 +319,6 @@ state, but the published Anima/Pets pilots did not show better validation qualit
 than Nekaon. Judge it with fixed train/validation evaluations and saved previews
 for your dataset before relying on it for a long run.
 
-Use `type = "nekaon"` for the existing Nekaon recipe. Kaon 0.7.14 samples its
+Use `type = "nekaon"` for the existing Nekaon recipe. Since Kaon 0.7.14 it samples its
 inactivity warning every ten climbs by default; set `inert_check_interval = 1`
 in `[optimizer]` to recover the old per-step diagnostic frequency.

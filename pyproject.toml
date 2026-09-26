@@ -156,22 +156,15 @@ torch = { index = "pytorch-cu130" }
 torchvision = { index = "pytorch-cu130" }
 # Memory-efficient optimizers (Adakaon, AdaMuon, KProdigy, Lion, AdaPNM,
 # AdaBelief, AdamP, ADOPT, ScheduleFree, Lookahead, SAM, MSAM, Nekaon, Rakaon).
-# Kaon 0.7.14 adds experimental Rakaon and samples Nekaon's inactivity diagnostic.
-# The 0.7.13 audit on top of 0.7.12 included fourteen reviewed batches
-# with execution and mutation testing. Adakaon runs on the shared foreach plan and the
-# codec's cached views (int8 momentum: hundreds of views/copies per step down to single
-# digits), Lion and KProdigy migrate too; the fused pointer caches validate the state's
-# geometry and identity (closes a real out-of-bounds WRITE in main and the retired-buffer
-# writes after `del opt.state[p]`); Gradient Centralization skips fan-in-1 params (rank-1
-# LoRA up-projections trained frozen before); every optimizer and wrapper owns its stochastic
-# rounding stream and persists it, so a resume in a fresh process is bit-identical on the
-# native bf16 path too; wrappers migrate their per-param state to the param's device on load
-# (Lookahead loaded with map_location="cpu" crashed); Lookahead + kahan fixed; ADOPT's
-# 0/0 NaN fixed. Behaviour changes documented in kaon's CHANGELOG: fan-in-1 params under GC
-# now train; runs with two rounding optimizers, Lookahead and SAM take a new noise stream.
+# Kaon 0.7.15 adds bf16_method "kahan8" (compact Kahan, +1 B/param) and "kahan16" (exact
+# fp32 master split in two, +2 B/param) on the per-param, foreach and fused paths; the legacy
+# "kahan" stays per-param only (and the fp16 option). The default stays stochastic_rounding.
+# Experimental Antikaon was retired to kaon's graveyard (Rengu never exposed it). 0.7.14 added
+# experimental Rakaon; the 0.7.13 audit fixed Lookahead + kahan, wrapper resume on
+# map_location="cpu", ADOPT's 0/0 NaN and made SR streams checkpointable (see kaon's CHANGELOG).
 # K-Optimizers (the `kaon` package) ships no release tags, so we pin an
 # exact commit — that SHA *is* kaon's version here: reproducible, and it only changes when this
 # `rev` is bumped (then committed to renga). Bump it to ship a newer kaon; users pick it up on
 # their next `rengu update` (only if the kaon extra is already installed). Only installed when
 # the `kaon` extra is selected (see rengu_flow/install/profiles.py).
-kaon = { git = "https://github.com/Koronos/K-Optimizers", rev = "0814c7025d6a4a5707940d17ca14878f79235674" }
+kaon = { git = "https://github.com/Koronos/K-Optimizers", rev = "6201c1f434b43eb43c75eebec678b3a8642e5a49" }
