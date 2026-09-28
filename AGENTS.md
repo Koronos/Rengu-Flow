@@ -56,6 +56,7 @@ Core packages under `rengu_flow/`: `cli/` (subcommand dispatch), `data/` (datase
 
 - The `@pytest.mark.no_ui_db` marker skips the autouse UI-sqlite fixture — use it for tests that don't touch the UI store (config/training-only).
 - Prefer `@pytest.mark.parametrize` over many near-duplicate tests. Shared fixtures in `tests/conftest.py`.
+- **Data↔model seam needs a test without doubles.** A change touching both the data side (dataset/cache/batch layout) and a model pipeline is not covered by each side's tests with stubs of the other: add a test that feeds real batches from the real data path into the real pipeline (tiny model) across every case of the contract. The qwen_image21 edit (2026-09-22) had 2117 green tests and its first real run failed at step 3 on a data↔model misalignment.
 
 ## Docs
 
