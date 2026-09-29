@@ -20,6 +20,7 @@ Expected instance attributes: ``config``, ``model_config``, ``transformer``, ``v
 from __future__ import annotations
 
 import torch
+from peft.tuners.lora import LoraLayer
 
 from rengu_flow.model.base import BasePipeline
 from rengu_flow.networks import adapter_dit
@@ -62,6 +63,13 @@ class DiTPipeline(BasePipeline):
             p.original_name = name
             if p.requires_grad:
                 p.data = p.data.to(adapter_config["dtype"])
+        # PEFT cast the fresh LoRA init to the fp8 base dtype; the recast above keeps that
+        # quantized lora_A, so re-init in the adapter dtype (init_from_existing loads after).
+        fp8 = (torch.float8_e4m3fn, torch.float8_e5m2)
+        for m in self.transformer.modules():
+            if isinstance(m, LoraLayer) and m.get_base_layer().weight.dtype in fp8:
+                for name in m.lora_A:
+                    m.reset_lora_parameters(name, True)
 
     def save_adapter(self, save_dir, state_dict):
         kwargs = {}

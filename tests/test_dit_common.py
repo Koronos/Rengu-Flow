@@ -262,3 +262,27 @@ def test_loss_fn_masks_and_averages():
     mask = torch.tensor([[[[1.0, 0.0], [0.0, 0.0]]]])
     loss = p.get_loss_fn()(out, (target, mask))
     assert loss.item() == pytest.approx(0.25)
+
+
+def test_configure_adapter_lora_on_fp8_base_keeps_full_precision_init():
+    """PEFT casts the fresh LoRA init to the fp8 base dtype; configure_adapter must undo it."""
+    from rengu_flow.training.quantize_dit import Fp8TensorwiseLinear
+
+    class Block(torch.nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.proj = Fp8TensorwiseLinear(torch.nn.Linear(256, 256, bias=False))
+
+    class Pipe(DiTPipeline):
+        adapter_target_modules = ["Block"]
+
+    torch.manual_seed(0)
+    p = object.__new__(Pipe)
+    p.transformer = Block()
+    assert p.transformer.proj.weight.dtype == torch.float8_e4m3fn
+    p.configure_adapter({"type": "lora", "rank": 16, "alpha": 16, "dtype": torch.float32})
+    layer = p.transformer.proj
+    lora_a, lora_b = layer.lora_A["default"].weight, layer.lora_B["default"].weight
+    assert lora_a.dtype == torch.float32
+    assert lora_a.unique().numel() > 500
+    assert lora_b.dtype == torch.float32 and not lora_b.any()
