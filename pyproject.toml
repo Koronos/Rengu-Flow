@@ -156,7 +156,11 @@ torch = { index = "pytorch-cu130" }
 torchvision = { index = "pytorch-cu130" }
 # Memory-efficient optimizers (Adakaon, AdaMuon, KProdigy, Lion, AdaPNM,
 # AdaBelief, AdamP, ADOPT, ScheduleFree, Lookahead, SAM, MSAM, Nekaon, Rakaon).
-# Kaon 0.7.17: on the fused CUDA path, a bf16 weight paired with an off-dtype grad (e.g. an
+# Kaon 0.7.18 (audit): decoupled weight decay no longer a no-op on bf16 weights (ADOPT,
+# AdaBelief, AdamP, AdaPNM, Lion under kahan); state-identity watch on every foreach optimizer;
+# checkpoints load with torch's default `weights_only=True`; ScheduleFree int8/4bit `z` uses SR;
+# zero-element params and SAM/Lion edge cases fixed; fused GF32/int8-row fixes.
+# 0.7.17: on the fused CUDA path, a bf16 weight paired with an off-dtype grad (e.g. an
 # fp32 grad via `p.grad_dtype = None`, or the reverse) produced NaN/garbage; that param now
 # falls back to the native (non-fused) path for that step (Adakaon, Nekaon, AdaPNM). Gradient
 # centralization under kahan8/kahan16 now decides per row: grad or weight not fp32 runs GC in
@@ -176,4 +180,4 @@ torchvision = { index = "pytorch-cu130" }
 # `rev` is bumped (then committed to renga). Bump it to ship a newer kaon; users pick it up on
 # their next `rengu update` (only if the kaon extra is already installed). Only installed when
 # the `kaon` extra is selected (see rengu_flow/install/profiles.py).
-kaon = { git = "https://github.com/Koronos/K-Optimizers", rev = "51fdabf16cc2d96c2218b5e6bc39d0649b04ff55" }
+kaon = { git = "https://github.com/Koronos/K-Optimizers", rev = "0844363e79aa1028438b4ecb415e07fd6bd8ecc1" }
