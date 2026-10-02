@@ -129,3 +129,50 @@ def test_vec_trick_matches_dense_kron_delta():
         got.sum().backward()
         grads = [p.grad for n, p in lin.named_parameters() if "lokr_" in n]
         assert grads and all(g is not None and g.abs().sum() > 0 for g in grads)
+
+
+def test_peft_lora_target_exclude_is_not_defeated_by_suffix_matching(tmp_path):
+    """PEFT matches plain name lists by suffix: ``blocks.0.attn.q_proj`` is a suffix of
+    ``llm_adapter.blocks.0.attn.q_proj``, so target_exclude used to be ignored."""
+    import torch
+    from torch import nn
+
+    from rengu_flow.networks import adapter_dit
+
+    class Attn(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.q_proj = nn.Linear(8, 8)
+
+    class Block(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.attn = Attn()
+
+    class TransformerBlock(Block):
+        pass
+
+    class LLMAdapter(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.blocks = nn.ModuleList([TransformerBlock()])
+
+    class DiT(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.blocks = nn.ModuleList([Block()])
+            self.llm_adapter = LLMAdapter()
+
+    m = DiT()
+    cfg = {
+        "type": "lora",
+        "rank": 2,
+        "alpha": 2,
+        "dtype": torch.float32,
+        "target_exclude": ["llm_adapter.*"],
+    }
+    peft_config, _ = adapter_dit.configure(m, cfg, targets=("Block", "TransformerBlock"))
+    lora_params = [n for n, _ in m.named_parameters() if "lora_A" in n]
+    assert len(lora_params) == 1
+    assert not any("llm_adapter" in n for n in lora_params)
+    assert set(peft_config.target_modules) == {"blocks.0.attn.q_proj"}

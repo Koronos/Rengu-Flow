@@ -413,3 +413,18 @@ def test_wsd_unknown_decay_type_raises():
     opt = torch.optim.SGD([torch.nn.Parameter(torch.zeros(1))], lr=1.0)
     with pytest.raises(ValueError, match="decay_type"):
         resolve_scheduler("wsd", opt, {"lr_scheduler_args": {"decay_type": "bogus"}}, 100, 10)
+
+
+def test_apply_warmup_warns_when_scheduler_is_none():
+    import warnings
+
+    import torch
+
+    from rengu_flow.optim import apply_warmup
+
+    opt = torch.optim.SGD([torch.nn.Parameter(torch.zeros(1))], lr=0.1)
+    with pytest.warns(UserWarning, match="warmup_steps"):
+        assert apply_warmup(opt, None, 10) is None
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert apply_warmup(opt, None, 0) is None

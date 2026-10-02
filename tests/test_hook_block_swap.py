@@ -6,6 +6,7 @@ asserted via the offloader's internal LRU set rather than real device moves.
 
 from __future__ import annotations
 
+import pytest
 import torch
 from torch import nn
 
@@ -170,3 +171,78 @@ def test_suspend_makes_hooks_noop_and_resume_rearms() -> None:
     assert off._suspended is False
     off._forward_pre_hook(blocks[1], ())  # re-armed: pulls again
     assert set(off._resident) == {1}
+
+
+def test_teardown_is_reversible_via_apply_training_layout() -> None:
+    """Eval/preview with disable_block_swap tears the offloader down; the training layout that
+    follows must bring hooks and residency tracking back (it used to stay off for the run)."""
+    blocks = _blocks(4)
+    off = HookBlockSwapOffloader(blocks, blocks_to_swap=2, device="cpu")  # cap = 2
+    off.teardown()
+    assert off.enabled is False and off._handles == []
+
+    off.apply_training_layout()
+
+    assert off.enabled is True
+    assert len(off._handles) == 2 * len(blocks)  # forward-pre + full-backward-pre per block
+    x = torch.randn(2, 4)
+    for b in blocks:
+        x = b(x)
+    assert len(off._resident) == off.resident_cap
+    # a second eval cycle works too
+    off.teardown()
+    off.apply_training_layout()
+    assert off.enabled is True and len(off._handles) == 2 * len(blocks)
+
+
+def test_teardown_twice_does_not_double_remove() -> None:
+    off = HookBlockSwapOffloader(_blocks(3), blocks_to_swap=1, device="cpu")
+    off.teardown()
+    off.teardown()
+    off.apply_training_layout()
+    assert off.enabled is True
+
+
+class _BufBlock(nn.Module):
+    """Block with a large registered buffer (like Cosmos ``Fp8MatmulLinear.weight_fp8``)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.linear = nn.Linear(4, 4)
+        for p in self.parameters():
+            p.requires_grad_(False)
+        self.register_buffer("big", torch.zeros(1_000_001))
+        self.register_buffer("scale", torch.ones(()))
+
+    def forward(self, x):
+        return self.linear(x) + self.big[:4] * self.scale
+
+
+@pytest.mark.parametrize("swap_trainable", [False, True])
+def test_pinned_path_restores_and_parks_large_buffers(monkeypatch, swap_trainable) -> None:
+    # No CUDA in CI: emulate pinning (the masters are plain CPU tensors) and force the pinned path.
+    pinned: set[int] = set()
+
+    def fake_pin(self):
+        out = self.clone()
+        pinned.add(id(out))
+        return out
+
+    monkeypatch.setattr(torch.Tensor, "pin_memory", fake_pin)
+    monkeypatch.setattr(torch.Tensor, "is_pinned", lambda self: id(self) in pinned)
+    blocks = nn.ModuleList(_BufBlock() for _ in range(3))
+    off = HookBlockSwapOffloader(
+        blocks, blocks_to_swap=2, device="cpu", swap_trainable=swap_trainable
+    )
+    off._pin = True  # cap = 1
+    off.apply_training_layout()
+    big0 = blocks[0].big
+    assert big0.data_ptr() == off._cpu[id(big0)].data_ptr()  # parked on the master
+    assert id(blocks[0].scale) not in off._cpu or swap_trainable  # tiny buffer not swapped
+
+    x = torch.randn(2, 4)
+    blocks[0](x)  # hook pulled block 0 -> buffers restored from the master (fresh storage)
+    assert big0.data_ptr() == off._gpu[id(big0)].data_ptr() != off._cpu[id(big0)].data_ptr()
+    blocks[1](x)  # cap=1 evicts block 0 -> buffer back on its master
+    assert big0.data_ptr() == off._cpu[id(big0)].data_ptr()
+    assert id(big0) not in off._gpu

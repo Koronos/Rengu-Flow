@@ -1,6 +1,7 @@
 """Resolve optimizer and scheduler from config. Uses optimizer registry and scheduler registry."""
 
 import importlib
+import warnings
 from typing import Any, Callable
 
 import torch
@@ -270,7 +271,16 @@ def apply_warmup(
     inner milestones past the warmup window. ``SequentialLR.__init__`` resets lr to ``initial_lr``
     and undoes the sub-schedulers' construction steps, so reusing the inner phase instances is safe.
     """
-    if scheduler is None or warmup_steps <= 0:
+    if scheduler is None:
+        if warmup_steps and warmup_steps > 0:
+            warnings.warn(
+                f"warmup_steps={warmup_steps} is ignored because lr_scheduler is 'none' "
+                "(no scheduler to warm up). Pick a scheduler or set warmup_steps = 0.",
+                UserWarning,
+                stacklevel=2,
+            )
+        return scheduler
+    if warmup_steps <= 0:
         return scheduler
     warmup_scheduler = torch.optim.lr_scheduler.LinearLR(
         optimizer, start_factor=1 / warmup_steps, total_iters=warmup_steps
