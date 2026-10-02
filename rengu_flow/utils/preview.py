@@ -341,6 +341,9 @@ def _run_sdxl_previews(
                     guidance_scale=guidance_scale,
                     generator=generator,
                     output_type="pil",
+                    # diffusers' clip_skip is the training one: hidden_states[-(clip_skip + 2)],
+                    # None = penultimate. Pass it so previews see the conditioning being trained.
+                    clip_skip=getattr(model, "clip_skip", None),
                 )
                 image = result.images[0]
                 _log_preview_image(

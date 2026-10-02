@@ -243,6 +243,105 @@ def fix_noise_scheduler_betas_for_zero_terminal_snr(noise_scheduler):
     noise_scheduler.betas = betas
     noise_scheduler.alphas = alphas
     noise_scheduler.alphas_cumprod = torch.cumprod(alphas, dim=0)
+    # The SNR table (min-SNR / debiased weighting) is derived from alphas_cumprod: a table built
+    # before the rescale would keep the original (non-zero) terminal SNR.
+    if hasattr(noise_scheduler, "all_snr"):
+        del noise_scheduler.all_snr
+        prepare_scheduler_for_custom_training(noise_scheduler)
+
+
+def build_noise_scheduler(v_pred: bool = False, zero_terminal_snr: bool | None = None):
+    """Training scheduler, also reused by the previews (``pipe(...)`` samples with it).
+
+    ``v_pred`` selects the scheduler's prediction type so previews decode the UNet output as a
+    velocity (not epsilon). Zero-terminal-SNR rescales the betas BEFORE the SNR table is built
+    and switches sampling to trailing timestep spacing, which that schedule needs.
+    """
+    if zero_terminal_snr is None:
+        zero_terminal_snr = bool(v_pred)
+    scheduler = diffusers.DDPMScheduler(
+        beta_start=0.00085,
+        beta_end=0.012,
+        beta_schedule="scaled_linear",
+        num_train_timesteps=1000,
+        clip_sample=False,
+        prediction_type="v_prediction" if v_pred else "epsilon",
+        timestep_spacing="trailing" if zero_terminal_snr else "leading",
+    )
+    if zero_terminal_snr:
+        fix_noise_scheduler_betas_for_zero_terminal_snr(scheduler)
+    prepare_scheduler_for_custom_training(scheduler)
+    return scheduler
+
+
+# --- CLIP tokenization (shared by caching, the live text-encoder path and InitialLayer) -------
+# Every 75-token chunk is [BOS] + ids + [EOS] + pad up to the CLIP context (77), exactly what
+# diffusers / ComfyUI / A1111 / kohya feed the encoders at inference. Training used to feed
+# variable-length sequences ([BOS] ids [EOS], no pad), a distribution the model never sees later.
+CLIP_CONTEXT_LENGTH = 77
+CLIP_CHUNK_TOKENS = CLIP_CONTEXT_LENGTH - 2
+
+
+def _clip_pad_id(tokenizer) -> int:
+    pad = tokenizer.pad_token_id
+    return tokenizer.eos_token_id if pad is None else pad
+
+
+def _clip_chunk_ids(ids: list[int], tokenizer) -> list[list[int]]:
+    """Split raw token ids into 75-token chunks, each wrapped/padded to 77 tokens (>= 1 chunk)."""
+    bos, eos, pad = tokenizer.bos_token_id, tokenizer.eos_token_id, _clip_pad_id(tokenizer)
+    pieces = [ids[i : i + CLIP_CHUNK_TOKENS] for i in range(0, len(ids), CLIP_CHUNK_TOKENS)] or [[]]
+    return [[bos, *piece, eos, *([pad] * (CLIP_CHUNK_TOKENS - len(piece)))] for piece in pieces]
+
+
+def tokenize_clip_chunks(prompt, tokenizer) -> torch.Tensor:
+    """(batch, n_chunks * 77) int64 ids. ``n_chunks`` is the longest caption's chunk count;
+    shorter captions are filled with empty chunks ([BOS][EOS][pad...])."""
+    prompts = [prompt] if isinstance(prompt, str) else list(prompt)
+    token_lists = tokenizer(prompts, add_special_tokens=False, truncation=False)["input_ids"]
+    per_caption = [_clip_chunk_ids(list(ids), tokenizer) for ids in token_lists]
+    n_chunks = max(len(c) for c in per_caption)
+    empty = _clip_chunk_ids([], tokenizer)[0]
+    rows = [
+        [tok for chunk in (chunks + [empty] * (n_chunks - len(chunks))) for tok in chunk]
+        for chunks in per_caption
+    ]
+    return torch.tensor(rows, dtype=torch.int64)
+
+
+def encode_clip_chunks(input_ids, text_encoder, clip_skip=None, return_pooled_prompt_embeds=False):
+    """Run (batch, n_chunks * 77) ids through a CLIP encoder chunk by chunk and concatenate the
+    chunks' penultimate (or ``clip_skip``) hidden states along the sequence axis. The pooled
+    output comes from the first chunk."""
+    te_device = next(text_encoder.parameters()).device
+    input_ids = input_ids.to(te_device)
+    layer = -2 if clip_skip is None else -(clip_skip + 2)
+    embed_chunks = []
+    pooled_prompt_embeds = None
+    for i, chunk in enumerate(torch.split(input_ids, CLIP_CONTEXT_LENGTH, dim=-1)):
+        out = text_encoder(chunk, output_hidden_states=True)
+        if i == 0 and return_pooled_prompt_embeds:
+            pooled_prompt_embeds = out[0]
+        embed_chunks.append(out.hidden_states[layer])
+    embeds = torch.cat(embed_chunks, dim=1)
+    if return_pooled_prompt_embeds:
+        return embeds, pooled_prompt_embeds
+    return embeds
+
+
+def pad_cached_text_embeds(embeds, name: str = "prompt_embeds") -> torch.Tensor:
+    """Cached per-caption embeddings (a stacked tensor, or a list when the collate found rows of
+    different chunk counts) -> one (batch, max_len, dim) tensor. Shorter rows get zero chunks."""
+    rows = list(embeds.unbind(0)) if torch.is_tensor(embeds) else list(embeds)
+    for r in rows:
+        if r.shape[0] % CLIP_CONTEXT_LENGTH != 0:
+            raise ValueError(
+                f"Cached {name} has length {r.shape[0]}, not a multiple of {CLIP_CONTEXT_LENGTH}: the text "
+                "cache predates the padded-to-77 CLIP encoding. Rebuild it with --regenerate_text_cache."
+            )
+    longest = max(r.shape[0] for r in rows)
+    padded = [F.pad(r, (0, 0, 0, longest - r.shape[0])) if r.shape[0] < longest else r for r in rows]
+    return torch.stack(padded)
 
 
 from rengu_flow.training.loss_weighting import apply_debiased_estimation, apply_min_snr_weight
@@ -266,6 +365,8 @@ class SDXLPipeline(BasePipeline):
         self.v_pred = self.model_config.get("v_pred", False)
         self.min_snr_gamma = self.model_config.get("min_snr_gamma", None)
         self.debiased_estimation_loss = self.model_config.get("debiased_estimation_loss", None)
+        # Zero-terminal-SNR betas default on for v-pred (the usual recipe); switchable.
+        self.zero_terminal_snr = bool(self.model_config.get("zero_terminal_snr", self.v_pred))
         self.cache_text_embeddings = self.model_config.get("cache_text_embeddings", True)
         self.clip_skip = self.model_config.get("clip_skip", None)
         self._pipeline = None
@@ -310,13 +411,7 @@ class SDXLPipeline(BasePipeline):
             torch_dtype=self.model_config["dtype"],
             add_watermarker=False,
         )
-        self._pipeline.tokenizer_2 = self._pipeline.tokenizer
-        self._pipeline.scheduler = diffusers.DDPMScheduler(
-            beta_start=0.00085, beta_end=0.012, beta_schedule="scaled_linear", num_train_timesteps=1000, clip_sample=False
-        )
-        prepare_scheduler_for_custom_training(self._pipeline.scheduler)
-        if self.v_pred:
-            fix_noise_scheduler_betas_for_zero_terminal_snr(self._pipeline.scheduler)
+        self._pipeline.scheduler = build_noise_scheduler(self.v_pred, self.zero_terminal_snr)
         self._pipeline.upcast_vae()
         self._pipeline.unet.train()
         self._pipeline.text_encoder.train()
@@ -421,8 +516,8 @@ class SDXLPipeline(BasePipeline):
     def configure_adapter(self, adapter_config):
         self.adapter_config = adapter_config
         self.adapter_type = adapter_config["type"]
-        if self.adapter_type == "lora" and adapter_config.get("init_from_existing"):
-            return
+        # init_from_existing no longer short-circuits: the LoRA is always wrapped through the normal
+        # path (adapter dtype, frozen base) and the weights are copied in by load_adapter_weights.
         if self.adapter_type == "lora":
             unet, te, te2 = networks_module.lora_sdxl.configure(
                 self.unet,
@@ -478,6 +573,11 @@ class SDXLPipeline(BasePipeline):
             and not networks_module.lycoris_sdxl.looks_like_lycoris_state(state)
         ):
             networks_module.lokr_vendored.load(self, adapter_path)
+        elif hasattr(self.unet, "peft_config"):
+            # Training with the LoRA already wrapped (init_from_existing): copy into the wrapper.
+            networks_module.lora_sdxl.load_into_wrapped(
+                self.unet, self.text_encoder, self.text_encoder_2, adapter_path
+            )
         else:
             networks_module.lora_sdxl.load(self.diffusers_pipeline, adapter_path)
         self._set_param_original_name()
@@ -610,53 +710,33 @@ class SDXLPipeline(BasePipeline):
     def _encode_prompt_embeds_batch(
         self, captions, tokenizer, text_encoder, return_pooled_prompt_embeds=False
     ):
-        chunks_out = []
+        # One caption at a time: a cached row holds only its own chunks (batch-independent, so the
+        # cache stays valid when the batch composition changes). Rows of different chunk counts
+        # come back as a list, which the cache stores ragged; prepare_inputs re-pads per batch.
+        embeds_out = []
         pooled_list = []
         for caption in captions:
             input_ids = self._get_input_ids([caption], tokenizer)
             embed, pooled = self._encode_prompt_embeds_from_input_ids(
                 input_ids, tokenizer, text_encoder, return_pooled_prompt_embeds
             )
-            chunks_out.append(embed)
+            embeds_out.append(embed[0])
             if return_pooled_prompt_embeds:
-                pooled_list.append(pooled)
-        prompt_embeds = torch.cat(chunks_out, dim=0)
+                pooled_list.append(pooled[0])
+        if len({e.shape for e in embeds_out}) == 1:
+            prompt_embeds = torch.stack(embeds_out)
+        else:
+            prompt_embeds = embeds_out
         if return_pooled_prompt_embeds:
-            return prompt_embeds, torch.cat(pooled_list, dim=0)
+            return prompt_embeds, torch.stack(pooled_list)
         return prompt_embeds
 
     def _encode_prompt_embeds_from_input_ids(
         self, input_ids, tokenizer, text_encoder, return_pooled_prompt_embeds=False
     ):
-        te_device = next(text_encoder.parameters()).device
-        input_ids = input_ids.to(te_device)
-        bos, eos, pad = tokenizer.bos_token_id, tokenizer.eos_token_id, tokenizer.pad_token_id
-        bs, device = input_ids.shape[0], te_device
-        chunks = torch.split(input_ids, tokenizer.model_max_length - 2, dim=-1)
-        processed_chunks = []
-        for chunk in chunks:
-            chunk = torch.cat(
-                [torch.full((bs, 1), bos, device=device), chunk, torch.full((bs, 1), pad, device=device)],
-                dim=-1,
-            )
-            first_pad_idx = torch.argmax((chunk == pad).to(torch.int32), dim=-1)
-            chunk[torch.arange(chunk.shape[0]), first_pad_idx] = eos
-            processed_chunks.append(chunk)
-        embed_chunks = []
-        pooled_prompt_embeds = None
-        for i, input_ids_chunk in enumerate(processed_chunks):
-            prompt_embeds = text_encoder(input_ids_chunk, output_hidden_states=True)
-            if i == 0 and return_pooled_prompt_embeds:
-                pooled_prompt_embeds = prompt_embeds[0]
-            hidden = (
-                prompt_embeds.hidden_states[-(self.clip_skip + 2)]
-                if self.clip_skip is not None
-                else prompt_embeds.hidden_states[-2]
-            )
-            embed_chunks.append(hidden)
-        out = torch.cat(embed_chunks, dim=1)
+        out = encode_clip_chunks(input_ids, text_encoder, self.clip_skip, return_pooled_prompt_embeds)
         if return_pooled_prompt_embeds:
-            return out, pooled_prompt_embeds
+            return out
         return out, None
 
     def prepare_inputs(self, inputs, timestep_quantile=None):
@@ -683,8 +763,13 @@ class SDXLPipeline(BasePipeline):
         ).expand(bs, -1)
 
         if self.cache_text_embeddings:
+            # Captions of different chunk counts (>75 tokens) arrive as lists: pad to the batch max.
             encoder_hidden_states = torch.cat(
-                [inputs["prompt_embeds"], inputs["prompt_embeds_2"]], dim=-1
+                [
+                    pad_cached_text_embeds(inputs["prompt_embeds"], "prompt_embeds"),
+                    pad_cached_text_embeds(inputs["prompt_embeds_2"], "prompt_embeds_2"),
+                ],
+                dim=-1,
             )
             pooled_prompt_embeds = inputs["pooled_prompt_embeds"]
             return (
@@ -701,7 +786,7 @@ class SDXLPipeline(BasePipeline):
         return (noisy_latents, timesteps, input_ids, input_ids_2, add_time_ids), (target, mask)
 
     def _get_input_ids(self, prompt, tokenizer):
-        return tokenizer(prompt, padding="longest", truncation=False, add_special_tokens=False, return_tensors="pt").input_ids.to(torch.int64)
+        return tokenize_clip_chunks(prompt, tokenizer)
 
     def get_block_swap_modules(self) -> list[nn.Module]:
         unet = self.diffusers_pipeline.unet
@@ -793,7 +878,7 @@ class SDXLPipeline(BasePipeline):
                     loss = apply_min_snr_weight(
                         loss, timesteps, self.scheduler, self.min_snr_gamma, v_prediction=self.v_pred
                     )
-                if self.debiased_estimation_loss is not None:
+                if self.debiased_estimation_loss:
                     loss = apply_debiased_estimation(
                         loss, timesteps, self.scheduler, v_prediction=self.v_pred
                     )
@@ -861,29 +946,7 @@ class InitialLayer(nn.Module):
         return torch.concat([prompt_embeds, prompt_embeds_2], dim=-1), pooled_prompt_embeds
 
     def get_prompt_embeds(self, input_ids, tokenizer, text_encoder, return_pooled_prompt_embeds=False):
-        te_device = next(text_encoder.parameters()).device
-        input_ids = input_ids.to(te_device)
-        bos, eos, pad = tokenizer.bos_token_id, tokenizer.eos_token_id, tokenizer.pad_token_id
-        bs, device = input_ids.shape[0], te_device
-        chunks = torch.split(input_ids, tokenizer.model_max_length - 2, dim=-1)
-        processed_chunks = []
-        for chunk in chunks:
-            chunk = torch.cat([torch.full((bs, 1), bos, device=device), chunk, torch.full((bs, 1), pad, device=device)], dim=-1)
-            first_pad_idx = torch.argmax((chunk == pad).to(torch.int32), dim=-1)
-            chunk[torch.arange(chunk.shape[0]), first_pad_idx] = eos
-            processed_chunks.append(chunk)
-        embed_chunks = []
-        pooled_prompt_embeds = None
-        for i, input_ids_chunk in enumerate(processed_chunks):
-            prompt_embeds = text_encoder(input_ids_chunk, output_hidden_states=True)
-            if i == 0 and return_pooled_prompt_embeds:
-                pooled_prompt_embeds = prompt_embeds[0]
-            prompt_embeds = prompt_embeds.hidden_states[-(self.clip_skip + 2)] if self.clip_skip is not None else prompt_embeds.hidden_states[-2]
-            embed_chunks.append(prompt_embeds)
-        out = torch.cat(embed_chunks, dim=1)
-        if return_pooled_prompt_embeds:
-            return out, pooled_prompt_embeds
-        return out
+        return encode_clip_chunks(input_ids, text_encoder, self.clip_skip, return_pooled_prompt_embeds)
 
 
 class DownBlockInnerLayer(nn.Module):

@@ -222,3 +222,20 @@ def test_vae_tiny_encode_decode_shapes():
     decoded = vae.decode(latents).sample
     assert decoded.shape == image.shape
     assert decoded.abs().max() <= 1.0
+
+
+def test_dit_is_linear_only_for_adapters(tiny_model):
+    """Backs qwen_image21's linear_only_adapters capability (the UI hides train_conv / use_tucker /
+    train_norm): the DiT holds no Conv and no affine LayerNorm/GroupNorm for LyCORIS to wrap."""
+    from torch import nn
+
+    from rengu_flow.registry.model_capabilities import LINEAR_ONLY_ADAPTERS, get_capability
+
+    modules = list(tiny_model.modules())
+    assert not [m for m in modules if isinstance(m, nn.modules.conv._ConvNd)]
+    assert not [
+        m
+        for m in modules
+        if isinstance(m, (nn.LayerNorm, nn.GroupNorm)) and getattr(m, "weight", None) is not None
+    ]
+    assert get_capability("qwen_image21").features[LINEAR_ONLY_ADAPTERS] is True

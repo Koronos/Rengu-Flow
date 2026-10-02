@@ -132,6 +132,28 @@ _expand_lycoris_templates(ADAPTER_FIELD_TEMPLATES)
 model_capability_registry: dict[str, ModelCapability] = {}
 
 
+def _path_identity(path: Any) -> str:
+    """``size:mtime_ns`` of a file, or a digest of a folder's (name, size, mtime_ns) entries.
+    Empty when the path does not exist (tests, remote paths): nothing is added to the key."""
+    import hashlib
+    import os
+
+    try:
+        p = os.fspath(path)
+        if os.path.isdir(p):
+            entries = []
+            for root, _dirs, files in os.walk(p):
+                for name in files:
+                    full = os.path.join(root, name)
+                    st = os.stat(full)
+                    entries.append((os.path.relpath(full, p), st.st_size, st.st_mtime_ns))
+            return hashlib.sha1(repr(sorted(entries)).encode()).hexdigest()[:16]
+        st = os.stat(p)
+        return f"{st.st_size}:{st.st_mtime_ns}"
+    except (OSError, TypeError, ValueError):
+        return ""
+
+
 @dataclass
 class ModelCapability:
     """Training options and config fields for one canonical model type."""
@@ -160,15 +182,33 @@ class ModelCapability:
     # values (other than the default) join the text-embedding cache key, so changing one
     # re-encodes instead of silently reusing stale embeddings (see text_cache_identity()).
     text_cache_keys: dict[str, Any] = field(default_factory=dict)
+    # Version of the cached-embedding layout/encoding. Bump it when the encoder's output for the
+    # same caption changes (e.g. SDXL's pad-to-77): 0 (default) adds nothing, so untouched models
+    # keep their caches; any other value joins the key and forces a re-encode.
+    text_cache_version: int = 0
+    # [model] keys naming the file(s) that hold the text encoder. The first one present joins the
+    # cache key by NAME and size+mtime (never the path, so moving a dataset's run does not
+    # invalidate it), so swapping the encoder/checkpoint re-encodes. A folder is fingerprinted by
+    # its files' names, sizes and mtimes. A missing path adds nothing.
+    text_cache_files: list[str] = field(default_factory=list)
 
     def text_cache_identity(self, model_config: dict[str, Any]) -> dict[str, Any]:
         """The text-encoder settings of ``model_config`` that key the text-embedding cache.
         Empty when nothing differs from the defaults, which keeps existing caches valid."""
-        return {
+        identity = {
             key: str(model_config[key])
             for key, default in self.text_cache_keys.items()
             if model_config.get(key) is not None and model_config[key] != default
         }
+        if self.text_cache_version:
+            identity["text_cache_version"] = str(self.text_cache_version)
+        for key in self.text_cache_files:
+            if model_config.get(key):
+                file_id = _path_identity(model_config[key])
+                if file_id:
+                    identity["text_encoder_file"] = f"{key}:{file_id}"
+                break
+        return identity
 
     def training_modes(self) -> list[str]:
         modes: list[str] = []
@@ -258,6 +298,11 @@ def _register_builtin_capabilities() -> None:
             full_finetune=True,
             preview=True,
             features={"preview": True, "block_swap": True},
+            # Text embeddings depend on clip_skip and on the checkpoint's own CLIP weights; v1 =
+            # every 75-token chunk padded to 77 tokens (caches from before hold unpadded rows).
+            text_cache_keys={"clip_skip": None},
+            text_cache_version=1,
+            text_cache_files=["checkpoint_path"],
             model_fields=[
                 {
                     "path": "model.checkpoint_path",
@@ -293,15 +338,29 @@ def _register_builtin_capabilities() -> None:
                     ),
                 },
                 {
+                    "path": "model.zero_terminal_snr",
+                    "label": "Zero terminal SNR",
+                    "type": "boolean",
+                    "placeholder": "empty = on with v_pred, off otherwise",
+                    "description": (
+                        "Rescales the noise schedule so the last timestep is pure noise "
+                        "(https://arxiv.org/abs/2305.08891) and samples previews with trailing "
+                        "timestep spacing. Defaults to the v_pred value (v-pred checkpoints are "
+                        "trained this way); set it explicitly to override."
+                    ),
+                },
+                {
                     "path": "model.clip_skip",
                     "label": "CLIP skip",
                     "type": "integer",
                     "min": 0,
                     "placeholder": "empty = standard -2 layer",
                     "description": (
-                        "Uses an earlier CLIP hidden layer than the default -2: "
-                        "hidden_states[-(clip_skip + 2)], so clip_skip=2 uses the layer two before "
-                        "the default. Anime-style checkpoints commonly want clip_skip=2."
+                        "Diffusers semantics: hidden_states[-(clip_skip + 2)]. Empty (or 0) already "
+                        "uses the penultimate layer, which is what A1111's 'Clip skip 2' means; "
+                        "clip_skip=1 here is A1111's 3, clip_skip=2 its 4. So for anime checkpoints "
+                        "trained with A1111 'Clip skip 2', leave this empty. Changing it re-encodes "
+                        "the text cache."
                     ),
                 },
                 {
@@ -387,6 +446,9 @@ def _register_builtin_capabilities() -> None:
                 "Use checkpoints released for Cosmos Predict2 / Anima-style bundles "
                 "(main, VAE, and Qwen3 text encoder paths below)."
             ),
+            # The encoder is whichever of t5_path / llm_path is configured (t5_path wins): swapping
+            # it, or replacing the file, must re-encode instead of reusing stale embeddings.
+            text_cache_files=["t5_path", "llm_path"],
             model_validation={
                 "one_of": [["llm_path", "t5_path"]],
             },
@@ -790,7 +852,9 @@ def _register_builtin_capabilities() -> None:
             preview=True,
             # edit: trains on [[directory]] control_path (condition images) and renders previews
             # with control_images.
-            features={"preview": True, "block_swap": True, "edit": True},
+            # Linear-only: no Conv modules and only non-affine LayerNorm / custom RMSNorm in the
+            # DiT (dit.py), so train_conv/use_tucker/train_norm are no-ops.
+            features={"preview": True, "block_swap": True, "edit": True, LINEAR_ONLY_ADAPTERS: True},
             branding_note=(
                 "Use ComfyUI's bf16 files (qwen_image_2.1_bf16, qwen_image_2.1_vae_bf16, "
                 "qwen3vl_8b_bf16) or the Qwen/Qwen-Image-2.1 diffusers download. Trains text-to-image "
