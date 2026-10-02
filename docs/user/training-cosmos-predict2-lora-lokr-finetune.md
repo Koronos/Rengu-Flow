@@ -7,7 +7,7 @@ This guide covers **austere end-to-end training** for checkpoints marketed as **
 Install the optional extra:
 
 ```bash
-pip install -e ".[cosmos_predict2]"
+./rengu init cosmos
 ```
 
 ## Model files (which `.safetensors` is which?)
@@ -177,7 +177,7 @@ With `cache_text_embeddings = true` (default), text embeddings are cached once; 
 
 ## Performance and VRAM (Anima / Cosmos)
 
-Guidance for **real runs (typically ≥1000 steps)** on **LoKR** with ~16 GB VRAM (e.g. RTX 4080). Install deps with `pip install -e ".[cosmos_predict2]"` or `uv sync --extra cosmos_predict2` (see `pyproject.toml`).
+Guidance for **real runs (typically ≥1000 steps)** on **LoKR** with ~16 GB VRAM (e.g. RTX 4080). Install deps with `./rengu init cosmos` or `uv sync --extra cosmos_predict2` (see `pyproject.toml`).
 
 Short tuning smokes (30 steps) are only **previews** for CI and quick regressions. They mix in `torch.compile` warmup and are **not** representative of per-step time on long jobs — ignore smoke averages for `compile`; judge steady-state iter time after warmup on your own run.
 
@@ -187,7 +187,7 @@ Short tuning smokes (30 steps) are only **previews** for CI and quick regression
 |---------|----------------|
 | **`cache_text_embeddings = true`** | Run `--cache_only` once; training should not re-encode captions every step. |
 | **`activation_checkpointing = true`** | Required for typical VRAM on 16 GB; `false` caused **OOM** in tuning (~16 GB peak). |
-| **`reentrant_activation_checkpointing = true`** | Default for `cosmos_predict2` when AC is on (`rengu_flow/config/defaults.py`); modest steady-state gain vs `false`. |
+| **`reentrant_activation_checkpointing = true`** | Not the default for Cosmos: it defaults to `false` unless a 4-bit base is block-swapped or an fp8 base uses `compile_scope = "block"` with AC (`rengu_flow/config/defaults.py`). Setting it explicitly gave a modest steady-state gain vs `false`. |
 | **`compile = true`** | Enables **`pipeline_model.compile()`** — `torch.compile` on the whole pipeline model (diffusion-pipe parity). After Inductor warmup, steady steps were ~**0.51 s** vs ~**0.68–0.70 s** without compile on the same LoKR setup — worthwhile when the run is long enough to amortize slower early steps. Leave **`compile_mode`** unset (default mode is the validated one). ⚠️ Do **not** set `"reduce-overhead"` or `"max-autotune"`: both crash on the first step with a CUDAGraphs "output overwritten" error (torch 2.12 + DeepSpeed per-layer compile; measured on single-res and multi-res). `"max-autotune-no-cudagraphs"` runs but pays minutes of extra warmup per shape for marginal gain. **Multi-res / AR buckets need no extra flag**: the trainer enumerates the dataset's size buckets and compiles one static graph per shape, so every bucket runs at single-res compiled speed (leave `compile_dynamic` unset; see [Shared training techniques — torch.compile](../developer/training-techniques.md#torchcompile)). |
 | **`blocks_to_swap`** | Offload DiT blocks (`transformer.blocks`) to CPU and stream them on demand when VRAM is tight (`pipeline_stages = 1`). Works for **both adapters and full finetune** (full finetune additionally requires `optimizer.gradient_release = true`). Start around half the block count and tune; on very small cards swap most of them. See [VRAM optimization](../developer/vram-optimization.md). |
 | **`cache_dedup_text_embeddings = true`** | Speeds `--cache_only` when many images share the same caption (tag-heavy sets). |
@@ -309,6 +309,6 @@ python -m rengu_flow.main --config my.toml --validate-only
 
 Optional: `[train.oom_skip]` for single-GPU OOM resilience — see [Training loop and eval](training-loop-and-eval.md) and `examples/config_oom_skip.toml`.
 
-Out of scope for this austere path: **`load_and_fuse_adapter`** (use `load_adapter_weights` only), ComfyUI submodule. **Block swap** during training is supported for both adapters and full finetune (full finetune also needs `optimizer.gradient_release = true`), with `pipeline_stages = 1` — see [training loop](training-loop-and-eval.md#block-swap) and [VRAM optimization](../developer/vram-optimization.md). Dataset **augmentation MVP** is supported — see [dataset augmentation](dataset-augmentation.md).
+Out of scope for this austere path: **`load_and_fuse_adapter`** (use `load_adapter_weights` only), ComfyUI submodule. **Block swap** during training is supported for both adapters and full finetune (full finetune also needs `optimizer.gradient_release = true`), with `pipeline_stages = 1` — see [training loop](training-loop-and-eval.md#block-swap-vram-adapter-training) and [VRAM optimization](../developer/vram-optimization.md). Dataset **augmentation MVP** is supported — see [dataset augmentation](dataset-augmentation.md).
 
 **Training previews** are supported via `[preview]` and the `preview_now` signal file when `pipeline_stages = 1` — see [Training previews](previews.md). For **Anima**, a practical default is `num_inference_steps = 20`, `guidance_scale = 4`, `width`/`height = 512` on 16 GB GPUs.

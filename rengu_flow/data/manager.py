@@ -19,6 +19,7 @@ from rengu_flow.control.progress_stream import ProgressEmitter
 from rengu_flow.data import caching_progress
 from rengu_flow.data.control import ControlRow, control_signature, control_size, load_control_image
 from rengu_flow.data.dataset import CONTROL_IDENTITY_COLUMNS as _CONTROL_IDENTITY_COLUMNS
+from rengu_flow.data.dataset import STAMP_COLUMNS as _STAMP_COLUMNS
 from rengu_flow.data.dataset import control_round_to_multiple
 from rengu_flow.distributed import is_main_process
 from rengu_flow import distributed as dist
@@ -284,6 +285,8 @@ def _cache_fn(
         first_size_bucket = example["size_bucket"][0]
         tensors_and_masks = []
         image_specs = []
+        # Per-row image/mask stamps: stored with each latent as part of its salvage identity.
+        row_stamps = {c: [] for c in _STAMP_COLUMNS if c in example}
         # Edit rows: per row, (list of N control tensors (C, 1, H_i, W_i), valid). Each control
         # keeps its own aspect ratio (NOT the target's bucket): control.load_control_image is the
         # single sizing rule, shared with the text-encoder pass below.
@@ -304,6 +307,8 @@ def _cache_fn(
             )
             tensors_and_masks.extend(items)
             image_specs.extend([image_spec] * len(items))
+            for c, values in row_stamps.items():
+                values.extend([example[c][i]] * len(items))
             if is_edit:
                 assert len(items) == 1, "edit datasets are images only"
                 control_rows.append(
@@ -350,6 +355,7 @@ def _cache_fn(
         for k in results:
             results[k] = torch.cat(results[k])
         results["image_spec"] = image_specs
+        results.update(row_stamps)
         results["mask"] = [t[1] for t in tensors_and_masks]
         # Tombstone flag: a corrupt/truncated image yields a zero-placeholder latent
         # marked invalid here; it's filtered out when the iteration order is built, so
@@ -492,7 +498,31 @@ class DatasetManager:
         self.datasets = []
 
     def register(self, dataset) -> None:
+        self._separate_colliding_caches(dataset)
         self.datasets.append(dataset)
+
+    def _separate_colliding_caches(self, dataset) -> None:
+        """Give a directory its own cache dir when another one (in this dataset or an already
+        registered one, e.g. train vs eval) points at the same folder with DIFFERENT settings.
+
+        The cache dir is keyed on the folder path only; two settings sharing it overwrote each
+        other's grouped metadata (and thrashed the signature every run). The first user keeps the
+        original dir, so the normal one-use-per-path case never invalidates an existing cache.
+        Identical settings keep sharing -- that is just the same cache.
+        """
+        from rengu_flow.data.cache_paths import directory_config_digest
+
+        owners = getattr(self, "_cache_dir_owners", None)
+        if owners is None:
+            owners = self._cache_dir_owners = {}
+        for dir_ds in getattr(dataset, "directory_datasets", []) or []:
+            if not hasattr(dir_ds, "set_cache_disambiguator"):
+                continue
+            digest = directory_config_digest(dir_ds.directory_config, dir_ds.dataset_config)
+            owner = owners.setdefault(str(dir_ds.cache_dir), digest)
+            if owner != digest:
+                dir_ds.set_cache_disambiguator(digest)
+                owners.setdefault(str(dir_ds.cache_dir), digest)
 
     def cache(self, unload_models: bool = True) -> None:
         if dist is None:
@@ -507,6 +537,26 @@ class DatasetManager:
         ]
         resolvers = [r for r in resolvers if r is not None]
         augmentation_resolver = resolvers[0] if resolvers else None
+        dir_resolvers = [
+            ds.get_directory_config_resolver()
+            for ds in self.datasets
+            if hasattr(ds, "get_directory_config_resolver")
+        ]
+
+        def directory_config_for(path):
+            # Per-directory reader settings (parquet columns) for the media preprocessor; the
+            # first dataset that owns the path answers.
+            for resolve in dir_resolvers:
+                cfg = resolve(path)
+                if cfg is not None:
+                    return cfg
+            return None
+
+        preprocess_fn = self.model.get_preprocess_media_file_fn(
+            augmentation_resolver=augmentation_resolver
+        ) if is_main_process() else None
+        if preprocess_fn is not None and hasattr(preprocess_fn, "parquet_config_resolver"):
+            preprocess_fn.parquet_config_resolver = directory_config_for
 
         worker = None
         queue = None
@@ -516,9 +566,7 @@ class DatasetManager:
             cache_args = [
                 self.datasets,
                 None,  # replaced with the real queue below
-                self.model.get_preprocess_media_file_fn(
-                    augmentation_resolver=augmentation_resolver
-                ),
+                preprocess_fn,
                 len(self.text_encoders),
                 self.regenerate_cache,
                 self.regenerate_text_cache,

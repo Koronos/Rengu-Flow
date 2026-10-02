@@ -15,7 +15,7 @@
 | `rengu_flow/networks/adapter_dit.py` | LoRA (PEFT) and LoKr save/load (Comfy prefix) |
 | `rengu_flow/data/preprocess_media.py` | `PreprocessMediaFile` for dataset cache |
 
-Registry: `@register_model("cosmos_predict2")` is the canonical type; `register_model_alias("anima", "cosmos_predict2")` also accepts `type = "anima"` as a legacy alias (and `aliases=["anima"]` on the capability). Anima is the checkpoint branding name.
+Registry: `@register_model("cosmos_predict2")` is the canonical type; `register_model_alias("anima", "cosmos_predict2")` and `aliases=["anima"]` on the capability exist for registry/UI lookup, but `registry/model_config_rules.py` requires the canonical `type = "cosmos_predict2"` in hand-written TOML (`anima` is rejected; only the web UI form rewrites it). Anima is the checkpoint branding name.
 
 ## Cache hooks
 
@@ -57,8 +57,8 @@ User-facing summary: **`docs/user/training-cosmos-predict2-lora-lokr-finetune.md
 Highlights for operators (see also user doc **Performance and VRAM**):
 
 - **`pipeline_model.compile()`** is wired in `main.py` when `compile = true` (diffusion-pipe parity); optional `compile_mode` / `compile_dynamic` shape the `torch.compile` call (see [training-techniques.md — torch.compile](training-techniques.md#torchcompile)). Short smokes penalize compile in the mean; on long runs steady iter was ~0.51 s vs ~0.68–0.70 s without compile — see user doc **Performance and VRAM**.
-- **`reentrant_activation_checkpointing`** defaults to `true` for `cosmos_predict2` when AC is on and `blocks_to_swap` is unset (`defaults.py`).
-- **`enable_block_swap`** uses shared [`rengu_flow/training/block_swap.py`](../training/block_swap.py) on `transformer.blocks` (see [training-techniques.md](training-techniques.md)).
+- **`reentrant_activation_checkpointing`** defaults to `false` (`defaults.py`), except `true` for a 4-bit base (`model.transformer_4bit`) with `blocks_to_swap`, or an fp8 base with `compile_scope="block"` + `activation_checkpointing=true`; explicit values win.
+- **`enable_block_swap`** uses shared [`rengu_flow/training/block_swap.py`](../../rengu_flow/training/block_swap.py) on `transformer.blocks` (see [training-techniques.md](training-techniques.md)).
 - Text embeddings: prefer **`cache_text_embeddings`** + `--cache_only` so training does not repeat Qwen3 forward passes.
 
 ## Dependencies and upstream sources

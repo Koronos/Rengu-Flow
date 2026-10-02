@@ -48,6 +48,8 @@ Use **`[[directory]]`** (array of tables). Each entry must have:
 | **`enable_ar_bucket`** | Enable aspect-ratio bucketing for this directory. | `true` or `false`. | From global (default `false`). |
 | **`ar_buckets`** | Explicit list of aspect ratios (width/height) for bucketing. | List of floats, e.g. `[1.0, 1.25, 1.5]`. | If unset, derived from `min_ar` / `max_ar` / `num_ar_buckets`. |
 | **`size_buckets`** | Use fixed size buckets instead of AR bucketing. Each entry is `[width, height, frames]`. | List of arrays, e.g. `[[512, 512, 1], [768, 768, 1]]`. | Not set (AR bucketing used if enabled). |
+| **`no_upscale`** | With `size_buckets`, never enlarge: each image is re-bucketed down to the closest-aspect-ratio bucket it already fills, so training stays on genuine detail. An image too small for every bucket lands in the smallest bucket (and is upscaled) unless `drop_undersized` is on. Has no effect with AR bucketing (which already keeps native size). | `true` or `false`. | From global (default `false`). |
+| **`drop_undersized`** | Sub-option of `no_upscale`: discard images smaller than every size bucket instead of upscaling them into the smallest one. Ignored unless `no_upscale` is `true`. | `true` or `false`. | From global (default `false`). |
 | **`subsample_ratio`** | **Fractional** per-epoch cap on this folder's **base images** (e.g. `0.25` = a quarter). Rotates each epoch by default. **Mutually exclusive with `max_images`.** | Float in (0, 1]. | `1` (all images). |
 | **`max_images`** | **Absolute** per-epoch cap on how many **base images** this folder contributes, shared across all of its resolution/AR buckets. Rotates each epoch by default. **Mutually exclusive with `subsample_ratio`.** | Integer &gt; 0. | Not set (no cap); inherits the dataset default if one is set. |
 | **`subsample_shuffle`** | Rotate the sampled window each epoch for whichever limiter is active; `false` keeps the **same** images every epoch. | `true` or `false`. | `true` (rotate). |
@@ -243,6 +245,8 @@ These apply to all directories unless overridden per-directory.
 | **`num_ar_buckets`** | Number of aspect-ratio buckets between `min_ar` and `max_ar`. | Integer &gt; 0. | Required if `enable_ar_bucket` and no `ar_buckets`. |
 | **`ar_buckets`** | Explicit list of aspect ratios (overrides min_ar/max_ar/num). | List of floats. | Not set. |
 | **`size_buckets`** | Fixed size buckets instead of AR; each entry `[width, height, frames]`. | List of arrays. | Not set. |
+| **`no_upscale`** | With `size_buckets`, never enlarge: each image is re-bucketed down to the closest-aspect-ratio bucket it already fills, so training stays on genuine detail. An image too small for every bucket lands in the smallest bucket (and is upscaled) unless `drop_undersized` is on. Has no effect with AR bucketing (which already keeps native size). | `true` or `false`. | `false`. |
+| **`drop_undersized`** | Sub-option of `no_upscale`: discard images smaller than every size bucket instead of upscaling them into the smallest one. Ignored unless `no_upscale` is `true`. | `true` or `false`. | `false`. |
 | **`shuffle_metadata`** | Shuffle image order when building metadata (deterministic seed from directory path). | `true` / `false` | `true` |
 | **`online_captions`** | Read captions from `captions.json` at training time instead of only from cached metadata. | `true` / `false` | `false` |
 | **`subsample_ratio`** | Fraction of the combined training schedule (e.g. `0.25` for quick debug runs). | Float in (0, 1]. | `1` (full dataset). |
@@ -317,6 +321,13 @@ How it works:
 |-----|-------------|--------|---------|
 | **`resolution_schedule.enabled`** | Turn the staged schedule on. | `true` / `false` | `false` (uniform mixing). |
 | **`resolution_schedule.stage`** | Ordered list of stages, each `{ resolutions, fraction }`. | `[[resolution_schedule.stage]]` tables. | — |
+
+Two keys live in the **main training TOML** (not the dataset TOML) and relate to data handling:
+
+| Key | Description | Values | Default |
+|-----|-------------|--------|---------|
+| **`min_image_exposure`** | Target for the startup "estimated image exposure" report (average times each image is trained per resolution). Resolutions whose estimate falls below the target are flagged `<-- below target` in the log. Reporting only: training is never altered or blocked. | Float > 0, e.g. `3`. | Omitted (report printed without a target flag). |
+| **`video_clip_mode`** | How a clip of the target frame count is cut from a longer video when caching video latents. Videos shorter than the target frames are skipped. Only matters for video (`frame_buckets` > 1). | `"single_beginning"` (first frames) or `"single_middle"` (centered). | `"single_beginning"` |
 
 In the **web UI dataset editor**, the **Resolution schedule** section provides a
 visual editor: toggle it on, then add stages — each row picks the active

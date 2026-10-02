@@ -69,4 +69,4 @@ Keeping `save` / `save_quit` names and the run_dir root preserves diffusion-pipe
 
 - Configs live under `tests/fixtures/smoke/` (not `examples/`).
 - `bash scripts/smoke_training_signals.sh` — touches each signal during a real run, then resumes with `genericoptim` + `kahan_buffer_offload` after `save_quit`.
-- Requires repo-root `.env` with `RENGU_COSMOS_*` and `pip install -e ".[optim]"` for the genericoptim phase.
+- Requires repo-root `.env` with `RENGU_COSMOS_*` and the `optim` extra (`./rengu init optim`) for the genericoptim phase.

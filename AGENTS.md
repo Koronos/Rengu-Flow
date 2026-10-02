@@ -48,7 +48,7 @@ Core packages under `rengu_flow/`: `cli/` (subcommand dispatch), `data/` (datase
 
 ### Non-obvious boundaries — respect these
 
-- **Core training/CLI must NOT depend on the UI's `jobs.db`.** `rengu_flow_ui/` (FastAPI + SQLite job registry + Vue) is a decoupled control plane that talks to training only via FastAPI endpoints and **signal files** (`save`, `save_quit`, `export_model`, `preview`, etc. — files dropped in the run output dir, checked each iteration). The cache `meta.db` (cache_v2 sqlite index) is a *separate* local thing that core training legitimately owns and is thread-safe. See `[[rengu-flow-db-boundary]]` memory.
+- **Core training/CLI must NOT depend on the UI's `jobs.db`.** `rengu_flow_ui/` (FastAPI + SQLite job registry + Vue) is a decoupled control plane that talks to training only via FastAPI endpoints and **signal files** (`save`, `save_quit`, `export_model`, `preview_now`, etc. — files dropped in the run output dir, checked each iteration). The cache `meta.db` (cache_v2 sqlite index) is a *separate* local thing that core training legitimately owns and is thread-safe. See `[[rengu-flow-db-boundary]]` memory.
 - **WSL CUDA allocator:** never set `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` — it crashes under WSL2/WDDM. `rengu_flow.platform_compat.configure_cuda_allocator` neutralizes it automatically; don't undo that. See `[[rengu-flow-gpu-training-8gb]]` memory.
 - **Config is the contract:** training parameters live in TOML, not hard-coded defaults. Model checkpoint paths go in the **training TOML**; `rengu.local.toml` (git-ignored) is only for UI host/port and launcher defaults.
 

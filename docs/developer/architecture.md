@@ -49,9 +49,9 @@ Execution is launched from a main TOML (and optional dataset TOML), similar to d
 | Component | Registry / mechanism | Status |
 |-----------|----------------------|--------|
 | Engine backend | `rengu_flow.engine` / `select_backend` | `"accelerate"` (single-GPU, `SingleDeviceBackend`) and `"deepspeed"` (multi-GPU, `DeepSpeedPipeBackend`); resolved from `RENGU_ENGINE` env → `engine` config key → OS default |
-| Model | `rengu_flow.registry.models` | `sdxl`, `cosmos_predict2` (+ alias `anima`) |
+| Model | `rengu_flow.registry.models` | `sdxl`, `cosmos_predict2`, `krea2`, `qwen_image21` (`anima` is a UI-only alias; the validator requires canonical ids) |
 | Optimizer | `rengu_flow.registry.optimizers` + `optim/resolver.py` | Aliases + qualified paths + vendor optimizers |
-| Scheduler | `scheduler_registry` / `register_scheduler` in `optim/resolver.py` | constant, linear, cosine, rex, paths |
+| Scheduler | `scheduler_registry` / `register_scheduler` in `optim/resolver.py` | constant, linear, cosine, rex, wsd, none, paths |
 | Adapter | Branches in pipeline + `rengu_flow/networks/*` | LoRA/LoKr; **no adapter registry yet** — see BACKLOG P0-3 |
 | Dataset | `Dataset` / `DirectoryDataset` + `DatasetManager` | Directory + buckets |
 | Step/epoch callbacks | `Saver`, eval, previews | **No generic callback registry** — BACKLOG P0-4 |

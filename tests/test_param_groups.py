@@ -45,3 +45,32 @@ def test_split_weight_decay_genericoptim_disables_muon_on_no_wd():
     assert no_wd["muon"] is False
     assert no_wd["adamuon"] is False
     assert no_wd["normuon"] is False
+
+
+def test_split_weight_decay_exempts_dora_and_scalar_params():
+    w = torch.nn.Parameter(torch.zeros(4, 4))
+    dora = torch.nn.Parameter(torch.zeros(1, 4))
+    dora.original_name = "blocks.0.attn.q_proj.lora_magnitude_vector.dora_scale"
+    scalar = torch.nn.Parameter(torch.zeros(()))
+    named = torch.nn.Parameter(torch.zeros(2, 2))
+    named.original_name = "blocks.0.lokr_scalar"
+    groups = [{"params": [w, dora, scalar, named], "weight_decay": 0.01}]
+    result = split_weight_decay_param_groups(groups, "adamw")
+    wd = [p for g in result if g["weight_decay"] == 0.01 for p in g["params"]]
+    no_wd = [p for g in result if g["weight_decay"] == 0 for p in g["params"]]
+    assert wd == [w]
+    assert {id(p) for p in no_wd} == {id(dora), id(scalar), id(named)}
+
+
+def test_split_genericoptim_proj_keys_reach_every_group():
+    groups = [
+        {"params": [torch.nn.Parameter(torch.zeros(4, 4))], "lr": 1e-4},
+        {"params": [torch.nn.Parameter(torch.zeros(4, 4))], "lr": 2e-4},
+    ]
+    kwargs = {"rank": 8, "proj_type": "std", "update_proj_gap": 100, "other": 1}
+    out = _param_groups.split_genericoptim_param_groups(groups, kwargs)
+    twod = [g for g in out if g["params"] and g["params"][0].ndim == 2]
+    assert len(twod) == 2
+    assert all(g["rank"] == 8 and g["proj_type"] == "std" for g in twod)
+    assert all(g["update_proj_gap"] == 100 for g in twod)
+    assert kwargs == {"other": 1}

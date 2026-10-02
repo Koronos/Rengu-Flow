@@ -282,6 +282,37 @@ def test_cache_resume_after_checkpoint(tmp_path):
         assert torch.allclose(cache2[i]["latents"].float(), exp["latents"].float()), i
 
 
+def test_cache_crash_before_first_checkpoint_does_not_misalign(tmp_path):
+    """A run killed before the first checkpoint leaves orphan bytes in the .bin files with
+    count == 0; the reopened cache must truncate them instead of appending after them."""
+    fp = "fp-crash0"
+
+    def row(i, ragged_len=3):
+        return {
+            "latents": torch.full((4, 8, 8), float(i)),
+            "prompt_embeds": torch.full((ragged_len + i, 8), float(i)),
+        }
+
+    c = Cache(tmp_path / "c", fp)
+    for i in range(5):
+        c.add(row(100 + i))
+    for f in c._tensor_files.values():
+        f.flush()
+    del c  # hard kill: no commit / finalize, manifest still count == 0
+
+    c2 = Cache(tmp_path / "c", fp)
+    for i in range(8):
+        c2.add(row(i))
+    c2.finalize_current_shard()
+    c3 = open_disk_cache(tmp_path / "c", fp)
+    assert len(c3) == 8
+    for i in range(8):
+        it = c3[i]
+        assert it["latents"].flatten()[0].item() == float(i), i
+        assert it["prompt_embeds"].flatten()[0].item() == float(i), i
+        assert it["prompt_embeds"].shape[0] == 3 + i, i
+
+
 def test_cache_valid_flags(tmp_path):
     cache = Cache(tmp_path / "latents", "fp-valid")
     cache.add({**_latents_item(), "valid": True})

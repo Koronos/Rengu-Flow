@@ -65,7 +65,7 @@ def run_train(args: argparse.Namespace) -> None:
         config_path,
         num_gpus=args.num_gpus,
         master_port=args.master_port,
-        resume_from=args.resume_from_checkpoint if args.resume_from_checkpoint is not True else None,
+        resume_from=args.resume_from_checkpoint,
         extra_args=extra,
         training=cfg.training,
     )

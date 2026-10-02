@@ -10,7 +10,7 @@ Cross-model VRAM, speed, and quality helpers. Pipeline models only supply **whic
 | [`loss_weighting.py`](../../rengu_flow/training/loss_weighting.py) | min-SNR, debiased estimation | `model.min_snr_gamma`, `model.debiased_estimation_loss` (SDXL) |
 | [`ema.py`](../../rengu_flow/training/ema.py) | CPU EMA shadow weights | `ema_decay` |
 | [`optimizer_hooks.py`](../../rengu_flow/training/optimizer_hooks.py) | Fused optimizer validation | `optimizer.fused_backward`, `optimizer.fused_optimizer_groups` |
-| [`quantized_load.py`](../../rengu_flow/training/quantized_load.py) | fp8 load dtype helpers | `model.transformer_dtype`, `model.diffusion_model_dtype` (Cosmos) |
+| [`quantize_dit.py`](../../rengu_flow/training/quantize_dit.py) | fp8 / 4-bit DiT quantization helpers | `model.transformer_dtype`, `model.diffusion_model_dtype` (Cosmos) |
 | [`main.py`](../../rengu_flow/main.py) | `torch.compile` on the pipeline model | `compile`, `compile_mode`, `compile_dynamic` |
 
 ## Block swap

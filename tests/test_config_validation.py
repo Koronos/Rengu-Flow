@@ -92,8 +92,11 @@ def test_gradient_release_without_flag_no_warning(minimal_config):
     assert collect_validation_warnings(minimal_config) == []
 
 
-def test_run_prepared_logs_gradient_release_lookahead_warning(tmp_path):
+def test_run_prepared_logs_gradient_release_lookahead_warning(tmp_path, monkeypatch):
     """CLI validate-only must emit config advisories through the project logger."""
+    # gradient_release is deepspeed-only and validate now runs the backend checks like train does;
+    # pin the engine so the test does not depend on the OS default (accelerate on Windows).
+    monkeypatch.setenv("RENGU_ENGINE", "deepspeed")
     try:
         from rengu_flow.main import parse_args, run_prepared
     except ImportError as e:

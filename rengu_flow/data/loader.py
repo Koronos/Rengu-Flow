@@ -46,6 +46,7 @@ class PipelineDataLoader:
         pin_memory: bool = False,
         prefetch_factor: int = 2,
         persistent_workers: bool = True,
+        owns_dataset_epoch: bool = True,
     ):
         if len(dataset) == 0:
             msg = "Dataset is empty."
@@ -61,6 +62,14 @@ class PipelineDataLoader:
         self.pin_memory = pin_memory
         self.prefetch_factor = prefetch_factor
         self.persistent_workers = persistent_workers
+        # False for a loader that only borrows a dataset another loader drives (the val-gap
+        # train probe): it must never call set_epoch on it, or its reset() would rewind the
+        # live train rotation / resolution schedule.
+        self.owns_dataset_epoch = owns_dataset_epoch
+        # Batches consumed this epoch = _resume_skip (restored on resume) + whole steps of
+        # micro-batches handed out. num_batches_pulled also counts the one-batch prefetch.
+        self._resume_skip = 0
+        self._micros_returned = 0
         self.iter_called = False
         self.eval_quantile = None
         self.epoch = 1
@@ -88,6 +97,8 @@ class PipelineDataLoader:
         self._stop_prefetch_thread()
         self.epoch = 1
         self.num_batches_pulled = 0
+        self._resume_skip = 0
+        self._micros_returned = 0
         self.next_micro_batch = None
         self._create_dataloader()
         self.data = self._pull_batches_from_dataloader()
@@ -114,8 +125,11 @@ class PipelineDataLoader:
                 self.recreate_dataloader = False
                 self.data = self._pull_batches_from_dataloader()
                 self.num_batches_pulled = 0
+                self._resume_skip = 0
+                self._micros_returned = 0
                 self.next_micro_batch = next(self.data)
         ret = self.next_micro_batch
+        self._micros_returned += 1
         self._maybe_announce_shape(ret)
         try:
             self.next_micro_batch = next(self.data)
@@ -130,6 +144,8 @@ class PipelineDataLoader:
                 self.recreate_dataloader = False
             self.data = self._pull_batches_from_dataloader()
             self.num_batches_pulled = 0
+            self._resume_skip = 0
+            self._micros_returned = 0
             self.next_micro_batch = None
         return ret
 
@@ -162,6 +178,8 @@ class PipelineDataLoader:
 
     def _refresh_dataset_epoch(self) -> None:
         """Tell the dataset which epoch we are on (no-op for datasets without set_epoch)."""
+        if not self.owns_dataset_epoch:
+            return
         set_epoch = getattr(self.dataset, "set_epoch", None)
         if callable(set_epoch):
             set_epoch(self.epoch)
@@ -193,6 +211,8 @@ class PipelineDataLoader:
         self._create_dataloader()
         self.data = self._pull_batches_from_dataloader()
         self.num_batches_pulled = 0
+        self._resume_skip = 0
+        self._micros_returned = 0
         self.next_micro_batch = None
 
     def _use_thread_prefetch(self) -> bool:
@@ -342,10 +362,16 @@ class PipelineDataLoader:
         torch.distributed.all_gather_object(result, self.epoch)
         self.epoch = max(x for x in result if x is not None)
 
+    def _consumed_batches(self) -> int:
+        gas = max(1, int(self.gradient_accumulation_steps))
+        return self._resume_skip + self._micros_returned // gas
+
     def state_dict(self):
         sd = {
             "epoch": self.epoch,
-            "num_batches_pulled": self.num_batches_pulled,
+            # Consumed (trained) batches, not the prefetch-inflated pulled count: resuming
+            # from the pulled count skipped one never-trained batch per restart.
+            "num_batches_pulled": self._consumed_batches(),
         }
         cursor_state = getattr(self.dataset, "cursor_state", None)
         if callable(cursor_state):
@@ -356,8 +382,10 @@ class PipelineDataLoader:
         assert not self.iter_called
         self.epoch = state_dict["epoch"]
         self.num_batches_pulled = state_dict["num_batches_pulled"]
-        # The pulled count includes the one-batch prefetch, so a checkpoint saved at the last
-        # step of an epoch records a fully-consumed epoch. Skipping ALL of it would create an
+        self._resume_skip = int(self.num_batches_pulled)
+        self._micros_returned = 0
+        # The recorded count is the consumed batches, so a checkpoint saved at the last step of
+        # an epoch records a fully-consumed epoch. Skipping ALL of it would create an
         # empty dataloader; roll straight into the next epoch instead. An unsized dataset gives
         # nothing to compare against, so it keeps the recorded position as-is.
         try:
@@ -367,6 +395,7 @@ class PipelineDataLoader:
         if epoch_batches is not None and self.num_batches_pulled >= epoch_batches:
             self.epoch += 1
             self.num_batches_pulled = 0
+            self._resume_skip = 0
             self._refresh_dataset_epoch()
         load_cursors = getattr(self.dataset, "load_cursor_state", None)
         if callable(load_cursors) and state_dict.get("cursors"):

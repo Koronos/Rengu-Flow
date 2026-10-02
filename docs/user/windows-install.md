@@ -39,7 +39,8 @@ env var, or the `engine` key in a run config). When unset it defaults **per OS**
 |----------|--------|------------|
 | `accelerate` | plain PyTorch, single-GPU, no DeepSpeed | **Windows** |
 | `deepspeed` | DeepSpeed pipeline engine, multi-GPU | **Linux/WSL** |
-| `accelerate_deepspeed` | Accelerate + DeepSpeed ZeRO | *(not implemented yet)* |
+
+These are the only valid values (`--engine {deepspeed,accelerate}`). `accelerate_deepspeed` is **not** a valid option and is rejected.
 
 So on Windows you normally set nothing — `accelerate` is automatic. To force it explicitly:
 

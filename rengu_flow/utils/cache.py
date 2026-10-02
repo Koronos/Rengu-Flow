@@ -496,7 +496,9 @@ class Cache:
             if spec.get("ragged"):
                 # Truncate the flat .bin back to its committed byte length before appending.
                 end = self._ragged_committed_end(key) if resuming else self._ragged_end.get(key, 0)
-                if resuming and path.exists():
+                if path.exists():
+                    # Always cut back to the committed length: a reopen with count == 0
+                    # (crash before the first checkpoint) still has the dead run's bytes.
                     f = open(path, "r+b")  # noqa: SIM115
                     f.truncate(end)
                     f.seek(0, os.SEEK_END)
@@ -505,7 +507,7 @@ class Cache:
                 self._tensor_files[key] = f
                 self._ragged_end[key] = end
                 continue
-            if resuming and path.exists():
+            if path.exists():
                 f = open(path, "r+b")  # noqa: SIM115
                 f.truncate(self.count * self._row_size(key))
                 f.seek(0, os.SEEK_END)
@@ -627,13 +629,19 @@ class Cache:
                 out[idx] = bool(json.loads(payload).get("valid", True))
         return out
 
-    def identity_index(self, keys: tuple[str, ...]) -> dict[tuple, list[int]]:
+    def identity_index(
+        self, keys: tuple[str, ...], absent: tuple[str, ...] = ()
+    ) -> dict[tuple, list[int]]:
         """Map each row's identity (the *keys* values from its JSON meta) to its row indices.
 
         The identity is what makes a row reusable across a row-set change: the image (and its
         augmentation variant) for latents, the caption for text embeddings. Duplicate identities
         keep every index (in row order) so a consumer can hand out one per occurrence. Meta-only
         scan — no tensor mmap reads.
+
+        ``absent``: only index rows whose meta carries NONE of these keys (rows written before
+        a newer identity key existed), so a legacy fallback never claims a row that does have
+        the key and simply holds a different value.
         """
         self._ensure_meta_for_read()
         out: dict[tuple, list[int]] = {}
@@ -644,6 +652,8 @@ class Cache:
                 continue
             meta = json.loads(payload)
             if any(k not in meta for k in keys):
+                continue
+            if any(k in meta for k in absent):
                 continue
             out.setdefault(freeze_identity(meta[k] for k in keys), []).append(idx)
         return out

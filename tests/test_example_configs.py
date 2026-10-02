@@ -12,12 +12,19 @@ from rengu_flow.config import load_config, load_dataset_config, set_config_defau
 EXAMPLE_CONFIGS = [
     "minimal_config.toml",
     "minimal_config_lora_sdxl.toml",
-    "minimal_config_lokr_vendored.toml",
+    "minimal_config_lokr_sdxl.toml",
     "full_model_sdxl.toml",
     "full_model_sdxl_unet_only.toml",
     "minimal_config_cosmos_predict2_lora.toml",
     "minimal_config_cosmos_predict2_lokr.toml",
     "minimal_config_cosmos_predict2_finetune.toml",
+    "minimal_config_krea2_lora.toml",
+    "minimal_config_krea2_lokr.toml",
+    "minimal_config_krea2_finetune.toml",
+    "minimal_config_qwen_image21_lora.toml",
+    "minimal_config_qwen_image21_lokr.toml",
+    "minimal_config_qwen_image21_finetune.toml",
+    "minimal_config_qwen_image21_edit_lora.toml",
     "config_with_preview.toml",
     "config_with_eval_and_monitoring.toml",
     "config_oom_skip.toml",
@@ -33,8 +40,7 @@ def repo_root() -> Path:
 def test_example_config_loads_validates_and_dataset_if_present(examples_dir, repo_root, config_name):
     """Load config, set defaults, validate; if dataset key exists and file exists, load dataset config."""
     config_path = examples_dir / config_name
-    if not config_path.exists():
-        pytest.skip(f"Example {config_name} not found")
+    assert config_path.exists(), f"Example {config_name} not found in examples/"
     config = load_config(config_path)
     set_config_defaults(config)
     validate_config(config)

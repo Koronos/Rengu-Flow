@@ -54,7 +54,7 @@ def build_train_command(
     *,
     num_gpus: int | None = None,
     master_port: int | None = None,
-    resume_from: str | None = None,
+    resume_from: str | bool | None = None,
     extra_args: list[str] | None = None,
     training: TrainingConfig | None = None,
 ) -> list[str]:
@@ -70,8 +70,11 @@ def build_train_command(
         merged_extra.extend(extra_args)
 
     cmd = base_train_command(config_path, num_gpus=ngpus, master_port=port)
-    if resume_from:
-        cmd.extend(["--resume_from_checkpoint", resume_from])
+    if resume_from is True:
+        # Bare ``--resume_from_checkpoint`` (no value): resume the run folder's ``latest``.
+        cmd.append("--resume_from_checkpoint")
+    elif resume_from:
+        cmd.extend(["--resume_from_checkpoint", str(resume_from)])
     cmd.extend(merged_extra)
     return cmd
 

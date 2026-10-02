@@ -75,8 +75,31 @@ def _legacy_dataset_cache_id(dataset_config: dict) -> str:
     return _stable_id(repr(sorted(dataset_config.keys())))
 
 
-def directory_cache_id(directory_path: str | Path) -> str:
-    return _stable_id(str(Path(directory_path).resolve()))
+def directory_cache_id(directory_path: str | Path, disambiguator: str | None = None) -> str:
+    """Per-directory cache id: the resolved path. ``disambiguator`` (a hash of the directory's
+    settings) is mixed in only when the SAME path is used by another ``[[directory]]`` with
+    different settings, so the normal one-use-per-path case keeps its existing cache dir."""
+    text = str(Path(directory_path).resolve())
+    if disambiguator:
+        text = f"{text}\x00{disambiguator}"
+    return _stable_id(text)
+
+
+def directory_config_digest(directory_config: dict, dataset_config: dict | None = None) -> str:
+    """Stable digest of a ``[[directory]]``'s public settings (``_``-prefixed keys ignored)."""
+    import json
+
+    public = {k: v for k, v in directory_config.items() if not str(k).startswith("_")}
+    # Dataset-level settings (resolutions, size buckets, ...) are inherited by the directory, so
+    # they are part of what its cache was built from -- minus the [[directory]] list itself.
+    shared = {
+        k: v
+        for k, v in (dataset_config or {}).items()
+        if k != "directory" and not str(k).startswith("_")
+    }
+    return _stable_id(
+        json.dumps([public, shared], sort_keys=True, default=str, ensure_ascii=True)
+    )
 
 
 def resolve_directory_cache_dir(
@@ -85,6 +108,7 @@ def resolve_directory_cache_dir(
     model_name: str,
     *,
     training_config: dict | None = None,
+    disambiguator: str | None = None,
 ) -> Path:
     cfg = training_config if training_config is not None else {}
     root = resolve_cache_root(cfg, dataset_config=dataset_config)
@@ -100,4 +124,4 @@ def resolve_directory_cache_dir(
                 logger.info("Relocated dataset cache %s -> %s", legacy.name, dataset_dir.name)
             except OSError:
                 pass
-    return dataset_dir / directory_cache_id(directory_path) / model_name
+    return dataset_dir / directory_cache_id(directory_path, disambiguator) / model_name

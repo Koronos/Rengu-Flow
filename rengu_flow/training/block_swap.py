@@ -150,6 +150,10 @@ class BlockSwapOffloader:
             torch.cuda.current_stream().synchronize()
 
 
+# Buffers up to this many elements stay GPU-resident (fp8 weight scales, bnb quant_state, ...).
+_TINY_BUFFER_NUMEL = 1_000_000
+
+
 class HookBlockSwapOffloader:
     """On-demand, backward-aware CPU<->GPU block swap driven by module hooks.
 
@@ -219,6 +223,7 @@ class HookBlockSwapOffloader:
         self._gpu: dict[int, torch.Tensor] = {}      # id(param) -> GPU tensor while resident
         self._pull_event: dict[int, torch.cuda.Event] = {}  # block_idx -> pull-complete event
         self._params: dict[int, list] = {}           # block_idx -> [params]
+        self._bufs: dict[int, list] = {}             # block_idx -> [large buffers parked on CPU]
         self._last_block: int | None = None
         # Evicted-but-not-yet-reclaimable GPU buffers: (consumers-done event, tensors) per block.
         # Python enqueues hooks far ahead of the GPU, so eviction via record_stream alone lets an
@@ -230,6 +235,9 @@ class HookBlockSwapOffloader:
         self._pending_free: list[tuple[torch.cuda.Event, list[torch.Tensor]]] = []
         self._pending_budget = 2
         self._suspended = False
+        # teardown() is reversible: apply_training_layout() re-arms a torn-down offloader (eval /
+        # preview with disable_block_swap must not switch block swap off for the rest of the run).
+        self._torn_down = False
         if self._enabled:
             self._register_hooks()
             if self._prefetch:
@@ -271,6 +279,21 @@ class HookBlockSwapOffloader:
             self._params[idx] = cached
         return cached
 
+    def _swap_bufs(self, idx: int) -> list:
+        """Buffers that physically move CPU<->GPU with the block. They are parked on the CPU by
+        ``_offload_block_to_cpu`` (all of them in full-model mode; only those above the tiny-buffer
+        gate in adapter mode), so the pinned/prefetch pull paths must restore them too — e.g. Cosmos
+        ``Fp8MatmulLinear.weight_fp8`` is a buffer, not a parameter. Buffers are never updated by
+        the optimizer, so their CPU masters are immutable (no copy-back on eviction)."""
+        cached = self._bufs.get(idx)
+        if cached is None:
+            bufs = list(self.blocks[idx].buffers())
+            if not self._swap_trainable:
+                bufs = [b for b in bufs if b.numel() > _TINY_BUFFER_NUMEL]
+            cached = bufs
+            self._bufs[idx] = cached
+        return cached
+
     def _offload_block_to_cpu(self, block: nn.Module) -> None:
         """Move a block to CPU. With ``swap_trainable`` move the whole block; otherwise keep the
         (small) trainable params GPU-resident and offload only the frozen weights + buffers, so an
@@ -293,7 +316,14 @@ class HookBlockSwapOffloader:
             # Tiny buffers (e.g. the 0-dim fp8 weight scales) stay GPU-resident: parking
             # them saves no VRAM and CUDA-only ops (_scaled_mm) need them on-device —
             # the block pull path restores only parameters, never buffers.
-            buf.data = buf.data.to("cpu" if buf.numel() > 1_000_000 else self.device)
+            if buf.numel() > _TINY_BUFFER_NUMEL:
+                master = self._cpu.get(id(buf))
+                if master is not None and master.is_pinned():
+                    buf.data = master
+                else:
+                    buf.data = buf.data.to("cpu")
+            else:
+                buf.data = buf.data.to(self.device)
 
     # --------------------------------------------------------------- simple (synchronous) path
     def _ensure_resident_sync(self, block_idx: int) -> None:
@@ -309,6 +339,8 @@ class HookBlockSwapOffloader:
                 gpu.copy_(self._cpu[id(p)], non_blocking=True)
                 self._gpu[id(p)] = gpu
                 p.data = gpu
+            for b in self._swap_bufs(block_idx):
+                self._pull_buffer(b)
         else:
             self.blocks[block_idx].to(self.device)
         self._resident[block_idx] = None
@@ -322,6 +354,8 @@ class HookBlockSwapOffloader:
                     if self._swap_trainable:  # weights updated on GPU -> copy back; frozen are immutable
                         self._cpu[id(p)].copy_(gpu, non_blocking=True)
                     p.data = self._cpu[id(p)]
+                for b in self._swap_bufs(evict_idx):
+                    self._drop_buffer(b)
                 continue
             self._offload_block_to_cpu(self.blocks[evict_idx])
 
@@ -338,6 +372,8 @@ class HookBlockSwapOffloader:
                 gpu.copy_(self._cpu[id(p)], non_blocking=True)
                 self._gpu[id(p)] = gpu
                 p.data = gpu
+            for b in self._swap_bufs(idx):
+                self._pull_buffer(b)
             event.record(self._stream)
         self._pull_event[idx] = event
         self._resident[idx] = None
@@ -359,6 +395,12 @@ class HookBlockSwapOffloader:
                     p.data = self._cpu[id(p)]
                     gpu.record_stream(self._stream)
                     self._gpu.pop(id(p), None)
+                for b in self._swap_bufs(idx):
+                    gpu = self._gpu.pop(id(b), None)
+                    if gpu is None:
+                        continue
+                    b.data = self._cpu[id(b)]  # immutable master — no copy-back
+                    gpu.record_stream(self._stream)
         else:
             dropped = []
             for p in self._swap_params(idx):
@@ -366,6 +408,12 @@ class HookBlockSwapOffloader:
                 if gpu is None:
                     continue
                 p.data = self._cpu[id(p)]  # immutable frozen master — no D2H copy needed
+                dropped.append(gpu)
+            for b in self._swap_bufs(idx):
+                gpu = self._gpu.pop(id(b), None)
+                if gpu is None:
+                    continue
+                b.data = self._cpu[id(b)]
                 dropped.append(gpu)
             if dropped:
                 # All consumers of these weights are already enqueued on the current stream;
@@ -375,6 +423,16 @@ class HookBlockSwapOffloader:
                 self._pending_free.append((event, dropped))
         self._resident.pop(idx, None)
         self._pull_event.pop(idx, None)
+
+    def _pull_buffer(self, buf: torch.Tensor) -> None:
+        gpu = torch.empty_like(self._cpu[id(buf)], device=self.device)
+        gpu.copy_(self._cpu[id(buf)], non_blocking=True)
+        self._gpu[id(buf)] = gpu
+        buf.data = gpu
+
+    def _drop_buffer(self, buf: torch.Tensor) -> None:
+        if self._gpu.pop(id(buf), None) is not None:
+            buf.data = self._cpu[id(buf)]
 
     def _drain_pending(self) -> None:
         """Free evicted buffers whose consumers finished; block on the oldest when over budget."""
@@ -437,6 +495,12 @@ class HookBlockSwapOffloader:
                     p.data = master
                 elif p.data.device.type != "cpu":
                     p.data = p.data.to("cpu")
+            for b in self._swap_bufs(idx):
+                master = self._cpu.get(id(b))
+                if master is not None:
+                    b.data = master
+                elif b.data.device.type != "cpu":
+                    b.data = b.data.to("cpu")
         self._gpu.clear()
         self._resident.clear()
         self._pull_event.clear()
@@ -483,6 +547,7 @@ class HookBlockSwapOffloader:
         """Push every swappable block to CPU; blocks are pulled back on demand by the hooks. When
         pinning is on (block_swap_prefetch) the swapped weights' CPU storage is page-locked so the
         on-demand H2D copies run as DMA — and, at cap>=2, can also overlap compute (prefetch)."""
+        self.rearm()
         if not self._enabled:
             return
         # In-flight consumers of evicted buffers must finish before _pending_free is cleared
@@ -508,13 +573,35 @@ class HookBlockSwapOffloader:
                         continue
                     p.data = p.data.pin_memory()
                     self._cpu[id(p)] = p.data
+                for b in self._swap_bufs(idx):
+                    if self._cpu.get(id(b)) is b.data and b.data.is_pinned():
+                        continue
+                    b.data = b.data.pin_memory()
+                    self._cpu[id(b)] = b.data
         self._resident.clear()
         self._pull_event.clear()
         self._pending_free.clear()
         self._last_block = None
 
+    def rearm(self) -> None:
+        """Undo ``teardown()``: re-register the hooks and re-enable swapping. Residency is
+        re-established by ``apply_training_layout`` (which calls this first)."""
+        if not self._torn_down:
+            return
+        self._torn_down = False
+        self._enabled = self.blocks_to_swap > 0
+        self._suspended = False
+        if self._enabled:
+            self._register_hooks()
+            if self._prefetch and self._stream is None:
+                self._stream = torch.cuda.Stream(device=self.device)
+
     def teardown(self) -> None:
-        """Remove hooks and move all blocks back to the GPU (for full-model eval / save)."""
+        """Remove hooks and move all blocks back to the GPU (for full-model eval / save).
+
+        Reversible: ``apply_training_layout()`` (or ``rearm()``) restores hooks and residency."""
+        if not self._enabled:
+            return
         if self._stream is not None:
             torch.cuda.synchronize()
         for handle in self._handles:
@@ -524,11 +611,16 @@ class HookBlockSwapOffloader:
             block.to(self.device)
         self._resident.clear()
         self._gpu.clear()
-        self._cpu.clear()
+        if self._swap_trainable:
+            # Trainable weights may have been updated on the GPU: the masters are stale.
+            self._cpu.clear()
+        # Frozen (adapter-mode) masters are immutable and stay valid: keeping them lets re-arm
+        # reuse the pinned buffers instead of re-pinning the whole base.
         self._pull_event.clear()
         self._pending_free.clear()
         self._last_block = None
         self._enabled = False
+        self._torn_down = True
 
     # diffusion-pipe-style API compatibility: this offloader uses hooks, so the layer-driven
     # wait/submit calls (used by Cosmos's TransformerLayer.forward) are no-ops here.

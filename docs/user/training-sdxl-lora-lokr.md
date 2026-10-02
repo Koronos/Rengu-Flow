@@ -191,13 +191,17 @@ rengu cache --config my.toml
 rengu train --config my.toml
 ```
 
-Cache is stored under each directory’s `cache/sdxl/`. Use `--regenerate_cache` after changing images or captions; `--trust_cache` when nothing changed.
+Cache is stored under each directory’s `cache/sdxl/`. Replaced images or masks (same file name, new contents) are detected by size and modification time and only those rows are re-encoded; edited captions re-encode their text rows. `--regenerate_cache` forces a full rebuild; `--trust_cache` skips the checks when nothing changed.
+
+**Text embeddings use the inference layout.** Each caption is encoded in 75-token chunks padded to 77 tokens (BOS + tokens + EOS + pad), like diffusers, ComfyUI and A1111, so batches with captions of different lengths (including `gradient_accumulation_steps > 1`) stack correctly. The text cache key includes `model.clip_skip` and the checkpoint file's identity (size and modification time, not its path), so changing either re-encodes the captions. Text caches built by older versions are re-encoded once on the first run after updating. Known limitation: in a cached batch that mixes a caption longer than 75 tokens with shorter ones, the shorter captions are padded with zero chunks, whereas the uncached path encodes real empty chunks.
+
+**v-prediction.** With `model.v_pred = true`, previews sample with `prediction_type = "v_prediction"`. `model.zero_terminal_snr` defaults to the value of `v_pred`; set it to `false` for a v-pred checkpoint trained without zero-terminal SNR.
 
 **Smoke example (12 CC0 images, 30 steps):** Copy `.env.example` → `.env` and set `RENGU_SDXL_CHECKPOINT_PATH`. Then `scripts/run_model_smoke.sh sdxl` (fixtures + cache + train; cleans `output/` and fixture caches afterward). Configs: `tests/fixtures/smoke/train_sdxl.toml` and `tests/fixtures/smoke/dataset_cc0.toml`.
 
 ## How to run training
 
-1. Install: `pip install -e .` (or `pip install rengu-flow[lycoris]` for optional LyCORIS backend).
+1. Install: `./rengu init` (add `./rengu init lycoris` for the optional LyCORIS backend).
 2. Run training:  
    `rengu train --config examples/minimal_config_lora_sdxl.toml`  
    For real data, use a config with `dataset = "..."` and no `synthetic_num_batches`.

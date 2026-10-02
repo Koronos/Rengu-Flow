@@ -83,13 +83,7 @@ Config key: `async_model_export = true` (default off). Requires `pipeline_stages
 | Train | Ranks resume; rank 0 queues safetensors write on a background thread (`AsyncModelExportWriter`). |
 | Sync points | `save_model` / `save_checkpoint` call `_wait_async_export()` first; end of training calls `shutdown_async_exports()` in `main.py`. |
 
-Optional TOML keys (RAM guard for async snapshot):
-
-| Key | Default | Role |
-|-----|---------|------|
-| `async_model_export_ram_margin` | `0.25` | Fraction of reported available RAM held back as headroom. |
-| `async_model_export_min_free_ram_gb` | unset | Extra GiB to keep free after the snapshot. |
-| `async_model_export_max_snapshot_gb` | unset | Force sync export when estimated snapshot exceeds this size. |
+RAM guard: the snapshot only has to fit in the available RAM reported by the OS (`async_snapshot_fits_in_ram` in `rengu_flow/utils/async_model_export.py`). There are no TOML keys for it: `async_snapshot_fits_from_config` ignores the config, and `async_model_export_ram_margin` / `async_model_export_min_free_ram_gb` / `async_model_export_max_snapshot_gb` are **not implemented**.
 
 DeepSpeed checkpoints stay synchronous. Disk-full retry loop applies to synchronous export only; async write errors surface on the next `wait_done`.
 

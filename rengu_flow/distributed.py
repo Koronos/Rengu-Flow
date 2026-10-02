@@ -102,3 +102,24 @@ def recv(tensor: Any, src: int, **kwargs: Any) -> None:
     """Point-to-point receive. No-op when not distributed."""
     if is_initialized():
         _comm().recv(tensor, src, **kwargs)
+
+
+def any_rank(flag: bool) -> bool:
+    """True on every rank if ``flag`` is true on at least one rank (logical OR all-reduce).
+
+    Lets ranks take a data-dependent branch (skip an OOM step, enter a disk-full wait) together
+    instead of diverging into mismatched collectives. Without a live backend it is just ``flag``.
+    """
+    if not is_initialized():
+        return bool(flag)
+    import torch
+
+    comm = _comm()
+    device = (
+        torch.device("cuda", torch.cuda.current_device())
+        if torch.cuda.is_available()
+        else torch.device("cpu")
+    )
+    t = torch.tensor([1 if flag else 0], dtype=torch.int32, device=device)
+    comm.all_reduce(t, op=comm.ReduceOp.MAX)
+    return bool(t.item())

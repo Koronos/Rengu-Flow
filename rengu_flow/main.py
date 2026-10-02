@@ -187,14 +187,17 @@ def _build_optimizer(
             kwargs["momentum"] = kwargs["momentum"] ** (1 / gas)
 
         optimizer_dict = {}
-        for pg in model.get_param_groups(model_parameters):
-            param_kwargs = kwargs.copy()
-            if isinstance(pg, dict):
-                for p in pg["params"]:
-                    param_kwargs["lr"] = pg.get("lr", param_kwargs.get("lr"))
-                    optimizer_dict[p] = klass([p], **param_kwargs)
-            else:
-                optimizer_dict[pg] = klass([pg], **param_kwargs)
+        # Same weight-decay split as the non-release path (single rule lives in
+        # ``split_weight_decay_param_groups``); every group option (lr, weight_decay, ...) is
+        # forwarded to the per-parameter optimizer instead of only ``lr``.
+        raw_groups = [
+            pg if isinstance(pg, dict) else {"params": [pg]}
+            for pg in model.get_param_groups(model_parameters)
+        ]
+        for pg in split_weight_decay_param_groups(raw_groups, optim_type_lower):
+            group_opts = {k: v for k, v in pg.items() if k != "params"}
+            for p in pg["params"]:
+                optimizer_dict[p] = klass([{**group_opts, "params": [p]}], **kwargs)
 
         def optimizer_hook(p):
             optimizer_dict[p].step()
@@ -410,6 +413,26 @@ def _run_training(args, config):
         torch.backends.cuda.matmul.allow_tf32 = True
         torch.backends.cudnn.allow_tf32 = True
         torch.backends.cudnn.benchmark = True
+
+    # Seed the global RNGs ONCE, here, before anything random happens (adapter init below, data
+    # shuffling, noise). train_seed + global rank: ranks draw different streams, the run is
+    # reproducible. On resume the checkpoint's RNG state is restored later and must not be
+    # overwritten, so there is deliberately no re-seed after this point. (Data-parallel replicas
+    # start from rank 0's weights: the engine broadcasts parameters at init.)
+    from rengu_flow.training.loop_plan import (
+        can_emergency_save,
+        data_parallel_size,
+        examples_to_steps,
+        rank_seed,
+        restore_training_state,
+        run_already_complete,
+        seed_everything,
+        step_budget,
+        wsd_fork_step_for_resume,
+    )
+
+    train_seed = int(config.get("train_seed", 42))
+    seed_everything(rank_seed(train_seed, dist.get_rank()))
 
     model = get_model(config)
     model.load_diffusion_model()
@@ -635,7 +658,10 @@ def _run_training(args, config):
     micro_batch = nominal_micro_batch(config.get("micro_batch_size_per_gpu", 1))
     gradient_accumulation_steps = config.get("gradient_accumulation_steps", 1)
     world_size_for_opt = int(os.environ.get("WORLD_SIZE", "1"))
-    global_batch_size_for_opt = micro_batch * gradient_accumulation_steps * world_size_for_opt
+    # Pipeline stages of one replica share a batch: the global batch scales with the
+    # data-parallel size, not the full world size.
+    dp_size_for_opt = data_parallel_size(world_size_for_opt, num_stages)
+    global_batch_size_for_opt = micro_batch * gradient_accumulation_steps * dp_size_for_opt
 
     gradient_release = config["optimizer"].get("gradient_release", False)
     if gradient_release and not backend_obj.supports_gradient_release:
@@ -785,11 +811,14 @@ def _run_training(args, config):
         # Use the first eval dataset as the held-out validation source for the gap.
         val_probe_dataloader = next(iter(eval_dataloaders.values()))
         if train_data is not None:
+            # Shares train_data with the training loader: it must not drive the dataset's
+            # epoch (reset() would rewind the live train rotation / resolution schedule).
             train_probe_dataloader = PipelineDataLoader(
                 train_data,
                 model_engine,
                 eval_gradient_accumulation_steps,
                 model,
+                owns_dataset_epoch=False,
                 **_loader_kwargs,
             )
     elif val_gap_enable and is_main_process():
@@ -828,10 +857,13 @@ def _run_training(args, config):
     # (that option wins), otherwise the system-derived total_steps. Stage boundaries
     # and the LR horizon follow this same target so they line up with the real run.
     max_steps = config.get("max_steps")
-    schedule_target_steps = max_steps if max_steps is not None else total_steps
+    schedule_target_steps = step_budget(max_steps, total_steps)
     if schedule_active:
         train_data.set_schedule_target(schedule_target_steps)
-    lr_horizon_steps = schedule_target_steps if schedule_active else total_steps
+    # The LR horizon is the step where the loop really stops (max_steps wins over epochs),
+    # resolution schedule or not — otherwise a max_steps shorter than epochs*steps_per_epoch
+    # would stop with the LR still mid-curve and the WSD decay tail never reached.
+    lr_horizon_steps = schedule_target_steps
     lr_scheduler = resolve_scheduler(
         config.get("lr_scheduler", "constant"),
         optimizer,
@@ -934,7 +966,7 @@ def _run_training(args, config):
 
     global_batch_size = micro_batch * gradient_accumulation_steps
     if hasattr(dist, "get_world_size"):
-        global_batch_size *= dist.get_world_size()
+        global_batch_size *= data_parallel_size(dist.get_world_size(), num_stages)
     if isinstance(config.get("micro_batch_size_per_gpu"), dict) and hasattr(
         train_data, "avg_examples_per_step"
     ):
@@ -948,11 +980,15 @@ def _run_training(args, config):
                 f"average of {global_batch_size} examples/step."
             )
     if config.get("eval_every_n_examples") is not None:
-        config["eval_every_n_steps"] = config["eval_every_n_examples"] // global_batch_size
+        config["eval_every_n_steps"] = examples_to_steps(
+            "eval_every_n_examples", config["eval_every_n_examples"], global_batch_size
+        )
         if is_main_process():
             print(f"Computed eval_every_n_steps = {config['eval_every_n_steps']}")
     if config.get("save_every_n_examples") is not None:
-        config["save_every_n_steps"] = config["save_every_n_examples"] // global_batch_size
+        config["save_every_n_steps"] = examples_to_steps(
+            "save_every_n_examples", config["save_every_n_examples"], global_batch_size
+        )
         if is_main_process():
             print(f"Computed save_every_n_steps = {config['save_every_n_steps']}")
     saver = Saver(
@@ -1114,6 +1150,7 @@ def _run_training(args, config):
     last_checkpoint_step = -1  # last step a resume checkpoint was written (for the final ckpt)
     epoch_loss = 0.0
     num_steps = 0
+    last_loss = 0.0  # most recent real step loss (reported for OOM-skipped steps)
     # Latest generalization-probe result (val loss / train probe / gap), surfaced in the live
     # progress marker so the UI can show it next to the train loss. None until the first probe.
     last_val_metrics: dict[str, float] | None = None
@@ -1126,89 +1163,33 @@ def _run_training(args, config):
     if isinstance(config.get("micro_batch_size_per_gpu"), dict):
         # Keep bench samples/s honest under per-resolution batches (per-rank share
         # of the real per-step average).
-        per_step_batch = max(1, global_batch_size // max(1, world_size_for_opt))
+        per_step_batch = max(1, global_batch_size // max(1, dp_size_for_opt))
 
     if resume_from_checkpoint:
-        from rengu_flow.optim.param_groups import (
-            reapply_param_group_options,
-            snapshot_param_group_options,
+        resume_state = restore_training_state(
+            model_engine=model_engine,
+            optimizer=optimizer,
+            run_dir=run_dir,
+            resume_tag=resume_tag,
+            reset_optimizer=args.reset_optimizer,
+            reset_dataloader=args.reset_dataloader,
+            train_dataloader=train_dataloader,
+            training_ema=training_ema,
+            parameters_to_train=parameters_to_train,
+            epoch_schedule=epoch_schedule,
+            steps_per_epoch=steps_per_epoch,
+            global_batch_size=global_batch_size,
+            config=config,
+            is_main=is_main_process(),
+            barrier=dist.barrier,
         )
-
-        # The current config is authoritative on resume. The optimizer's *state* (moments) is
-        # restored from the checkpoint, but its hyperparameters (LR, betas, weight_decay, per-group
-        # options) follow the freshly-built config, so editing the LR/optimizer in the TOML and
-        # continuing just works — no flag. --reset_optimizer builds a fully fresh optimizer instead
-        # (nothing to restore, so no reapply).
-        load_optimizer = not args.reset_optimizer
-        configured_group_options = None
-        if load_optimizer:
-            configured_group_options = snapshot_param_group_options(optimizer.param_groups)
-        # Never restore the saved LR-scheduler state. The scheduler was just rebuilt over the
-        # (possibly edited) horizon from the current config; loading the old state would restore the
-        # old base LRs / decay milestone and clobber the edit. We instead fast-forward the fresh
-        # scheduler to the resumed step below. For the formula-based schedulers in the registry,
-        # stepping N times from a fresh build equals restoring last_epoch=N, so an unchanged-config
-        # resume reproduces the identical LR while an edited horizon/peak applies cleanly.
-        load_path, client_state = model_engine.load_checkpoint(
-            run_dir,
-            tag=resume_tag,
-            load_module_strict=False,
-            load_lr_scheduler_states=False,
-            load_optimizer_states=load_optimizer,
-        )
-        if configured_group_options is not None:
-            # In-place so wrapped optimizers (e.g. Nekaon) keep sharing the same param_groups list
-            # with their inner optimizer — reassigning the list would break that identity.
-            reapply_param_group_options(optimizer.param_groups, configured_group_options)
-            del configured_group_options
-        dist.barrier()
-        if load_path is None:
-            if is_main_process():
-                print("Resume requested but no checkpoint found; starting from step 1.")
-        else:
-            if args.reset_dataloader:
-                train_dataloader.epoch = client_state["custom_loader"]["epoch"]
-            else:
-                train_dataloader.load_state_dict(client_state["custom_loader"])
-            # Restore the global RNG so post-resume augmentation/dropout/shuffling reproduce the
-            # uninterrupted run's stochastic stream (exact for dataloader_num_workers=0).
-            from rengu_flow.utils.rng_state import restore_rng_state
-
-            restore_rng_state(client_state.get("rng_state"))
-            from rengu_flow.training.ema import load_ema_checkpoint
-
-            load_ema_checkpoint(load_path, training_ema, parameters_to_train)
-            step = client_state["step"] + 1
-            examples = client_state.get("examples", (step - 1) * global_batch_size) + global_batch_size
-            epoch = epoch_schedule.current(step)
-            # Position the freshly-built LR scheduler at the resumed step (we skipped the saved
-            # scheduler state above). Replaying .step() re-anchors the curve — over the possibly
-            # edited horizon — to where the run left off: WSD's flat phase extends and an edited
-            # peak LR takes effect, while an unchanged config reproduces the identical LR. Skipped
-            # when force_constant_lr pins the LR (preserving its "don't advance the schedule on
-            # resume" behavior). Cheap per-step arithmetic even for large step counts.
-            fast_forward_scheduler = "force_constant_lr" not in config
-            if fast_forward_scheduler and model_engine.lr_scheduler is not None:
-                for _ in range(max(0, step - 1)):
-                    model_engine.lr_scheduler.step()
-            if is_main_process():
-                print(f"Resuming from checkpoint at epoch {epoch}, step {step}")
-                effective_lrs = [group.get("lr") for group in optimizer.param_groups]
-                print(
-                    f"[resume] effective optimizer LRs (config applied; optimizer state "
-                    f"preserved): {effective_lrs}",
-                    flush=True,
-                )
-                # Transparency: a changed batch/schedule re-derives steps_per_epoch, so the same
-                # restored step now lands in a different epoch. Log it rather than silently drift.
-                prev_spe = client_state.get("steps_per_epoch")
-                if prev_spe and prev_spe != steps_per_epoch:
-                    print(
-                        f"[resume] batch/schedule changed: steps_per_epoch {prev_spe} -> "
-                        f"{steps_per_epoch}; step {step} now maps to epoch {epoch} of "
-                        f"{epoch_schedule.epochs}",
-                        flush=True,
-                    )
+        if resume_state.resumed:
+            step = resume_state.step
+            examples = resume_state.examples
+            epoch = resume_state.epoch
+    # The WSD fork is a once-per-run checkpoint at the decay onset: a resume past the onset must
+    # not overwrite it with a post-onset state.
+    wsd_fork_step = wsd_fork_step_for_resume(wsd_fork_step, step)
 
     # Lifecycle event (rank 0): one per process start. `resumed` carries the restored step; a
     # restart from step 1 in a folder that already saw a prior run is `restarted_from_scratch`
@@ -1350,18 +1331,6 @@ def _run_training(args, config):
             print(f"[checkpoint] CUDA OOM -> {budget_backoff.describe()}", flush=True)
         sink.scalar("train/activation_budget", new_budget, step)
 
-    train_seed = int(config.get("train_seed", 42))
-    import random as _random
-
-    import numpy as np
-
-    _random.seed(train_seed)
-    np.random.seed(train_seed)
-    torch.manual_seed(train_seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(train_seed)
-    if train_data is not None and hasattr(train_data, "set_training_context"):
-        train_data.set_training_context(train_seed, step)
     # Seed the schedule's notion of the current step (handles resume too) so the
     # first epoch rollover selects the correct stage. Count epochs by the budget-relative
     # epoch (1..epochs) too — dataloader epochs are short (one resolution per stage), so
@@ -1374,13 +1343,22 @@ def _run_training(args, config):
     # a steady window, and on completion writes a key_averages table + chrome trace. Zero cost off.
     _prof = _maybe_start_profiler() if is_main_process() else None
 
+    # A run resumed from its own final checkpoint has nothing left to train: ``step`` is already
+    # past the budget. Entering the loop would train one extra step and overwrite the final
+    # export (the budget check runs after train_batch), so skip the loop and the final saves.
+    nothing_left = run_already_complete(step, total_budget_steps)
+    if nothing_left and is_main_process():
+        print(
+            f"rengu_flow: resumed at step {step} but the step budget is {total_budget_steps}; "
+            "the run is already complete — nothing to train. Raise epochs/max_steps to continue.",
+            flush=True,
+        )
+    loop_finished = False
     try:
-        while True:
+        while not nothing_left:
             wall_t0 = time.perf_counter()
             saved_this_step = False
             model_engine.reset_activation_shape()
-            if train_data is not None and hasattr(train_data, "set_training_context"):
-                train_data.set_training_context(train_seed, step)
             # TREAD off-ramp: layers with a progress hook (RouteStartLayer) see the run
             # fraction so tread.disable_after_frac can turn routing off for the final
             # stretch (full-sequence re-calibration recovers most of the routed-training
@@ -1396,88 +1374,100 @@ def _run_training(args, config):
             # single-device engine streams during train_batch; either way iter_sec includes data.
             t0 = time.perf_counter()
             iterator = get_data_iterator_for_step(train_dataloader, model_engine)
-            skipped_oom = False
             act_offload_ctx = (
                 act_offloader.step() if act_offloader is not None else contextlib.nullcontext()
             )
-            if oom_skip_enabled or budget_backoff is not None:
-                try:
-                    with act_offload_ctx:
-                        loss = model_engine.train_batch(iterator).item()
-                except Exception as e:
-                    if not is_cuda_oom(e):
-                        raise
-                    # Budget backoff first: with activation_checkpointing="auto" an
-                    # OOM usually means the budget's byte translation overshot on
-                    # this hardware/config — lowering it and recompiling fixes the
-                    # RUN, while oom_skip would just re-OOM every large step.
-                    new_budget = budget_backoff.on_oom() if budget_backoff is not None else None
-                    if new_budget is not None:
-                        _apply_budget_backoff(new_budget)
-                        train_dataloader.sync_epoch()
-                        skipped_oom = True
-                    elif oom_skip_enabled:
-                        oom_skip_state.record_skip(step)  # count first so the banner reads N/max
-                        handle_oom_skip(
-                            oom_skip_state,
-                            model_engine,
-                            clear_cache=bool(oom_skip_cfg.get("clear_cache_on_skip", True)),
-                            step=step,
-                            sink=sink,
-                        )
-                        # Enough OOMs inside the 10-step window? If bump_block_swap is on and the
-                        # offloader can still swap more blocks, raise blocks_to_swap and start a
-                        # fresh window (retry at the higher swap) instead of aborting; only abort
-                        # once every block is already swapped (or bump is off).
-                        if oom_skip_state.at_limit(step):
-                            _off = getattr(model, "_block_swap_offloader", None)
-                            _bumped = False
-                            if (
-                                bump_block_swap
-                                and _off is not None and getattr(_off, "enabled", False)
-                            ):
-                                _before = _off.blocks_to_swap
-                                _after = _off.increase_swap(bump_block_swap_step)
-                                if _after > _before:
-                                    oom_skip_state.reset_window()  # fresh window at higher swap
-                                    _bumped = True
-                                    if is_main_process():
-                                        print(
-                                            f"rengu_flow: {oom_skip_state.max_in_window} OOMs within "
-                                            f"{oom_skip_state.window} steps — raised blocks_to_swap "
-                                            f"{_before} -> {_after}, retrying (oom_skip.bump_block_swap)",
-                                            flush=True,
-                                        )
-                            if not _bumped:
-                                raise RuntimeError(
-                                    f"OOM {oom_skip_state.max_in_window} times within "
-                                    f"{oom_skip_state.window} training steps, aborting training"
-                                )
-                        train_dataloader.sync_epoch()
-                        skipped_oom = True
-                    else:
-                        raise
-            else:
+            oom_handling = oom_skip_enabled or budget_backoff is not None
+            local_oom = False
+            # Keep only the type + message, never the exception: its traceback pins the failed
+            # step's frames (loss graph, saved activations) in VRAM through the rest of the
+            # iteration (skip handling, eval, preview, saves).
+            oom_exc_info: tuple[type[BaseException], str] | None = None
+            loss = last_loss  # an OOM-skipped step logs no new loss
+            try:
                 with act_offload_ctx:
                     loss = model_engine.train_batch(iterator).item()
+            except Exception as e:
+                if not (oom_handling and is_cuda_oom(e)):
+                    raise
+                local_oom = True
+                oom_exc_info = (type(e), str(e))
+            # Multi-GPU: every rank must take the skip/backoff branch together, otherwise the
+            # ranks that did not OOM run on into collectives the OOM'd rank never joins (NCCL
+            # hang). Ranks that finished their step still discard it so counters stay aligned.
+            skipped_oom = dist.any_rank(local_oom) if oom_handling else False
+            if skipped_oom:
+                # Budget backoff first: with activation_checkpointing="auto" an
+                # OOM usually means the budget's byte translation overshot on
+                # this hardware/config — lowering it and recompiling fixes the
+                # RUN, while oom_skip would just re-OOM every large step.
+                new_budget = budget_backoff.on_oom() if budget_backoff is not None else None
+                if new_budget is not None:
+                    _apply_budget_backoff(new_budget)
+                elif oom_skip_enabled:
+                    oom_skip_state.record_skip(step)  # count first so the banner reads N/max
+                    handle_oom_skip(
+                        oom_skip_state,
+                        model_engine,
+                        clear_cache=bool(oom_skip_cfg.get("clear_cache_on_skip", True)),
+                        step=step,
+                        sink=sink,
+                    )
+                    # Enough OOMs inside the 10-step window? If bump_block_swap is on and the
+                    # offloader can still swap more blocks, raise blocks_to_swap and start a
+                    # fresh window (retry at the higher swap) instead of aborting; only abort
+                    # once every block is already swapped (or bump is off).
+                    if oom_skip_state.at_limit(step):
+                        _off = getattr(model, "_block_swap_offloader", None)
+                        _bumped = False
+                        if (
+                            bump_block_swap
+                            and _off is not None and getattr(_off, "enabled", False)
+                        ):
+                            _before = _off.blocks_to_swap
+                            _after = _off.increase_swap(bump_block_swap_step)
+                            if _after > _before:
+                                oom_skip_state.reset_window()  # fresh window at higher swap
+                                _bumped = True
+                                if is_main_process():
+                                    print(
+                                        f"rengu_flow: {oom_skip_state.max_in_window} OOMs within "
+                                        f"{oom_skip_state.window} steps — raised blocks_to_swap "
+                                        f"{_before} -> {_after}, retrying (oom_skip.bump_block_swap)",
+                                        flush=True,
+                                    )
+                        if not _bumped:
+                            raise RuntimeError(
+                                f"OOM {oom_skip_state.max_in_window} times within "
+                                f"{oom_skip_state.window} training steps, aborting training"
+                            )
+                else:
+                    # Backoff exhausted and no oom_skip: the OOM is fatal (on every rank).
+                    if oom_exc_info is not None:
+                        try:
+                            fatal = oom_exc_info[0](oom_exc_info[1])
+                        except Exception:
+                            fatal = RuntimeError(oom_exc_info[1])
+                        raise fatal
+                    raise RuntimeError("CUDA OOM on another rank (budget backoff exhausted)")
+                train_dataloader.sync_epoch()
+                # The engine steps the LR scheduler inside train_batch; a skipped step never got
+                # there. The run is step-budgeted (a skip still consumes a step) and a resume
+                # fast-forwards the scheduler by ``step - 1``, so keep it advancing exactly once
+                # per step — otherwise the LR lags the horizon and jumps ahead after a resume.
+                # (A rank whose train_batch finished already stepped its scheduler.)
+                if local_oom and model_engine.lr_scheduler is not None:
+                    model_engine.lr_scheduler.step()
             iter_sec = time.perf_counter() - t0
             if _prof is not None:
                 _prof.step()
-            if skipped_oom:
-                # An OOM-skipped step still consumes one step of the budget.
-                if step >= total_budget_steps:
-                    final_model_name, _reason = budget_reached_target(max_steps, epochs, step)
-                    if is_main_process():
-                        print(_reason)
-                    break
-                step += 1
-                examples += global_batch_size
-                continue
-            if training_ema is not None and step % training_ema.update_interval == 0:
-                training_ema.update(parameters_to_train)
-            train_dataloader.sync_epoch()
-            epoch_loss += loss
-            num_steps += 1
+            if not skipped_oom:
+                if training_ema is not None and step % training_ema.update_interval == 0:
+                    training_ema.update(parameters_to_train)
+                train_dataloader.sync_epoch()
+                epoch_loss += loss
+                num_steps += 1
+                last_loss = loss
 
             saver.set_status_context(step, examples, epoch, loss)
             # Epoch boundary, save naming and save/eval cadence all come from the single
@@ -1497,8 +1487,9 @@ def _run_training(args, config):
             epoch = epoch_schedule.current(step)
 
             x_axis = examples if x_axis_examples else step
-            progress_tracker.record_step_duration(iter_sec)
-            progress_tracker.record_loss(loss)
+            if not skipped_oom:
+                progress_tracker.record_step_duration(iter_sec)
+                progress_tracker.record_loss(loss)
             step_progress = progress_tracker.metrics(step=step)
             # Throttled progress marker to stdout (rank 0). Always emit on the final step and
             # on save/epoch boundaries so the UI never misses a transition; otherwise the
@@ -1517,16 +1508,17 @@ def _run_training(args, config):
                     ),
                     force=is_final or finished_epoch or saved_this_step,
                 )
-            log_training_step(
-                sink=sink,
-                optimizer=optimizer,
-                loss=loss,
-                x_axis=x_axis,
-                step=step,
-                logging_steps=logging_steps,
-                is_main=is_main_process(),
-                model_engine=model_engine,
-            )
+            if not skipped_oom:
+                log_training_step(
+                    sink=sink,
+                    optimizer=optimizer,
+                    loss=loss,
+                    x_axis=x_axis,
+                    step=step,
+                    logging_steps=logging_steps,
+                    is_main=is_main_process(),
+                    model_engine=model_engine,
+                )
 
             if (eval_every_n_steps and step % eval_every_n_steps == 0) or (
                 finished_epoch and eval_every_n_epochs and completed_epoch % eval_every_n_epochs == 0
@@ -1562,6 +1554,7 @@ def _run_training(args, config):
                                 step=step,
                                 loss=loss,
                                 epoch=epoch,
+                                epochs=epoch_schedule.epochs,
                                 metrics=step_progress,
                                 val_metrics=last_val_metrics,
                             ),
@@ -1589,6 +1582,7 @@ def _run_training(args, config):
                             step=step,
                             loss=loss,
                             epoch=epoch,
+                            epochs=epoch_schedule.epochs,
                             metrics=step_progress,
                             val_metrics=last_val_metrics,
                         ),
@@ -1652,7 +1646,7 @@ def _run_training(args, config):
                 else:
                     torch.cuda.empty_cache()
 
-            if bench_enabled(config) and is_main_process():
+            if bench_enabled(config) and is_main_process() and not skipped_oom:
                 bench_record(
                     bench_csv,
                     step=step,
@@ -1669,21 +1663,39 @@ def _run_training(args, config):
                 break
             step += 1
             examples += global_batch_size
-    except SystemExit:
+        loop_finished = True
+    except SystemExit as stop:
         # Graceful stop: the saver received save_quit/export_quit, already checkpointed and
         # printed the reason, then sys.exit(0). Record it on the timeline and flush tracking
         # before the process exits (SystemExit is not caught by the `except Exception` below).
+        # A non-zero code means the requested save could not be made (e.g. disk full).
         if sampler is not None:
             sampler.stop()
-        sink.event(EVENT_STOP_REQUESTED, step=step)
-        sink.close(status="stopped")
+        clean_stop = stop.code in (None, 0)
+        if clean_stop:
+            sink.event(EVENT_STOP_REQUESTED, step=step)
+        else:
+            sink.event(EVENT_FAILED, step=step, payload={"error": f"stopped with exit code {stop.code}"})
+        sink.close(status="stopped" if clean_stop else "failed")
         raise
     except Exception as exc:
         # Last-ditch checkpoint on ANY otherwise-fatal error (OOM during a preview/eval, an I/O
         # error, etc.) so the run can resume instead of being lost. Best-effort and rank-0 gated
         # logging; the original error is always re-raised. Note: in multi-GPU runs the save's
         # collective may not complete if only some ranks failed — the re-raise still tears down.
-        if save_on_error and last_checkpoint_step != step:
+        if save_on_error and last_checkpoint_step != step and not can_emergency_save(
+            dist.get_world_size()
+        ):
+            # save_checkpoint is collective (barriers); with peers elsewhere it would deadlock
+            # NCCL and turn this clean crash into a hang. Resume from the last periodic one.
+            if is_main_process():
+                print(
+                    f"rengu_flow: fatal error at step {step} — emergency checkpoint skipped "
+                    "(multi-GPU: a collective save from a failing rank would hang). Resume from "
+                    "the last periodic checkpoint.",
+                    flush=True,
+                )
+        elif save_on_error and last_checkpoint_step != step:
             reason = "CUDA OOM" if is_cuda_oom(exc) else f"error ({type(exc).__name__})"
             if is_main_process():
                 print(
@@ -1712,20 +1724,46 @@ def _run_training(args, config):
         sink.event(EVENT_FAILED, step=step, payload={"error": str(exc)[:500]})
         sink.close(status="failed")
         raise
+    finally:
+        if not loop_finished:
+            # Abnormal exit (save_quit/SystemExit, exception, Ctrl+C). The export worker is a
+            # non-daemon thread parked on its queue: without a stop sentinel the process never
+            # exits. Drain any in-flight export (never truncate one), bounded, without barriers
+            # (peers may not be at a matching one) and without masking the original exit.
+            try:
+                saver.shutdown_async_exports(timeout=300.0, sync_ranks=False)
+            except BaseException as shutdown_exc:  # noqa: BLE001
+                if is_main_process():
+                    print(f"rengu_flow: async export shutdown failed: {shutdown_exc}", flush=True)
 
     # End-of-run saves (decision is the unit-tested plan_final_saves): always write a final
     # resume checkpoint so the run can continue from the exact last step, and the final model,
     # each unless one was already written at this very step.
-    write_checkpoint, export_name = plan_final_saves(
-        step=step,
-        last_checkpoint_step=last_checkpoint_step,
-        last_save_step=last_save_step,
-        final_model_name=final_model_name,
-    )
-    if write_checkpoint and saver.save_checkpoint(step, examples):
-        last_checkpoint_step = step
-    if export_name:
-        saver.save_model(export_name)
+    if nothing_left:
+        # Re-export only if the final model is missing (the previous process died during the
+        # final export after its final checkpoint was already written).
+        write_checkpoint = False
+        _final_name, _ = budget_reached_target(max_steps, epochs, step - 1)
+        export_name = None if (saver.save_root / _final_name).exists() else _final_name
+    else:
+        write_checkpoint, export_name = plan_final_saves(
+            step=step,
+            last_checkpoint_step=last_checkpoint_step,
+            last_save_step=last_save_step,
+            final_model_name=final_model_name,
+        )
+    try:
+        if write_checkpoint and saver.save_checkpoint(step, examples):
+            last_checkpoint_step = step
+        if export_name:
+            saver.save_model(export_name)
+    except BaseException:
+        # A failing final save must still stop the export worker (else the process hangs).
+        try:
+            saver.shutdown_async_exports(timeout=300.0, sync_ranks=False)
+        except BaseException as shutdown_exc:  # noqa: BLE001
+            print(f"rengu_flow: async export shutdown failed: {shutdown_exc}", flush=True)
+        raise
     saver.shutdown_async_exports()
 
     if is_main_process():
@@ -1788,7 +1826,17 @@ def run_prepared(args) -> None:
     # overrides — the trainer itself never reads .env, so normal runs are
     # unaffected.
     apply_model_paths_from_env(config)
-    set_config_defaults(config)
+    # set_config_defaults indexes model.dtype / adapter.type / adapter.rank directly: report the
+    # config mistakes it would trip over as a validation failure, not a raw KeyError traceback.
+    from rengu_flow.config.validation import collect_default_prerequisite_issues, format_validation_issues
+
+    prereq = collect_default_prerequisite_issues(config)
+    if prereq:
+        raise SystemExit(f"Config validation failed: {format_validation_issues(prereq)}")
+    try:
+        set_config_defaults(config)
+    except ConfigValidationError as e:
+        raise SystemExit(f"Config validation failed: {e}") from e
 
     if not args.validate_only:
         dataset_config = load_dataset_config(config)
@@ -1803,6 +1851,14 @@ def run_prepared(args) -> None:
         preflight = collect_preflight_issues(config)
         if preflight:
             raise ConfigValidationError(format_validation_issues(preflight))
+        # Same engine-capability checks train runs (gradient_release / pipeline_stages / block
+        # swap vs the selected backend), so `rengu validate` rejects what `rengu train` would.
+        from rengu_flow.engine import select_backend
+
+        try:
+            select_backend(config).validate(config)
+        except ValueError as e:
+            raise ConfigValidationError(str(e)) from e
     except ConfigValidationError as e:
         raise SystemExit(f"Config validation failed: {e}") from e
 

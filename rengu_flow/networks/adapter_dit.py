@@ -33,6 +33,11 @@ def _collect_target_linears(transformer, target_module_names):
     return list(names)
 
 
+def _exact_names_pattern(names):
+    """Regex matching exactly the given full module paths (PEFT full-matches str targets)."""
+    return "^(?:" + "|".join(re.escape(n) for n in sorted(names)) + ")$"
+
+
 def configure(transformer, adapter_config, targets=ADAPTER_TARGET_MODULES, layer_groups=None):
     adapter_type = adapter_config["type"]
     # Named layer groups expand into target_include globs first, so every family
@@ -69,10 +74,22 @@ def configure(transformer, adapter_config, targets=ADAPTER_TARGET_MODULES, layer
             lora_alpha=adapter_config["alpha"],
             lora_dropout=adapter_config.get("dropout", 0.0),
             bias="none",
-            target_modules=target_linear_modules,
+            # An anchored regex over full module paths. A plain name list is matched by PEFT as a
+            # *suffix*, so "blocks.0.q_proj" would also inject into "llm_adapter.blocks.0.q_proj"
+            # and silently defeat target_exclude.
+            target_modules=_exact_names_pattern(target_linear_modules),
         )
         lora_model = peft.get_peft_model(transformer, peft_config)
+        injected = sum(1 for _, m in lora_model.named_modules() if hasattr(m, "lora_A"))
+        if injected != len(target_linear_modules):
+            raise RuntimeError(
+                f"LoRA injected into {injected} modules but {len(target_linear_modules)} were "
+                "selected; the adapter target selection is inconsistent."
+            )
+        # Exported adapter_config.json keeps the plain list of module paths (as before).
+        peft_config.target_modules = set(target_linear_modules)
         if is_main_process():
+            print(f"adapter: LoRA injected into {injected} linears")
             lora_model.print_trainable_parameters()
         return peft_config, adapter_type
     if adapter_type == "lokr":

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import tarfile
+import threading
 from pathlib import Path
 
 import imageio
@@ -15,6 +16,7 @@ from rengu_flow.data.augmentation import (
     image_spec_base,
     image_spec_variant_key,
 )
+from rengu_flow.data.control import _has_alpha
 from rengu_flow.data.dataset import VIDEO_EXTENSIONS, _webp_frame_count
 from rengu_flow.utils.common import round_down_to_multiple, round_to_nearest_multiple
 from rengu_flow.utils.logging import get_logger
@@ -39,7 +41,9 @@ def _ensure_mask_matches_image(
 
 
 def convert_crop_and_resize(pil_img, width_and_height):
-    if pil_img.mode not in ["RGB", "RGBA"] and "transparency" in pil_img.info:
+    # Same alpha rule as control images (LA / PA / La / RGBa too, not just palette+transparency):
+    # compositing on white; dropping the alpha of an LA image left an undefined background.
+    if pil_img.mode != "RGBA" and _has_alpha(pil_img):
         pil_img = pil_img.convert("RGBA")
     if pil_img.mode == "RGBA":
         canvas = Image.new("RGBA", pil_img.size, (255, 255, 255))
@@ -92,12 +96,46 @@ class PreprocessMediaFile:
         self.round_frames = round_frames
         if self.support_video:
             assert self.framerate
+        # Cache workers call this from a thread pool: a TarFile shares one file object (seek +
+        # read), so each thread opens its own handle. tarfile_map holds all of them for closing.
         self.tarfile_map = {}
+        self._tar_local = threading.local()
+        self._tar_lock = threading.Lock()
         self._pq_source = None  # lazy ParquetSource (parquet-backed image_specs)
+        # Set by DatasetManager: callable(parquet_path) -> the owning [[directory]] config, so
+        # parquet_image_column & co. reach the reader (this object has no directory context).
+        self.parquet_config_resolver = None
 
     def __del__(self):
-        for tar_f in self.tarfile_map.values():
+        for tar_f in list(getattr(self, "tarfile_map", {}).values()):
             tar_f.close()
+
+    def __getstate__(self):
+        # Locks / thread-locals / open handles do not cross a process boundary (spawned cache
+        # worker); the receiving side recreates them lazily.
+        state = dict(self.__dict__)
+        for k in ("_tar_local", "_tar_lock"):
+            state.pop(k, None)
+        state["tarfile_map"] = {}
+        state["_pq_source"] = None
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        self._tar_local = threading.local()
+        self._tar_lock = threading.Lock()
+
+    def _tar_for(self, tar_filename):
+        handles = getattr(self._tar_local, "handles", None)
+        if handles is None:
+            handles = self._tar_local.handles = {}
+        tar_f = handles.get(tar_filename)
+        if tar_f is None:
+            tar_f = tarfile.TarFile(tar_filename)
+            handles[tar_filename] = tar_f
+            with self._tar_lock:
+                self.tarfile_map[(threading.get_ident(), tar_filename)] = tar_f
+        return tar_f
 
     def _apply_augmentation_if_needed(self, pil_img, mask, spec):
         resolved_pack = self.augmentation_resolver(spec)
@@ -124,14 +162,19 @@ class PreprocessMediaFile:
             from rengu_flow.data.parquet_source import ParquetSource, spec_row
 
             if self._pq_source is None:
-                self._pq_source = ParquetSource()
+                self._pq_source = {}
+            source = self._pq_source.get(str(spec[0]))
+            if source is None:
+                cfg = (
+                    self.parquet_config_resolver(str(spec[0]))
+                    if self.parquet_config_resolver is not None
+                    else None
+                )
+                source = self._pq_source[str(spec[0])] = ParquetSource(cfg)
             tar_f = None
-            filepath_or_file = self._pq_source.read_image(str(spec[0]), spec_row(spec))
+            filepath_or_file = source.read_image(str(spec[0]), spec_row(spec))
         else:
-            tar_filename = spec[0]
-            if tar_filename not in self.tarfile_map:
-                self.tarfile_map[tar_filename] = tarfile.TarFile(tar_filename)
-            tar_f = self.tarfile_map[tar_filename]
+            tar_f = self._tar_for(spec[0])
             filepath_or_file = tar_f.extractfile(str(spec[1]))
 
         # Animated WebP is decoded as a video by its native frames (the pillow webp

@@ -2,7 +2,7 @@
 
 During training you can generate **sample images** from fixed prompts and view them in **TensorBoard** (similar to OneTrainer). This helps you judge quality without waiting for a full `save_every_n_*` export. Kohya-style “sample every N steps” is covered by the schedule options below; on-demand runs use a **signal file**.
 
-Previews are supported for **SDXL** (`model.type = "sdxl"`), **Cosmos Predict2** (`model.type = "cosmos_predict2"` or `anima`), **Krea 2** (`model.type = "krea2"`, defaults 28 steps / CFG 4.5 — see [Training Krea 2](training-krea2.md)), and **Qwen-Image 2.1** (`model.type = "qwen_image21"`, defaults 28 steps / no CFG — see [Training Qwen-Image 2.1](training-qwen-image21.md#previews)). Cosmos, Krea 2 and Qwen-Image 2.1 require **`pipeline_stages = 1`** (single-GPU DiT path).
+Previews are supported for **SDXL** (`model.type = "sdxl"`), **Cosmos Predict2** (`model.type = "cosmos_predict2"`), **Krea 2** (`model.type = "krea2"`, defaults 28 steps / CFG 4.5 — see [Training Krea 2](training-krea2.md)), and **Qwen-Image 2.1** (`model.type = "qwen_image21"`, defaults 28 steps / no CFG — see [Training Qwen-Image 2.1](training-qwen-image21.md#previews)). Cosmos, Krea 2 and Qwen-Image 2.1 require **`pipeline_stages = 1`** (single-GPU DiT path).
 
 > **Previews are off by default** (`preview.enabled = false`). Generating samples during training costs extra VRAM and time — a 1024×1024 SDXL preview can OOM on small GPUs (e.g. 8 GB). Enable it only when you want in-training samples, and lower `width`/`height` if you are tight on VRAM.
 
@@ -58,7 +58,7 @@ prompt = "1woman, soft light, detailed face"
 | **`preview.preview_before_first_step`** | Run once before step 1 (like eval). | `true` or `false`. | `false` |
 | **`disable_block_swap_for_preview`** | When training uses `blocks_to_swap`, set `true` to run preview with the full DiT on GPU. | `true` or `false`. | Same as `disable_block_swap_for_eval` |
 
-### Cosmos Predict2 (`cosmos_predict2` / `anima`)
+### Cosmos Predict2 (`cosmos_predict2`)
 
 Cosmos / **Anima** use **Euler flow-matching** sampling aligned with training (not the SDXL diffusers scheduler). **Classifier-free guidance** is applied at preview time only: `v = v_uncond + guidance_scale × (v_cond − v_uncond)` with a second forward pass per step when `guidance_scale ≠ 1`.
 

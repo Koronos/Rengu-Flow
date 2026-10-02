@@ -387,8 +387,15 @@ class CosmosPredict2Pipeline(dit_common.DiTPipeline):
             print("rengu_flow: text encoder ready for preview.", flush=True)
         return text_encoder
 
-    def ensure_transformer_for_preview(self, device: str | torch.device = "cuda") -> None:
-        """Use in-memory DiT on GPU for Euler (do not reload weights from disk)."""
+    def ensure_transformer_for_preview(
+        self, device: str | torch.device = "cuda", *, force_move: bool = False
+    ) -> None:
+        """Use in-memory DiT on GPU for Euler (do not reload weights from disk).
+
+        ``force_move`` moves the whole DiT even when its first parameter is already on *device*.
+        Needed while training block swap is active: suspend() parks the frozen blocks on the CPU,
+        but the first parameter belongs to a never-swapped top-level module, so the device check
+        below can't see it (the preview forward then hits cuda/cpu weights)."""
         if self.transformer is None:
             self.load_diffusion_model()
         target = torch.device(device)
@@ -398,7 +405,7 @@ class CosmosPredict2Pipeline(dit_common.DiTPipeline):
             # compiled module would reassign param storage). See offload_transformer_for_decode.
             target = torch.device("cuda", torch.cuda.current_device())
         param = next(self.transformer.parameters())
-        if param.device != target:
+        if force_move or param.device != target:
             if is_main_process():
                 print(f"rengu_flow: moving DiT to {target} for preview...", flush=True)
             self.transformer.to(target)
@@ -409,9 +416,14 @@ class CosmosPredict2Pipeline(dit_common.DiTPipeline):
         # Park the training offloader (if any) so its hooks don't fight the preview offloader
         # over block placement and its retained GPU copies are released. resume() on restore.
         train_offloader = self._suspend_training_block_swap()
-        self.ensure_transformer_for_preview("cuda")
-        state: dict = {}
         blocks_swap = int(preview_cfg.get("preview_blocks_to_swap", 0))
+        # Training block swap parked the frozen blocks on the CPU; with no preview offloader to
+        # stream them, the whole DiT must be brought back. (With preview swap the preview
+        # offloader below streams the blocks instead, so the full move must not happen.)
+        self.ensure_transformer_for_preview(
+            "cuda", force_move=blocks_swap == 0 and self._training_block_swap_active()
+        )
+        state: dict = {}
         if blocks_swap > 0:
             self._preview_offloader = self._make_preview_offloader(
                 self.transformer.blocks, blocks_swap, "cuda", train_offloader

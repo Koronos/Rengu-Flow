@@ -83,7 +83,7 @@ def plan_compile(config: dict, num_shapes: int | None) -> CompilePlan:
                 f"{DEFAULT_CACHE_SIZE_LIMIT} -> {plan.cache_size_limit} to fit "
                 "every shape."
             )
-        if not dynamic and num_shapes >= 12:
+        if not dynamic and num_shapes and num_shapes >= 12:
             plan.notes.append(
                 f"NOTE: {num_shapes} static graphs accumulate in host RAM as each shape "
                 "compiles (several GB on big DiTs). If RAM is tight, set "

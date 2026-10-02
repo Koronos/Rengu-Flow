@@ -7,17 +7,15 @@ How to run and extend the test suite for Rengu Flow.
 **Requirements:** Install with the dev extra so pytest is available:
 
 ```bash
-pip install -e ".[dev]"
-# or with uv:
 uv sync --extra dev
 ```
 
 **Run all tests:**
 
 ```bash
-pytest
-# or from repo root (pytest lives in the dev extra):
 uv run --extra dev pytest
+# pytest lives in the dev extra; `addopts` in pyproject.toml already passes xdist `-n 4`
+# (override with `-n 0` to debug serially)
 python -m pytest tests/
 ```
 
@@ -75,10 +73,10 @@ Tests are designed to run in a few seconds. They do **not** use GPU, real checkp
 Run the UI-focused suite (no browser, no GPU):
 
 ```bash
-pytest tests/test_ui_api.py tests/test_run_staging.py tests/test_config_form.py \
+uv run --extra ui --extra dev pytest tests/test_ui_api.py tests/test_run_staging.py tests/test_config_form.py \
   tests/test_dataset_form.py tests/test_dataset_field_help.py tests/test_datasets_store.py \
   tests/test_dataset_scan.py tests/test_job_queue.py tests/test_ui_job_queue.py \
-  tests/test_rengu_flow_ui.py tests/test_docs_reader.py tests/test_system_stats.py \
+  tests/test_docs_reader.py tests/test_system_stats.py \
   tests/test_registry_probe.py -q
 ```
 
@@ -96,9 +94,8 @@ pytest tests/test_ui_api.py tests/test_run_staging.py tests/test_config_form.py 
 | `tests/test_system_stats.py` | Host metrics collector |
 | `tests/test_docs_reader.py` | Markdown path safety |
 | `tests/test_registry_probe.py` | Optimizer/scheduler import probe |
-| `tests/test_rengu_flow_ui.py` | Config store CRUD smoke |
 
-Requires `pip install -e ".[ui,dev]"` (FastAPI TestClient + httpx).
+Requires the `ui` and `dev` extras: `uv run --extra ui --extra dev pytest ...` (FastAPI TestClient + httpx).
 
 ### Manual GPU smoke (Cosmos Predict2 / Anima)
 
@@ -167,7 +164,7 @@ Dataset-related tests (config, loader, captions, cache hooks, smoke fixture):
 | `tests/test_ui_signals.py` | `send_signal` and job signals API. |
 | `tests/test_genericoptim_cpu_state.py` | `GenericOptim` + `kahan_buffer_offload` CPU state roundtrip. |
 
-**GPU smokes (optional, local):** Convention, inventory and checklist for adding one: [Smoke tests](smoke-tests.md). Copy `.env.example` to `.env` (gitignored) and set `RENGU_SDXL_CHECKPOINT_PATH` / `RENGU_COSMOS_*` / `RENGU_KREA2_*`. Configs live under `tests/fixtures/smoke/` (not `examples/`). `scripts/run_model_smoke.sh sdxl|cosmos|krea2` vendors fixtures if needed, runs `--cache_only`, then **30** training steps. `scripts/smoke_training_signals.sh` exercises every signal file plus `genericoptim` resume (requires `pip install -e ".[optim]"`). `rengu_flow.config.local_env` applies env vars before validation; missing weights exit **77** (skipped). `python scripts/smoke_krea2_mini.py` trains Krea 2 on a random mini model (no weights, no DeepSpeed; native Windows or Linux). Scripts **purge** `output/`, fixture caches, and `tmp/smoke_*.log` by default (`KEEP_SMOKE_ARTIFACTS=1` / `KEEP_SMOKE_LOG=1` to retain).
+**GPU smokes (optional, local):** Convention, inventory and checklist for adding one: [Smoke tests](smoke-tests.md). Copy `.env.example` to `.env` (gitignored) and set `RENGU_SDXL_CHECKPOINT_PATH` / `RENGU_COSMOS_*` / `RENGU_KREA2_*`. Configs live under `tests/fixtures/smoke/` (not `examples/`). `scripts/run_model_smoke.sh sdxl|cosmos|krea2` vendors fixtures if needed, runs `--cache_only`, then **30** training steps. `scripts/smoke_training_signals.sh` exercises every signal file plus `genericoptim` resume (requires the `optim` extra (`./rengu init optim`)). `rengu_flow.config.local_env` applies env vars before validation; missing weights exit **77** (skipped). `python scripts/smoke_krea2_mini.py` trains Krea 2 on a random mini model (no weights, no DeepSpeed; native Windows or Linux). Scripts **purge** `output/`, fixture caches, and `tmp/smoke_*.log` by default (`KEEP_SMOKE_ARTIFACTS=1` / `KEEP_SMOKE_LOG=1` to retain).
 
 **GPU smoke A/B (dataloader/cache flags):** After unit tests pass, run `scripts/smoke_perf_ab.sh sdxl` for baseline `iter_sec_mean` (steps ≥ 6 from `bench_steps.csv`), then e.g. `scripts/smoke_perf_ab.sh sdxl prefetch` to compare `dataloader_prefetch=true`. Presets: `prefetch`, `workers2`. See [performance-cpu-ram](performance-cpu-ram.md).
 

@@ -36,7 +36,7 @@ User guide: **`docs/user/web-ui.md`**.
 | `rengu_flow_ui/subprocess_util.py` | `popen_repo_subprocess()` shared by jobs and TensorBoard |
 | `rengu_flow_ui/runs_scanner.py` | List/discover runs under `output_dir` |
 | `rengu_flow_ui/signals.py` | Touch signal files via `rengu_flow.utils.signal_files` constants |
-| `rengu_flow/control/status_file.py` | Legacy `status.json` read/write helpers. The trainer **no longer writes** `status.json` (live progress flows via stdout markers — `control/progress_stream.py` → `live_stream.py`); `read_status_file` is still used by `job_import.py` to recognize legacy runs on disk. |
+| `rengu_flow/control/progress_stream.py` | Live progress flows from the trainer via stdout markers (`control/progress_stream.py` → `rengu_flow_ui/live_stream.py`). The legacy `status.json` / `status_file.py` helpers no longer exist. |
 | `ui/web/` | Vite + Vue 3 + Element Plus SPA; build output `ui/web/dist/` |
 | `start-ui.sh` | User entrypoint: `uv sync --extra ui`, then `rengu ui start --skip-sync` (builds web + serves) |
 | `scripts/start-ui-dev.sh` | Developer-only: API `--reload` + Vite on port 5173 (proxies `/api`) |
@@ -204,7 +204,7 @@ Dataset form: same pattern in **`dataset_field_help.py`** and **`tests/test_data
 
 - **New signal**: add constant in `signal_files.py`, map in `rengu_flow_ui/signals.py`, button in `ui/web/src/views/RunDetailView.vue`
 - **New API route**: add handler in `app.py`, mirror in `ui/web/src/api.ts`
-- **Trainer status fields**: extend `write_status_file()` payload and UI reader
+- **Trainer progress fields**: extend the stdout markers in `rengu_flow/control/progress_stream.py` and the UI reader in `rengu_flow_ui/live_stream.py`
 - **New model in UI**: `@register_model("my_type")` adds the type to the model picker. Optional: `register_model_capability(ModelCapability(...))` in `rengu_flow/registry/model_capabilities.py` for LoRA/LoKr/full, preview, per-model form fields. `GET /api/v1/schema` exposes `registries.model_capabilities`
 - **Optional config fields**: set `importance="advanced"` on the field in `config_schema.py`; the form shows them inline with muted labels and a small “(optional)” hint (no collapse)
 
@@ -213,7 +213,7 @@ Dataset form: same pattern in **`dataset_field_help.py`** and **`tests/test_data
 Python (API / stores):
 
 ```bash
-pytest tests/test_status_file.py tests/test_rengu_flow_ui.py \
+uv run --extra ui --extra dev pytest tests/test_ui_api.py \
   tests/test_config_form.py tests/test_dataset_field_help.py \
   tests/test_job_queue.py tests/test_docs_reader.py \
   tests/test_system_stats.py tests/test_datasets_store.py -q

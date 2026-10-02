@@ -56,7 +56,7 @@ You can use these names (case-insensitive) for `optimizer.type`:
 Install optional optimizer dependencies:
 
 ```bash
-pip install -e ".[optim]"
+./rengu init optim
 ```
 
 `adakaon`, `adamuon`, `kprodigy`, `lion`, `adapnm`, `adabelief`, `adamp`, `adopt`, `schedulefree`, `lookahead`, `sam`, `msam`, and `nekaon` come from the git-backed [`kaon`](https://github.com/Koronos/K-Optimizers) package and are installed on demand via the **kaon** install profile when you select one of these types.
@@ -249,8 +249,8 @@ You can use these **string tokens** as values in `[lr_scheduler_args]` or in the
 
 | Token | Resolved value |
 |-------|----------------|
-| **`total_steps`** | `epochs × steps_per_epoch` (optimizer steps per full training run). |
-| **`effective_total_steps`** | `min(total_steps, max_steps)` when `max_steps` is set in config; otherwise same as `total_steps`. Use for `T_max` / `total_iters` when training may stop early. |
+| **`total_steps`** | The run's step budget: `max_steps` when set (the loop stops there, even past `epochs`), otherwise `epochs × steps_per_epoch`. Built-in schedules use the same horizon, so the LR curve ends exactly where training ends. |
+| **`effective_total_steps`** | Same as `total_steps` (kept for older configs). |
 | **`steps_per_epoch`** | Training steps in one epoch (after gradient accumulation). |
 | **`epochs`** | `epochs` from your config. |
 | **`max_steps`** | Only substituted when `max_steps` is set in config. |

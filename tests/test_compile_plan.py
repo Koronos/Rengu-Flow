@@ -135,3 +135,8 @@ def test_distinct_size_buckets_dedups_and_skips_empty():
         (1024, 1024, 1),
         (768, 768, 1),
     }
+
+
+def test_block_scope_with_unknown_shape_count_does_not_raise():
+    plan = plan_compile({"compile_scope": "block"}, None)
+    assert not any("static graphs accumulate" in n for n in plan.notes)

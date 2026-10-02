@@ -24,7 +24,7 @@ To find the current run directory:
 | Signal | File name | Effect |
 |--------|-----------|--------|
 | Save (resume checkpoint) | `save` | On the next step: write a DeepSpeed resume checkpoint, then remove the file. |
-| Save & quit | `save_quit` | Same as `save`, then exit the training process. |
+| Save & quit | `save_quit` | Same as `save`, then exit the training process. If the checkpoint could not be written (e.g. disk full), it prints an error and exits with code 1 instead of 0. |
 | Export model | `export_model` | On the next step: export adapter or full model to `signal_step<N>/` (usable weights), then remove the file. |
 | Export & quit | `export_model_quit` | Same as `export_model`, then exit. |
 | Preview | `preview_now` | On the next step: run configured [previews](previews.md) and log images to TensorBoard, then remove the file. (Named `preview_now`, not `preview`, so it can't collide with the run folder's `preview/` image directory.) |
