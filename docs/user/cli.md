@@ -1,6 +1,6 @@
 # Rengu Flow CLI (`rengu`)
 
-Linux-only command-line interface for setup, training, and the web UI. Run from the repository root as `./rengu` (requires [uv](https://docs.astral.sh/uv/) on `PATH`; uv creates `.venv` and installs Python — no separate system `python3` needed).
+Command-line interface (Linux/WSL with multi-GPU DeepSpeed, or native Windows single-GPU with the `accelerate` engine) for setup, training, and the web UI. Run from the repository root as `./rengu` (requires [uv](https://docs.astral.sh/uv/) on `PATH`; uv creates `.venv` and installs Python — no separate system `python3` needed).
 
 ## First run
 
@@ -51,6 +51,7 @@ Legacy: `rengu --config foo.toml` (without `train`) still works.
 | Flag | Purpose | Default |
 |------|---------|---------|
 | `--config PATH` | Training TOML (required) | — |
+| `--engine {deepspeed,accelerate}` | Override the training backend for this run (sets `RENGU_ENGINE`) | `engine` key in the run config / `rengu.local.toml`, else per OS (`accelerate` on Windows, `deepspeed` elsewhere) |
 | `--num-gpus N` | Override GPU count for this run | `[training].num_gpus` in `rengu.local.toml`, else `1` |
 | `--master-port PORT` | DeepSpeed master port | `[training].master_port` or `29500` |
 | `--resume-from-checkpoint` | Resume from `latest` in the run directory | off |
@@ -104,6 +105,7 @@ Passed via `rengu train --config X -- FLAG …` or `extra_args` in local TOML:
 | Flag | Purpose |
 |------|---------|
 | `--resume_from_checkpoint` | Resume from run `latest` |
+| `--run_dir NAME_OR_PATH` | Pin the run folder (name under `output_dir`, or absolute path) without resuming a checkpoint, so a from-scratch run reuses that folder and starts at step 0 |
 | `--cache_only` | Build dataset cache and exit |
 | `--regenerate_cache` / `--regenerate_text_cache` | Force cache rebuild |
 | `--trust_cache` | Skip cache validation |

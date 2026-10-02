@@ -33,12 +33,11 @@ num_inference_steps = 20
 guidance_scale = 7.0
 seed = 42
 
-# Use [[preview.prompts]] for named TensorBoard tags (mixed inline tables in
-# `prompts = [...]` are not supported by the TOML parser). Each prompt entry reads
-# only `name` and `prompt`.
-prompts = [
-  "a photo of a cat sitting on a windowsill, soft daylight",
-]
+# One [[preview.prompts]] table per prompt; `name` becomes the TensorBoard tag.
+# Each prompt entry reads only `name` and `prompt`.
+[[preview.prompts]]
+name = "cat"
+prompt = "a photo of a cat sitting on a windowsill, soft daylight"
 
 [[preview.prompts]]
 name = "landscape"

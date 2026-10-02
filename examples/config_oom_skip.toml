@@ -1,4 +1,4 @@
-# Example: continue training after CUDA OOM on a batch (up to max_consecutive skips in a row).
+# Example: continue training after CUDA OOM on a batch (abort once max_in_window OOMs land within 10 steps).
 # Single-GPU only; multi-GPU OOM skip is not synchronized across ranks.
 
 dataset = "examples/minimal_dataset.toml"
@@ -21,5 +21,5 @@ lr = 1.0e-4
 
 [train.oom_skip]
 enabled = true
-max_consecutive = 3
+max_in_window = 3
 clear_cache_on_skip = true

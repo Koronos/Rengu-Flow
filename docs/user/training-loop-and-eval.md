@@ -206,9 +206,9 @@ Saves VRAM by recomputing activations in the backward pass. Configure in the mai
 | Key | Description | Values | Default |
 |-----|-------------|--------|---------|
 | **`activation_checkpointing`** | Enable and choose implementation. | `false`, `true`, or `"auto"`. | `false` |
-| **`reentrant_activation_checkpointing`** | When `activation_checkpointing = true`, use reentrant PyTorch checkpoint. | `true` or `false`. | `false` (`true` auto-default for `cosmos_predict2` when AC is on — see [Cosmos/Anima guide](training-cosmos-predict2-lora-lokr-finetune.md#performance-and-vram-anima--cosmos)) |
+| **`reentrant_activation_checkpointing`** | When `activation_checkpointing = true`, use reentrant PyTorch checkpoint. | `true` or `false`. | `false`, except it auto-defaults to `true` for a 4-bit base (`model.transformer_4bit`) with `blocks_to_swap`, and for an fp8 base with `compile_scope = "block"` + `activation_checkpointing = true`. An explicit value always wins. |
 
-- **`true`** — PyTorch `torch.utils.checkpoint.checkpoint`. Use `reentrant_activation_checkpointing = true` if you hit errors with block swap or certain layers. For **Cosmos/Anima**, keeping it `true` is recommended (~3% faster in LoKR tuning vs `false`).
+- **`true`** — PyTorch `torch.utils.checkpoint.checkpoint`. Use `reentrant_activation_checkpointing = true` if you hit errors with block swap or certain layers. For **Cosmos/Anima**, setting it `true` explicitly was ~3% faster in LoKR tuning vs `false` (it is not the default).
 - **`"auto"`** — compiler-driven (requires `compile = true`): Inductor's memory-budget partitioner picks the optimal save/recompute split per compiled graph; dial it with **`activation_memory_budget`** (0.0 ≈ full-checkpoint VRAM, 1.0 ≈ no-checkpoint speed, default 0.3). Exact recompute — no precision cost. Measured @1024 LoKr it beats `"selective"` on speed AND VRAM at budget 0.1, and reaches −21% step time at 0.5. See [Cosmos guide](training-cosmos-predict2-lora-lokr-finetune.md#performance-and-vram-anima--cosmos).
 - Retired values: **`"selective"`** (SAC) and **`"unsloth"`** fall back to `true` with a warning — `"auto"` measured faster AND lighter than SAC (see `docs/EXPERIMENTS_GRAVEYARD.md`).
 
@@ -244,6 +244,7 @@ Offloads UNet or DiT blocks to CPU between forward steps. Shared implementation 
 | **`blocks_to_swap`** | Number of backbone blocks kept on CPU between steps (higher = less VRAM, slower steps). | Non-negative integer; `0` disables. | `0` |
 | **`disable_block_swap_for_eval`** | Load full backbone on GPU during eval. | `true` or `false`. | `false` |
 | **`disable_block_swap_for_preview`** | Load full backbone on GPU during preview sampling. | `true` or `false`. | Same as eval default |
+| **`block_swap_reclaim_every`** | While block swap is active, release cached GPU allocator memory every N training steps (a full `gc.collect()` + cache flush every 50th step) so the pool stays bounded and tight swap settings do not OOM. `0` disables the periodic reclaim. | Integer ≥ 0. | `10` |
 
 **Requirements:** `[adapter]` must be set (LoRA/LoKr). **`pipeline_stages = 1`**. Do not use for full-model finetune (omit `[adapter]` and leave `blocks_to_swap` at `0`).
 
@@ -264,8 +265,9 @@ pipeline_stages = 1
 | Key | Purpose | Values | Default |
 |-----|---------|--------|---------|
 | **`ema_decay`** | Exponential moving average of trainable weights (stored on CPU). | Float in `(0, 1)`, e.g. `0.999`. | Omitted (disabled) |
+| **`ema_update_interval`** | Update the EMA every N steps (using `decay^N`, so the smoothing horizon stays the same). Each update copies every trainable parameter to the CPU shadow, which can dominate step time on large full finetunes; raise it to cut that cost. | Integer ≥ 1. | `1` (every step) |
 
-EMA updates run after each successful training step. Export of EMA weights is not automatic today — use for monitoring or future export hooks.
+EMA updates run after every `ema_update_interval`-th successful training step. Export of EMA weights is not automatic today — use for monitoring or future export hooks.
 
 ## Skipping batches on CUDA OOM (optional)
 
@@ -273,10 +275,12 @@ When a single training step runs out of GPU memory (e.g. after a resolution buck
 
 | Key | Description | Values | Default |
 |-----|-------------|--------|---------|
-| **`[train.oom_skip]`** | Optional section. | Table. | Omitted (`enabled` = false). |
-| **`train.oom_skip.enabled`** | Catch CUDA OOM around each training step. | `true` or `false`. | `false` |
-| **`train.oom_skip.max_consecutive`** | Abort after this many OOM skips **in a row**. | Integer ≥ 1. | `3` |
+| **`[train.oom_skip]`** | Optional section. | Table. | Omitted (`enabled` = true with the defaults below). |
+| **`train.oom_skip.enabled`** | Catch CUDA OOM around each training step. | `true` or `false`. | `true` |
+| **`train.oom_skip.max_in_window`** | Abort (with an emergency save) once this many OOMs land within the last 10 training steps (fixed window). `max_consecutive` is accepted as a legacy alias. | Integer ≥ 1. | `3` |
 | **`train.oom_skip.clear_cache_on_skip`** | Call CUDA cache flush helpers after a skip. | `true` or `false`. | `true` |
+| **`train.oom_skip.bump_block_swap`** | When `max_in_window` is reached and block swap is active, raise `blocks_to_swap` and retry instead of aborting. | `true` or `false`. | `false` |
+| **`train.oom_skip.bump_block_swap_step`** | Blocks added to `blocks_to_swap` each time `bump_block_swap` fires. | Integer ≥ 1. | `2` |
 
 Example: `examples/config_oom_skip.toml`.
 

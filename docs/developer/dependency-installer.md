@@ -16,7 +16,7 @@ All optional-dependency logic is centralized in the `rengu_flow.install` package
 
 ## Shims (backwards-compatible import paths)
 
-`rengu_flow/install_profiles.py`, `rengu_flow/cli/uv_cmd.py`, and `rengu_flow/cli/training_extras.py` re-export from the new package so existing imports (and tests) keep working. `rengu_flow/cli/project_venv.py` keeps the venv helpers (`venv_python`, `reexec_cli`, `sync_dependencies`, `ensure_ui_dependencies`) and pulls runners from `install.runner`.
+`rengu_flow/cli/training_extras.py` re-exports from the new package so existing imports (and tests) keep working. `rengu_flow/cli/project_venv.py` keeps the venv helpers (`venv_python`, `reexec_cli`, `sync_dependencies`, `ensure_ui_dependencies`) and pulls runners from `install.runner`.
 
 ## Registering a git/VCS-backed backend
 

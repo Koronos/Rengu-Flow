@@ -22,7 +22,7 @@ Canonical list of **not-yet-implemented** or **deferred** work for Rengu Flow. D
 | P0-4 | **Generic step/epoch callback registry** | [architecture.md](developer/architecture.md) | Partial: `Saver`, eval, previews. |
 | P0-5 | **`pre_train` hook registry** | [architecture.md](developer/architecture.md) | Partial: `DatasetManager.cache()` only. |
 | P0-6 | **Post-training hooks** | [architecture.md](developer/architecture.md) | Hub upload, format conversion, notifications. |
-| P0-7 | **More models in registry** | [architecture.md](developer/architecture.md) | Built-in: `sdxl`, `cosmos_predict2` (+ `anima`). Flux, etc. not registered. |
+| P0-7 | **More models in registry** | [architecture.md](developer/architecture.md) | Built-in: `sdxl`, `cosmos_predict2`, `krea2`, `qwen_image21` (`anima` is a UI-only alias). Flux, etc. not registered. |
 | P0-8 | **TOML plug-in phases** | [architecture.md](developer/architecture.md) | e.g. dataset tagging phases, `[[post_train]]` metadata handlers. |
 | P0-9 | **Special optimizer cases (full parity)** | diffusion-pipe parity | Gradient release, GenericOptim edge cases beyond current resolver. |
 
@@ -55,7 +55,7 @@ Canonical list of **not-yet-implemented** or **deferred** work for Rengu Flow. D
 
 | ID | Item | Source | Notes |
 |----|------|--------|-------|
-| P3-1 | **`save_full_model` TOML flag** | [spec/save-full-model-flag.md](spec/save-full-model-flag.md), [checkpoint-and-save.md](developer/checkpoint-and-save.md) | Not read by `Saver`; full export today = omit `[adapter]`. |
+| P3-1 | **`save_full_model` TOML flag** | [checkpoint-and-save.md](developer/checkpoint-and-save.md) | Not read by `Saver`; full export today = omit `[adapter]`. |
 
 ---
 

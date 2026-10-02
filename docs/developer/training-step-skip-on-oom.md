@@ -1,6 +1,6 @@
 # Spec: skip training step on OOM (reference: ai-toolkit)
 
-This document describes **batch/step skipping on CUDA OOM** (pattern from [ostris/ai-toolkit](https://github.com/ostris/ai-toolkit)) and how it is wired in rengu-flow. For user-facing config, see [Training loop (user)](../user/training-loop-and-eval.md#oom-step-skip).
+This document describes **batch/step skipping on CUDA OOM** (pattern from [ostris/ai-toolkit](https://github.com/ostris/ai-toolkit)) and how it is wired in rengu-flow. For user-facing config, see [Training loop (user)](../user/training-loop-and-eval.md#skipping-batches-on-cuda-oom-optional).
 
 Pony Diffusion V7 (AuraFlow) LoRA training is officially documented with **SimpleTuner**, which does **not** expose this same “skip up to 3 OOM batches” loop; the behavior below comes from **ai-toolkit** and matches reports such as [ai-toolkit#463](https://github.com/ostris/ai-toolkit/issues/463).
 
@@ -141,15 +141,19 @@ Design aligned with ai-toolkit:
 ```toml
 [train.oom_skip]
 enabled = true
-max_consecutive = 3
+max_in_window = 3            # OOMs within the last 10 steps before swap bump / abort
 clear_cache_on_skip = true   # empty_cuda_cache + ipc_collect
+bump_block_swap = false
+bump_block_swap_step = 2
 ```
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `enabled` | bool | `false` | Enable OOM catch-and-continue around `train_batch`. |
-| `max_consecutive` | int | `3` | Abort after this many **consecutive** OOM skips. |
+| `enabled` | bool | `true` | Enable OOM catch-and-continue around `train_batch` (default set in `rengu_flow/config/defaults.py`). |
+| `max_in_window` | int | `3` | Act (bump block swap, or abort with emergency save) once this many OOMs fall within the last `_OOM_WINDOW` = 10 steps (`rengu_flow/utils/oom_skip.py`). `max_consecutive` is a legacy alias still read by `main.py`. |
 | `clear_cache_on_skip` | bool | `true` | Call CUDA cache flush helpers after skip. |
+| `bump_block_swap` | bool | `false` | On reaching `max_in_window`, raise `blocks_to_swap` and retry instead of aborting. |
+| `bump_block_swap_step` | int | `2` | Blocks added to `blocks_to_swap` per bump. |
 
 ### Integration point
 
