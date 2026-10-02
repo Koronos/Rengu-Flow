@@ -176,3 +176,55 @@ def test_first_pull_stopiteration_rolls_epoch():
     batches = [next(it) for _ in range(3)]  # crosses the boundary into epoch 2
     assert all(b is not None for b in batches)
     assert loader.epoch >= 2
+
+
+class _EpochSpy(SyntheticSDXLDataset):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.epochs_seen = []
+
+    def set_epoch(self, epoch):
+        self.epochs_seen.append(epoch)
+
+
+def test_non_owner_loader_never_touches_dataset_epoch():
+    """The val-gap train probe shares the live train dataset: creating, reset()ing and rolling
+    its loader must not call set_epoch on it (reset used to rewind train to epoch 1)."""
+    ds = _EpochSpy(num_batches=2, micro_batch_size=1, latent_height=64, latent_width=64)
+    loader = PipelineDataLoader(
+        ds, _make_mock_engine(), 1, _make_mock_model(), owns_dataset_epoch=False
+    )
+    it = iter(loader)
+    for _ in range(len(ds) + 1):
+        next(it)
+    loader.reset()
+    next(iter(loader))
+    assert ds.epochs_seen == []
+
+
+def test_state_dict_counts_only_consumed_batches():
+    """num_batches_pulled counts the one-batch prefetch; the checkpointed value must be the
+    batches actually consumed, or every resume silently skips one untrained batch."""
+    ds = _EpochSpy(num_batches=5, micro_batch_size=2, latent_height=64, latent_width=64)
+    loader = PipelineDataLoader(ds, _make_mock_engine(), 2, _make_mock_model())
+    it = iter(loader)
+    for _ in range(2 * 3):  # 3 full steps of 2 micro-batches
+        next(it)
+    assert loader.num_batches_pulled == 4  # prefetch already started batch 4
+    assert loader.state_dict()["num_batches_pulled"] == 3
+
+
+def test_resume_does_not_skip_untrained_batch():
+    ds = _EpochSpy(num_batches=5, micro_batch_size=1, latent_height=64, latent_width=64)
+    loader = PipelineDataLoader(ds, _make_mock_engine(), 1, _make_mock_model())
+    it = iter(loader)
+    for _ in range(2):
+        next(it)
+    state = loader.state_dict()
+    assert state["num_batches_pulled"] == 2
+    resumed = PipelineDataLoader(ds, _make_mock_engine(), 1, _make_mock_model())
+    resumed.load_state_dict(state)
+    assert resumed._resume_skip == 2
+    # And the position survives a second save without drifting.
+    next(iter(resumed))
+    assert resumed.state_dict()["num_batches_pulled"] == 3

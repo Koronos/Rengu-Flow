@@ -12,7 +12,7 @@ import random
 import sys
 import tarfile
 from collections import defaultdict
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import datasets
 import imageio
@@ -32,6 +32,7 @@ from rengu_flow.data.augmentation.names import AUG_MVP_VERSION
 from rengu_flow.data.augmentation.spec_utils import image_spec_base
 from rengu_flow.data.cache_paths import resolve_directory_cache_dir
 from rengu_flow.data.control import (
+    CONTROL_IMAGE_EXTENSIONS,
     control_signature,
     control_stamp,
     index_control_dir,
@@ -63,6 +64,44 @@ from rengu_flow.utils.paths import path_is_under
 logger = logging.getLogger(__name__)
 
 CAPTIONS_JSON_FILE = "captions.json"
+
+# Per-row content stamps (size:mtime_ns) of the image and its mask. Part of the latent cache key
+# and salvage identity, so replacing a file in place (e.g. a prep ``in_place`` cleanup, or fixing
+# a corrupt image) re-encodes just that row instead of serving the stale latent / tombstone.
+STAMP_COLUMNS = ("image_stamp", "mask_stamp")
+
+
+def _file_stamp(path) -> str:
+    """``size:mtime_ns`` of *path*, or "" when it is absent / unreadable."""
+    if not path:
+        return ""
+    try:
+        st = Path(path).stat()
+    except OSError:
+        return ""
+    return f"{st.st_size}:{st.st_mtime_ns}"
+
+
+def load_captions_json(path) -> dict:
+    """Read ``captions.json`` as ``{filename: [captions]}``; a bare string is one caption."""
+    with open(path, encoding="utf-8-sig") as f:
+        raw = json.load(f)
+    out = {}
+    for key, value in raw.items():
+        if isinstance(value, str):
+            value = [value]
+        elif not (isinstance(value, list) and all(isinstance(c, str) for c in value)):
+            raise ValueError(
+                f"{path}: entry {key!r} must be a string or a list of strings, got {value!r}"
+            )
+        out[key] = value
+    return out
+
+
+def _public_config(config: dict) -> dict:
+    """*config* without the loader's private ``_``-prefixed bookkeeping keys (e.g. the staged
+    dataset TOML path), which say nothing about the data and must not move a cache signature."""
+    return {k: v for k, v in config.items() if not str(k).startswith("_")}
 
 # Per-row columns that identify an edit row's control images in the caches: the paired files, a
 # cheap content stamp of each (so replacing a control re-encodes it) and the resolution they are
@@ -139,7 +178,7 @@ def shuffle_with_seed(lst: list, seed=None) -> None:
 
 def _read_captions_from_txt_per_line(caption_file: str) -> list[str]:
     """Read .txt file as one caption per line (rengu-flow behavior). Empty lines skipped."""
-    with open(caption_file) as f:
+    with open(caption_file, encoding="utf-8-sig") as f:
         captions = [line.strip() for line in f if line.strip()]
     return captions if captions else [""]
 
@@ -329,6 +368,16 @@ def effective_sample_cap(
     return None
 
 
+def order_depends_on_epoch(directory_config: dict) -> bool:
+    """Whether a directory serves a different row order each epoch (so persistent dataloader
+    workers, which hold a stale dataset copy, must be re-forked at every epoch rollover).
+
+    ``subsample_shuffle`` (default on) reshuffles the pool every epoch even with no cap; only
+    ``subsample_shuffle = false`` freezes the order.
+    """
+    return directory_subsample_shuffle(directory_config)
+
+
 def rotation_window_index(
     pos: int, epoch: int, pool_len: int, cap: int | None, static: bool
 ) -> int:
@@ -363,25 +412,71 @@ class FolderSubsampler:
     Pure given ``(epoch)`` — every data-parallel rank selects the same images.
     """
 
-    def __init__(self, base_keys, cap: int | None, static: bool, seed: int) -> None:
+    def __init__(
+        self, base_keys, cap: int | None, static: bool, seed: int, groups: dict | None = None
+    ) -> None:
         self._base = list(base_keys)
         random.Random(int(seed)).shuffle(self._base)
         self.cap = cap
         self._static = static
         self._cache_epoch: int | None = None
         self._cache: list | None = None
+        # Stratified mode (``groups``: base key -> stratum, e.g. the set of size buckets the
+        # image lives in): each stratum gets a FIXED quota of the cap (proportional to its size)
+        # and rotates its own window. A bucket's per-epoch row count is therefore the same every
+        # epoch — the dataset length is frozen at post_init, so a count that moved with the
+        # epoch produced duplicates/omissions and empty buckets serving row 0.
+        self._strata: list[tuple[list, int]] | None = None
+        if groups is not None and cap is not None and self._base:
+            by_stratum: dict = {}
+            for bk in self._base:
+                by_stratum.setdefault(groups.get(bk), []).append(bk)
+            members = list(by_stratum.values())
+            self._strata = list(zip(members, _stratified_quotas([len(m) for m in members], cap)))
 
     def selected(self, epoch: int) -> list:
         if self.cap is None:
             return self._base
         if self._cache_epoch != epoch or self._cache is None:
-            n = len(self._base)
-            self._cache = [
-                self._base[rotation_window_index(p, epoch, n, self.cap, self._static)]
-                for p in range(self.cap)
-            ]
+            if self._strata is not None:
+                chosen = []
+                for members, quota in self._strata:
+                    n = len(members)
+                    chosen.extend(
+                        members[rotation_window_index(p, epoch, n, quota, self._static)]
+                        for p in range(quota)
+                    )
+                self._cache = chosen
+            else:
+                n = len(self._base)
+                self._cache = [
+                    self._base[rotation_window_index(p, epoch, n, self.cap, self._static)]
+                    for p in range(self.cap)
+                ]
             self._cache_epoch = epoch
         return self._cache
+
+
+def _stratified_quotas(sizes: list[int], cap: int) -> list[int]:
+    """Split ``cap`` across strata proportionally to ``sizes`` (largest remainder), summing to
+    ``cap`` exactly. When ``cap`` allows it every non-empty stratum keeps at least one slot, so
+    no bucket is starved to zero rows."""
+    total = sum(sizes)
+    if total <= 0 or cap <= 0:
+        return [0] * len(sizes)
+    raw = [cap * n / total for n in sizes]
+    quotas = [int(r) for r in raw]
+    order = sorted(range(len(sizes)), key=lambda i: (raw[i] - int(raw[i]), sizes[i]), reverse=True)
+    for i in order[: cap - sum(quotas)]:
+        quotas[i] += 1
+    if cap >= len(sizes):
+        # Never starve a bucket: lift empty quotas to 1, paid for by the largest stratum.
+        for i in range(len(quotas)):
+            if quotas[i] == 0 and sizes[i] > 0:
+                donor = max(range(len(quotas)), key=lambda k: quotas[k])
+                quotas[donor] -= 1
+                quotas[i] = 1
+    return quotas
 
 
 def uniform_caption_variants(caption_lists) -> int:
@@ -657,7 +752,8 @@ class SizeBucketDataset:
             [
                 c
                 for c in (
-                    "image_spec", "mask_file", "size_bucket", "is_video", *CONTROL_IDENTITY_COLUMNS
+                    "image_spec", "mask_file", "size_bucket", "is_video",
+                    *STAMP_COLUMNS, *CONTROL_IDENTITY_COLUMNS,
                 )
                 if c in self.metadata_dataset.column_names
             ],
@@ -665,7 +761,7 @@ class SizeBucketDataset:
         # Salvage identity: the image (plus its augmentation variant key) — and, for edit rows,
         # its control images, so a replaced control is re-encoded instead of copied from a donor.
         latent_identity = tuple(
-            c for c in ("image_spec", *CONTROL_IDENTITY_COLUMNS)
+            c for c in ("image_spec", *STAMP_COLUMNS, *CONTROL_IDENTITY_COLUMNS)
             if c in self.metadata_dataset.column_names
         )
         if map_fn is None:
@@ -721,6 +817,9 @@ class SizeBucketDataset:
             ],
         )
         caption_fp_file = self.cache_dir / "iteration_order.caption_fp"
+        # The tag versions the iteration-order layout: caption_number is the caption's ORIGINAL
+        # index (what the text-embedding cache is keyed on), not its slot after the shuffle.
+        caption_fp = f"{caption_fp}|caption_number=original"
         caption_fp_stale = (
             not caption_fp_file.exists() or caption_fp_file.read_text() != caption_fp
         )
@@ -755,14 +854,17 @@ class SizeBucketDataset:
                     example = self.metadata_dataset[idx]
                     image_spec = example["image_spec"]
                     captions = list(example["caption"])
-                    shuffle_with_seed(captions, seed)
+                    # Shuffle the caption indices, not the strings: the slot decides when the
+                    # caption is served, but its text embedding lives at the ORIGINAL index.
+                    original = list(range(len(captions)))
+                    shuffle_with_seed(original, seed)
                     seed += 1
                     latents_idx = image_spec_to_latents_idx[tuple(image_spec)]
                     if not valid_flags[latents_idx]:
                         continue
-                    for i, caption in enumerate(captions):
-                        by_caption_num[i].append(
-                            (image_spec, latents_idx, caption, i)
+                    for slot, orig in enumerate(original):
+                        by_caption_num[slot].append(
+                            (image_spec, latents_idx, captions[orig], orig)
                         )
                 iteration_order_list = []
                 for lst in by_caption_num:
@@ -838,7 +940,7 @@ class SizeBucketDataset:
             # directory path had ever contained a "/" (i.e. always) for a fraction of samples
             # whose fast-path baked caption wasn't used (this method is also called directly),
             # silently falling back to an empty caption.
-            key = image_file.split("/")[-1] if tar_file is None else image_file
+            key = Path(image_file).name if tar_file is None else image_file
             if key in self.captions_dict:
                 caption = self.captions_dict[key][entry["caption_number"]]
             else:
@@ -918,6 +1020,14 @@ class SizeBucketDataset:
         if sub is not None and sub.cap is not None:
             rbb = self._rows_by_base
             served = [ri for bk in sub.selected(self._epoch) for ri in rbb.get(bk, ())]
+            # The dataset length is frozen at post_init, so the served count must not move with
+            # the epoch: pin it to the first count and truncate / cycle to match.
+            target = getattr(self, "_served_len", None)
+            if target is None:
+                self._served_len = target = len(served)
+            if len(served) != target:
+                src = served or list(range(self._pool_len))
+                served = [src[k % len(src)] for k in range(target)] if src else []
         elif self.subsample_shuffle:
             served = list(self._epoch_pool_order())
         else:
@@ -1351,18 +1461,7 @@ class DirectoryDataset:
         )
         # Cache lives under cache_root (training config; default <repo>/cache), NOT
         # co-located in the dataset folder. See rengu_flow/data/cache_paths.py.
-        self.cache_dir = resolve_directory_cache_dir(
-            self.dataset_config,
-            self.path,
-            self.model_name,
-            training_config=self._training_config,
-        )
-        self.grouping_keys_json_file = (
-            self.cache_dir / "metadata/grouping_keys.json"
-        )
-        # Records what the cached metadata was built from, so a resume can validate it cheaply
-        # instead of rebuilding (see cache_metadata).
-        self.source_signature_file = self.cache_dir / "metadata/source.sig"
+        self.set_cache_disambiguator(None)
 
         if not self.path.exists() or not self.path.is_dir():
             raise RuntimeError(f"Invalid path: {self.path}")
@@ -1438,8 +1537,7 @@ class DirectoryDataset:
                 raise FileNotFoundError(
                     f"online_captions requires {CAPTIONS_JSON_FILE} in {self.path}"
                 )
-            with open(captions_json) as f:
-                self.captions_dict = json.load(f)
+            self.captions_dict = load_captions_json(captions_json)
         else:
             self.captions_dict = None
 
@@ -1460,6 +1558,24 @@ class DirectoryDataset:
         self.tag_dropout = build_tag_dropout_config(
             directory_config, dataset_config, tags_file_base=self.path
         )
+
+    def set_cache_disambiguator(self, disambiguator: str | None) -> None:
+        """(Re)locate this directory's cache dir. Called with None at construction; the manager
+        calls it with a settings digest when another directory uses the same path with different
+        settings (they would otherwise overwrite each other's metadata and bucket caches)."""
+        self.cache_dir = resolve_directory_cache_dir(
+            self.dataset_config,
+            self.path,
+            self.model_name,
+            training_config=self._training_config,
+            disambiguator=disambiguator,
+        )
+        self.grouping_keys_json_file = (
+            self.cache_dir / "metadata/grouping_keys.json"
+        )
+        # Records what the cached metadata was built from, so a resume can validate it cheaply
+        # instead of rebuilding (see cache_metadata).
+        self.source_signature_file = self.cache_dir / "metadata/source.sig"
 
     def control_resolution_for(self, bucket_resolution: int) -> int:
         """Control resolution for a bucket: ``control_resolution`` if set, else the bucket's."""
@@ -1515,7 +1631,12 @@ class DirectoryDataset:
 
     def _source_signature(self) -> str:
         """Staleness key for this directory's metadata cache (see ``source_signature``)."""
-        config_parts = [self.directory_config, self.dataset_config]
+        config_parts = [
+            _public_config(self.directory_config),
+            _public_config(self.dataset_config),
+            # Metadata layout: per-row image/mask stamps (see STAMP_COLUMNS).
+            {"stamps": 1},
+        ]
         if self.control_path is not None:
             # Edit metadata layout (control_file as a list + control_stamp/control_dims). Only
             # edit directories carry the tag, so text-to-image signatures are unchanged; an edit
@@ -1556,7 +1677,7 @@ class DirectoryDataset:
         def check_grouped():
             if not self.grouping_keys_json_file.exists():
                 return False, None
-            with open(self.grouping_keys_json_file) as f:
+            with open(self.grouping_keys_json_file, encoding="utf-8") as f:
                 keys = json.load(f)
             if self.use_size_buckets and not all(
                 len(k) == 3 for k in keys
@@ -1676,7 +1797,7 @@ class DirectoryDataset:
             ds = datasets.Dataset.from_dict(data)
             path = self.cache_dir / f"metadata/grouped_metadata_{bucket_suffix(key)}"
             ds.save_to_disk(str(path))
-        with open(self.grouping_keys_json_file, "w") as f:
+        with open(self.grouping_keys_json_file, "w", encoding="utf-8") as f:
             json.dump(unique_keys, f)
         return unique_keys
 
@@ -1718,6 +1839,9 @@ class DirectoryDataset:
             pq_row_captions: list | None = None
             pq_row_dims: list | None = None
 
+            has_captions_json = (self.path / CAPTIONS_JSON_FILE).exists()
+            is_edit_dataset = self.control_path is not None
+
             def process_file(file):
                 nonlocal pq_row_captions, pq_row_dims
                 if file.suffix == ".parquet":
@@ -1733,14 +1857,42 @@ class DirectoryDataset:
                 if file.suffix != ".tar":
                     return [(None, str(file))]
                 with tarfile.open(file) as tar_f:
-                    return [(str(file), n) for n in tar_f.getnames()]
+                    media: list[str] = []
+                    txt_members: dict = {}
+                    for member in tar_f.getmembers():
+                        if not member.isfile():
+                            continue
+                        suffix = PurePosixPath(member.name).suffix
+                        if suffix == ".txt":
+                            txt_members[str(PurePosixPath(member.name).with_suffix(""))] = member
+                        elif suffix in (".npz", ".json", ".bak"):
+                            continue
+                        elif is_edit_dataset and suffix.lower() not in CONTROL_IMAGE_EXTENSIONS:
+                            continue
+                        else:
+                            media.append(member.name)
+                    # The caption .txt lives INSIDE the tar next to its image (looking it up on
+                    # disk resolved the member name against the CWD).
+                    row_captions: list = []
+                    for name in media:
+                        member = txt_members.get(str(PurePosixPath(name).with_suffix("")))
+                        if member is None or has_captions_json:
+                            row_captions.append(None)
+                            continue
+                        text = tar_f.extractfile(member).read().decode("utf-8-sig")
+                        lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+                        row_captions.append(lines or [""])
+                    pq_row_captions = row_captions
+                    pq_row_dims = [(None, None)] * len(media)
+                    return [(str(file), n) for n in media]
 
             captions_json = self.path / CAPTIONS_JSON_FILE
-            has_captions_json = captions_json.exists()
 
             image_specs = []
             caption_files = []
             mask_files = []
+            image_stamps = []
+            mask_stamps = []
             control_files = []
             control_stamps = []
             inline_captions = []   # parquet rows only; None for file/tar entries
@@ -1750,6 +1902,14 @@ class DirectoryDataset:
                     not file.is_file()
                     or file.suffix in (".txt", ".npz", ".json", ".bak")
                 ):
+                    continue
+                if (
+                    is_edit_dataset
+                    and file.suffix.lower() not in CONTROL_IMAGE_EXTENSIONS
+                    and file.suffix not in (".tar", ".parquet")
+                ):
+                    # Thumbs.db, desktop.ini, .toml, .caption... sharing the folder are not
+                    # targets: pairing them failed the whole build with ControlPairingError.
                     continue
                 pq_row_captions = pq_row_dims = None
                 for i, image_spec in enumerate(process_file(file)):
@@ -1761,7 +1921,11 @@ class DirectoryDataset:
                         inline_dims.append((None, None))
                     image_file = Path(image_spec[1])
                     caption_file = image_file.with_suffix(".txt")
-                    if has_captions_json or not caption_file.exists():
+                    if (
+                        has_captions_json
+                        or image_spec[0] is not None  # tar/parquet rows carry captions inline
+                        or not caption_file.exists()
+                    ):
                         caption_file = ""
                     else:
                         caption_file = str(caption_file)
@@ -1778,6 +1942,11 @@ class DirectoryDataset:
                                 image_file,
                             )
                         mask_files.append(None)
+                    # Container file for tar/parquet rows; the file itself otherwise.
+                    image_stamps.append(
+                        _file_stamp(image_spec[0] if image_spec[0] is not None else image_file)
+                    )
+                    mask_stamps.append(_file_stamp(mask_files[-1]))
                     if control_index is not None:
                         # Strict pairing (rengu_flow/data/control.py): a target without a valid
                         # control set fails the build instead of silently training as t2i.
@@ -1796,12 +1965,16 @@ class DirectoryDataset:
                 "image_spec": image_specs,
                 "caption_file": caption_files,
                 "mask_file": mask_files,
+                "image_stamp": image_stamps,
+                "mask_stamp": mask_stamps,
             }
             if self.control_path:
                 d["control_file"] = control_files
                 d["control_stamp"] = control_stamps
             if any(c is not None for c in inline_captions):
-                d["caption"] = [c if c is not None else [""] for c in inline_captions]
+                # None = "no inline caption": the row falls back to its caption_file / directory
+                # caption (a [""] here would have shadowed a loose file's .txt).
+                d["caption"] = inline_captions
                 if any(w is not None for w, _ in inline_dims):
                     d["pq_width"] = [w for w, _ in inline_dims]
                     d["pq_height"] = [h for _, h in inline_dims]
@@ -1809,8 +1982,7 @@ class DirectoryDataset:
 
             if captions_json.exists():
                 caching_progress.note("loading captions.json")
-                with open(captions_json) as f:
-                    caption_data = json.load(f)
+                caption_data = load_captions_json(captions_json)
 
                 def add_captions(example):
                     tar_file, image_file = example["image_spec"]
@@ -1819,17 +1991,13 @@ class DirectoryDataset:
                         # loose/tar files sharing the directory.
                         return {"caption": example["caption"]}
                     if tar_file is None:
-                        image_file = image_file.split("/")[-1]
+                        image_file = Path(image_file).name
                     captions = caption_data.get(image_file)
                     if captions is None:
                         logger.warning(
                             "Image %s not in captions.json",
                             image_file,
                         )
-                    else:
-                        assert isinstance(
-                            captions, list
-                        ), "captions.json must contain lists of captions"
                     return {"caption": captions if captions is not None else [""]}
 
                 metadata_dataset = metadata_dataset.map(
@@ -1847,7 +2015,9 @@ class DirectoryDataset:
             # must keep enumeration order or every downstream cache read decodes a
             # whole row group per row (random-access thrash). Training-time mixing is
             # handled per epoch by RandomCursor, not by this materialization order.
-            has_parquet_rows = any(c is not None for c in inline_captions)
+            has_parquet_rows = any(
+                str(spec[0]).endswith(".parquet") for spec in image_specs if spec[0] is not None
+            )
             if self.shuffle_metadata and not has_parquet_rows:
                 metadata_dataset = metadata_dataset.shuffle(seed=seed)
             elif self.shuffle_metadata and has_parquet_rows:
@@ -1914,6 +2084,7 @@ class DirectoryDataset:
                 "ar_bucket": [],
                 "size_bucket": [],
                 "is_video": [],
+                **{c: [] for c in STAMP_COLUMNS},
             }
             if self.control_path:
                 for c in _CONTROL_METADATA_COLUMNS:
@@ -1997,6 +2168,7 @@ class DirectoryDataset:
             "ar_bucket": [],
             "size_bucket": [],
             "is_video": [],
+            **{c: [] for c in STAMP_COLUMNS},
         }
         control_dims = None
         if self.control_path:
@@ -2050,6 +2222,7 @@ class DirectoryDataset:
             "ar_bucket": [],
             "size_bucket": [],
             "is_video": [],
+            **{c: [] for c in STAMP_COLUMNS},
         }
         if self.control_path:
             for c in _CONTROL_METADATA_COLUMNS:
@@ -2057,6 +2230,9 @@ class DirectoryDataset:
         for vk in variant_keys:
             ret["image_spec"].append(with_variant_key(image_spec, vk))
             ret["mask_file"].append(example["mask_file"][0])
+            for c in STAMP_COLUMNS:
+                # .get: an older intermediate metadata (--trust_cache) predates the stamps.
+                ret[c].append(example.get(c, [""])[0])
             ret["caption"].append(captions)
             ret["ar_bucket"].append(ar_bucket)
             ret["size_bucket"].append(size_bucket)
@@ -2140,11 +2316,17 @@ class DirectoryDataset:
                 directory_max_images(self.directory_config),
                 directory_subsample_ratio(self.directory_config),
             )
+            # Stratum = the set of size buckets an image lives in (see FolderSubsampler).
+            membership: dict = {}
+            for k, sb in enumerate(self.get_size_bucket_datasets()):
+                for bk in sb._base_keys:
+                    membership.setdefault(bk, []).append(k)
             self._folder_subsampler = FolderSubsampler(
                 bases,
                 cap,
                 static=not directory_subsample_shuffle(self.directory_config),
                 seed=seed_from_hash(("folder_subsample", str(self.path))),
+                groups={bk: tuple(v) for bk, v in membership.items()},
             )
         return self._folder_subsampler
 
@@ -2343,18 +2525,12 @@ class Dataset:
         # (K = 1 bakes a single fixed variant for the whole dataset — diffusion-pipe's default;
         # K >= 2 bakes rotating variants), and with the cache off it is applied live per sample.
         # Either way the dropout reaches the model, so there is nothing to reject here.
-        # Rotation is active when at least one directory limits images (max_images or
-        # subsample_ratio < 1) and is not static; the loader uses this to keep workers in sync
+        # Rotation is active when at least one directory's served order changes per epoch
+        # (a capped window, or the per-epoch reshuffle that subsample_shuffle = true, the
+        # default, applies even uncapped); the loader uses this to keep workers in sync
         # with the current epoch (see loader.py).
         self.rotation_active = any(
-            effective_sample_cap(
-                1,
-                directory_max_images(d.directory_config),
-                directory_subsample_ratio(d.directory_config),
-            )
-            is not None
-            and directory_subsample_shuffle(d.directory_config)
-            for d in self.directory_datasets
+            order_depends_on_epoch(d.directory_config) for d in self.directory_datasets
         )
 
         # Staged multi-resolution schedule (optional). When active, the set of
@@ -2499,10 +2675,27 @@ class Dataset:
 
         def resolve(spec):
             path = str(spec[1])
-            for root, aug_resolved, aug_fp in roots:
-                if path_is_under(path, root):
-                    return aug_resolved, aug_fp
-            return None
+            # Nested roots both match: the most specific (longest) one owns the image.
+            matches = [r for r in roots if path_is_under(path, r[0])]
+            if not matches:
+                return None
+            _root, aug_resolved, aug_fp = max(matches, key=lambda r: len(r[0]))
+            return aug_resolved, aug_fp
+
+        return resolve
+
+    def get_directory_config_resolver(self):
+        """Return callable(path) -> the ``[[directory]]`` config owning *path* (most specific
+        root wins), or None when no directory contains it. Used for per-directory reader
+        settings (parquet columns) in the media preprocessor, which has no directory context."""
+        roots = [
+            (str(Path(d.directory_config["path"]).resolve()), d.directory_config)
+            for d in self.directory_datasets
+        ]
+
+        def resolve(path):
+            matches = [r for r in roots if path_is_under(path, r[0])]
+            return max(matches, key=lambda r: len(r[0]))[1] if matches else None
 
         return resolve
 

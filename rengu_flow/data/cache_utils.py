@@ -227,6 +227,10 @@ def _open_donors(salvage_dir: Path, donor_dirs, reuse_key: str) -> list:
     return donors
 
 
+# Identity columns older caches did not record; a donor row lacking them still matches on the rest.
+_LEGACY_TOLERANT_COLUMNS = frozenset({"image_stamp", "mask_stamp"})
+
+
 def _match_donor_rows(dataset, pending: list[int], identity_columns, donors) -> dict[int, tuple]:
     """Match pending rows to donor rows by identity → ``{row: (donor, donor_idx)}``.
 
@@ -254,6 +258,27 @@ def _match_donor_rows(dataset, pending: list[int], identity_columns, donors) -> 
             slot = available.get(identities[row])
             if slot:
                 matched[row] = (donor, slot.pop(0))
+    # Legacy donors: rows cached before the file-stamp identity columns existed carry no stamp,
+    # so they can only be matched on the remaining columns. Trusted once (their latents predate
+    # the stamps; refusing them would re-encode every existing cache), and only rows that truly
+    # lack the stamp keys -- a stamped row with another value is a changed file and must not match.
+    stamp_cols = tuple(c for c in columns if c in _LEGACY_TOLERANT_COLUMNS)
+    rest = tuple(c for c in columns if c not in stamp_cols)
+    if stamp_cols and rest:
+        rest_identities = {
+            row: freeze_identity(values)
+            for row, values in zip(pending, zip(*(subset[c] for c in rest)))
+        }
+        for donor in donors:
+            available = donor.identity_index(rest, absent=stamp_cols)
+            if not available:
+                continue
+            for row in pending:
+                if row in matched:
+                    continue
+                slot = available.get(rest_identities[row])
+                if slot:
+                    matched[row] = (donor, slot.pop(0))
     return matched
 
 

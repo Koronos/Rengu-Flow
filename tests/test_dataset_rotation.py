@@ -160,3 +160,78 @@ def test_effective_sample_cap_from_ratio():
 def test_effective_sample_cap_none_when_unlimited():
     assert effective_sample_cap(100, None, 1.0) is None
     assert effective_sample_cap(100, None, 1.5) is None
+
+
+# --- stratified quota: per-bucket length constant across epochs ------------------------------
+
+
+def test_stratified_quotas_sum_to_cap_and_keep_every_stratum():
+    from rengu_flow.data.dataset import _stratified_quotas
+
+    assert sum(_stratified_quotas([60, 30, 10], 20)) == 20
+    assert all(q >= 1 for q in _stratified_quotas([60, 30, 10], 20))
+    assert _stratified_quotas([60, 30, 10], 100) == [60, 30, 10]
+    assert sum(_stratified_quotas([5, 5, 5], 2)) == 2
+
+
+def test_multi_bucket_cap_serves_constant_length_without_duplicates():
+    """max_images over several AR buckets: each bucket's served length is frozen at post_init, so
+    it must not move with the epoch (it did -> duplicates, skipped images, empty bucket on row 0)."""
+    import collections
+
+    buckets = {
+        "sq": [f"a{i}" for i in range(60)],
+        "port": [f"b{i}" for i in range(30)],
+        "land": [f"c{i}" for i in range(10)],
+    }
+    groups = {(None, k): name for name, v in buckets.items() for k in v}
+    sub = FolderSubsampler(list(groups), cap=20, static=False, seed=123, groups=groups)
+
+    class DD:
+        def folder_subsampler(self):
+            return sub
+
+    sbs = {}
+    for name, keys in buckets.items():
+        sb = object.__new__(SizeBucketDataset)
+        sb.iteration_order = {"image_spec": [(None, k) for k in keys]}
+        sb.directory_dataset = DD()
+        sb._epoch = 1
+        sb._served_cache = None
+        sb._served_for = None
+        sb._rows_by_base_cache = None
+        sb._base_keys_cache = None
+        sb.subsample_shuffle = True
+        sb.num_repeats = 1
+        sbs[name] = sb
+    slots = {n: len(sb) for n, sb in sbs.items()}
+    assert sum(slots.values()) == 20
+    for epoch in range(1, 8):
+        seen = collections.Counter()
+        for n, sb in sbs.items():
+            sb.set_epoch(epoch)
+            assert len(sb) == slots[n], (epoch, n)
+            for j in range(slots[n]):
+                seen[sb.iteration_order["image_spec"][sb._pool_index(j)][1]] += 1
+        assert max(seen.values()) == 1, epoch  # no duplicate within an epoch
+        assert set(seen) == {k for _, k in sub.selected(epoch)}  # nothing selected is skipped
+
+
+def test_stratified_rotation_covers_every_image():
+    keys = [(None, f"x{i}") for i in range(12)]
+    groups = {k: ("a" if i < 8 else "b") for i, k in enumerate(keys)}
+    sub = FolderSubsampler(keys, cap=6, static=False, seed=1, groups=groups)
+    seen = set()
+    for epoch in range(1, 5):
+        seen.update(sub.selected(epoch))
+    assert seen == set(keys)
+
+
+def test_order_depends_on_epoch_even_without_a_cap():
+    """Persistent workers need re-forking whenever the order moves with the epoch -- the default
+    subsample_shuffle reshuffles the whole pool per epoch even with no max_images."""
+    from rengu_flow.data.dataset import order_depends_on_epoch
+
+    assert order_depends_on_epoch({"path": "x"})
+    assert order_depends_on_epoch({"path": "x", "max_images": 10})
+    assert not order_depends_on_epoch({"path": "x", "subsample_shuffle": False})
