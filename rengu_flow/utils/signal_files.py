@@ -111,6 +111,21 @@ def _sync_ranks_after_rank0() -> None:
         dist.barrier()
 
 
+def _unlink_signal(path: Path) -> None:
+    """Best-effort delete of a consumed signal file.
+
+    The signal was already acted on, so a failed delete must not crash the training step: on
+    Windows a UI/editor holding the file raises PermissionError (an OSError). A signal that
+    could not be removed is cleaned by ``clear_stale_signals`` on the next launch.
+    """
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
+    except OSError as exc:
+        print(f"rengu_flow: could not remove signal file {path.name}: {exc}", flush=True)
+
+
 def process_signals(run_dir: str | Path) -> SignalResult:
     """Check for signal files in run_dir, consume them, and return requested actions.
 
@@ -188,10 +203,7 @@ def process_signals(run_dir: str | Path) -> SignalResult:
 
     if is_main_process():
         for path in present:
-            try:
-                path.unlink()
-            except FileNotFoundError:
-                pass
+            _unlink_signal(path)
 
     _sync_ranks_after_rank0()
 
@@ -235,7 +247,7 @@ def _consume_export_recovery_signal(run_dir: Path, action: ExportRecoveryAction)
     for name in mapping.get(action, ()):
         path = run_dir / name
         if path.is_file():
-            path.unlink()
+            _unlink_signal(path)
 
 
 def wait_for_export_recovery(run_dir: str | Path) -> ExportRecoveryAction:

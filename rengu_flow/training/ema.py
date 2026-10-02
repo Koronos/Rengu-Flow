@@ -65,6 +65,16 @@ class TrainingEMA:
                 continue
             self.shadow[key].mul_(d).add_(p.detach().float().cpu(), alpha=1.0 - d)
 
+    def reseed(self, parameters: list[nn.Parameter]) -> None:
+        """Reset the shadow to the live weights (used after a checkpoint load without ema.pt).
+
+        The shadow is built before the checkpoint's weights are loaded, so without this it would
+        keep the pre-load (base/init) weights and drag the average toward them.
+        """
+        for p in parameters:
+            if p.requires_grad:
+                self.shadow[id(p)] = p.detach().float().cpu().clone()
+
     def copy_to(self, parameters: list[nn.Parameter]) -> None:
         """Write the EMA shadow into the live parameters (in place)."""
         for p in parameters:
@@ -108,8 +118,12 @@ class TrainingEMA:
             self.shadow[id(p)].copy_(saved.float().cpu())
 
 
-def save_ema_checkpoint(save_root, ema: TrainingEMA | None, parameters: list[nn.Parameter]) -> None:
-    """Write ``ema.pt`` next to the DeepSpeed/accelerate checkpoint just saved (rank-0 only)."""
+def save_ema_checkpoint(
+    save_root, ema: TrainingEMA | None, parameters: list[nn.Parameter], tag: str | None = None
+) -> None:
+    """Write ``ema.pt`` next to the DeepSpeed/accelerate checkpoint just saved (rank-0 only).
+
+    ``tag`` is the checkpoint dir name; default is the one ``latest`` points to."""
     if ema is None:
         return
     from rengu_flow.utils.common import is_main_process
@@ -117,10 +131,13 @@ def save_ema_checkpoint(save_root, ema: TrainingEMA | None, parameters: list[nn.
     if not is_main_process():
         return
     root = Path(save_root)
-    latest = root / "latest"
-    if not latest.is_file():
+    if tag is None:
+        latest = root / "latest"
+        if not latest.is_file():
+            return
+        tag = latest.read_text().strip()
+    if not (root / tag).is_dir():
         return
-    tag = latest.read_text().strip()
     torch.save(ema.state_dict(parameters), root / tag / "ema.pt")
 
 
@@ -135,7 +152,11 @@ def load_ema_checkpoint(load_path, ema: TrainingEMA | None, parameters: list[nn.
     p = Path(load_path)
     ema_path = (p if p.is_dir() else p.parent) / "ema.pt"
     if not ema_path.is_file():
-        print("rengu_flow: no ema.pt in checkpoint — EMA shadow starts from current weights", flush=True)
+        ema.reseed(parameters)
+        print(
+            "rengu_flow: no ema.pt in checkpoint — EMA shadow re-seeded from the resumed weights",
+            flush=True,
+        )
         return
     ema.load_state_dict(torch.load(ema_path, map_location="cpu", weights_only=False), parameters)
     print(f"rengu_flow: restored EMA shadow from {ema_path}", flush=True)

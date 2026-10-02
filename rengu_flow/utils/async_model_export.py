@@ -109,9 +109,12 @@ class AsyncModelExportWriter:
         self._worker.start()
 
     def _reraise_if_failed(self, message: str) -> None:
+        # Report-once: the failure is consumed when raised, so a caller that recovers (e.g. the
+        # saver's disk-full wait, then a retry) is not tripped again by the same stale error.
         with self._error_lock:
-            if self._error is not None:
-                raise RuntimeError(message) from self._error
+            err, self._error = self._error, None
+        if err is not None:
+            raise RuntimeError(message) from err
 
     def submit(self, job: ModelExportJob) -> None:
         self.wait_done()
@@ -126,14 +129,19 @@ class AsyncModelExportWriter:
             )
         self._reraise_if_failed("Async model export failed")
 
-    def shutdown(self) -> None:
-        self.wait_done()
+    def shutdown(self, timeout: float | None = None) -> None:
+        """Stop the worker after it finishes any queued/in-flight export (never drops one).
+
+        The stop sentinel is queued first, unconditionally: the queue is FIFO, so the worker
+        drains pending jobs and then exits. Even if the join times out, the worker is already
+        guaranteed to terminate once its current write ends, so the (non-daemon) thread can no
+        longer keep the process alive forever. ``timeout`` bounds how long *this call* waits.
+        """
+        wait = _ASYNC_EXPORT_TIMEOUT_SEC if timeout is None else timeout
         self._work.put(None)
-        self._worker.join(timeout=_ASYNC_EXPORT_TIMEOUT_SEC)
+        self._worker.join(timeout=wait)
         if self._worker.is_alive():
-            raise TimeoutError(
-                f"Async model export worker did not finish within {_ASYNC_EXPORT_TIMEOUT_SEC}s"
-            )
+            raise TimeoutError(f"Async model export worker did not finish within {wait}s")
         self._reraise_if_failed("Async model export failed")
 
     def _run(self) -> None:

@@ -118,3 +118,20 @@ def test_process_signals_save_quit_takes_priority_over_save(tmp_path):
     assert result.should_quit is True
     assert not (tmp_path / SIGNAL_SAVE).exists()
     assert not (tmp_path / SIGNAL_SAVE_QUIT).exists()
+
+
+def test_process_signals_tolerates_unlink_permission_error(tmp_path, monkeypatch):
+    """Windows can raise PermissionError deleting a consumed signal; the step must not crash."""
+    from pathlib import Path
+
+    (tmp_path / SIGNAL_SAVE).touch()
+    real_unlink = Path.unlink
+
+    def _locked(self, *a, **k):
+        if self.name == SIGNAL_SAVE:
+            raise PermissionError("locked by another process")
+        return real_unlink(self, *a, **k)
+
+    monkeypatch.setattr(Path, "unlink", _locked)
+    result = process_signals(tmp_path)
+    assert result.should_checkpoint is True

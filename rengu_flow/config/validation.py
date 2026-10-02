@@ -79,6 +79,7 @@ _OPTIONAL_TOP_LEVEL_KEYS = frozenset({
     "ema_decay",
     "ema_update_interval",
     "engine",
+    "force_constant_lr",
     "gradient_clipping",
     "huber_delta",
     "image_micro_batch_size_per_gpu",
@@ -127,6 +128,119 @@ def collect_misplaced_top_level_keys(config: dict[str, Any]) -> list[str]:
                     f"{section}.{key}: '{key}' belongs at top level (before the first "
                     f"[section] header), not inside [{section}] — as written it is ignored."
                 )
+    return issues
+
+
+# Top-level keys that must be integers >= 1 when set. A cadence of 0 would divide by zero
+# (``step % 0``) or, for the optional ones, silently disable the feature; a budget < 1 trains
+# nothing.
+_POSITIVE_INT_KEYS = (
+    "epochs",
+    "max_steps",
+    "gradient_accumulation_steps",
+    "eval_gradient_accumulation_steps",
+    "save_every_n_steps",
+    "save_every_n_epochs",
+    "eval_every_n_steps",
+    "eval_every_n_epochs",
+    "checkpoint_every_n_epochs",
+    "logging_steps",
+)
+
+
+def _nominal_examples_per_step(config: dict[str, Any]) -> int | None:
+    """Lower bound of examples consumed per optimizer step (micro batch x grad accumulation),
+    ignoring the world size (unknown at validate time). ``None`` if it cannot be derived."""
+    micro = config.get("micro_batch_size_per_gpu", 1)
+    if isinstance(micro, dict):
+        values = [v for v in micro.values() if isinstance(v, int) and not isinstance(v, bool)]
+        micro = min(values) if values else None
+    gas = config.get("gradient_accumulation_steps", 1)
+    if not all(isinstance(v, int) and not isinstance(v, bool) and v >= 1 for v in (micro, gas)):
+        return None
+    return micro * gas
+
+
+def collect_cadence_issues(config: dict[str, Any]) -> list[str]:
+    """Budget / save / eval cadence keys that would crash (ZeroDivisionError) or silently
+    disable the feature."""
+    issues: list[str] = []
+    for key in _POSITIVE_INT_KEYS:
+        value = config.get(key)
+        if value is None:
+            continue
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            issues.append(f"{key} must be an integer >= 1 (got {value!r}).")
+    minutes = config.get("checkpoint_every_n_minutes")
+    if minutes is not None and (
+        isinstance(minutes, bool) or not isinstance(minutes, (int, float)) or minutes <= 0
+    ):
+        issues.append(f"checkpoint_every_n_minutes must be a number > 0 (got {minutes!r}).")
+    per_step = _nominal_examples_per_step(config)
+    for key in ("save_every_n_examples", "eval_every_n_examples"):
+        value = config.get(key)
+        if value is None:
+            continue
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            issues.append(f"{key} must be an integer >= 1 (got {value!r}).")
+        elif per_step is not None and value < per_step:
+            steps_key = key.replace("examples", "steps")
+            issues.append(
+                f"{key} = {value} is smaller than the examples consumed per optimizer step "
+                f"({per_step} = micro_batch_size_per_gpu x gradient_accumulation_steps, before "
+                f"multiplying by the number of GPUs); it converts to 0 steps. Raise it or use "
+                f"{steps_key}."
+            )
+    return issues
+
+
+def collect_default_prerequisite_issues(config: dict[str, Any]) -> list[str]:
+    """Problems that would make ``set_config_defaults`` die with a raw KeyError/TypeError.
+
+    ``set_config_defaults`` runs before ``validate_config`` and indexes ``model.dtype``,
+    ``adapter.type``/``rank`` directly; unknown dtype names (``"bf16"``) hit ``DTYPE_MAP``.
+    Check those first so the user gets an actionable message instead of a traceback.
+    """
+    from rengu_flow.config.defaults import DTYPE_MAP
+
+    issues: list[str] = []
+    if not isinstance(config, dict):
+        return ["Config must be a TOML table at the top level."]
+    valid = ", ".join(f"`{k}`" for k in DTYPE_MAP)
+
+    def _check_dtype(where: str, value: Any) -> None:
+        if not isinstance(value, str) or value not in DTYPE_MAP:
+            issues.append(f"{where} = {value!r} is not a valid dtype. Use one of: {valid}.")
+
+    model = config.get("model")
+    if "model" not in config:
+        issues.append("Missing `[model]`. " + _SECTION_HINTS["model"])
+    elif not isinstance(model, dict):
+        issues.append("[model] must be a table (use `[model]` in TOML).")
+    else:
+        if model.get("dtype") in (None, ""):
+            issues.append("model.dtype is required — e.g. `bfloat16` or `float16`.")
+        else:
+            _check_dtype("model.dtype", model["dtype"])
+        for key in ("transformer_dtype", "diffusion_model_dtype"):
+            if model.get(key):
+                _check_dtype(f"model.{key}", model[key])
+    if config.get("save_dtype") is not None:
+        _check_dtype("save_dtype", config["save_dtype"])
+    adapter = config.get("adapter")
+    if adapter is not None:
+        if not isinstance(adapter, dict):
+            issues.append("[adapter] must be a table when present.")
+        else:
+            if not adapter.get("type"):
+                issues.append(
+                    "adapter.type is required when using an adapter — `lora`, `lokr`, "
+                    "or a `lycoris_*` type."
+                )
+            if "rank" not in adapter and "dim" not in adapter:
+                issues.append("adapter.rank (or adapter.dim) is required for adapter training.")
+            if adapter.get("dtype") is not None:
+                _check_dtype("adapter.dtype", adapter["dtype"])
     return issues
 
 
@@ -217,6 +331,7 @@ def collect_validation_errors(
                 )
 
     issues.extend(collect_misplaced_top_level_keys(config))
+    issues.extend(collect_cadence_issues(config))
 
     optimizer = config.get("optimizer")
     if "optimizer" in config and not isinstance(optimizer, dict):

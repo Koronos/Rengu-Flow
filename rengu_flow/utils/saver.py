@@ -1,6 +1,7 @@
 """Checkpoint and adapter save logic. Aligned with diffusion-pipe utils/saver."""
 
 import contextlib
+import errno
 import shutil
 import sys
 import time
@@ -9,6 +10,7 @@ from pathlib import Path
 import torch
 
 from rengu_flow import distributed as dist
+from rengu_flow.distributed import any_rank as _any_rank
 from rengu_flow.utils.async_model_export import (
     AsyncModelExportWriter,
     ModelExportJob,
@@ -20,6 +22,7 @@ from rengu_flow.utils.common import is_main_process
 from rengu_flow.utils.logging import logger
 from rengu_flow.utils.rng_state import capture_rng_state
 from rengu_flow.utils.save_io import (
+    _read_latest_pointer_name,
     cleanup_export_dir,
     global_step_sort_key,
     is_disk_full_error,
@@ -75,16 +78,42 @@ def _need_to_checkpoint(config, epoch=None):
 
 
 def _prune_old_checkpoints(save_root: Path, max_keep: int | None) -> None:
-    """Remove oldest DeepSpeed ``global_step*`` dirs when over the retention limit."""
+    """Retention for DeepSpeed ``global_step*`` dirs, safe against resuming from an old tag.
+
+    Ordering is by the step in the dir name, which is only a proxy for "age": after resuming
+    from an old tag (``--run_dir X --resume_from_checkpoint global_step40``) the dirs with a
+    higher step belong to an abandoned branch while the checkpoint just written is *lower*.
+    Pruning purely by step number would then delete the checkpoint ``latest`` points to. So:
+
+    * the tag ``latest`` points to (the one just written) is never deleted;
+    * dirs with a step above it (abandoned branch) are never deleted automatically — only
+      reported, the user decides — and do not count against ``max_keep``;
+    * the rest (steps <= the current one) are pruned oldest-first down to ``max_keep``.
+    """
     if max_keep is None or max_keep <= 0:
         return
     ckpt_dirs = sorted(
         (p for p in save_root.iterdir() if p.is_dir() and p.name.startswith("global_step")),
         key=lambda p: global_step_sort_key(p.name),
     )
+    current = _read_latest_pointer_name(save_root / "latest")
+    protected = {current} if current else set()
+    if current:
+        current_step = global_step_sort_key(current)
+        ahead = [p for p in ckpt_dirs if global_step_sort_key(p.name) > current_step]
+        if ahead and is_main_process():
+            print(
+                f"WARNING: {len(ahead)} checkpoint dir(s) are ahead of the current one "
+                f"({current}): {', '.join(p.name for p in ahead)}. They look like an abandoned "
+                "branch (resumed from an older checkpoint); they are NOT pruned automatically."
+            )
+        ckpt_dirs = [p for p in ckpt_dirs if global_step_sort_key(p.name) <= current_step]
     while len(ckpt_dirs) > max_keep:
-        oldest = ckpt_dirs.pop(0)
-        _remove_tree(oldest, reason=f"Removing old checkpoint directory {oldest.name}")
+        victim = next((p for p in ckpt_dirs if p.name not in protected), None)
+        if victim is None:
+            break
+        ckpt_dirs.remove(victim)
+        _remove_tree(victim, reason=f"Removing old checkpoint directory {victim.name}")
 
 
 def _remove_tree(path: Path, *, reason: str) -> None:
@@ -193,18 +222,60 @@ class Saver:
             self.model.save_model(save_dir, state_dict)
 
     def _wait_async_export(self) -> None:
-        if self._async_writer is None:
-            return
-        if is_main_process():
-            self._async_writer.wait_done()
-        dist.barrier()
+        """Wait for the in-flight background export; surface its failure on EVERY rank.
 
-    def shutdown_async_exports(self) -> None:
+        A failed background write (typically ENOSPC) used to resurface here, outside the
+        disk-full handling, and crash the run. Callers now call this inside their disk-full
+        ``try``; the failure is agreed across ranks (rank 0 is the only writer) so all of them
+        enter the same recovery path instead of mismatching collectives.
+        """
+        if self._async_writer is None:
+            return
+        err: BaseException | None = None
+        if is_main_process():
+            try:
+                self._async_writer.wait_done()
+            except Exception as exc:  # noqa: BLE001 - re-raised below after rank agreement
+                err = exc
+        failed = _any_rank(err is not None)
+        if not failed:
+            return
+        disk_full = _any_rank(err is not None and is_disk_full_error(err))
+        if err is not None:
+            raise err
+        if disk_full:
+            raise OSError(errno.ENOSPC, "async model export hit a full disk (reported by rank 0)")
+        raise RuntimeError("async model export failed on rank 0")
+
+    def _wait_async_export_or_disk_full(self, what: str) -> bool:
+        """``_wait_async_export`` for callers that treat a full disk as "skip this save".
+
+        Returns False (after reporting) when the in-flight background export died of ENOSPC —
+        the disk has no room for ``what`` either; any other failure still raises.
+        """
+        try:
+            self._wait_async_export()
+        except (OSError, RuntimeError) as exc:
+            if not is_disk_full_error(exc):
+                raise
+            if is_main_process():
+                print(f"Disk full (background export failed); skipping the {what}: {exc}")
+            dist.barrier()
+            return False
+        return True
+
+    def shutdown_async_exports(self, *, timeout: float | None = None, sync_ranks: bool = True) -> None:
+        """Stop the background export worker after it finishes any in-flight export.
+
+        ``sync_ranks=False`` / ``timeout`` are for the error path, where other ranks may not be
+        at a matching barrier and a stuck write must not block exit forever.
+        """
         if self._async_writer is None:
             return
         if is_main_process():
-            self._async_writer.shutdown()
-        dist.barrier()
+            self._async_writer.shutdown(timeout=timeout)
+        if sync_ranks:
+            dist.barrier()
 
     def set_status_context(self, step: int, examples: int, epoch: int, loss: float) -> None:
         """Remember latest training metrics for the phase-change marker on disk waits."""
@@ -367,14 +438,16 @@ class Saver:
 
         Returns True if an export was written successfully.
         """
-        self._wait_async_export()
         if is_main_process():
             print(f"Saving model to directory {name}")
         save_dir = self.save_root / name
         while True:
             try:
+                # Inside the try: a background write that died of ENOSPC surfaces here and must
+                # go through the same disk-full wait as a synchronous failure.
+                self._wait_async_export()
                 self._save_model_once(name)
-            except OSError as exc:
+            except (OSError, RuntimeError) as exc:
                 if not is_disk_full_error(exc):
                     raise
                 if is_main_process():
@@ -396,10 +469,14 @@ class Saver:
                 if action == ExportRecoveryAction.CHECKPOINT_AND_QUIT:
                     if is_main_process():
                         print("Checkpoint then quit (save_quit during export wait)")
-                    self.save_checkpoint(
+                    saved = self.save_checkpoint(
                         self._last_status_step or 1,
                         self._last_status_examples or 0,
                     )
+                    if saved is False:
+                        if is_main_process():
+                            print("ERROR: save_quit checkpoint failed; exiting without a checkpoint")
+                        sys.exit(1)
                     sys.exit(0)
                 if action == ExportRecoveryAction.EXPORT_AND_QUIT:
                     if is_main_process():
@@ -426,13 +503,17 @@ class Saver:
         """Trainable parameters in a stable order (same identity/order as EMA's shadow)."""
         return [p for p in self.pipeline_model.parameters() if p.requires_grad]
 
-    def _save_ema_shadow(self) -> None:
-        """Persist the EMA shadow next to the checkpoint just written. No-op if EMA off."""
+    def _save_ema_shadow(self, tag: str | None = None) -> None:
+        """Persist the EMA shadow next to the checkpoint just written. No-op if EMA off.
+
+        ``tag`` names the checkpoint dir explicitly (the fork is saved with ``save_latest=False``,
+        so ``latest`` does not point at it); default is whatever ``latest`` points to.
+        """
         if self.training_ema is None:
             return
         from rengu_flow.training.ema import save_ema_checkpoint
 
-        save_ema_checkpoint(self.save_root, self.training_ema, self._trainable_params())
+        save_ema_checkpoint(self.save_root, self.training_ema, self._trainable_params(), tag=tag)
 
     def _averaged_weights(self):
         """Swap EMA weights into the model for the duration of an export (no-op if EMA off)."""
@@ -466,7 +547,8 @@ class Saver:
 
     def save_checkpoint(self, step, examples) -> bool:
         """Write DeepSpeed resume checkpoint; return False if disk full (training continues)."""
-        self._wait_async_export()
+        if not self._wait_async_export_or_disk_full("checkpoint"):
+            return False
         with self._persist_at_true_iterate():
             before = snapshot_global_step_dirs(self.save_root) if is_main_process() else set()
             dist.barrier()
@@ -512,7 +594,8 @@ class Saver:
         Overwrites any earlier fork so it always marks the current decay onset. Returns False on
         a full disk (training continues; the fork is best-effort).
         """
-        self._wait_async_export()
+        if not self._wait_async_export_or_disk_full("WSD fork checkpoint"):
+            return False
         with self._persist_at_true_iterate():
             dist.barrier()
             try:
@@ -540,6 +623,9 @@ class Saver:
                 dist.barrier()
                 return False
             dist.barrier()
+            # The fork is a resume point too: without ema.pt, resuming from it would restart the
+            # EMA shadow from the live weights and silently lose the averaged history.
+            self._save_ema_shadow(tag=FORK_CHECKPOINT_TAG)
             return True
 
     def process_epoch_boundary(self, completed_epoch: int, step: int, examples: int):
@@ -579,6 +665,18 @@ class Saver:
                 checkpointed = True
 
         if signals.should_quit or signals.should_export_quit:
+            if signals.should_quit and not checkpointed:
+                # save_quit promised a resume checkpoint; save_checkpoint returned False (disk
+                # full). Exiting 0 would tell the UI/operator the run was safely stopped when
+                # nothing was saved — exit non-zero with an explicit reason instead.
+                if is_main_process():
+                    print(
+                        "ERROR: save_quit requested but the resume checkpoint could NOT be "
+                        f"written at step {step} (disk full). Exiting WITHOUT a new checkpoint; "
+                        "the last earlier checkpoint (if any) is the resume point.",
+                        flush=True,
+                    )
+                sys.exit(1)
             if is_main_process():
                 reason = "save_quit" if signals.should_checkpoint else "export_model_quit"
                 print(f"Manually quitting ({reason})")
