@@ -163,6 +163,31 @@
               :disabled="readOnly"
             />
 
+            <!--
+              The caption layout is the handle's, not the step's (`workflow_nodes._prep_payload`
+              drops any per-node copy), so it is shown here read-only with a way to the step that
+              actually sets it — otherwise a user looking for "txt or json" on the captioning step
+              finds nothing at all.
+            -->
+            <div v-if="showsCaptionLayout" class="node-drawer__layout">
+              <el-text size="small">
+                Captions: <strong>{{ upcomingLayoutLabel }}</strong>
+                <template v-if="captionLayoutOrigin">
+                  · set on {{ ordinalGlyph(ordinals(graph)[captionLayoutOrigin.id] ?? 0) }}
+                  {{ captionLayoutOrigin.title }}
+                </template>
+              </el-text>
+              <el-button
+                v-if="captionLayoutOrigin && captionLayoutOrigin.type === 'folder'"
+                size="small"
+                link
+                type="primary"
+                @click="emit('open-node', captionLayoutOrigin.id)"
+              >
+                Change format
+              </el-button>
+            </div>
+
             <TagStageForm
               v-if="prepStage === 'tag'"
               :key="`tag-${node.id}`"
@@ -437,7 +462,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import type { PropType } from "vue";
 import { CaretRight, Close, MoreFilled } from "@element-plus/icons-vue";
 import { ElMessage, ElMessageBox } from "element-plus";
@@ -525,6 +550,8 @@ const emit = defineEmits<{
   (e: "update:node", node: WorkflowNode): void;
   (e: "run-node", nodeId: string): void;
   (e: "run-from", nodeId: string): void;
+  /** Open another step's drawer — the source folder, to change the caption layout there. */
+  (e: "open-node", nodeId: string): void;
 }>();
 
 const { isMobile } = useBreakpoint();
@@ -712,6 +739,58 @@ const controlPathSource = computed(() => {
   return `${ordinalGlyph(ordinals(props.graph)[origin.id] ?? 0)} ${origin.title}`;
 });
 
+/** Stages that read or write captions; cleanup, quality and the index see images only. */
+const showsCaptionLayout = computed(
+  () => prepStage.value === "tag" || prepStage.value === "caption" || prepStage.value === "edit_caption",
+);
+
+/**
+ * The handles as the *next* run would see them: a stale step's recorded output is what it emitted
+ * last time, not what it will emit now. The caption-layout row uses these, so changing the source
+ * folder's format shows up on the caption step right away instead of after the next run.
+ */
+const upcomingHandles = computed(() => {
+  const out: Record<string, DatasetHandle | null> = {};
+  for (const node of props.graph.nodes) {
+    const saved = props.state.nodes?.[node.id]?.output;
+    if (saved && !props.stale[node.id]) {
+      out[node.id] = saved;
+      continue;
+    }
+    out[node.id] = predictOutput(node, node.from ? (out[node.from] ?? null) : null);
+  }
+  return out;
+});
+
+const upcomingInput = computed<DatasetHandle | null>(() =>
+  props.node?.from ? (upcomingHandles.value[props.node.from] ?? null) : null,
+);
+
+const upcomingLayoutLabel = computed(() => {
+  const handle = upcomingInput.value;
+  if (!handle) return "—";
+  return handle.caption_format === "json"
+    ? "captions.json (single index file)"
+    : `sidecar files (${handle.caption_ext || ".txt"})`;
+});
+
+/**
+ * The step that sets the incoming caption layout: the nearest ancestor whose own input does not
+ * already carry the same format and extension (a source folder, or a tool that returned one).
+ */
+const captionLayoutOrigin = computed<WorkflowNode | null>(() => {
+  const handle = upcomingInput.value;
+  if (!handle) return null;
+  const sameLayout = (other: DatasetHandle | null | undefined) =>
+    !!other && other.caption_format === handle.caption_format && other.caption_ext === handle.caption_ext;
+  const byId = new Map(props.graph.nodes.map((n) => [n.id, n]));
+  let origin = sourceNode.value;
+  while (origin?.from && sameLayout(upcomingHandles.value[origin.from])) {
+    origin = byId.get(origin.from);
+  }
+  return origin ?? null;
+});
+
 /** The summary panel shows the folder the step will actually use: the edge's, when it has one. */
 const summaryEditCaptionForm = computed(() => ({
   ...editCaptionForm.value,
@@ -878,14 +957,44 @@ const previewNative = ref(false);
 const seedSection = computed(() => (props.node?.config ?? null) as Record<string, unknown> | null);
 
 /**
+ * Set while the forms are being reset for a newly selected node. The drawer stays mounted between
+ * selections, so the reset below changes `builtConfig` to the *defaults* before the remounted
+ * stage form has seeded the node's saved config — and without this the watcher would push those
+ * defaults up as an edit, and the editor would autosave them over what the user had saved.
+ *
+ * Relies on the node-id watcher below being registered before `watch(builtConfig)`: both run in
+ * the same pre-flush, in registration order, so the flag is up by the time the reset's
+ * `builtConfig` callback runs. Keep that order.
+ */
+let reseeding = false;
+
+/**
+ * The handle drives the dataset fields the form no longer shows — the quality preview and the
+ * summary panel still need a path and caption layout, and they must be the ones the edge actually
+ * supplies, never the form defaults.
+ */
+function applyHandle(handle: DatasetHandle | null): void {
+  commonForm.value.path = handle?.path ?? "";
+  commonForm.value.caption_format = handle?.caption_format === "json" ? "json" : "sidecar";
+  commonForm.value.caption_ext = handle?.caption_ext || ".txt";
+}
+
+/**
  * Re-seed on every node change. The `:key` on each stage form remounts it so its one-shot
  * `applySeed` runs again; the common form is filled from the *incoming handle*, since in a
- * workflow those three fields come from the edge and not from the node.
+ * workflow those three fields come from the edge and not from the node. (Sibling steps share one
+ * handle object, so the `inputHandle` watcher alone would not re-fire between them.)
  */
 watch(
   () => props.node?.id,
   () => {
+    reseeding = true;
+    // Cleared after this flush whether or not the reset changed `builtConfig` at all.
+    void nextTick(() => {
+      reseeding = false;
+    });
     Object.assign(commonForm.value, defaultCommonForm());
+    applyHandle(inputHandle.value);
     Object.assign(tagForm.value, defaultTagForm());
     tagThresholds.value = {};
     Object.assign(captionForm.value, defaultCaptionForm());
@@ -900,17 +1009,7 @@ watch(
   { immediate: true },
 );
 
-// The handle drives the dataset fields the form no longer shows — the quality preview and the
-// summary panel still need a path, and it must be the one the edge actually supplies.
-watch(
-  inputHandle,
-  (handle) => {
-    commonForm.value.path = handle?.path ?? "";
-    commonForm.value.caption_format = handle?.caption_format === "json" ? "json" : "sidecar";
-    commonForm.value.caption_ext = handle?.caption_ext || ".txt";
-  },
-  { immediate: true },
-);
+watch(inputHandle, applyHandle, { immediate: true });
 
 /** Order-insensitive structural comparison; `JSON.stringify` alone would trip on key order. */
 function deepEqual(a: unknown, b: unknown): boolean {
@@ -954,6 +1053,10 @@ const builtConfig = computed<Record<string, unknown> | null>(() => {
  * writes left are the registry preselect filling a genuine gap, and the user's own edits.
  */
 watch(builtConfig, (config) => {
+  if (reseeding) {
+    reseeding = false;
+    return;
+  }
   if (!config || !props.node || !prepStage.value || props.readOnly) return;
   if (deepEqual(config, props.node.config)) return;
   emit("update:node", { ...props.node, config });
@@ -1189,6 +1292,13 @@ async function onCommand(command: string): Promise<void> {
 .node-drawer__path {
   font-family: var(--rf-font-mono);
   font-size: 12px;
+}
+.node-drawer__layout {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--rf-space-sm);
+  margin-bottom: var(--rf-space-md);
 }
 .node-drawer__note {
   margin-bottom: var(--rf-space-sm);

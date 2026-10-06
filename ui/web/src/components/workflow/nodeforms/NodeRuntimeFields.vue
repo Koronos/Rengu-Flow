@@ -175,10 +175,13 @@ watch(
     gpuTouched.value = false;
   },
 );
+// Keyed by node as well: this component outlives a selection, so a change of *node* also changes
+// the default (tag -> blur quality) — and that is not the user's metric flip, it is the other
+// node's saved `gpu.required`, which must be left exactly as saved.
 watch(
-  () => defaultNeedsGpu(node.value.type, node.value.config),
-  (fallback) => {
-    if (gpuTouched.value) return;
+  () => [node.value.id, defaultNeedsGpu(node.value.type, node.value.config)] as const,
+  ([id, fallback], [previousId]) => {
+    if (id !== previousId || gpuTouched.value) return;
     if (node.value.gpu.required !== fallback) patchGpu({ required: fallback });
   },
 );

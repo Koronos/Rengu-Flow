@@ -34,7 +34,9 @@ Exactly one thing: a **folder**, plus the caption layout to read and write in it
 
 They are set **once**, on the Source folder step, and inherited down the chain. Individual
 prep steps do not carry their own path — that is what makes "process a different folder" a
-one-field edit. See [Caption layout](dataset-prep.md#caption-layout) for what the two formats mean.
+one-field edit. To choose `.txt` sidecars or `captions.json`, open the **Source folder** step's
+**Configure** tab; the Tag, Caption and Edit instructions steps show the inherited format
+read-only, with a **Change format** link back to that step. See [Caption layout](dataset-prep.md#caption-layout) for what the two formats mean.
 
 ## Build a workflow
 

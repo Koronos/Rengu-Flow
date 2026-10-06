@@ -179,6 +179,7 @@
       @update:node="onNodeUpdate"
       @run-node="runNode"
       @run-from="runFrom"
+      @open-node="openNode"
     />
   </div>
 </template>

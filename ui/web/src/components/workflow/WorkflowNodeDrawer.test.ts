@@ -8,7 +8,7 @@
  * against a component that never rendered the tag at all.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createApp, nextTick } from "vue";
+import { createApp, h, nextTick, ref } from "vue";
 import ElementPlus from "element-plus";
 import WorkflowNodeDrawer from "./WorkflowNodeDrawer.vue";
 import { api } from "../../api";
@@ -16,6 +16,7 @@ import {
   buildStageConfig,
   defaultCaptionForm,
   defaultCommonForm,
+  defaultEditCaptionForm,
   defaultTagForm,
   type PrepStageForms,
 } from "../../lib/prepStageConfig";
@@ -322,6 +323,162 @@ describe("WorkflowNodeDrawer seeding", () => {
     // Filling a gap is not overwriting a choice: a node with no models still gets the downloaded
     // ones, and the user sees them before they are saved.
     expect(updates.at(-1)?.config.models).toEqual(["downloaded-A"]);
+
+    app.unmount();
+  });
+});
+
+/**
+ * The editor keeps one drawer mounted and swaps its `node` prop, which is the path the mount-time
+ * cases above never take: the forms reset to defaults for the new node before its stage form has
+ * re-seeded, and that reset must not reach the parent as an edit — it would be autosaved over the
+ * step's saved config.
+ */
+async function mountThenSelect(
+  first: string | null,
+  then: string,
+  graph: WorkflowGraph,
+  extra: { state?: WorkflowState; stale?: Record<string, boolean> } = {},
+) {
+  const node = ref<WorkflowNode | null>(first ? (graph.nodes.find((n) => n.id === first) ?? null) : null);
+  const updates: WorkflowNode[] = [];
+  const opened: string[] = [];
+  const el = document.createElement("div");
+  document.body.appendChild(el);
+  const app = createApp({
+    render: () =>
+      h(WorkflowNodeDrawer, {
+        open: true,
+        node: node.value,
+        graph,
+        state: extra.state ?? {},
+        stale: extra.stale ?? {},
+        workflowId: 7,
+        readOnly: false,
+        "onUpdate:node": (n: WorkflowNode) => updates.push(n),
+        "onOpen-node": (id: string) => opened.push(id),
+      }),
+  });
+  app.use(ElementPlus);
+  app.mount(el);
+  for (let i = 0; i < 8; i += 1) await nextTick();
+  node.value = graph.nodes.find((n) => n.id === then) ?? null;
+  for (let i = 0; i < 8; i += 1) await nextTick();
+  await flushPromises();
+  return { app, updates, opened };
+}
+
+const flushPromises = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+describe("WorkflowNodeDrawer selecting another node", () => {
+  it.each([
+    [null, "t1"],
+    [null, "c1"],
+    ["n1", "t1"],
+    ["n1", "c1"],
+    ["t1", "c1"],
+    ["c1", "t1"],
+  ])("leaves the saved config alone when going from %s to %s", async (first, then) => {
+    vi.mocked(api.prepModels).mockResolvedValue({
+      models: then === "t1" ? taggerRegistry() : captionRegistry(),
+    });
+
+    const { app, updates } = await mountThenSelect(first, then, prepGraph());
+
+    expect(updates.filter((node) => node.id === then).map((node) => node.config)).toEqual([]);
+
+    app.unmount();
+  });
+
+  it("still preselects for a step that has made no choice yet", async () => {
+    vi.mocked(api.prepModels).mockResolvedValue({ models: taggerRegistry() });
+
+    const { app, updates } = await mountThenSelect("c1", "fresh", prepGraph());
+
+    expect(updates.filter((node) => node.id === "fresh").at(-1)?.config.models).toEqual(["downloaded-A"]);
+
+    app.unmount();
+  });
+});
+
+describe("WorkflowNodeDrawer keeps what the user saved", () => {
+  /** A cleared Temperature means "the model's recommended value"; the form default is 0.2. */
+  function editGraph(): WorkflowGraph {
+    const graph = prepGraph();
+    const payload = buildStageConfig("edit_caption", {
+      form: defaultCommonForm(),
+      editCaptionForm: { ...defaultEditCaptionForm(), temperature: null, top_p: null },
+    }) as unknown as Record<string, Record<string, unknown>>;
+    graph.nodes.push(prepNode("e1", "prep.edit_caption", payload.edit_caption));
+    return graph;
+  }
+
+  it.each([null, "t1"])("leaves a cleared temperature cleared when opening Edit instructions after %s", async (first) => {
+    const { app, updates } = await mountThenSelect(first, "e1", editGraph());
+
+    // Shown cleared, not as the 0.2 default — a default on screen is saved by the next edit.
+    const temperature = document.querySelector<HTMLInputElement>('input[placeholder="model default (0.7)"]');
+    expect(temperature?.value).toBe("");
+    expect(updates.filter((node) => node.id === "e1").map((node) => node.config)).toEqual([]);
+
+    app.unmount();
+  });
+
+  it("leaves a step's saved GPU choice alone when it is selected after another step type", async () => {
+    const graph = prepGraph();
+    graph.nodes[1] = { ...graph.nodes[1], gpu: { required: false, wait: true, device: null } };
+    graph.nodes.push({ ...prepNode("k1", "prep.clean", defaultNodeConfig("prep.clean")), gpu: { required: true, wait: true, device: null } });
+
+    const { app, updates } = await mountThenSelect("k1", "t1", graph);
+
+    expect(updates.filter((node) => node.id === "t1")).toEqual([]);
+
+    app.unmount();
+  });
+
+  it("summarises the step with the folder the edge supplies, not the form default", async () => {
+    const graph = prepGraph();
+    graph.nodes[0] = { ...graph.nodes[0], config: { path: "D:/x", caption_format: "json", caption_ext: ".txt" } };
+
+    const { app } = await mountThenSelect(null, "c1", graph);
+
+    const panes = document.querySelectorAll(".el-tab-pane");
+    const output = panes[OUTPUT_PANE]?.textContent ?? "";
+    expect(output).toContain("D:/x");
+    expect(output).not.toContain("choose a folder");
+
+    app.unmount();
+  });
+});
+
+// ------------------------------------------------------------------------------ caption layout
+
+describe("WorkflowNodeDrawer caption layout", () => {
+  it("shows the inherited layout on a caption step and opens the folder that sets it", async () => {
+    const graph = prepGraph();
+    graph.nodes[0] = { ...graph.nodes[0], config: { path: "D:/x", caption_format: "json", caption_ext: ".txt" } };
+
+    const { app, opened } = await mountThenSelect(null, "c1", graph);
+
+    const row = document.querySelector(".node-drawer__layout");
+    expect(row?.textContent).toContain("captions.json");
+    expect(row?.textContent).toContain("Source folder");
+    row?.querySelector("button")?.click();
+    expect(opened).toEqual(["n1"]);
+
+    app.unmount();
+  });
+
+  it("shows the format the next run will use once the source folder has changed since its run", async () => {
+    const graph = prepGraph();
+    graph.nodes[0] = { ...graph.nodes[0], config: { path: "D:/x", caption_format: "json", caption_ext: ".txt" } };
+    const state = {
+      nodes: { n1: { status: "done", output: { path: "D:/x", caption_format: "sidecar", caption_ext: ".txt" } } },
+    } as unknown as WorkflowState;
+
+    const { app } = await mountThenSelect(null, "c1", graph, { state, stale: { n1: true } });
+
+    expect(document.querySelector(".node-drawer__layout")?.textContent).toContain("captions.json");
 
     app.unmount();
   });

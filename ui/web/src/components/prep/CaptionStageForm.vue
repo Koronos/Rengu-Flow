@@ -382,7 +382,7 @@ import type { PropType } from "vue";
 import { api } from "../../api";
 import FieldHelpIcon from "../FieldHelpIcon.vue";
 import FieldPathTag from "../FieldPathTag.vue";
-import { copyKnown, help } from "./formHelpers";
+import { NULLABLE_SAMPLING, copyKnown, help } from "./formHelpers";
 import { preselectModel } from "../../lib/modelPreselect";
 import type { PrepCaptionForm } from "../../lib/prepStageConfig";
 import type { PrepCaptionConfig, PrepModelInfo, PrepPromptOptions } from "../../types/api";
@@ -519,7 +519,7 @@ function applySeed(): void {
   const seed = props.seed;
   if (!seed || seedApplied) return;
   seedApplied = true;
-  copyKnown(model.value as unknown as Record<string, unknown>, seed);
+  copyKnown(model.value as unknown as Record<string, unknown>, seed, NULLABLE_SAMPLING);
   if (model.value.prompt.trim()) {
     promptDirty.value = true;
     promptText.value = model.value.prompt;
