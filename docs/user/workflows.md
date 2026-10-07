@@ -34,9 +34,59 @@ Exactly one thing: a **folder**, plus the caption layout to read and write in it
 
 They are set **once**, on the Source folder step, and inherited down the chain. Individual
 prep steps do not carry their own path — that is what makes "process a different folder" a
-one-field edit. To choose `.txt` sidecars or `captions.json`, open the **Source folder** step's
-**Configure** tab; the Tag, Caption and Edit instructions steps show the inherited format
-read-only, with a **Change format** link back to that step. See [Caption layout](dataset-prep.md#caption-layout) for what the two formats mean.
+one-field edit. See [Caption layout](dataset-prep.md#caption-layout) for what the two formats mean,
+and [Choosing `.txt` or `captions.json`](#choosing-txt-or-captionsjson) for where to pick one.
+
+## Choosing `.txt` or `captions.json`
+
+There are two places, and they work together:
+
+- **The Source folder step** sets the format the chain *starts* in (its **Caption format** field).
+- **Each Tag, Caption and Edit instructions step** has its own **Caption format** control in its
+  **Configure** tab. The default is **Same as input (…)**, which keeps the format it receives —
+  exactly what steps did before the control existed. Pick **Sidecar files** (with the extension, `.txt`
+  by default) or **captions.json** and the step will:
+  1. convert the captions already in the folder to that format before it runs (the new files are
+     written first, then the old ones are removed, so training never reads a stale copy);
+  2. write its own captions in the new format (training reads only `.txt` sidecars, so the control
+     warns if you pick another extension);
+  3. hand the new format to the steps below it.
+
+So a chain that starts with a [Tool step](#tool-steps) — and has no Source folder step to hold the
+setting — picks its format on its first Tag or Caption step. The card of a step that converts shows
+`→ captions.json` (or `→ sidecar files (.txt)`).
+
+Training reads one format per folder, and a `captions.json` wins over `.txt` files — which is why a
+converting step removes the old files instead of leaving both. If a folder somehow holds **both**,
+the layout the step expects (the one it receives) is the source and wins: its captions replace the
+other format's for the same file.
+
+How the conversion protects your captions:
+
+- It covers every file training would use, **videos included**, not just images.
+- **Sidecars to `captions.json`** merges into an existing `captions.json`: entries for files it does
+  not cover (other videos, entries inside `.tar` archives) are kept as they are.
+- **`captions.json` to sidecars** is **refused, before anything is written**, when the file has
+  entries that cannot become sidecars (members of a `.tar`, files that are no longer in the folder).
+  The error lists them; keep that folder on `captions.json` or remove those entries first.
+- Before any old file is removed **or overwritten** (a hand-written `a.txt` that the conversion
+  replaces, an existing `a.caption` it renames onto, the `captions.json` it merges into) it is copied to
+  `<data dir>/prep/<folder id>/conversions/<timestamp>-<old format>/` (the step's report names the
+  exact folder), so a conversion can always be undone by copying the files back.
+- **Two steps must not read the same folder if one of them converts it.** A step that is not below
+  the converting step would still believe the old layout, so the workflow refuses to start and names
+  it: point it at the converting step (or a step below it) or move it above. As a last line of
+  defence a step that runs in a layout the folder is not in fails with a message instead of writing
+  captions training would ignore.
+
+## Where a step writes: line and mode
+
+Tag, Caption and Edit instructions steps also choose **which caption line** they write (any line
+number from 1; the defaults are 1, 2 and 1) and what to do when that line already has text:
+**skip it** (default), **replace it**, or **append to it** (tags are joined with a comma without
+repeating a tag; captions with a space). A caption with fewer lines than the target is padded with
+empty lines first, so line 3 on an uncaptioned image leaves lines 1 and 2 empty. See
+[Write target](dataset-prep.md#write-target-line-and-mode).
 
 ## Build a workflow
 
@@ -84,20 +134,31 @@ with.
 **Clean with "Copy undetected images" off** emits a folder containing *only* the images it cleaned;
 images where nothing was detected are left behind in the input folder.
 
-## Connecting a step to a non-consecutive one
+## Connecting a step to any other step
 
 A step reads from whatever the **From** picker in its drawer names. By default that is the step
 immediately above, and no badge is drawn — the connector says it already.
 
-Point **From** at an earlier step and the card grows a `⟵ from ①` badge in the connector gutter,
-with a rail drawn past the steps it skips. Hover the badge to highlight source, edge and target.
+**Any step that emits a folder can be picked**, above or below the step. Point **From** at a step
+further up and the card grows a `⟵ from ①` badge in the connector gutter, with a rail drawn past
+the steps it skips; hover the badge to highlight source, edge and target. Point it at a step
+**below** and the step (together with the steps that read from it, in their current order) moves to
+right underneath the one you picked — the list is always in execution order, so a step never runs
+before its source.
 
-Two rules:
+What cannot be picked is shown greyed out with the reason under the picker:
 
-- **A step may only read from a step above it.** Forward references are refused, which is why a
-  workflow can never contain a loop.
+- **The step itself, and the steps that read from it** — that would be a loop.
+- **A Tool step that hands nothing on** (see [Telling a workflow what your tool takes and
+  gives](#telling-a-workflow-what-your-tool-takes-and-gives)).
+
+Two rules stay:
+
 - **`From` decides which folder a step reads, never when it runs.** Execution is always top to
   bottom, in list order, one step at a time.
+- **`Move up` / `Move down` still swap neighbours**, and refuse (with the reason in the menu) when
+  the swap would put a step above its own source. To move a step with what depends on it, change
+  **From** instead.
 
 Only Source folder and Tool steps may have no source at all. Every other type needs one, and a
 workflow with a sourceless step refuses to start rather than dying half-way through.
@@ -157,8 +218,8 @@ step you have to start from instead.
 
 **Validation happens before anything runs.** Starting a workflow puts every enabled prep step
 through the same configuration check the launcher performs, and reports **every** error at once:
-a step with no source, a forward `from`, an undefined variable, a Tag step with no models selected,
-a Quality index step with no models. You see them all up front, not after forty minutes of tagging.
+a step with no source, a step reading from a Tool that declares it outputs nothing, an undefined
+variable, a Tag step with no models selected, a Quality index step with no models. You see them all up front, not after forty minutes of tagging.
 
 Folder existence is the one thing pre-flight cannot judge, because a step's folder comes from the
 step above and may not exist yet when you press Run. (An edit dataset's control folder is the
@@ -320,6 +381,34 @@ declares none of them simply receives no folder, and the step passes its input t
 
 A tool that raises before returning fails the step; a green workflow can never walk past a crashed
 tool.
+
+### Telling a workflow what your tool takes and gives
+
+By default a tool is assumed to work **in place**: it takes the incoming folder (if it declares
+`path`) and passes it on. A tool that *creates* a folder — extracting frames, downloading images,
+exporting a subset — can say so in the Toolbox form under **In a workflow**:
+
+| Setting | Values | Meaning |
+|---|---|---|
+| **Takes** | *Not declared* · The incoming dataset folder · No folder | Whether it needs a folder from the step above. *No folder* means it can start a workflow. Not declared: it takes the folder only if it has a `path` input. |
+| **Gives** | *Not declared* · A new folder · The same folder, worked on in place · Nothing | What the step emits. *A new folder*: the path your function returns. *Nothing*: no step can read from it. Not declared: it works in place. |
+
+Example — wiring a tool that **extracts images** into tagging and captioning:
+
+1. In the Toolbox, make the tool return the folder it wrote (`return str(out_dir)`), and set
+   **Takes** to *No folder* and **Gives** to *A new folder*.
+2. In the workflow, add the tool as the first step, then **Tag** and **Caption** below it (each new
+   step reads from the one above by default; or pick the tool under **From**).
+3. Run. The tool step shows *a new folder, decided when this step runs* until it has run; then
+   the Tag step reads the folder it returned. Choose `.txt` or `captions.json` on the Tag step's
+   **Caption format** control.
+
+What the workflow checks for you:
+
+- Before it runs: a step reading from a tool that **gives nothing**, or from a first-step tool whose
+  declared output is not a folder, is refused with the reason.
+- While it runs: a tool that says it gives a folder but returns no path **fails its step** with a
+  message saying so, instead of the next step failing on an empty folder.
 
 Each Tool step runs in its own directory, so two steps using the same tool — or a workflow running
 a tool while you run it from the Toolbox page — never overwrite each other's inputs or results.

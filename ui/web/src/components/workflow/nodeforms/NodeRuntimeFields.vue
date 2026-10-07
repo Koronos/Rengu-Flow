@@ -20,22 +20,43 @@
         class="w-full"
       >
         <el-option
-          v-for="source in sources"
-          :key="source.id"
-          :label="`${ordinalGlyph(ordinal[source.id])} ${source.title}`"
-          :value="source.id"
+          v-for="choice in choices"
+          :key="choice.node.id"
+          :label="`${ordinalGlyph(ordinal[choice.node.id])} ${choice.node.title}`"
+          :value="choice.node.id"
+          :disabled="!choice.allowed"
         >
           <span class="opt-title">
-            {{ ordinalGlyph(ordinal[source.id]) }} {{ source.title }}
+            {{ ordinalGlyph(ordinal[choice.node.id]) }} {{ choice.node.title }}
+            <span v-if="choice.allowed && choice.below" class="opt-below">below</span>
           </span>
-          <span class="opt-path">{{ sourcePaths[source.id] || "folder not resolved yet" }}</span>
+          <span v-if="!choice.allowed" class="opt-reason">{{ choice.reason }}</span>
+          <span v-else class="opt-path">
+            {{ sourcePaths[choice.node.id] || "folder not resolved yet" }}
+          </span>
         </el-option>
       </el-select>
       <el-text v-if="!sources.length" size="small" type="warning" class="hint-text">
-        No earlier step emits a folder. Add a source folder above this one.
+        No other step emits a folder this one can read. Add a source folder or a tool that returns
+        one.
       </el-text>
       <el-text v-else-if="fromId" size="small" type="info" class="hint-text">
         {{ sourcePaths[fromId] || "This step has not produced a folder yet." }}
+      </el-text>
+      <el-text v-if="fromToolNote" size="small" type="info" class="hint-text">
+        {{ fromToolNote }}
+      </el-text>
+      <el-text v-if="blockedChoices.length" size="small" type="info" class="hint-text">
+        Not offered:
+        {{
+          blockedChoices
+            .map((c) => `${ordinalGlyph(ordinal[c.node.id])} (${c.reason})`)
+            .join("; ")
+        }}
+      </el-text>
+      <el-text size="small" type="info" class="hint-text">
+        Any step can be a source, even one further down: this step then moves to right under it,
+        together with the steps that read from it.
       </el-text>
     </el-form-item>
 
@@ -101,8 +122,15 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import type { PropType } from "vue";
-import { legalSources, ordinalGlyph, ordinals } from "../../../lib/workflowGraph";
-import { consumesInput, defaultNeedsGpu, sourceMayBeEmpty } from "../../../lib/workflowNodeTypes";
+import { ordinalGlyph, ordinals, sourceChoices } from "../../../lib/workflowGraph";
+import {
+  consumesInput,
+  defaultNeedsGpu,
+  describeToolOutput,
+  sourceMayBeEmpty,
+  toolIoOf,
+  type ToolIoMap,
+} from "../../../lib/workflowNodeTypes";
 import { useSystemStatsStream } from "../../../composables/useSystemStatsStream";
 import type { WorkflowGraph, WorkflowNode, WorkflowNodeGpu } from "../../../types/workflow";
 
@@ -119,8 +147,15 @@ const props = defineProps({
    * Read-only: the runner owns the workflow. `el-form` hands this to every control under it, so
    * `from`, the GPU switches, the device picker and `enabled` all go inert together.
    */
+  /** What each Toolbox tool declares it takes and gives (`tool_id` -> io). */
+  toolIo: { type: Object as PropType<ToolIoMap>, default: () => ({}) },
   disabled: { type: Boolean, default: false },
 });
+
+const emit = defineEmits<{
+  /** Connect to a step further down: the graph reorders, so it is a graph edit, not a node edit. */
+  (e: "repoint", sourceId: string | null): void;
+}>();
 
 function patch(changes: Partial<WorkflowNode>): void {
   node.value = { ...node.value, ...changes };
@@ -132,12 +167,27 @@ function patchGpu(changes: Partial<WorkflowNodeGpu>): void {
 
 const consumes = computed(() => consumesInput(node.value.type));
 const sourceOptional = computed(() => sourceMayBeEmpty(node.value.type));
-const sources = computed(() => legalSources(props.graph, node.value.id));
+const choices = computed(() => sourceChoices(props.graph, node.value.id, props.toolIo));
+const sources = computed(() => choices.value.filter((choice) => choice.allowed));
+const blockedChoices = computed(() => choices.value.filter((choice) => !choice.allowed));
+
+/** What the chosen source tool takes/gives, so the user knows what will arrive. */
+const fromToolNote = computed(() => {
+  const source = props.graph.nodes.find((candidate) => candidate.id === node.value.from);
+  const io = source ? toolIoOf(source, props.toolIo) : undefined;
+  if (!source || source.type !== "tool") return "";
+  return `${source.title}: ${describeToolOutput(io)}.`;
+});
 const ordinal = computed(() => ordinals(props.graph));
 
 const fromId = computed<string | null>({
   get: () => node.value.from,
-  set: (value) => patch({ from: value || null }),
+  set: (value) => {
+    const next = value || null;
+    const choice = choices.value.find((candidate) => candidate.node.id === next);
+    if (choice?.below) emit("repoint", next);
+    else patch({ from: next });
+  },
 });
 
 const enabled = computed<boolean>({
@@ -223,6 +273,20 @@ const devices = computed(() => {
 }
 .opt-title {
   margin-right: 12px;
+}
+.opt-below {
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 8px;
+  font-size: 11px;
+  color: var(--el-color-primary);
+  border: 1px solid var(--el-color-primary-light-5);
+}
+.opt-reason {
+  float: right;
+  color: var(--el-color-warning);
+  font-size: 12px;
+  margin-left: 12px;
 }
 .opt-path {
   float: right;

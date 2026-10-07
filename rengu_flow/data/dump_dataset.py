@@ -27,7 +27,9 @@ def _caption_for_image(image_path: Path, directory_config: dict, captions_json: 
         caps = captions_json.get(key)
         if caps is None:
             return [""]
-        return caps if isinstance(caps, list) else [str(caps)]
+        caps = caps if isinstance(caps, list) else [str(caps)]
+        # Same rule as load_captions_json: blank entries are padding, never a caption variant.
+        return [c for c in caps if str(c).strip()] or [""]
     txt = image_path.with_suffix(".txt")
     if txt.is_file():
         return _read_captions_from_txt_per_line(str(txt))

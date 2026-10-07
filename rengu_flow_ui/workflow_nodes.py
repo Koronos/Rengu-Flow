@@ -47,10 +47,17 @@ import toml
 from rengu_flow_ui import toolbox
 from rengu_flow_ui.workflow_graph import (
     NODE_TYPES,
+    CAPTION_OUTPUT_TYPES,
+    OUTPUT_EXT_KEY,
+    OUTPUT_FORMAT_KEY,
+    TOOL_FOLDER_ERROR,
+    TOOL_OUTPUT_FOLDER,
+    TOOL_OUTPUT_NONE,
     DatasetHandle,
     NodeOutputError,
     WorkflowNode,
     edit_control_path,
+    caption_output_override,
     effective_output,
 )
 
@@ -67,6 +74,9 @@ INLINE_TYPES = ("folder", "train")
 
 #: The three keys a prep TOML carries at its top level rather than inside the stage section.
 _HANDLE_KEYS = ("path", "caption_format", "caption_ext")
+
+#: Node-level keys that describe the step's *output layout*; they are not part of any stage section.
+_OUTPUT_KEYS = (OUTPUT_FORMAT_KEY, OUTPUT_EXT_KEY)
 
 #: Both markers — ``prep <stage> exits with return code = N`` (``rengu_flow/prep/runner.py:306``)
 #: and ``tool exits with return code = N`` (the Toolbox shim) — end the same way.
@@ -139,9 +149,20 @@ def _prep_payload(node: WorkflowNode, inputs: DatasetHandle | None) -> tuple[str
     it. There the handle's value **wins** over the node's own field, which is the fallback for a
     source that names no control folder (``workflow_graph.edit_control_path``, the rule pre-flight
     applies too). Every other stage ignores it — they touch only the targets.
+
+    **Output format** (``output_format`` / ``output_ext`` on a tag, caption or edit_caption node):
+    the one place a step may differ from its edge. When it asks for a layout other than the one the
+    handle carries, the payload runs the stage in the *new* layout and adds ``convert_from_format`` /
+    ``convert_from_ext`` (the handle's), which makes the prep runner convert the folder first. The
+    handle the step emits says the same thing (``workflow_graph.effective_output``), so the next
+    step reads the layout this one wrote. The two keys never reach the stage section.
     """
     stage = node.type.split(".", 1)[1]
-    data = {key: value for key, value in node.config.items() if key not in _HANDLE_KEYS}
+    data = {
+        key: value
+        for key, value in node.config.items()
+        if key not in _HANDLE_KEYS and key not in _OUTPUT_KEYS
+    }
     if stage == "edit_caption":
         data["control_path"] = edit_control_path(node.config, inputs)
     top: dict[str, Any] = {}
@@ -151,6 +172,23 @@ def _prep_payload(node: WorkflowNode, inputs: DatasetHandle | None) -> tuple[str
             "caption_format": inputs.caption_format,
             "caption_ext": inputs.caption_ext,
         }
+        override = (
+            caption_output_override(node.config, inputs)
+            if node.type in CAPTION_OUTPUT_TYPES
+            else None
+        )
+        if override and (
+            override["caption_format"] != inputs.caption_format
+            or (
+                override["caption_format"] == "sidecar"
+                and override["caption_ext"] != inputs.caption_ext
+            )
+        ):
+            # The step works in its own layout; the runner converts the folder first.
+            top["convert_from_format"] = inputs.caption_format
+            top["convert_from_ext"] = inputs.caption_ext
+            top["caption_format"] = override["caption_format"]
+            top["caption_ext"] = override["caption_ext"]
     return stage, {**top, stage: data}
 
 
@@ -335,6 +373,24 @@ def _read_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def tool_io(node: WorkflowNode) -> dict[str, Any]:
+    """What the tool behind *node* declares (``toolbox.resolve_io``); defaults when it is gone."""
+    try:
+        return toolbox.tool_io(str(node.config.get("tool_id") or ""))
+    except KeyError:
+        return {}
+
+
+def graph_tool_io(graph: Any) -> dict[str, dict[str, Any]]:
+    """``{tool_id: io}`` for every tool node of *graph* - what ``workflow_graph.validate`` needs."""
+    out: dict[str, dict[str, Any]] = {}
+    for node in graph.nodes:
+        tool_id = str(node.config.get("tool_id") or "") if node.type == "tool" else ""
+        if tool_id and tool_id not in out:
+            out[tool_id] = tool_io(node)
+    return out
+
+
 def collect_output(
     node: WorkflowNode, node_dir: Path, inputs: DatasetHandle | None
 ) -> DatasetHandle | None:
@@ -356,7 +412,15 @@ def collect_output(
             result = _read_json(result_path)
         except ValueError as exc:  # truncated: the tool died mid-write, same conclusion
             raise NodeOutputError(f"{RESULT_MISSING_ERROR} ({exc})") from exc
-        return effective_output(node, inputs, result)
+        output = tool_io(node).get("output")
+        if output == TOOL_OUTPUT_NONE:
+            return None
+        if output == TOOL_OUTPUT_FOLDER and not (
+            isinstance(result, str) and result.strip()
+            or isinstance(result, dict) and result.get("path")
+        ):
+            raise NodeOutputError(TOOL_FOLDER_ERROR)
+        return effective_output(node, inputs, result, tool_output=str(output or "passthrough"))
 
     report: Any = None
     if node.type.startswith("prep."):

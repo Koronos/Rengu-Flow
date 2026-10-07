@@ -145,14 +145,7 @@
       </el-form-item>
     </div>
 
-    <el-form-item>
-      <template #label>
-        Overwrite <FieldHelpIcon :field="help('Rewrites targets whose line 1 already has text. Off (default) skips them, so a stopped job resumes where it left off.')" />
-        <FieldPathTag path="edit_caption.overwrite" />
-      </template>
-      <el-switch v-model="model.overwrite" />
-      <el-text class="ml-8" size="small">Overwrite existing instructions</el-text>
-    </el-form-item>
+    <WriteTargetFields :form="model" stage="edit_caption" />
   </el-form>
 </template>
 
@@ -162,6 +155,7 @@ import type { PropType } from "vue";
 import { api } from "../../api";
 import FieldHelpIcon from "../FieldHelpIcon.vue";
 import FieldPathTag from "../FieldPathTag.vue";
+import WriteTargetFields from "./WriteTargetFields.vue";
 import PathFieldControl from "../PathFieldControl.vue";
 import { NULLABLE_SAMPLING, copyKnown, help } from "./formHelpers";
 import { preselectModel } from "../../lib/modelPreselect";

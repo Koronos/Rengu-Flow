@@ -1173,7 +1173,9 @@ def start_workflow(
     record = workflow_db.get_workflow(workflow_id)
     graph = _graph_of(record)
     state = _state_of(record)
-    errors = validate(graph, state.get("nodes") or {})
+    errors = validate(
+        graph, state.get("nodes") or {}, workflow_nodes.graph_tool_io(graph)
+    )
     if errors:
         # Pre-flight reports every error at once; the promise is no mid-run surprises.
         raise ValueError("\n".join(errors))

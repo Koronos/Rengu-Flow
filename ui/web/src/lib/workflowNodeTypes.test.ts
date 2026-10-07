@@ -6,10 +6,15 @@ import {
   consumesInput,
   defaultNeedsGpu,
   describeOutput,
+  describeToolInput,
+  describeToolOutput,
   emitsHandle,
   nodeTypeIcon,
   nodeTypeLabel,
+  outputFormatChoice,
+  outputFormatLabel,
   sourceMayBeEmpty,
+  toolIoOf,
 } from "./workflowNodeTypes";
 
 describe("the catalog", () => {
@@ -150,5 +155,50 @@ describe("describeOutput", () => {
   it("names an unknown type instead of pretending it emits something", () => {
     expect(describeOutput({ type: "prep.fromTheFuture" })).toContain("prep.fromTheFuture");
     expect(describeOutput({ type: "prep.fromTheFuture" })).toContain("cannot run");
+  });
+});
+
+describe("tool io wording and the caption format sentence", () => {
+  it("explains what a tool takes and gives", () => {
+    expect(describeToolInput({ input: "none", output: "folder" })).toContain("no folder");
+    expect(describeToolInput({ input: "folder", output: "passthrough" })).toContain("incoming dataset folder");
+    expect(describeToolOutput({ input: "none", output: "folder" })).toContain("new folder");
+    expect(describeToolOutput({ input: "folder", output: "none" })).toContain("nothing");
+    expect(describeToolOutput(undefined)).toContain("in place"); // undeclared: today's behaviour
+  });
+
+  it("looks the tool up by its tool_id", () => {
+    const io = { input: "none", output: "folder" } as const;
+    expect(toolIoOf({ type: "tool", config: { tool_id: "extract" } }, { extract: io })).toBe(io);
+    expect(toolIoOf({ type: "tool", config: { tool_id: "other" } }, { extract: io })).toBeUndefined();
+    expect(toolIoOf({ type: "prep.tag", config: { tool_id: "extract" } }, { extract: io })).toBeUndefined();
+  });
+
+  it("describes a tool's output from its declaration", () => {
+    expect(describeOutput({ type: "tool" }, { input: "none", output: "folder" })).toContain("new folder");
+    expect(describeOutput({ type: "tool" }, { input: "folder", output: "none" })).toContain("Emits nothing");
+  });
+
+  it("says where the captions go when a step converts them", () => {
+    expect(outputFormatLabel({ output_format: "json" })).toBe("captions.json");
+    expect(outputFormatLabel({ output_format: "sidecar", output_ext: "cap" })).toBe("sidecar files (.cap)");
+    expect(outputFormatLabel({ output_format: "inherit" })).toBe("");
+    expect(describeOutput({ type: "prep.tag", config: { output_format: "json" } })).toContain("as captions.json");
+  });
+});
+
+describe("outputFormatChoice mirrors the server's output_format_choice", () => {
+  it.each([
+    ["JSON", "json"],
+    [" Sidecar ", "sidecar"],
+    ["inherit", "inherit"],
+    ["bogus", "inherit"],
+    [undefined, "inherit"],
+  ])("%j -> %s", (value, expected) => {
+    expect(outputFormatChoice({ output_format: value })).toBe(expected);
+  });
+
+  it("labels a differently-cased format like the server would treat it", () => {
+    expect(outputFormatLabel({ output_format: "JSON" })).toBe("captions.json");
   });
 });

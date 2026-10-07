@@ -81,6 +81,18 @@ Every `lib/workflow*.ts` and `lib/prepStageConfig.ts` is pure (no Vue import) an
 `from` decides *which folder* a node reads, never *when* it runs. Non-consecutive links are just a
 `from` that skips; `lib/workflowLayout.assignEdgeLanes` handles drawing them.
 
+**The editor lets the user pick any step as a source; the invariant is kept by moving.**
+`lib/workflowGraph.ts`: `sourceChoices(graph, id, toolIo)` lists every emitting step except `id` and
+its descendants (`descendantIds`) and a tool that cannot hand a folder on (`toolSourceProblem`, the
+twin of `workflow_graph._source_problem`), each with `allowed` / `reason` / `below`. `legalSources` is
+its allowed subset. `repointNode(graph, id, sourceId, toolIo)` sets `from`, and when the source is
+*below* it moves `id` plus its descendants (relative order kept) to right after the source — so every
+`from` still points earlier, the backend forward-edge rule and `execution_order` need no change, and
+no code that assumes the invariant (runner, run-from, gutter, staleness) was touched. A below source
+cannot be applied through the node drawer's `update:node` (a single-node edit), so
+`NodeRuntimeFields` emits `repoint` and `WorkflowEditorView.repointStep` applies it with
+`editor.mutate`. `canMove` / `moveBlockReason` are unchanged (neighbour swaps, refused with a reason).
+
 `from: null` is legal only for `folder` and `tool` (`NodeType.source_optional`). Anything else
 without a source is a validation error, not a mid-run failure — deleting a `folder` node splices
 its children onto its own `null` source, which is exactly how a sourceless `prep.clean` used to
@@ -338,13 +350,13 @@ variables are already resolved (`workflow_runner._resolved`).
 | Type | `report` fed | Emits |
 |------|--------------|-------|
 | `folder` | — | its own `config.path` (+ `caption_format` / `caption_ext` from config). Runs inline; `done` once the directory exists |
-| `prep.tag` | `report.json` (ignored) | **the input handle** — sidecars written in place |
-| `prep.caption` | `report.json` (ignored) | **the input handle** |
-| `prep.edit_caption` | `report.json` (ignored) | **the input handle** — the instruction goes on line 1 of each target's caption, in place |
+| `prep.tag` | `report.json` (ignored) | **the input handle**; with `config.output_format` ≠ `inherit`, the input handle with the new `caption_format` / `caption_ext` (`caption_output_override`) |
+| `prep.caption` | `report.json` (ignored) | **the input handle** (same `output_format` rule) |
+| `prep.edit_caption` | `report.json` (ignored) | **the input handle** (same rule) — the instruction goes on `target_line` (default 1) of each target's caption, in place |
 | `prep.quality` | `report.json` (ignored) | **the input handle** — the survivors |
 | `prep.index` | `report.json` (ignored) | **the input handle** — the SQLite index lives under `prep_storage_dir()`, outside the dataset |
 | `prep.clean` | `report.json` | `in_place ? input : report["output_dir"] or config.output_dir or <input>/cleaned` |
-| `tool` | `result.json` | `str` → that path; `dict` with `path` → present keys win, absent inherited; `None` → **pass-through**; anything else → `NodeOutputError(TOOL_RETURN_ERROR)` |
+| `tool` | `result.json` | `str` → that path; `dict` with `path` → present keys win, absent inherited; `None` → **pass-through**; anything else → `NodeOutputError(TOOL_RETURN_ERROR)`. With a declared `io.output` (`effective_output(..., tool_output=)`): `none` → `None` always; `folder` → a result with no path is `NodeOutputError(TOOL_FOLDER_ERROR)`, and with no report it predicts `None` (decided at run time) |
 | `train` | — | `None`. Terminal, fire-and-forget |
 
 **`control_path` rides on the handle.** `DatasetHandle.control_path` (default `""`) is set by a
@@ -372,6 +384,67 @@ absent file means the tool raised. Reading it as `None` would take the pass-thro
 a green workflow past a crashed tool. A corrupt prep `report.json`, by contrast, is only logged —
 `clean` is the only stage that reads anything out of it, and its fallback is the `output_dir` the
 config already names.
+
+## Caption output format, conversion and write modes
+
+**Per-step output format.** `prep.tag` / `prep.caption` / `prep.edit_caption` nodes may carry
+`output_format` (`inherit` | `sidecar` | `json`) and `output_ext` in `config`
+(`workflow_graph.CAPTION_OUTPUT_TYPES`, `output_format_choice`, `caption_output_override`).
+
+- `effective_output` returns the input handle with the override applied (`_inherit`);
+  `WorkflowNodeDrawer.predictOutput` mirrors it. The two are pinned together by
+  `tests/test_workflow_io_and_format.py` and the drawer's "predicts what the server's
+  effective_output emits" table.
+- `workflow_nodes._prep_payload` strips both keys from the stage section. When the override differs
+  from the incoming layout it writes the step's layout as the top-level `caption_format` /
+  `caption_ext` and the handle's as `convert_from_format` / `convert_from_ext`
+  (`PrepConfig` fields; empty for every standalone job).
+- `rengu_flow/prep/runner.run_stage` calls `_convert_input_captions` before the stage, which calls
+  `caption_store.convert_captions(folder, from_fmt, from_ext, to_fmt, to_ext)`: read the source
+  layout, write the destination, **re-read and verify**, then delete the old files (only sidecars of
+  images in the folder; `captions.json` for a json source). Idempotent; reports `converted` / `removed`
+  in `report.json` as `caption_conversion`.
+- **Conversion safety** (`convert_captions`): the entry set is `_media_files` — every non-side file
+  the trainer scans (videos too; `.tar` / `.parquet` carry captions inline). `json -> sidecar` raises
+  `ValueError` before writing when `captions.json` has keys outside that set; `sidecar -> json`
+  merges into the raw existing JSON; removed files are copied to
+  `prep_storage_dir(folder)/conversions/<stamp>-<format>/` first (`report["backup"]`).
+  `caption_store.check_layout` (called by `run_stage` for tag / caption / edit_caption, after the
+  conversion) raises `LayoutMismatchError` for sidecar mode + `captions.json` present, or json mode
+  + sidecars present. Pre-flight: `workflow_graph._converted_folder_errors` (siblings of a converter
+  sharing a `_folder_origin`) and `_prep_config_errors(runtime_unknown=)` (skips the edit-caption
+  control-folder check when the folder is a tool's run-time folder).
+- **Manual editors.** `caption_review.save_caption` and `tag_sessions.commit` open the store
+  non-positionally and write through `set_lines`, which drops blank lines (their documented
+  contract); saving there closes up the blank padding of a caption. Kept deliberately: making the
+  editors positional changes what line numbers mean in their UI.
+- **Hashing.** `materialize_config` adds `output_format` (+ `output_ext` for sidecar) to the hashed
+  config only when not `inherit`; it also drops `write_mode` / edit `target_line` when at their
+  default (`_LATE_STAGE_FIELDS`) and `write_mode` when it merely restates `overwrite`. A node that
+  never set them keeps its pre-existing `config_hash`.
+- **The drawer owns the keys.** The stage forms rebuild a node's whole config, so the node-level
+  `outputForm` is seeded from the node on selection and merged into `builtConfig`
+  (`outputConfigExtras`); without that, any form edit would drop the keys. `WriteTargetFields.vue`
+  writes `write_mode` only once the user picks one (so merely opening a step emits nothing).
+
+**Write modes.** `CaptionSet.write_line(key, index, text, mode, sep=, tags=)` pads, then replaces or
+appends; `effective_write_mode(write_mode, overwrite)` maps the legacy flag. The tag runner
+(`_run_tag`), `caption_folder` (and its vLLM / GGUF paths) and `edit_caption_folder` use them.
+`CaptionStore.open(..., positional=True)` keeps leading/interior blank lines (the stage runners and
+`convert_captions` open this way); the default open still skips them, like the trainer, which is why
+the tag/caption editors are unchanged. `dataset.load_captions_json` now drops blank entries (keeping
+one if all are blank) so a padded `captions.json` never trains on an empty variant.
+
+## Tool I/O
+
+`toolbox.resolve_io(tool.json)` returns `{input, output, input_declared, output_declared}` (undeclared
+input = `folder` iff a `path` input exists; undeclared output = `passthrough`; a malformed hand-edited
+`io` reads as undeclared). It is exposed on `GET /toolbox/tools` (list) and `GET /toolbox/tools/{id}`
+as `io`, and accepted as `io` on create / update (`{}` clears it). `workflow_nodes.graph_tool_io(graph)`
+builds `{tool_id: io}` for `workflow_graph.validate(graph, saved, tool_io)` (the graph module stays
+pure; the route and `workflow_runner.start_workflow` pass it) and `_predicted_handles`.
+`collect_output` reads `workflow_nodes.tool_io(node)` for the post-run failure. The editor gets the
+same data from the Toolbox list (`WorkflowEditorView.toolIoMap`).
 
 ## Staleness
 
@@ -547,5 +620,6 @@ See [testing.md](testing.md) for how to run them.
 - [docs/user/workflows.md](../user/workflows.md) — the user-facing behaviour this contract produces.
 - [web-ui.md](web-ui.md) — the control plane this extends: job queue, staging, field help, live log stack.
 - [documentation-conventions.md](documentation-conventions.md) — field-hint and form-anatomy rules the node forms follow.
-- `rengu_flow/prep/config.py` — the stage dataclasses a node's `config` mirrors, minus `path` / `caption_format` / `caption_ext`.
+- `rengu_flow/prep/config.py` — the stage dataclasses a node's `config` mirrors, minus `path` / `caption_format` / `caption_ext` (and the node-level `output_format` / `output_ext`).
+- `rengu_flow/prep/caption_store.py` — `write_line`, `effective_write_mode`, `convert_captions`.
 - `rengu_flow/control/progress_stream.py` — the `@@RFPROG@@` protocol node progress reuses.

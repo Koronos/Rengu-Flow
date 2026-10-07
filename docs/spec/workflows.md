@@ -57,7 +57,11 @@ Three concrete outcomes:
 - **No branching, conditionals, or loops.** Not requested; not speculatively built.
 - **No per-device queue slots.** `job_queue.has_active_runner()` stays global — see
   [Risks and known limits](#risks-and-known-limits).
-- **No type system on connections.** One payload type, always compatible.
+- **No canvas, still.** The card list stays a list: connecting is a `From` select, not dragging
+  wires. The list gained the freedom a canvas would have given (any step can feed any other, see
+  [Connecting steps](#connecting-steps)) without its failure modes (overlap, off-board nodes).
+- **No type system on connections.** One payload type, always compatible. What a *tool* takes and
+  gives is a declared hint, not a type: see [Tool I/O](#tool-io).
 
 ---
 
@@ -103,13 +107,13 @@ here.
 | Type | Consumes | Emits | GPU by default |
 |---|---|---|---|
 | `folder` | — | its literal config as a handle | no |
-| `prep.tag` | handle | **the same handle** — writes tag sidecars in place | yes |
-| `prep.caption` | handle | **the same handle** — writes caption lines in place | yes |
-| `prep.edit_caption` | handle (edit dataset) | **the same handle** — writes the edit instruction on line 1 of each target's caption, in place | yes |
+| `prep.tag` | handle | **the same handle** — writes tags in place; its own `output_format` re-lays the folder out and changes the handle's caption layout ([Per-step caption output format](#per-step-caption-output-format)) | yes |
+| `prep.caption` | handle | **the same handle** — writes caption lines in place (same `output_format` rule) | yes |
+| `prep.edit_caption` | handle (edit dataset) | **the same handle** — writes the edit instruction on its target line (default 1) of each target's caption, in place (same `output_format` rule) | yes |
 | `prep.clean` | handle | `in_place ? input : (output_dir or <input>/cleaned)` | yes |
 | `prep.quality` | handle | **the same handle** — the survivors | `metric != "blur"` |
 | `prep.index` | handle | **the same handle** — the SQLite index lives outside the dataset | yes |
-| `tool` | handle (optional) | derived from the function's **return value** | no |
+| `tool` | handle (optional) | derived from the function's **return value** and its declared `io.output` ([Tool I/O](#tool-io)) | no |
 | `train` | handle | nothing (terminal, fire-and-forget) | takes no lease itself |
 
 ### The `output_dir` trap — normative
@@ -189,12 +193,14 @@ library it never feeds the trainer.
 - **Parsing is tolerant**, mirroring `parse_prep_config`'s `_fill_dataclass`: unknown keys are
   logged and ignored, never fatal. An unknown *node type* is fatal at execution but **preserved on
   save**, so downgrading the app never destroys the user's graph.
-- **Validation** rejects a graph where any `from` points forward or at itself, **and where `from`
+- **Validation** (the *server's* rule - the editor never produces a forward link, see [Connecting steps](#connecting-steps)) rejects a graph where any `from` points forward or at itself, **and where `from`
   is `null` on any type other than `folder` or `tool`**. The forward rule alone is not enough:
   deleting a `folder` node splices its children to *its* `from`, which is `null`, so a `prep.clean`
   node ends up sourceless, passes pre-flight, and dies mid-run on
   `validate_for_stage`'s `"Prep config needs a dataset 'path'"` — after the earlier nodes already
   ran, in direct contradiction of the promise that pre-flight reports every error up front.
+  Tool declarations add two more errors: reading from a tool whose `io.output` is `none`, and from a
+  source tool that explicitly declares a non-folder output ([Tool I/O](#tool-io)).
   Deleting a `folder` with children is a distinct prompt: *"③ has no source. Pick a new source
   folder first."*
 - **Edit datasets are judged at pre-flight** on the handle each node is *predicted* to receive
@@ -238,6 +244,122 @@ library it never feeds the trainer.
   node would run two taggers at `max_tags: 255` while its card read "no tagger selected" and its
   form showed 40. `createNode` writes the form's own defaults in at creation so that what the user
   sees is what runs, whether or not they ever opened the step.
+
+### Connecting steps
+
+`from` still always points at an **earlier** node, and the runner still executes list order - but
+the *editor* no longer makes the user arrange the list to fit a connection.
+
+- **Any step that emits a folder can be picked as a source** in a step's `From` select - above
+  *or below* it - except the step itself and every step that (transitively) reads from it, which
+  would be a cycle. Those are listed disabled with the reason, never silently absent.
+- **Picking a source below the step reorders the list.** The step moves, together with the steps
+  that read from it (their relative order kept), to right after the chosen source. Everything else
+  keeps its place, so "a source is always above its reader" holds again and with it
+  list order == execution order. That is why the backend rule (`from` pointing forward is a
+  validation error), the runner, run-from, the gutter and staleness are all unchanged: the
+  reordering happens in the editor (`repointNode` in `workflowGraph.ts`) before anything is saved.
+- A cycle cannot be created through the UI (descendants are not offered) and cannot be expressed
+  in a saved graph (the forward rule).
+- `Move up` / `Move down` still swap neighbours and are refused, with the reason on the menu item,
+  when the swap would put a step above its own source; a dependency-carrying move is reached
+  through `From`.
+
+### Tool I/O
+
+A Toolbox tool may declare what it takes and gives in its `tool.json`:
+
+```jsonc
+{ "io": { "input": "none", "output": "folder" } }
+```
+
+| Key | Values | Meaning |
+|---|---|---|
+| `input` | `folder` / `none` | `folder`: reads the incoming dataset folder. `none`: needs nothing (a source). **Undeclared**: `folder` iff the tool has a `path` input (the injection rule). |
+| `output` | `folder` / `passthrough` / `none` | `folder`: returns the path of a new folder, decided when it runs. `passthrough`: works in place, the input folder goes on. `none`: hands nothing on. **Undeclared**: `passthrough`, today's behaviour. |
+
+Both keys are optional and the block is optional, so every existing tool behaves as before. Use:
+
+1. **Pre-flight.** A step that reads from a tool whose output is `none`, or - looking through
+   `passthrough` tools - from a *source* tool (`from: null`) whose output is **explicitly declared**
+   as something other than `folder`, is a validation error. A tool that declares nothing is left
+   alone (it may return a folder at run time, as it always could).
+2. **Prediction.** A tool declaring `output: folder` is predicted as "a new folder decided at run
+   time": no handle, and the UI says so instead of showing a made-up path. `output: none` predicts
+   no handle.
+3. **After a run.** A tool declaring `output: folder` whose `result.json` carries no folder path
+   fails its node with a clear message. A tool declaring `output: none` emits nothing whatever it
+   returns.
+4. **The UI** states what a tool takes and gives in the `From` select, in the tool step's form and
+   in the Toolbox authoring form (**In a workflow**).
+
+Example - a tool that extracts frames from videos: `io = { "input": "none", "output": "folder" }`,
+`def run(video_dir, out_dir): ...; return out_dir`. As the first step of a workflow it feeds a
+`prep.tag` directly.
+
+### Per-step caption output format
+
+`prep.tag`, `prep.caption` and `prep.edit_caption` accept two node-level keys in `config`:
+
+| Key | Values | Default |
+|---|---|---|
+| `output_format` | `inherit` / `sidecar` / `json` | `inherit` |
+| `output_ext` | sidecar extension, only for `sidecar` | `.txt` |
+
+`inherit` (also what an absent key means) is the historical behaviour: the step reads and writes
+the layout of the handle it receives and emits that handle unchanged. `sidecar` / `json` make the
+step own the layout:
+
+1. Before the stage runs, the folder's captions are **converted** from the incoming layout to the
+   chosen one (`rengu_flow.prep.caption_store.convert_captions`): the new layout is written and
+   verified first, then the old files are removed - so training, where a present `captions.json`
+   wins and sidecars are skipped, can never read a stale copy.
+2. The stage then runs *in the new layout*, so line-based merge, skip and tag grounding keep
+   working.
+3. The handle the step emits carries the new `caption_format` / `caption_ext`
+   (`effective_output` through `_inherit`; mirrored by the drawer's `predictOutput`), so the next
+   step reads what this one wrote.
+
+Safety rules of the conversion (`convert_captions`): entries are enumerated as the trainer does
+(every media file, **videos included**); `json -> sidecar` is **refused before writing** when
+`captions.json` has keys that cannot become sidecars (tar members, absent files);
+`sidecar -> json` **merges into the raw existing JSON** so unrelated keys survive; a file that is
+removed **or overwritten** is first copied to `<prep storage>/conversions/<stamp>-<format>/` (the report's `backup`);
+if both layouts are present the layout being converted *from* is the source and wins. Because a
+conversion rewrites a shared folder, **pre-flight refuses a graph in which a caption step that runs
+after a converter, reads the same folder and is not downstream of it** (`_converted_folder_errors`;
+the folder is identified by the step that created it, `_folder_origin`), and the prep runner
+**fails a caption stage that would work in a layout the folder is not in** (`check_layout`:
+sidecar mode with a `captions.json` present, or json mode with sidecars of images/videos present and
+**no** `captions.json`). Two `folder` steps naming the same directory count as one folder. The trainer
+reads only `.txt` sidecars, so the UI warns when a step's sidecar extension is not `.txt`.
+
+The keys are not part of the stage section: `_prep_payload` strips them and instead sets the
+top-level `caption_format` / `caption_ext` to the step's layout plus `convert_from_format` /
+`convert_from_ext` (the handle's), which the prep runner converts from. `materialize_config` adds
+the two keys back into the hashed config **only when not `inherit`**, so a node that never set
+them keeps exactly its old `config_hash` and does not turn stale on upgrade. A chain that starts
+with a tool, with no `folder` node to hold the layout, picks it here.
+
+### Write target: line and mode
+
+The same three steps choose *where* they write and what they do when the line is taken:
+
+| Key | Values | Default |
+|---|---|---|
+| `target_line` | any whole number >= 1 (1-based) | tag `1`, caption `2`, edit_caption `1` |
+| `write_mode` | `skip` / `replace` / `append` | unset: `replace` when `overwrite = true`, else `skip` |
+
+`skip` leaves lines that already have text alone (resumable); `replace` overwrites the line;
+`append` adds to it - tags joined with `, ` without repeating a tag, captions with one space; on an
+empty line it is `replace`. A caption with fewer lines than the target is **padded with empty
+lines**: line 3 on an uncaptioned image writes `["", "", text]`, in sidecars and `captions.json`
+alike. Prep reads such files *positionally* (`CaptionStore.open(..., positional=True)`) so padding
+round-trips; the trainer still ignores blank lines, in sidecars and (as of this change) in
+`captions.json` too. The old `overwrite` key is still read, and `write_mode` is hashed only when it
+differs from what `overwrite` implies, so existing nodes do not turn stale. Tag grounding for the
+captioner still reads line 1. `append` has no resume tracking, so text identical to what already
+ends the line is not appended again.
 
 ### Execution order
 

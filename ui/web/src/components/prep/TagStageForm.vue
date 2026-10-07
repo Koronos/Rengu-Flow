@@ -136,23 +136,9 @@
         <el-input-number v-model="model.batch_size" :min="1" :max="64" placeholder="8" controls-position="right" class="w-full" />
       </el-form-item>
     </div>
-    <el-form-item>
-      <template #label>
-        Target line <FieldHelpIcon :field="help('1-based caption line the tags are written to (default 1 = the tag line). Raise it to keep tags on a separate line, e.g. alongside a natural-language caption on line 2. The skip-when-not-overwriting check looks at this line.')" />
-        <FieldPathTag path="tag.target_line" />
-      </template>
-      <el-input-number v-model="model.target_line" :min="1" :max="10" placeholder="1" controls-position="right" />
-    </el-form-item>
+    <WriteTargetFields :form="model" stage="tag" />
 
     <div class="form-row-2">
-      <el-form-item>
-        <template #label>
-          Overwrite <FieldHelpIcon :field="help('Re-tags images that already have a tag line on line 1, replacing it. Turn on when you are changing models or thresholds and want to regenerate tags for the whole folder from scratch.')" />
-          <FieldPathTag path="tag.overwrite" />
-        </template>
-        <el-switch v-model="model.overwrite" />
-        <el-text class="ml-8" size="small">Overwrite existing captions</el-text>
-      </el-form-item>
       <el-form-item>
         <template #label>
           Quality tags <FieldHelpIcon :field="help('Runs the deepghs aesthetic model and prepends a booru quality tag (masterpiece … worst quality) to each caption, the anime-training convention. Adds a GPU pass and downloads the model on first use.')" />
@@ -180,6 +166,7 @@ import type { PropType } from "vue";
 import { api } from "../../api";
 import FieldHelpIcon from "../FieldHelpIcon.vue";
 import FieldPathTag from "../FieldPathTag.vue";
+import WriteTargetFields from "./WriteTargetFields.vue";
 import { copyKnown, help } from "./formHelpers";
 import { preselectTagModels } from "../../lib/modelPreselect";
 import { modelThresholdDefaults } from "../../lib/prepStageConfig";

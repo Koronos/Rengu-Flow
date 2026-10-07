@@ -15,6 +15,13 @@ export interface ModelThresholds {
   rating: number;
 }
 
+/**
+ * What a step does with a target line that already has text. `""` = never chosen: the server then
+ * derives it from the legacy `overwrite` flag (on = replace, off = skip), and the config carries
+ * no `write_mode` key at all - so a step that was only opened is saved exactly as it was.
+ */
+export type WriteMode = "" | "skip" | "replace" | "append";
+
 export interface PrepCommonForm {
   path: string;
   caption_format: "sidecar" | "json";
@@ -28,6 +35,7 @@ export interface PrepTagForm {
   max_tags: number;
   batch_size: number;
   overwrite: boolean;
+  write_mode: WriteMode;
   quality_tags: boolean;
   underscores: boolean;
   target_line: number;
@@ -50,6 +58,7 @@ export interface PrepCaptionForm {
   batch_size: number;
   use_tags_as_grounding: boolean;
   overwrite: boolean;
+  write_mode: WriteMode;
   max_image_side: number;
   min_image_side: number;
   engine: "hf" | "vllm" | "gguf";
@@ -64,6 +73,9 @@ export interface PrepEditCaptionForm {
   gguf_quantization: "" | "Q8_0" | "Q6_K" | "Q5_K_M" | "Q4_K_M";
   prompt: string;
   overwrite: boolean;
+  write_mode: WriteMode;
+  /** 1-based caption line the instruction is written to (default 1). */
+  target_line: number;
   max_pixels: number;
   max_new_tokens: number;
   temperature: number | null;
@@ -123,6 +135,7 @@ export const defaultTagForm = (): PrepTagForm => ({
   max_tags: 40,
   batch_size: 8,
   overwrite: false,
+  write_mode: "",
   quality_tags: false,
   underscores: false,
   target_line: 1,
@@ -145,6 +158,7 @@ export const defaultCaptionForm = (): PrepCaptionForm => ({
   batch_size: 4,
   use_tags_as_grounding: true,
   overwrite: false,
+  write_mode: "",
   max_image_side: 1536,
   min_image_side: 0,
   engine: "hf",
@@ -159,6 +173,8 @@ export const defaultEditCaptionForm = (): PrepEditCaptionForm => ({
   gguf_quantization: "",
   prompt: "",
   overwrite: false,
+  write_mode: "",
+  target_line: 1,
   max_pixels: 524288,
   max_new_tokens: 96,
   temperature: 0.2,
@@ -200,6 +216,16 @@ export function modelThresholdDefaults(model: PrepModelInfo | undefined): ModelT
   };
 }
 
+/** The legacy `overwrite` flag a form implies: an explicit mode wins, replace is overwrite. */
+export function effectiveOverwrite(f: { write_mode: WriteMode; overwrite: boolean }): boolean {
+  return f.write_mode ? f.write_mode === "replace" : f.overwrite;
+}
+
+/** `{ write_mode }` once a mode was chosen, nothing before - see {@link WriteMode}. */
+export function writeModeKey(f: { write_mode: WriteMode }): { write_mode?: "skip" | "replace" | "append" } {
+  return f.write_mode ? { write_mode: f.write_mode } : {};
+}
+
 /**
  * Build the `config` payload for a prep job from the form state.
  *
@@ -238,7 +264,8 @@ export function buildStageConfig(stage: PrepStage, forms: PrepStageForms): PrepC
         prepend_tags: [...tagForm.prepend_tags],
         max_tags: tagForm.max_tags,
         batch_size: tagForm.batch_size,
-        overwrite: tagForm.overwrite,
+        overwrite: effectiveOverwrite(tagForm),
+        ...writeModeKey(tagForm),
         quality_tags: tagForm.quality_tags,
         underscores: tagForm.underscores,
         target_line: tagForm.target_line,
@@ -266,7 +293,8 @@ export function buildStageConfig(stage: PrepStage, forms: PrepStageForms): PrepC
         exact_generation: captionForm.exact_generation,
         batch_size: captionForm.batch_size,
         use_tags_as_grounding: captionForm.use_tags_as_grounding,
-        overwrite: captionForm.overwrite,
+        overwrite: effectiveOverwrite(captionForm),
+        ...writeModeKey(captionForm),
         max_image_side: captionForm.max_image_side,
         min_image_side: captionForm.min_image_side,
         engine: captionForm.engine,
@@ -285,7 +313,10 @@ export function buildStageConfig(stage: PrepStage, forms: PrepStageForms): PrepC
         model: f.model,
         gguf_quantization: f.gguf_quantization,
         prompt: f.prompt,
-        overwrite: f.overwrite,
+        overwrite: effectiveOverwrite(f),
+        ...writeModeKey(f),
+        // Omitted at its default so an edit step that was only opened keeps its saved config.
+        ...(f.target_line !== 1 ? { target_line: f.target_line } : {}),
         max_pixels: f.max_pixels,
         max_new_tokens: f.max_new_tokens,
         temperature: f.temperature,

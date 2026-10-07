@@ -124,8 +124,10 @@
             :model-value="node"
             :graph="graph"
             :source-paths="sourcePaths"
+            :tool-io="toolIo"
             :disabled="readOnly"
             @update:model-value="emit('update:node', $event)"
+            @repoint="(sourceId) => emit('repoint', node!.id, sourceId)"
           />
           <el-divider v-if="node.type !== 'folder'" />
 
@@ -164,28 +166,21 @@
             />
 
             <!--
-              The caption layout is the handle's, not the step's (`workflow_nodes._prep_payload`
-              drops any per-node copy), so it is shown here read-only with a way to the step that
-              actually sets it — otherwise a user looking for "txt or json" on the captioning step
-              finds nothing at all.
+              Where this step keeps its captions. By default it is the edge's layout ("Same as
+              input", with the step that sets it named and a way to it); choosing sidecar or
+              captions.json here makes the step convert the folder first and hand the new layout on
+              (`workflow_nodes._prep_payload`), which is also the only place a chain that starts with
+              a tool - no source folder - can choose.
             -->
             <div v-if="showsCaptionLayout" class="node-drawer__layout">
-              <el-text size="small">
-                Captions: <strong>{{ upcomingLayoutLabel }}</strong>
-                <template v-if="captionLayoutOrigin">
-                  · set on {{ ordinalGlyph(ordinals(graph)[captionLayoutOrigin.id] ?? 0) }}
-                  {{ captionLayoutOrigin.title }}
-                </template>
-              </el-text>
-              <el-button
-                v-if="captionLayoutOrigin && captionLayoutOrigin.type === 'folder'"
-                size="small"
-                link
-                type="primary"
-                @click="emit('open-node', captionLayoutOrigin.id)"
-              >
-                Change format
-              </el-button>
+              <CaptionOutputFormat
+                v-model="outputForm"
+                :inherited-label="upcomingLayoutLabel"
+                :origin-text="captionLayoutOriginText"
+                :show-change-link="originHasFormatControl"
+                :disabled="readOnly"
+                @open-origin="captionLayoutOrigin && emit('open-node', captionLayoutOrigin.id)"
+              />
             </div>
 
             <TagStageForm
@@ -284,7 +279,8 @@
                 <div class="node-drawer__fact">
                   <dt>Folder</dt>
                   <dd>
-                    <code class="node-drawer__path">{{ inputHandle?.path || "—" }}</code>
+                    <code v-if="inputHandle || !inputRuntimeNote" class="node-drawer__path">{{ inputHandle?.path || "—" }}</code>
+                    <el-text v-else size="small" type="warning">{{ inputRuntimeNote }}</el-text>
                     <el-tag
                       v-if="inputHandle"
                       size="small"
@@ -341,12 +337,13 @@
           <dl class="node-drawer__facts">
             <div class="node-drawer__fact">
               <dt>Rule</dt>
-              <dd>{{ describeOutput(node) }}</dd>
+              <dd>{{ describeOutput(node, toolIoOf(node, toolIo)) }}</dd>
             </div>
             <div v-if="emits" class="node-drawer__fact">
               <dt>Emits</dt>
               <dd>
-                <code class="node-drawer__path">{{ outputHandle?.path || "—" }}</code>
+                <code v-if="outputHandle || !outputRuntimeNote" class="node-drawer__path">{{ outputHandle?.path || "—" }}</code>
+                <el-text v-else size="small" type="warning">{{ outputRuntimeNote }}</el-text>
                 <el-tag
                   v-if="outputHandle"
                   size="small"
@@ -402,6 +399,7 @@
               :prompt-options="promptOptions"
               :preview-text="previewText"
               :preview-native="previewNative"
+              :caption-format-label="outputFormatLabel(outputConfigExtras)"
             />
             <el-alert
               v-if="reportNotRun"
@@ -472,6 +470,7 @@ import NodeRuntimeFields from "./nodeforms/NodeRuntimeFields.vue";
 import FolderNodeForm from "./nodeforms/FolderNodeForm.vue";
 import ToolNodeForm from "./nodeforms/ToolNodeForm.vue";
 import TrainNodeForm from "./nodeforms/TrainNodeForm.vue";
+import CaptionOutputFormat, { type CaptionOutputValue } from "./nodeforms/CaptionOutputFormat.vue";
 
 import PrepCommonFields from "../prep/PrepCommonFields.vue";
 import TagStageForm from "../prep/TagStageForm.vue";
@@ -493,6 +492,10 @@ import {
   describeOutput,
   emitsHandle,
   nodeTypeLabel,
+  outputFormatChoice,
+  outputFormatLabel,
+  toolIoOf,
+  type ToolIoMap,
 } from "../../lib/workflowNodeTypes";
 import { resolveText } from "../../lib/workflowVars";
 import {
@@ -542,6 +545,8 @@ const props = defineProps({
    * `useWorkflowEditor.mutate`, and refusing it *visibly*, here, is the difference between the
    * user being told "Stop to edit" and losing a keystroke to a control that looked live.
    */
+  /** What each Toolbox tool declares it takes and gives (`tool_id` -> io). */
+  toolIo: { type: Object as PropType<ToolIoMap>, default: () => ({}) },
   readOnly: { type: Boolean, default: false },
 });
 
@@ -552,6 +557,8 @@ const emit = defineEmits<{
   (e: "run-from", nodeId: string): void;
   /** Open another step's drawer — the source folder, to change the caption layout there. */
   (e: "open-node", nodeId: string): void;
+  /** Connect a step to one further down: the graph reorders, so the page applies it. */
+  (e: "repoint", nodeId: string, sourceId: string | null): void;
 }>();
 
 const { isMobile } = useBreakpoint();
@@ -606,6 +613,18 @@ const statusChip = computed(() => {
 
 const DEFAULT_HANDLE = { caption_format: "sidecar", caption_ext: ".txt" };
 
+/** A tool that declares it returns a folder: the folder is decided when it runs, not before. */
+function decidedAtRunTime(node: WorkflowNode): boolean {
+  return node.type === "tool" && toolIoOf(node, props.toolIo)?.output === "folder";
+}
+
+/** A tool that declares it hands nothing on emits no handle (`effective_output(tool_output="none")`). */
+function emitsNothing(node: WorkflowNode): boolean {
+  return node.type === "tool" && toolIoOf(node, props.toolIo)?.output === "none";
+}
+
+const RUNTIME_FOLDER_NOTE = "a new folder, decided when this step runs";
+
 function inherit(
   path: string,
   input: DatasetHandle | null,
@@ -646,16 +665,27 @@ function predictOutput(node: WorkflowNode, input: DatasetHandle | null): Dataset
     }
     case "prep.tag":
     case "prep.caption":
-    case "prep.edit_caption":
+    case "prep.edit_caption": {
+      // The step's own caption layout, when it picks one (`workflow_graph.caption_output_override`).
+      if (!input) return input;
+      const choice = outputFormatChoice(config);
+      if (choice === "json") return { ...input, caption_format: "json" };
+      if (choice === "sidecar") {
+        const ext = String(config.output_ext ?? "").trim() || ".txt";
+        return { ...input, caption_format: "sidecar", caption_ext: ext.startsWith(".") ? ext : `.${ext}` };
+      }
+      return input;
+    }
     case "prep.quality":
     case "prep.index":
       // `prep.quality`'s output_dir is the QUARANTINE folder, not the result: the surviving
       // dataset is still the input folder. Reading it here captions the reject pile.
       return input;
     case "tool":
-      // A tool that returns nothing passes its input through, which is the only outcome that can
-      // be predicted without running it.
-      return input;
+      // Undeclared: a tool that returns nothing passes its input through, the only outcome that
+      // can be predicted without running it. A tool declaring it returns a folder has no
+      // predictable one (decided when it runs); one declaring `none` emits no handle at all.
+      return decidedAtRunTime(node) || emitsNothing(node) ? null : input;
     case "train":
       return null;
     default:
@@ -684,8 +714,24 @@ const sourcePaths = computed(() => {
   for (const [id, entry] of Object.entries(handles.value)) {
     if (entry.handle) out[id] = entry.handle.path;
   }
+  // A folder-declaring tool that has not run: say so instead of showing nothing (or a fake path).
+  for (const candidate of props.graph.nodes) {
+    if (!out[candidate.id] && decidedAtRunTime(candidate)) out[candidate.id] = RUNTIME_FOLDER_NOTE;
+  }
   return out;
 });
+
+/** Input tab: the source emits a folder only once it has run. */
+const inputRuntimeNote = computed(() =>
+  sourceNode.value && decidedAtRunTime(sourceNode.value) && !inputHandle.value
+    ? `${RUNTIME_FOLDER_NOTE.replace("this step", sourceNode.value.title)}`
+    : "",
+);
+
+/** Output tab: this step is a folder-declaring tool that has not run. */
+const outputRuntimeNote = computed(() =>
+  props.node && decidedAtRunTime(props.node) && !outputHandle.value ? RUNTIME_FOLDER_NOTE : "",
+);
 
 const sourceNode = computed(() =>
   props.node?.from ? props.graph.nodes.find((n) => n.id === props.node?.from) : undefined,
@@ -790,6 +836,20 @@ const captionLayoutOrigin = computed<WorkflowNode | null>(() => {
   }
   return origin ?? null;
 });
+
+/** `① Source folder` - the step that sets the incoming layout, for the "set on" hint. */
+const captionLayoutOriginText = computed(() => {
+  const origin = captionLayoutOrigin.value;
+  if (!origin) return "";
+  return `${ordinalGlyph(ordinals(props.graph)[origin.id] ?? 0)} ${origin.title}`;
+});
+
+/** Only steps with a caption-format control of their own can be sent to from here. */
+const originHasFormatControl = computed(() =>
+  ["folder", "prep.tag", "prep.caption", "prep.edit_caption"].includes(
+    captionLayoutOrigin.value?.type ?? "",
+  ),
+);
 
 /** The summary panel shows the folder the step will actually use: the edge's, when it has one. */
 const summaryEditCaptionForm = computed(() => ({
@@ -950,6 +1010,27 @@ const previewText = ref("");
 const previewNative = ref(false);
 
 /**
+ * The step's own caption layout (`output_format` / `output_ext` in its config). Not part of any
+ * stage form - it belongs to the node - so it is seeded from the node on every selection and
+ * merged into `builtConfig`, which is what keeps the stage forms' whole-config writes from
+ * dropping it.
+ */
+const outputForm = ref<CaptionOutputValue>({ format: "inherit", ext: ".txt" });
+
+function outputFormOf(config: Record<string, unknown> | undefined): CaptionOutputValue {
+  const ext = typeof config?.output_ext === "string" && config.output_ext ? config.output_ext : ".txt";
+  return { format: outputFormatChoice(config), ext };
+}
+
+/** The keys `outputForm` adds to a config: none while it inherits, so an untouched step is unchanged. */
+const outputConfigExtras = computed<Record<string, unknown>>(() => {
+  if (!showsCaptionLayout.value) return {};
+  const { format, ext } = outputForm.value;
+  if (format === "inherit") return {};
+  return format === "json" ? { output_format: "json" } : { output_format: "sidecar", output_ext: ext || ".txt" };
+});
+
+/**
  * The node's config, handed to the stage form as its `seed`. The forms copy only the keys they
  * know, so a config written by a newer app version degrades instead of breaking — the same
  * tolerance `parse_prep_config` applies server-side.
@@ -1002,6 +1083,7 @@ watch(
     Object.assign(cleanForm.value, defaultCleanForm());
     Object.assign(qualityForm.value, defaultQualityForm());
     Object.assign(indexForm.value, defaultIndexForm());
+    outputForm.value = outputFormOf(props.node?.config);
     previewText.value = "";
     previewNative.value = false;
     tab.value = "configure";
@@ -1041,7 +1123,8 @@ const builtConfig = computed<Record<string, unknown> | null>(() => {
     qualityForm: qualityForm.value,
     indexForm: indexForm.value,
   }) as unknown as Record<string, unknown>;
-  return (payload[stage] as Record<string, unknown>) ?? null;
+  const section = (payload[stage] as Record<string, unknown>) ?? null;
+  return section ? { ...section, ...outputConfigExtras.value } : null;
 });
 
 /**

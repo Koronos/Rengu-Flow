@@ -23,6 +23,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import re
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import asdict, dataclass, field
@@ -43,6 +44,30 @@ TOOL_RETURN_ERROR = (
 _DEFAULT_CAPTION_FORMAT = "sidecar"
 _DEFAULT_CAPTION_EXT = ".txt"
 _DEFAULT_CONTROL_PATH = ""
+
+#: Node types whose caption layout the step itself may choose (``output_format`` in its config).
+CAPTION_OUTPUT_TYPES = ("prep.tag", "prep.caption", "prep.edit_caption")
+OUTPUT_FORMAT_KEY = "output_format"
+OUTPUT_EXT_KEY = "output_ext"
+#: ``inherit`` (the default, and what a node that never set it means) keeps the incoming layout.
+OUTPUT_FORMATS = ("inherit", "sidecar", "json")
+
+#: Stage fields added after workflows shipped. A node that leaves one at its default must hash
+#: exactly as it did before the field existed, or every saved workflow turns stale on upgrade.
+_LATE_STAGE_FIELDS = {
+    "tag": ("write_mode",),
+    "caption": ("write_mode",),
+    "edit_caption": ("write_mode", "target_line"),
+}
+
+#: What a tool declares about the folder it takes and gives (``io`` in its ``tool.json``).
+TOOL_OUTPUT_FOLDER = "folder"
+TOOL_OUTPUT_PASSTHROUGH = "passthrough"
+TOOL_OUTPUT_NONE = "none"
+TOOL_FOLDER_ERROR = (
+    "The tool declares it outputs a folder, but it returned no folder path. "
+    "Return the folder path (or a dict with a 'path' key)."
+)
 
 #: ``$$`` (escaped literal ``$``) or ``${name}``. One regex for substitution *and* reference
 #: collection, so both agree on what the escape hides.
@@ -435,7 +460,11 @@ def handle_from_dict(data: Any) -> DatasetHandle | None:
 
 
 def _prep_config_errors(
-    node: WorkflowNode, graph: WorkflowGraph, where: str, handle: DatasetHandle | None = None
+    node: WorkflowNode,
+    graph: WorkflowGraph,
+    where: str,
+    handle: DatasetHandle | None = None,
+    runtime_unknown: bool = False,
 ) -> list[str]:
     """``validate_for_stage`` for one ``prep.*`` node — the *launch* check, run at pre-flight.
 
@@ -447,7 +476,9 @@ def _prep_config_errors(
     *handle* is the node's **predicted** input (:func:`_predicted_handles`). Only its
     ``control_path`` is used: unlike the targets' ``path``, the control folder is not produced by
     any step — a source folder names one that exists before the run starts — so judging it here is
-    not the false positive :func:`_preflight_path` exists to avoid.
+    not the false positive :func:`_preflight_path` exists to avoid. *runtime_unknown*: the folder
+    comes from a tool that decides it when it runs, so a control folder its returned dict may carry
+    is not knowable yet - that one check is skipped rather than failed.
     """
     stage = node.type.split(".", 1)[1]
     # Imported lazily, like :func:`materialize_config`: routes that only read a graph must not pay
@@ -456,10 +487,15 @@ def _prep_config_errors(
 
     if stage not in prep_config.STAGES:
         return []
+    raw_format = str(resolve_config(node, graph.variables).get(OUTPUT_FORMAT_KEY) or "inherit")
+    if node.type in CAPTION_OUTPUT_TYPES and raw_format.strip().lower() not in ("", *OUTPUT_FORMATS):
+        return [f"{where} · output format must be inherit, sidecar or json, got {raw_format!r}"]
     section = materialize_config(node, graph.variables)
     if stage == "edit_caption":
         section["control_path"] = edit_control_path(section, handle)
         if not section["control_path"]:
+            if runtime_unknown:
+                return []
             return [f"{where} · {EDIT_CAPTION_NO_CONTROLS_ERROR}"]
     try:
         parsed = prep_config.parse_prep_config({"path": _preflight_path(), stage: section})
@@ -469,15 +505,68 @@ def _prep_config_errors(
     return []
 
 
+def _tool_io(
+    node: WorkflowNode, tool_io: Mapping[str, Mapping[str, Any]] | None
+) -> Mapping[str, Any]:
+    """What the tool behind a ``tool`` node declares. Unknown/undeclared tools read as defaults."""
+    tool_id = str((node.config or {}).get("tool_id") or "")
+    return (tool_io or {}).get(tool_id) or {}
+
+
+def _tool_output(node: WorkflowNode, tool_io: Mapping[str, Mapping[str, Any]] | None) -> str:
+    if node.type != "tool":
+        return TOOL_OUTPUT_PASSTHROUGH
+    return str(_tool_io(node, tool_io).get("output") or TOOL_OUTPUT_PASSTHROUGH)
+
+
+def _source_problem(
+    source: WorkflowNode,
+    by_id: Mapping[str, WorkflowNode],
+    tool_io: Mapping[str, Mapping[str, Any]] | None,
+) -> str:
+    """Why *source* cannot hand a folder to the step reading it, or "" when it can.
+
+    Only tools can fail to: every other type emits its input folder or its own. A pass-through tool
+    is looked through to the step it passes from, and a source tool (``from: null``) with an
+    *explicitly declared* non-folder output has nothing to pass. A tool that declares nothing is
+    left alone, as before - it may well return a folder at run time.
+    """
+    seen: set[str] = set()
+    current: WorkflowNode | None = source
+    while current is not None and current.type == "tool" and current.enabled:
+        if current.id in seen:
+            return ""
+        seen.add(current.id)
+        info = _tool_io(current, tool_io)
+        output = str(info.get("output") or TOOL_OUTPUT_PASSTHROUGH)
+        label = f"tool {current.title or current.id!r}"
+        if output == TOOL_OUTPUT_NONE:
+            return f"{label} declares that it outputs nothing, so there is no folder to read"
+        if output == TOOL_OUTPUT_FOLDER:
+            return ""
+        if current.source is None:
+            if info.get("output_declared"):
+                return (
+                    f"{label} is a source (it has no input) and does not declare a folder "
+                    "output, so there is no folder to read; set its output to 'folder' in the "
+                    "Toolbox"
+                )
+            return ""
+        current = by_id.get(current.source)
+    return ""
+
+
 def _predicted_handles(
-    graph: WorkflowGraph, saved: Mapping[str, Any]
+    graph: WorkflowGraph,
+    saved: Mapping[str, Any],
+    tool_io: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> dict[str, DatasetHandle | None]:
     """Node id -> the handle it will emit, as far as pre-flight can know it.
 
     Every enabled node is predicted from its resolved config (``effective_output`` with no report),
     which is what it *will* emit this run; a disabled node emits its saved output, which is what a
-    reader of it actually gets. A tool is predicted as a pass-through — the only outcome knowable
-    without running it.
+    reader of it actually gets. A tool is predicted from what it declares (``io.output``): a pass-through by default, `None`
+    (a folder decided at run time, or nothing) otherwise.
     """
     out: dict[str, DatasetHandle | None] = {}
     for node in graph.nodes:
@@ -496,7 +585,9 @@ def _predicted_handles(
             config=resolve_config(node, graph.variables),
         )
         try:
-            out[node.id] = effective_output(resolved, upstream)
+            out[node.id] = effective_output(
+                resolved, upstream, tool_output=_tool_output(node, tool_io)
+            )
         except NodeOutputError:
             out[node.id] = None
     return out
@@ -546,8 +637,94 @@ def _has_saved_output(saved: Mapping[str, Any], node_id: str) -> bool:
     return isinstance(output, Mapping) and bool(output.get("path"))
 
 
+def _folder_origin(
+    node: WorkflowNode,
+    by_id: Mapping[str, WorkflowNode],
+    tool_io: Mapping[str, Mapping[str, Any]] | None,
+) -> str:
+    """Id of the step that *created* the folder *node* emits.
+
+    A folder, a tool that returns a new folder, a non-in-place clean, or a step with no source
+    starts a new folder; everything else works on (and re-emits) the folder it reads.
+    """
+    seen: set[str] = set()
+    current: WorkflowNode | None = node
+    while current is not None and current.id not in seen:
+        seen.add(current.id)
+        creates = (
+            current.source is None
+            or current.type == "folder"
+            or (current.type == "prep.clean" and not current.config.get("in_place"))
+            or (current.type == "tool" and _tool_output(current, tool_io) == TOOL_OUTPUT_FOLDER)
+        )
+        if creates:
+            if current.type == "folder":
+                # Two source folders naming the same directory are one folder.
+                path = os.path.normcase(os.path.normpath(str(current.config.get("path") or "")))
+                if path not in (".", ""):
+                    return f"folder:{path}"
+            return current.id
+        current = by_id.get(current.source or "")
+    return node.id
+
+
+def _converted_folder_errors(
+    graph: WorkflowGraph,
+    by_id: Mapping[str, WorkflowNode],
+    predicted: Mapping[str, DatasetHandle | None],
+    tool_io: Mapping[str, Mapping[str, Any]] | None,
+) -> list[str]:
+    """A step that converts a folder's caption layout must not leave a sibling reading it.
+
+    The conversion rewrites the shared folder, but a step that is not downstream of the converter
+    still holds the *pre-conversion* handle: it would run in the old layout against files that no
+    longer exist (or write sidecars training ignores). So every caption step that runs after a
+    converter, reads the same folder and is not a descendant of it is refused.
+    """
+    errors: list[str] = []
+    nodes = graph.nodes
+    for index, conv in enumerate(nodes):
+        if not (
+            conv.enabled
+            and conv.type in CAPTION_OUTPUT_TYPES
+            and conv.source in by_id
+            and output_format_choice(conv.config) != "inherit"
+        ):
+            continue
+        incoming = predicted.get(conv.source)
+        override = caption_output_override(conv.config, incoming)
+        if (
+            incoming is not None
+            and override
+            and override["caption_format"] == incoming.caption_format
+            and (override["caption_format"] == "json" or override["caption_ext"] == incoming.caption_ext)
+        ):
+            continue  # same layout as it receives: nothing is converted
+        origin = _folder_origin(by_id[conv.source], by_id, tool_io)
+        downstream: set[str] = set()
+        for later in nodes[index + 1 :]:
+            if later.source == conv.id or later.source in downstream:
+                downstream.add(later.id)
+        for later in nodes[index + 1 :]:
+            if (
+                later.enabled
+                and later.type in CAPTION_OUTPUT_TYPES
+                and later.id not in downstream
+                and later.source in by_id
+                and _folder_origin(by_id[later.source], by_id, tool_io) == origin
+            ):
+                errors.append(
+                    f"node {later.id} · reads the folder that node {conv.id} converts to another "
+                    "caption layout, but not through it, so it would still see the old layout; "
+                    f"read from node {conv.id} (or a step below it) or move it above node {conv.id}"
+                )
+    return errors
+
+
 def validate(
-    graph: WorkflowGraph, saved: Mapping[str, Any] | None = None
+    graph: WorkflowGraph,
+    saved: Mapping[str, Any] | None = None,
+    tool_io: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> list[str]:
     """Every error in the graph, at once — pre-flight promises no mid-run surprises.
 
@@ -560,6 +737,10 @@ def validate(
     validation (spec, "Execution order") instead of dying at launch after the steps before it ran.
     ``None`` means nothing is saved.
 
+    *tool_io* is ``{tool_id: {"input", "output", "output_declared"}}`` as the Toolbox resolves it
+    (``toolbox.resolve_io``); the graph stays pure, so the caller reads it. A step reading from a
+    tool that declares no folder output is refused here rather than at launch.
+
     Cycles are not checked: ``from`` pointing only backwards makes them impossible to express.
     """
     errors: list[str] = []
@@ -568,7 +749,7 @@ def validate(
     positions = {node.id: index for index, node in enumerate(graph.nodes)}
     by_id = {node.id: node for node in graph.nodes}
     saved = saved or {}
-    predicted = _predicted_handles(graph, saved)
+    predicted = _predicted_handles(graph, saved, tool_io)
 
     for index, node in enumerate(graph.nodes):
         where = f"node {node.id}"
@@ -607,6 +788,10 @@ def validate(
                 f"{where} · from {node.source!r} is disabled and has no saved output; "
                 "enable it or point this step at another source"
             )
+        elif node.enabled:
+            problem = _source_problem(by_id[node.source], by_id, tool_io)
+            if problem:
+                errors.append(f"{where} · reads from {problem}")
 
         unresolved = False
         for path, name in _node_refs(node):
@@ -619,8 +804,18 @@ def validate(
         # the one the user actually has to fix.
         if node.enabled and spec is not None and node.type.startswith("prep.") and not unresolved:
             handle = predicted.get(node.source) if node.source else None
-            errors.extend(_prep_config_errors(node, graph, where, handle))
+            unknown = (
+                handle is None
+                and node.source is not None
+                and node.source in by_id
+                and getattr(
+                    by_id.get(_folder_origin(by_id[node.source], by_id, tool_io)), "type", ""
+                )
+                == "tool"
+            )
+            errors.extend(_prep_config_errors(node, graph, where, handle, unknown))
             errors.extend(_edit_dataset_errors(node, graph, where, handle))
+    errors.extend(_converted_folder_errors(graph, by_id, predicted, tool_io))
     return errors
 
 
@@ -660,7 +855,22 @@ def materialize_config(
     if stage not in prep_config.STAGES:
         return resolved
     parsed = prep_config.parse_prep_config({stage: resolved})
-    return asdict(getattr(parsed, stage))
+    section = asdict(getattr(parsed, stage))
+    defaults = asdict(type(getattr(parsed, stage))())
+    for key in _LATE_STAGE_FIELDS.get(stage, ()):
+        if section.get(key) == defaults.get(key):
+            section.pop(key, None)
+    # A ``write_mode`` that only restates what the legacy ``overwrite`` flag already says (what the
+    # editor writes once a mode is picked) changes nothing about the run: it must not change the hash.
+    if section.get("write_mode") == ("replace" if section.get("overwrite") else "skip"):
+        section.pop("write_mode", None)
+    if node.type in CAPTION_OUTPUT_TYPES:
+        choice = output_format_choice(resolved)
+        if choice != "inherit":
+            section[OUTPUT_FORMAT_KEY] = choice
+            if choice == "sidecar":
+                section[OUTPUT_EXT_KEY] = _norm_ext(resolved.get(OUTPUT_EXT_KEY))
+    return section
 
 
 def node_config_hash(
@@ -751,6 +961,37 @@ def compute_stale(
 # ------------------------------------------------------------------------------ output rule
 
 
+def _norm_ext(value: Any) -> str:
+    ext = str(value or "").strip() or _DEFAULT_CAPTION_EXT
+    return ext if ext.startswith(".") else f".{ext}"
+
+
+def output_format_choice(config: Mapping[str, Any]) -> str:
+    """``inherit`` | ``sidecar`` | ``json`` from a node config; anything unknown reads as inherit."""
+    value = str(config.get(OUTPUT_FORMAT_KEY) or "").strip().lower()
+    return value if value in ("sidecar", "json") else "inherit"
+
+
+def caption_output_override(
+    config: Mapping[str, Any], input_handle: DatasetHandle | None
+) -> dict[str, str] | None:
+    """The ``caption_format`` / ``caption_ext`` a tag / caption / edit_caption step emits, or ``None``.
+
+    ``None`` is *inherit*: the step writes in the layout it reads and emits its input handle
+    unchanged. ``json`` keeps the incoming extension (it is meaningless for ``captions.json`` and
+    keeping it leaves the handle comparable); ``sidecar`` carries ``output_ext`` (default ``.txt``).
+    """
+    choice = output_format_choice(config)
+    if choice == "inherit":
+        return None
+    if choice == "json":
+        return {
+            "caption_format": "json",
+            "caption_ext": input_handle.caption_ext if input_handle else _DEFAULT_CAPTION_EXT,
+        }
+    return {"caption_format": "sidecar", "caption_ext": _norm_ext(config.get(OUTPUT_EXT_KEY))}
+
+
 def _inherit(
     path: str, input_handle: DatasetHandle | None, overrides: Mapping[str, Any] | None = None
 ) -> DatasetHandle:
@@ -772,6 +1013,7 @@ def effective_output(
     node: WorkflowNode,
     input_handle: DatasetHandle | None = None,
     report: Any = None,
+    tool_output: str = TOOL_OUTPUT_PASSTHROUGH,
 ) -> DatasetHandle | None:
     """The handle a node emits — the normative table of the spec.
 
@@ -803,6 +1045,13 @@ def effective_output(
             out = str(Path(input_handle.path) / "cleaned")
         return _inherit(out or "", input_handle)
 
+    if node_type in CAPTION_OUTPUT_TYPES and input_handle is not None:
+        # The step's own output format, when it has one: it converts the folder to that layout
+        # before it runs (``workflow_nodes._prep_payload``) and so emits the new layout.
+        override = caption_output_override(node.config, input_handle)
+        if override:
+            return _inherit(input_handle.path, input_handle, override)
+
     if node_type in (
         "prep.tag", "prep.caption", "prep.edit_caption", "prep.quality", "prep.index"
     ):
@@ -813,12 +1062,19 @@ def effective_output(
         return input_handle
 
     if node_type == "tool":
+        if tool_output == TOOL_OUTPUT_NONE:
+            return None  # declared: it hands nothing on
         if report is None:
+            # Folder-declaring tool: a folder decided at run time, unknown until it has run.
+            if tool_output == TOOL_OUTPUT_FOLDER:
+                return None
             return input_handle  # in-place mutation or a pure side effect
         if isinstance(report, str):
             return _inherit(report, input_handle)
         if isinstance(report, Mapping) and report.get("path"):
             return _inherit(str(report["path"]), input_handle, report)
+        if tool_output == TOOL_OUTPUT_FOLDER:
+            raise NodeOutputError(TOOL_FOLDER_ERROR)
         raise NodeOutputError(TOOL_RETURN_ERROR)
 
     # ``train`` is terminal and fire-and-forget: it emits nothing.

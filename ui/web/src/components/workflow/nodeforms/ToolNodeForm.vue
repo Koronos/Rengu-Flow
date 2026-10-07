@@ -51,6 +51,14 @@
 
     <template v-if="tool">
       <el-alert
+        :type="ioIsDeadEnd ? 'warning' : 'info'"
+        :closable="false"
+        show-icon
+        class="tool-node-form__banner"
+        :title="ioSummary"
+        :description="ioDescription"
+      />
+      <el-alert
         v-if="!declaresPath"
         type="info"
         :closable="false"
@@ -77,6 +85,7 @@ import { computed, onMounted, reactive, ref, watch } from "vue";
 import ToolboxInputsForm from "../../ToolboxInputsForm.vue";
 import { api, type ToolboxTool, type ToolboxToolSummary } from "../../../api";
 import { formatError } from "../../../lib/formatError";
+import { describeToolInput, describeToolOutput } from "../../../lib/workflowNodeTypes";
 
 const config = defineModel<Record<string, unknown>>({ required: true });
 
@@ -132,6 +141,28 @@ watch(
   },
   { deep: true },
 );
+
+/** What this tool takes and gives, as the author declared it (or as it behaved before `io`). */
+const ioSummary = computed(() => {
+  const io = tool.value?.io;
+  return `${describeToolInput(io)}. ${describeToolOutput(io)}.`;
+});
+
+const ioIsDeadEnd = computed(() => tool.value?.io?.output === "none");
+
+const ioDescription = computed(() => {
+  const io = tool.value?.io;
+  if (io?.output === "none") {
+    return "A step reading from this tool fails validation. Declare an output in the Toolbox if it should feed the next step.";
+  }
+  if (io?.output === "folder") {
+    return "If it returns no folder path the step fails. Steps below read the folder it returns.";
+  }
+  if (!io?.output_declared) {
+    return "Not declared in the Toolbox: the tool is treated as working in place. Declare its output there to use it as a source (for example a tool that extracts images).";
+  }
+  return "";
+});
 
 const declaresPath = computed(() =>
   (tool.value?.inputs ?? []).some((input) => input.param === "path"),

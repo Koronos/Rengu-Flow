@@ -45,6 +45,23 @@ Each declared input maps to one parameter of the entrypoint:
 
 The **parameter name** field must match exactly the name in the function signature.
 
+### In a workflow (optional)
+
+A [workflow](workflows.md#tool-steps) can run your tool as a step. By default it is assumed to work
+in place: it takes the incoming folder (if it declares a `path` input) and passes it on. If your
+tool **creates a folder** — extracting images from videos, exporting a subset — say so under **In a
+workflow** in the form, so the workflow can wire it like any other step:
+
+| Setting | Values | Default |
+|---|---|---|
+| **Takes** | *The incoming dataset folder* or *No folder* (it can start a workflow) | Not declared: the folder, if the tool has a `path` input |
+| **Gives** | *A new folder* (return its path), *The same folder, worked on in place*, or *Nothing* (no step can read from it) | Not declared: works in place |
+
+It is stored in `tool.json` as `"io": { "input": "none", "output": "folder" }`; both keys are
+optional. For an "extract images" tool the declaration is `input = none`, `output = folder`, and the
+function ends with `return str(out_dir)`. Details and what the workflow checks:
+[Telling a workflow what your tool takes and gives](workflows.md#telling-a-workflow-what-your-tool-takes-and-gives).
+
 ### Required packages
 
 The **Required packages** field lists pip-style dependencies (one per line). These become

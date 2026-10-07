@@ -871,6 +871,8 @@ export interface PrepTagConfig {
   underscores?: boolean;
   /** 1-based caption line to write tags to (default 1 = the tag line). */
   target_line?: number;
+  /** skip | replace | append; absent = derived from `overwrite`. */
+  write_mode?: "skip" | "replace" | "append";
   /** Per-model confidence/category overrides, keyed by model id. */
   overrides?: Record<string, Record<string, number | boolean>>;
 }
@@ -896,6 +898,7 @@ export interface PrepCaptionConfig {
   batch_size: number;
   use_tags_as_grounding: boolean;
   overwrite: boolean;
+  write_mode?: "skip" | "replace" | "append";
   max_image_side: number;
   min_image_side: number;
   engine?: "hf" | "vllm" | "gguf";
@@ -914,6 +917,9 @@ export interface PrepEditCaptionConfig {
   /** "" = the default edit-instruction prompt. */
   prompt: string;
   overwrite: boolean;
+  write_mode?: "skip" | "replace" | "append";
+  /** 1-based caption line the instruction is written to (default 1). */
+  target_line?: number;
   /** Pixel cap per image sent to the VLM; sets the llama-server context. */
   max_pixels: number;
   max_new_tokens: number;

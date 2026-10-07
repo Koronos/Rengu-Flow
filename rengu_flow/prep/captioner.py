@@ -22,6 +22,7 @@ from typing import Callable, Optional
 
 from PIL import Image
 
+from rengu_flow.prep.caption_store import effective_write_mode
 from rengu_flow.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -100,6 +101,7 @@ def captioner_config_from_stage(stage) -> "CaptionerConfig":
         batch_size=stage.batch_size,
         use_tags_as_grounding=stage.use_tags_as_grounding,
         overwrite=stage.overwrite,
+        write_mode=getattr(stage, "write_mode", ""),
         max_image_side=stage.max_image_side,
         min_image_side=stage.min_image_side,
         engine=stage.engine,
@@ -483,6 +485,8 @@ class CaptionerConfig:
     exact_generation: bool = False
     use_tags_as_grounding: bool = True   # only ToriiGate uses it
     overwrite: bool = False              # if False, skip images that already have line 2
+    # "" = derive from `overwrite`; else "skip" | "replace" | "append" (joined with a space).
+    write_mode: str = ""
     # The trainer's bucketing does the real resize later, so raw datasets can carry
     # 8K originals (decode RAM; dynamic-resolution VLMs explode image-token counts)
     # or thumbnails (garbage captions). Cap the long side before the processor and
@@ -1035,7 +1039,7 @@ def _caption_via_vllm(
                         and not config.prompt
                     ):
                         caption = scrub_trait_clauses(caption)
-                    cs.set_line(key, target_idx, caption)
+                    cs.write_line(key, target_idx, caption, effective_write_mode(config.write_mode, config.overwrite))
                     captioned += 1
                     cs.save()  # incremental: a crash mid-run keeps everything done so far
                     if on_progress is not None:
@@ -1138,7 +1142,7 @@ def _caption_via_gguf(
                     and not config.prompt
                 ):
                     caption = scrub_trait_clauses(caption)
-                cs.set_line(key, target_idx, caption)
+                cs.write_line(key, target_idx, caption, effective_write_mode(config.write_mode, config.overwrite))
                 captioned += 1
                 cs.save()  # incremental: a crash keeps everything done so far
                 if on_progress is not None:
@@ -1168,25 +1172,25 @@ def caption_folder(
         failed     list  -- keys that raised an error
         stopped    bool  -- True if should_stop() triggered early exit
     """
-    from rengu_flow.prep.caption_store import CaptionStore
+    from rengu_flow.prep.caption_store import WRITE_SKIP, CaptionStore
     from rengu_flow.utils.common import empty_cuda_cache
 
     folder = Path(folder)
-    cs = CaptionStore.open(folder, fmt=fmt, ext=ext)
+    cs = CaptionStore.open(folder, fmt=fmt, ext=ext, positional=True)
 
     factory = backend_factory if backend_factory is not None else _default_backend_factory
     backend: Optional[CaptionBackend] = None
 
     all_keys = cs.keys()
-    # 1-based target line -> 0-based index; line 1 is the tag line, so captions
-    # start at index 1. Higher targets add caption variants (one per line).
-    target_idx = max(1, config.target_line - 1)
+    # 1-based target line -> 0-based index (default line 2: line 1 is the tag line;
+    # any line works, higher ones add caption variants).
+    target_idx = max(0, int(config.target_line) - 1)
+    write_mode = effective_write_mode(config.write_mode, config.overwrite)
     # Partition into to-caption / skipped
     to_caption: list[str] = []
     skipped = 0
     for key in all_keys:
-        lines = cs.get_lines(key)
-        if not config.overwrite and len(lines) > target_idx and lines[target_idx]:
+        if write_mode == WRITE_SKIP and cs.line_has_content(key, target_idx):
             skipped += 1
         else:
             to_caption.append(key)
@@ -1295,7 +1299,7 @@ def caption_folder(
                         # leaks an inherent trait despite the instruction. Skipped in
                         # canon mode: deviations from canon MUST survive the caption.
                         caption = scrub_trait_clauses(caption)
-                    cs.set_line(key, target_idx, caption)
+                    cs.write_line(key, target_idx, caption, write_mode)
                     captioned += 1
 
                 # Incremental save after every batch

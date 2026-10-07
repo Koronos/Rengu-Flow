@@ -216,7 +216,8 @@ def register_workflow_routes(app: FastAPI) -> None:
         graph = workflow_graph.parse_graph(json.loads(record.content or "{}"))
         # The saved outputs decide whether a disabled `from` can still feed its reader.
         saved = (json.loads(record.state_json or "{}") or {}).get("nodes") or {}
-        return {"errors": workflow_graph.validate(graph, saved)}
+        tool_io = workflow_nodes.graph_tool_io(graph)
+        return {"errors": workflow_graph.validate(graph, saved, tool_io)}
 
     @app.post(f"{API_PREFIX}/workflows/{{workflow_id}}/start")
     def start_workflow_route(

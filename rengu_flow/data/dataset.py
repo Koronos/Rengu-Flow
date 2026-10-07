@@ -94,6 +94,9 @@ def load_captions_json(path) -> dict:
             raise ValueError(
                 f"{path}: entry {key!r} must be a string or a list of strings, got {value!r}"
             )
+        # Prep pads a caption with empty lines so text can sit on line 3; like a sidecar, blank
+        # lines are placeholders, never a caption variant the model could be trained on.
+        value = [c for c in value if c.strip()] or value[:1]
         out[key] = value
     return out
 

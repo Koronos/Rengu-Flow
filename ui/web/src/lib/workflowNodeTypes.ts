@@ -209,22 +209,85 @@ export function defaultNeedsGpu(type: string, config?: Record<string, unknown> |
   return spec.needsGpu;
 }
 
+/** What a Toolbox tool declares about the folder it takes and gives (`io` in its `tool.json`). */
+export interface ToolIo {
+  input: "folder" | "none";
+  output: "folder" | "passthrough" | "none";
+  /** `true` when the author declared the output; a workflow only judges what was declared. */
+  output_declared?: boolean;
+  input_declared?: boolean;
+}
+
+/** `tool_id` -> its declared io, as the editor loads it from the Toolbox list. */
+export type ToolIoMap = Record<string, ToolIo | undefined>;
+
+/** The io of the tool behind a `tool` node; `undefined` for any other node or an unknown tool. */
+export function toolIoOf(node: NodeTypeLike, map: ToolIoMap | undefined): ToolIo | undefined {
+  if (node.type !== "tool") return undefined;
+  const id = node.config?.tool_id;
+  return typeof id === "string" && id ? map?.[id] : undefined;
+}
+
+/** What a tool takes, in the words the From select and the tool form share. */
+export function describeToolInput(io: ToolIo | undefined): string {
+  if (!io) return "";
+  return io.input === "folder"
+    ? "Takes the incoming dataset folder"
+    : "Takes no folder (it can start a workflow)";
+}
+
+/** What a tool gives, in the words the From select and the tool form share. */
+export function describeToolOutput(io: ToolIo | undefined): string {
+  if (!io || io.output === "passthrough") {
+    return "Works in place: passes its input folder on (or the folder it returns)";
+  }
+  if (io.output === "folder") return "Returns a new folder, decided when it runs";
+  return "Hands nothing on: no step can read from it";
+}
+
+/** The caption layout a tag / caption / edit-caption step writes, as a short phrase (or `""`). */
+export function outputFormatChoice(
+  config: Record<string, unknown> | null | undefined,
+): "inherit" | "sidecar" | "json" {
+  // Twin of `workflow_graph.output_format_choice`: trimmed, lower-cased, unknown = inherit.
+  const value = String(config?.output_format ?? "").trim().toLowerCase();
+  return value === "json" || value === "sidecar" ? value : "inherit";
+}
+
+export function outputFormatLabel(config: Record<string, unknown> | null | undefined): string {
+  const format = outputFormatChoice(config);
+  if (format === "json") return "captions.json";
+  if (format === "sidecar") {
+    const ext = typeof config?.output_ext === "string" && config.output_ext ? config.output_ext : ".txt";
+    return `sidecar files (${ext.startsWith(".") ? ext : `.${ext}`})`;
+  }
+  return "";
+}
+
 /**
  * The fixed sentence for a type's output rule — what the card summary and the drawer's Output
  * tab both show. Only `prep.clean` varies with config, because its rule genuinely does
- * (`in_place ? input : (output_dir or <input>/cleaned)`).
+ * (`in_place ? input : (output_dir or <input>/cleaned)`); the caption steps add the layout they
+ * convert to, and a tool follows what it declares.
  */
-export function describeOutput(node: NodeTypeLike): string {
+export function describeOutput(node: NodeTypeLike, toolIo?: ToolIo): string {
   const config = node.config ?? {};
+  const converts = outputFormatLabel(config);
   switch (node.type) {
     case "folder":
       return "Emits its configured folder as the workflow's source";
     case "prep.tag":
-      return "Writes tag sidecars into the input folder and emits it unchanged";
+      return converts
+        ? `Writes tags into the input folder as ${converts} and emits it`
+        : "Writes tag sidecars into the input folder and emits it unchanged";
     case "prep.caption":
-      return "Writes captions into the input folder and emits it unchanged";
+      return converts
+        ? `Writes captions into the input folder as ${converts} and emits it`
+        : "Writes captions into the input folder and emits it unchanged";
     case "prep.edit_caption":
-      return "Writes edit instructions into line 1 of each target's caption and emits the input folder unchanged";
+      return converts
+        ? `Writes edit instructions into each target's caption as ${converts} and emits the input folder`
+        : "Writes edit instructions into line 1 of each target's caption and emits the input folder unchanged";
     case "prep.clean": {
       if (config.in_place) return "Emits the input folder; images are cleaned in place";
       const outputDir = typeof config.output_dir === "string" ? config.output_dir.trim() : "";
@@ -235,6 +298,8 @@ export function describeOutput(node: NodeTypeLike): string {
     case "prep.index":
       return "Writes the quality index outside the dataset and emits the input folder unchanged";
     case "tool":
+      if (toolIo?.output === "folder") return "Emits the new folder the tool returns";
+      if (toolIo?.output === "none") return "Emits nothing; no step can read from this tool";
       return "Emits the folder the tool returns, or the input folder unchanged when it returns nothing";
     case "train":
       return "Emits nothing; training is the end of the chain";

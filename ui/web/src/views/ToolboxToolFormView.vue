@@ -107,6 +107,37 @@
             </div>
           </div>
         </div>
+
+        <!-- Workflow I/O -->
+        <div class="io-section">
+          <h3 class="inputs-section__title">In a workflow</h3>
+          <p class="hint">
+            Optional. Tell a workflow what this tool takes and gives so it can be wired like any
+            other step. A tool that extracts frames, for example, takes no folder and returns the
+            folder it wrote (<code>return str(out_dir)</code>): set <em>Takes</em> to "No folder"
+            and <em>Gives</em> to "A new folder". Left undeclared, a tool behaves as before: it
+            works in place and passes the incoming folder on.
+          </p>
+          <el-form label-position="top">
+            <div class="meta-row">
+              <el-form-item class="io-field" label="Takes">
+                <el-select v-model="ioInput" class="w-full">
+                  <el-option label="Not declared (a tool with a 'path' input takes the folder)" value="" />
+                  <el-option label="The incoming dataset folder" value="folder" />
+                  <el-option label="No folder (it can start a workflow)" value="none" />
+                </el-select>
+              </el-form-item>
+              <el-form-item class="io-field" label="Gives">
+                <el-select v-model="ioOutput" class="w-full">
+                  <el-option label="Not declared (works in place)" value="" />
+                  <el-option label="A new folder (the path it returns)" value="folder" />
+                  <el-option label="The same folder, worked on in place" value="passthrough" />
+                  <el-option label="Nothing (no step can read from it)" value="none" />
+                </el-select>
+              </el-form-item>
+            </div>
+          </el-form>
+        </div>
       </section>
 
       <!-- Run: stays beside the code -->
@@ -157,6 +188,9 @@ const form = reactive<ToolboxToolWrite>({
   inputs: [],
 });
 const requirementsText = ref("");
+// "" = not declared. Declared values live in tool.json under `io`.
+const ioInput = ref<"" | "folder" | "none">("");
+const ioOutput = ref<"" | "folder" | "passthrough" | "none">("");
 const optionsText = reactive<Record<number, string>>({});
 // Bumped on every save so the Run panel remounts and reloads the tool's inputs.
 const runReloadKey = ref(0);
@@ -183,6 +217,11 @@ function syncOptions(i: number) {
 
 async function save() {
   form.requirements = requirementsText.value.split("\n").map((s) => s.trim()).filter(Boolean);
+  // `{}` clears a declaration the tool had before.
+  form.io = {
+    ...(ioInput.value ? { input: ioInput.value } : {}),
+    ...(ioOutput.value ? { output: ioOutput.value } : {}),
+  };
   if (isEdit.value && savedId.value) {
     await api.updateToolboxTool(savedId.value, form);
   } else {
@@ -204,6 +243,10 @@ onMounted(async () => {
     form.script = t.script;
     form.inputs = t.inputs;
     requirementsText.value = t.requirements.join("\n");
+    // Only what the author declared: seeding the resolved defaults would turn them into
+    // declarations on the next save, and seeding nothing clears them.
+    ioInput.value = t.io?.input_declared ? t.io.input : "";
+    ioOutput.value = t.io?.output_declared ? t.io.output : "";
     t.inputs.forEach((inp, i) => {
       if (inp.options) optionsText[i] = inp.options.join(", ");
     });
@@ -249,6 +292,12 @@ onMounted(async () => {
   }
 }
 
+.io-section {
+  margin-top: var(--rf-space-md);
+}
+.io-field {
+  flex: 1 1 0;
+}
 .meta-row {
   display: flex;
   gap: var(--rf-space-sm);

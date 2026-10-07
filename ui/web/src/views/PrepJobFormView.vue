@@ -118,6 +118,8 @@ import { help } from "../components/prep/formHelpers";
 import { formatError } from "../lib/formatError";
 import {
   buildStageConfig,
+  effectiveOverwrite,
+  writeModeKey,
   defaultCaptionForm,
   defaultCleanForm,
   defaultCommonForm,
@@ -256,7 +258,8 @@ async function submit(startNow: boolean): Promise<void> {
             exact_generation: captionForm.exact_generation,
             batch_size: captionForm.batch_size,
             use_tags_as_grounding: captionForm.use_tags_as_grounding,
-            overwrite: captionForm.overwrite,
+            overwrite: effectiveOverwrite(captionForm),
+            ...writeModeKey(captionForm),
             max_image_side: captionForm.max_image_side,
             min_image_side: captionForm.min_image_side,
             engine: captionForm.engine,

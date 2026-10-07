@@ -83,10 +83,12 @@ def _aesthetic_quality_labels(paths, on_progress, should_stop) -> dict:
 
 
 def _run_tag(config: PrepConfig, on_progress, should_stop) -> dict:
-    from rengu_flow.prep.caption_store import CaptionStore
+    from rengu_flow.prep.caption_store import WRITE_SKIP, CaptionStore, effective_write_mode
     from rengu_flow.prep.tagger import KNOWN_TAGGERS
 
-    cs = CaptionStore.open(config.path, fmt=config.caption_format, ext=config.caption_ext)
+    cs = CaptionStore.open(
+        config.path, fmt=config.caption_format, ext=config.caption_ext, positional=True
+    )
     stage = config.tag
 
     unknown = [m for m in stage.models if m not in KNOWN_TAGGERS]
@@ -117,7 +119,8 @@ def _run_tag(config: PrepConfig, on_progress, should_stop) -> dict:
 
     # 1-based target line -> 0-based index. Tags conventionally live on line 1 (index 0); a
     # higher target lets tags ride a different line (e.g. alongside a caption).
-    target_idx = max(0, stage.target_line - 1)
+    target_idx = max(0, int(stage.target_line) - 1)
+    mode = effective_write_mode(stage.write_mode, stage.overwrite)
 
     # Resume: keys this model set already finished in a prior (stopped) run are skipped, on top
     # of the overwrite rule (skip images that already have tags on the target line).
@@ -125,7 +128,7 @@ def _run_tag(config: PrepConfig, on_progress, should_stop) -> dict:
     to_tag = [
         key
         for key in cs.keys()
-        if key not in done_prev and (stage.overwrite or not cs.get_tags(key, target_idx))
+        if key not in done_prev and (mode != WRITE_SKIP or not cs.get_tags(key, target_idx))
     ]
     skipped = len(cs.keys()) - len(to_tag)
     paths = [cs.images[key] for key in to_tag]
@@ -154,7 +157,7 @@ def _run_tag(config: PrepConfig, on_progress, should_stop) -> dict:
                     if stage.underscores:  # match the tag line's form (best quality -> best_quality)
                         qtag = qtag.replace(" ", "_")
                     line = f"{qtag}, {line}"
-                cs.set_line(key, target_idx, line)
+                cs.write_line(key, target_idx, line, mode, sep=", ", tags=True)
                 counters["tagged"] += 1
             done_keys.add(key)
         written.update(cs.save())
@@ -284,6 +287,31 @@ _STAGE_RUNNERS = {
 }
 
 
+def _convert_input_captions(config: PrepConfig) -> dict | None:
+    """Convert the folder's captions into this stage's layout when the step asked for one.
+
+    A workflow step with its own output format runs the stage in *that* format; the folder is still
+    in the one the previous step left, so it is converted first (new layout written and verified,
+    then the old files removed). ``None`` when there is nothing to do.
+    """
+    if not config.convert_from_format:
+        return None
+    from rengu_flow.prep.caption_store import convert_captions
+
+    report = convert_captions(
+        config.path,
+        config.convert_from_format,
+        config.convert_from_ext or ".txt",
+        config.caption_format,
+        config.caption_ext,
+    )
+    logger.info(
+        "prep: converted captions %s -> %s (%d images, %d old files removed)",
+        report["from"], report["to"], report["converted"], report["removed"],
+    )
+    return report
+
+
 def run_stage(config: PrepConfig, stage: str, job_dir: Path) -> int:
     """Run one prep stage to completion. Returns the process exit code."""
     config.validate_for_stage(stage)
@@ -306,7 +334,14 @@ def run_stage(config: PrepConfig, stage: str, job_dir: Path) -> int:
 
     code = 0
     try:
+        conversion = _convert_input_captions(config)
+        if stage in ("tag", "caption", "edit_caption"):
+            from rengu_flow.prep.caption_store import check_layout
+
+            check_layout(config.path, config.caption_format, config.caption_ext)
         report = _STAGE_RUNNERS[stage](config, on_progress, should_stop)
+        if conversion is not None:
+            report["caption_conversion"] = conversion
     except Exception as exc:
         logger.exception("prep %s failed", stage)
         report = {"error": f"{type(exc).__name__}: {exc}"}

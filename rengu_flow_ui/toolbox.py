@@ -86,6 +86,51 @@ def _normalize_inputs(inputs: list[dict] | None) -> list[dict]:
     return out
 
 
+#: What a tool says about the folder it takes and gives (``io`` in ``tool.json``, all optional).
+#: ``input``: ``folder`` (reads the incoming dataset folder) or ``none`` (needs nothing, a source).
+#: ``output``: ``folder`` (returns a new folder path), ``passthrough`` (works in place, the input
+#: folder goes on) or ``none`` (hands nothing on; a workflow cannot continue past it).
+IO_INPUTS = ("folder", "none")
+IO_OUTPUTS = ("folder", "passthrough", "none")
+
+
+def _normalize_io(io: dict | None) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for key, allowed in (("input", IO_INPUTS), ("output", IO_OUTPUTS)):
+        value = (io or {}).get(key)
+        if value in (None, ""):
+            continue
+        if value not in allowed:
+            raise ValueError(f"io.{key} must be one of {', '.join(allowed)}, got {value!r}")
+        out[key] = str(value)
+    return out
+
+
+def resolve_io(data: dict[str, Any]) -> dict[str, Any]:
+    """The effective io of a ``tool.json`` dict: declared values, else today's behaviour.
+
+    Undeclared ``input`` is inferred (``folder`` iff the tool has a ``path`` input, the very rule
+    ``workflow_nodes._build_tool_launch`` injects by); undeclared ``output`` is ``passthrough``.
+    ``*_declared`` says which came from the author - a workflow only judges what was declared.
+    """
+    try:
+        declared = _normalize_io(data.get("io") if isinstance(data.get("io"), dict) else {})
+    except ValueError:  # a hand-edited tool.json: read it as undeclared rather than break the list
+        declared = {}
+    has_path = any(spec.get("param") == "path" for spec in data.get("inputs") or [])
+    return {
+        "input": declared.get("input") or ("folder" if has_path else "none"),
+        "output": declared.get("output") or "passthrough",
+        "input_declared": "input" in declared,
+        "output_declared": "output" in declared,
+    }
+
+
+def tool_io(tool_id: str) -> dict[str, Any]:
+    """:func:`resolve_io` for a stored tool. Raises ``KeyError`` when it does not exist."""
+    return resolve_io(_read_tool_json(tool_id))
+
+
 def _read_tool_json(tool_id: str) -> dict[str, Any]:
     path = _tool_json_path(tool_id)
     if not path.is_file():
@@ -106,6 +151,7 @@ def create_tool(
     requirements: list[str] | None = None,
     script: str = "",
     inputs: list[dict] | None = None,
+    io: dict | None = None,
 ) -> dict[str, Any]:
     settings.toolbox_dir().mkdir(parents=True, exist_ok=True)
     tool_id = _unique_id(slugify(name))
@@ -121,9 +167,12 @@ def create_tool(
         "created_at": now,
         "updated_at": now,
     }
+    normalized_io = _normalize_io(io)
+    if normalized_io:
+        data["io"] = normalized_io
     _write_tool_json(tool_id, data)
     _script_path(tool_id).write_text(script or "", encoding="utf-8")
-    return data
+    return {**data, "io": resolve_io(data)}
 
 
 def get_tool(tool_id: str) -> dict[str, Any]:
@@ -134,6 +183,7 @@ def get_tool(tool_id: str) -> dict[str, Any]:
         else ""
     )
     data["last_run"] = _read_last_run(tool_id)
+    data["io"] = resolve_io(data)
     return data
 
 
@@ -155,6 +205,7 @@ def list_tools() -> list[dict[str, Any]]:
                 "created_at": data["created_at"],
                 "updated_at": data["updated_at"],
                 "last_run_status": (last or {}).get("status", "idle"),
+                "io": resolve_io(data),
             }
         )
     return out
@@ -174,11 +225,17 @@ def update_tool(tool_id: str, **fields: Any) -> dict[str, Any]:
         ]
     if "inputs" in fields:
         data["inputs"] = _normalize_inputs(fields["inputs"])
+    if "io" in fields:
+        normalized_io = _normalize_io(fields["io"])
+        if normalized_io:
+            data["io"] = normalized_io
+        else:
+            data.pop("io", None)
     if "script" in fields:
         _script_path(tool_id).write_text(fields["script"] or "", encoding="utf-8")
     data["updated_at"] = _now_iso()
     _write_tool_json(tool_id, data)
-    return data
+    return {**data, "io": resolve_io(data)}
 
 
 def delete_tool(tool_id: str) -> None:

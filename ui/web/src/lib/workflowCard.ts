@@ -7,7 +7,7 @@
  * **input side**: the models, thresholds and folders the user typed, condensed.
  */
 
-import { nodeTypeLabel } from "./workflowNodeTypes";
+import { nodeTypeLabel, outputFormatLabel } from "./workflowNodeTypes";
 import type { WorkflowGraph, WorkflowNode, WorkflowState } from "../types/workflow";
 
 function text(value: unknown): string {
@@ -20,6 +20,23 @@ function list(value: unknown): string[] {
 
 function num(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/**
+ * What a tag / caption / edit step does to its target line beyond the default: a non-default line,
+ * a write mode other than "skip", and the caption layout it converts to. `defaultLine` is the
+ * stage's own default (tag 1, caption 2, edit 1), so an untouched step reads exactly as before.
+ */
+function writeSummary(config: Record<string, unknown>, defaultLine: number): string[] {
+  const parts: string[] = [];
+  const line = num(config.target_line);
+  if (line != null && line !== defaultLine) parts.push(`line ${line}`);
+  const mode = text(config.write_mode) || (config.overwrite ? "replace" : "");
+  if (mode === "replace") parts.push("overwrite");
+  else if (mode === "append") parts.push("append");
+  const format = outputFormatLabel(config);
+  if (format) parts.push(`→ ${format}`);
+  return parts;
 }
 
 /** `D:/datasets/aoi · sidecar .txt` — the summary line under a card's title. */
@@ -41,20 +58,20 @@ export function nodeConfigSummary(node: WorkflowNode): string {
       parts.push(models.length ? models.join(" + ") : "no tagger selected");
       const maxTags = num(config.max_tags);
       if (maxTags != null) parts.push(`max ${maxTags}`);
-      if (config.overwrite) parts.push("overwrite");
+      parts.push(...writeSummary(config, 1));
       break;
     }
     case "prep.caption": {
       parts.push(text(config.model) || "no model selected");
       const prompt = text(config.prompt);
       parts.push(prompt ? "custom prompt" : text(config.prompt_base) || "descriptive-long");
-      if (config.overwrite) parts.push("overwrite");
+      parts.push(...writeSummary(config, 2));
       break;
     }
     case "prep.edit_caption": {
       parts.push(text(config.model) || "no model selected");
       parts.push(text(config.prompt) ? "custom prompt" : "default prompt");
-      if (config.overwrite) parts.push("overwrite");
+      parts.push(...writeSummary(config, 1));
       break;
     }
     case "prep.clean": {

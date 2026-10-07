@@ -14,6 +14,19 @@ export interface ToolboxInput {
   hint?: string;
 }
 
+/** What a tool declares about the folder it takes and gives (`io` in tool.json). */
+export type ToolboxIoInput = "folder" | "none";
+export type ToolboxIoOutput = "folder" | "passthrough" | "none";
+
+/** The resolved `io`: declared values, else what the tool did before io existed. */
+export interface ToolboxIo {
+  input: ToolboxIoInput;
+  output: ToolboxIoOutput;
+  /** `true` when the author declared it (a workflow only judges what was declared). */
+  input_declared?: boolean;
+  output_declared?: boolean;
+}
+
 export interface ToolboxToolSummary {
   id: string;
   name: string;
@@ -21,6 +34,7 @@ export interface ToolboxToolSummary {
   created_at: string;
   updated_at: string;
   last_run_status: string;
+  io?: ToolboxIo;
 }
 
 export interface ToolboxRun {
@@ -42,6 +56,7 @@ export interface ToolboxTool {
   created_at: string;
   updated_at: string;
   last_run: ToolboxRun | null;
+  io?: ToolboxIo;
 }
 
 export interface ToolboxToolWrite {
@@ -51,6 +66,8 @@ export interface ToolboxToolWrite {
   requirements?: string[];
   script?: string;
   inputs?: ToolboxInput[];
+  /** Only the declared parts; `{}` clears the declaration. */
+  io?: { input?: ToolboxIoInput; output?: ToolboxIoOutput };
 }
 
 import type {

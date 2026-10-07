@@ -107,7 +107,7 @@
           :position="index + 1"
           :chip="chipFor(node)"
           :summary="nodeConfigSummary(node)"
-          :output-sentence="describeOutput(node)"
+          :output-sentence="describeOutput(node, toolIoOf(node, toolIoMap))"
           :stale="Boolean(staleMap[node.id])"
           :percent="percentFor(node.id)"
           :jump="jumpFor(node)"
@@ -175,8 +175,10 @@
       :state="state"
       :stale="staleMap"
       :workflow-id="workflowId"
+      :tool-io="toolIoMap"
       :read-only="readOnly"
       @update:node="onNodeUpdate"
+      @repoint="repointStep"
       @run-node="runNode"
       @run-from="runFrom"
       @open-node="openNode"
@@ -200,11 +202,12 @@ import {
   ordinalGlyph,
   ordinals,
   removeNode,
+  repointNode,
   type MoveDirection,
 } from "../lib/workflowGraph";
 import { gutterRows } from "../lib/workflowGutter";
 import { edgeKey, isJump, skippedBy } from "../lib/workflowLayout";
-import { describeOutput } from "../lib/workflowNodeTypes";
+import { describeOutput, toolIoOf, type ToolIoMap } from "../lib/workflowNodeTypes";
 import { nodeConfigSummary, relativeTime, workflowResultPath } from "../lib/workflowCard";
 import {
   disabledSourceProblems,
@@ -376,6 +379,13 @@ const lastRunLabel = computed(() => {
 
 const tools = ref<ToolboxToolSummary[]>([]);
 
+/** `tool_id` -> what the tool declares it takes and gives; the From select and cards read it. */
+const toolIoMap = computed<ToolIoMap>(() => {
+  const out: ToolIoMap = {};
+  for (const tool of tools.value) if (tool.io) out[tool.id] = tool.io;
+  return out;
+});
+
 /** Node types whose model picker is seeded from the registry at birth (`seedModelDefaults`). */
 const REGISTRY_STAGES: Record<string, PrepStage> = {
   "prep.tag": "tag",
@@ -420,6 +430,14 @@ async function addStep(
 
 function moveStep(id: string, direction: MoveDirection): void {
   editor.mutate((current) => moveNode(current, id, direction));
+}
+
+/**
+ * Connect a step to another one. A source below the step moves it (with the steps that read from
+ * it) right under that source - see `repointNode` - so the list stays in execution order.
+ */
+function repointStep(id: string, sourceId: string | null): void {
+  editor.mutate((current) => repointNode(current, id, sourceId, toolIoMap.value));
 }
 
 function toggleStep(id: string): void {

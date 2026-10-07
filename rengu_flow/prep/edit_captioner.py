@@ -115,23 +115,28 @@ def edit_caption_folder(
     on_progress: Optional[Callable[[int, int, str], None]] = None,
     should_stop: Optional[Callable[[], bool]] = None,
 ) -> dict:
-    """Write an edit instruction on line 1 of every paired target in ``folder``.
+    """Write an edit instruction on the target line (default 1) of every paired target in ``folder``.
 
     ``stage`` is an ``EditCaptionStageConfig``. Targets without a valid control set are
     reported under ``unpaired`` (``"<image>: <reason>"``) and left untouched; targets whose
-    line 1 already has text are skipped unless ``stage.overwrite``.
+    target line already has text are skipped unless ``stage.write_mode`` is replace/append (or the
+    legacy ``stage.overwrite``).
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
     from rengu_flow.prep import gguf_captioner as gg
-    from rengu_flow.prep.caption_store import CaptionStore
+    from rengu_flow.prep.caption_store import WRITE_SKIP, CaptionStore, effective_write_mode
 
-    cs = CaptionStore.open(folder, fmt=fmt, ext=ext, control_path=stage.control_path)
+    cs = CaptionStore.open(
+        folder, fmt=fmt, ext=ext, control_path=stage.control_path, positional=True
+    )
     spec = gg.get_gguf_model(stage.model)
     quant = gg.resolve_quant(spec, stage.gguf_quantization)
 
     paired = [k for k in cs.keys() if k in cs.controls]
-    work = [k for k in paired if stage.overwrite or not (cs.get_lines(k)[:1] or [""])[0]]
+    target_idx = max(0, int(stage.target_line) - 1)
+    mode = effective_write_mode(stage.write_mode, stage.overwrite)
+    work = [k for k in paired if mode != WRITE_SKIP or not cs.line_has_content(k, target_idx)]
     report: dict = {
         "captioned": 0,
         "skipped": len(paired) - len(work),
@@ -198,7 +203,7 @@ def edit_caption_folder(
                 if not instruction:
                     failed.append(key)
                 else:
-                    cs.set_line(key, 0, instruction)
+                    cs.write_line(key, target_idx, instruction, mode)
                     report["captioned"] += 1
                     cs.save()  # incremental: a crash keeps everything done so far
                 if on_progress is not None:

@@ -24,6 +24,46 @@ Prep reads and writes the same caption formats the trainer understands:
 - **captions.json**: one `{ "image.png": ["caption", ...] }` file per folder
   (`caption_format = "json"`).
 
+## Write target: line and mode
+
+The tag, caption and edit-instruction stages all write to **one caption line** and accept the same
+two settings (in the web forms: **Target line** / **Caption line** and **If the line already has
+text**):
+
+| Key | Purpose | Values | Default |
+|---|---|---|---|
+| `target_line` | 1-based line of the caption the text is written to. Any number. | int >= 1 | tag `1`, caption `2`, edit_caption `1` |
+| `write_mode` | What to do when that line already has text | `skip` (leave it; a stopped job resumes), `replace` (overwrite the line), `append` (add to the end of it) | unset: `replace` if `overwrite = true`, else `skip` |
+
+- **Append** joins tags with `, ` and never repeats a tag you already have (case-insensitive);
+  captions and edit instructions are joined with a single space. On an empty line it just writes.
+- **Padding.** If the caption has fewer lines than the target, the lines before it are written empty:
+  line 3 on an image with no caption gives `["", "", "text"]` — a sidecar with two blank lines then
+  the text, or the same list in `captions.json`. Training ignores blank lines, so the padding never
+  becomes an empty caption variant; later prep steps keep each line where it is.
+- **Appending twice.** There is no resume tracking for appended captions, so re-running an
+  `append` step would normally add the text again. As a guard, text identical to what already ends
+  the line is not appended a second time (tags are never repeated). A different caption is appended.
+- **Blank lines are positions.** In the prep stages a blank line in a hand-edited sidecar now counts
+  as a line (so "line 3" means the third line of the file, blank or not). The trainer still skips
+  blank lines. The **tag editor** and **caption editor** still show and save only the non-blank
+  lines, so saving a padded caption there closes its blank lines up; prep jobs never do that.
+- **Wrong layout is refused** (workflow steps and standalone `rengu prep` jobs alike). A tag /
+  caption / edit step fails up front, naming the layout the folder is really in, when it would work
+  in sidecar mode in a folder that holds a `captions.json` (training would ignore what it writes),
+  or in `captions.json` mode in a folder that has **no** `captions.json` but does have sidecars for
+  its images or videos. Leftover sidecars next to an existing `captions.json` are ignored by
+  training and do not block a run. To fix a refusal, set the matching caption format or delete the
+  stray file.
+- **Use `.txt` for sidecars.** Training reads only `.txt` sidecars; a different `caption_ext` is
+  fine for your own tools, but training will see those images as uncaptioned.
+- **The old `overwrite` key still works** (`true` = `replace`), so existing TOML files and saved
+  workflow steps behave as before. An explicit `write_mode` wins over it.
+- **Tag grounding.** The captioner (ToriiGate) still reads the tags from line 1; a tag step writing
+  elsewhere does not feed it.
+- Validation: `target_line` must be 1 or more and `write_mode` one of the three values, or the job
+  refuses to start.
+
 ## Stages
 
 ### Tagging — `rengu prep tag`
@@ -73,8 +113,9 @@ records which images are done for the current model set; it's deleted when the j
 A single unreadable/corrupt image is logged and skipped — it no longer aborts the job.
 
 **Target line — `target_line`.** 1-based caption line the tags are written to (default
-**1** = the tag line). Raise it to keep tags on a different line (e.g. tags on line 2
-alongside a caption on line 1). The skip-when-not-overwriting check looks at this line.
+**1** = the tag line), any number. Raise it to keep tags on a different line (e.g. tags on line 2
+alongside a caption on line 1). **`write_mode`** decides what happens when that line already has
+text: see [Write target: line and mode](#write-target-line-and-mode).
 
 ### Captioning — `rengu prep caption`
 
@@ -202,9 +243,11 @@ touched. (Linux/Windows x64 only — on macOS use `engine = hf`.)
   to: absorb what matches the canon, **describe what deviates from it** — so the
   deviation stays promptable instead of polluting the trigger. The hard scrubber is
   disabled in this mode (it cannot tell deviation from canon).
-- **Caption line** (`target_line`, default 2) — write the caption to a higher line
-  to ADD caption variants (rengu treats each line as one): e.g. queue two caption
-  jobs, line 2 trigger-absorbed + line 3 full description.
+- **Caption line** (`target_line`, default 2) — any 1-based line; write the caption to a
+  higher line to ADD caption variants (rengu treats each line as one): e.g. queue two
+  caption jobs, line 2 trigger-absorbed + line 3 full description. Before this change line
+  1 was silently written as line 2; now line 1 means line 1. With the default `write_mode`
+  an existing caption on that line is kept; see [Write target](#write-target-line-and-mode).
 - **Outfit policy** (`outfit`, only with a `character_name`):
   - `describe` — the outfit is captioned, so it stays swappable at generation time.
   - `omit` — the outfit is never captioned, so the default outfit is absorbed into
@@ -298,7 +341,9 @@ if the model misses small, local changes.
 | `model` | GGUF VLM | `qwen3-vl-4b-instruct`, `qwen3-vl-8b-instruct` | `qwen3-vl-4b-instruct` |
 | `gguf_quantization` | Weight quant | `""` (model default), `Q8_0`, `Q6_K`, `Q5_K_M`, `Q4_K_M` | `""` |
 | `prompt` | Custom instruction prompt (the image labels are still added) | text; `""` = default | `""` |
-| `overwrite` | Rewrite targets whose line 1 already has text | bool | `false` |
+| `target_line` | 1-based caption line the instruction is written to | int >= 1 | `1` |
+| `write_mode` | What to do when the target line already has text | `skip` / `replace` / `append`; unset = from `overwrite` | unset |
+| `overwrite` | Legacy: same as `write_mode = "replace"` when `write_mode` is unset | bool | `false` |
 | `max_pixels` | Pixel cap per image sent to the VLM; sizes the server context | ≥ 1024 | `524288` |
 | `max_new_tokens` | Length cap of an instruction | int | `96` |
 | `temperature` / `top_p` | Sampling; `None` (omit / clear in the form) = the model's recommended 0.7 / 0.8 | float | `0.2` / model default |

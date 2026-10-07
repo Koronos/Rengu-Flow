@@ -589,3 +589,185 @@ describe("WorkflowNodeDrawer edit instructions", () => {
     app.unmount();
   });
 });
+
+// -------------------------------------------------------------------- per-step output format
+
+describe("WorkflowNodeDrawer per-step caption format", () => {
+  /** A tag step that already converts to captions.json and appends on line 3. */
+  function formatGraph(): WorkflowGraph {
+    const graph = prepGraph();
+    graph.nodes[1] = {
+      ...graph.nodes[1],
+      config: {
+        ...SAVED_TAG_CONFIG,
+        output_format: "json",
+        write_mode: "append",
+        overwrite: false,
+        target_line: 3,
+      },
+    };
+    return graph;
+  }
+
+  it("leaves a step that already carries a format, mode and line alone when it is merely opened", async () => {
+    vi.mocked(api.prepModels).mockResolvedValue({ models: taggerRegistry() });
+
+    const { app, updates } = await mountThenSelect(null, "t1", formatGraph());
+
+    expect(updates.filter((node) => node.id === "t1").map((node) => node.config)).toEqual([]);
+    // The control reflects what is saved: this step converts, it does not inherit.
+    const row = document.querySelector(".node-drawer__layout")?.textContent ?? "";
+    expect(row).toContain("converted to captions.json");
+
+    app.unmount();
+  });
+
+  it("keeps its own format when another setting of the step changes", async () => {
+    vi.mocked(api.prepModels).mockResolvedValue({ models: taggerRegistry() });
+    const { app, updates } = await mountThenSelect(null, "t1", formatGraph());
+
+    // Edit a stage field: the whole-config write must carry the node's own keys along.
+    const maxTags = document.querySelector<HTMLInputElement>(
+      '.node-drawer__tabs input[type="number"], .node-drawer__tabs .el-input-number input',
+    );
+    expect(maxTags).not.toBeNull();
+    maxTags!.value = "60";
+    maxTags!.dispatchEvent(new Event("input", { bubbles: true }));
+    maxTags!.dispatchEvent(new Event("change", { bubbles: true }));
+    for (let i = 0; i < 8; i += 1) await nextTick();
+
+    const last = updates.filter((node) => node.id === "t1").at(-1);
+    expect(last?.config).toMatchObject({ output_format: "json", write_mode: "append", target_line: 3 });
+
+    app.unmount();
+  });
+
+  it("predicts the converted layout for the step and for the one below it", async () => {
+    const graph = formatGraph();
+    const { app } = await mountThenSelect(null, "c1", { ...graph, nodes: graph.nodes.map((n) =>
+      n.id === "c1" ? { ...n, from: "t1" } : n) });
+
+    // c1 reads from the tag step, which converts to json: its input layout is captions.json,
+    // set on the tag step (not the source folder).
+    const row = document.querySelector(".node-drawer__layout")?.textContent ?? "";
+    expect(row).toContain("captions.json");
+    expect(row).toContain("t1");
+
+    app.unmount();
+  });
+});
+
+describe("WorkflowNodeDrawer tools that declare a folder output", () => {
+  function toolGraph(): WorkflowGraph {
+    const base = graphOf();
+    return {
+      ...base,
+      nodes: [
+        {
+          id: "x1",
+          type: "tool",
+          title: "Extract images",
+          from: null,
+          enabled: true,
+          config: { tool_id: "extract", values: {} },
+          gpu: { required: false, wait: true, device: null },
+        },
+        { ...prepNode("t1", "prep.tag", SAVED_TAG_CONFIG), from: "x1" },
+      ],
+    };
+  }
+
+  async function mountWithToolIo(nodeId: string, state: WorkflowState = {}) {
+    const graph = toolGraph();
+    const el = document.createElement("div");
+    document.body.appendChild(el);
+    const app = createApp(WorkflowNodeDrawer, {
+      open: true,
+      node: graph.nodes.find((n) => n.id === nodeId),
+      graph,
+      state,
+      stale: {},
+      workflowId: 7,
+      toolIo: { extract: { input: "none", output: "folder", output_declared: true } },
+    });
+    app.use(ElementPlus);
+    app.mount(el);
+    for (let i = 0; i < 8; i += 1) await nextTick();
+    const panes = document.querySelectorAll(".el-tab-pane");
+    return { app, pane: (index: number) => panes[index]?.textContent ?? "" };
+  }
+
+  it("shows a folder decided at run time, not a made-up path, until the tool has run", async () => {
+    const tool = await mountWithToolIo("x1");
+    expect(tool.pane(OUTPUT_PANE)).toContain("decided when this step runs");
+    expect(tool.pane(OUTPUT_PANE)).toContain("Emits the new folder the tool returns");
+    tool.app.unmount();
+    document.body.innerHTML = "";
+
+    const reader = await mountWithToolIo("t1");
+    expect(reader.pane(INPUT_PANE)).toContain("decided when Extract images runs");
+    reader.app.unmount();
+  });
+
+  it("shows the real folder once the tool has run", async () => {
+    const state = {
+      nodes: { x1: { status: "done", output: { path: "D:/frames", caption_format: "sidecar", caption_ext: ".txt" } } },
+    } as unknown as WorkflowState;
+    const reader = await mountWithToolIo("t1", state);
+    expect(reader.pane(INPUT_PANE)).toContain("D:/frames");
+    reader.app.unmount();
+  });
+});
+
+describe("WorkflowNodeDrawer predicts what the server's effective_output emits", () => {
+  /** The same table as tests/test_workflow_io_and_format.py: (config, incoming layout) -> label. */
+  it.each([
+    [{}, "sidecar", ".txt", "sidecar files (.txt)"],
+    [{ output_format: "inherit" }, "json", ".txt", "captions.json"],
+    [{ output_format: "json" }, "sidecar", ".txt", "captions.json"],
+    [{ output_format: "sidecar" }, "json", ".txt", "sidecar files (.txt)"],
+    [{ output_format: "sidecar", output_ext: "caption" }, "sidecar", ".txt", "sidecar files (.caption)"],
+    [{ output_format: "bogus" }, "sidecar", ".txt", "sidecar files (.txt)"],
+  ])("a step with %j reading %s %s hands on %s", async (config, format, ext, expected) => {
+    const graph = prepGraph();
+    graph.nodes[0] = { ...graph.nodes[0], config: { path: "D:/x", caption_format: format, caption_ext: ext } };
+    graph.nodes[1] = { ...graph.nodes[1], config: { ...SAVED_TAG_CONFIG, ...config } };
+    graph.nodes[2] = { ...graph.nodes[2], from: "t1" };
+
+    const { app } = await mountThenSelect(null, "c1", graph);
+
+    expect(document.querySelector(".node-drawer__layout")?.textContent).toContain(expected);
+
+    app.unmount();
+  });
+});
+
+describe("WorkflowNodeDrawer predicts the same as the server for a tool that outputs nothing", () => {
+  it("emits no handle: the step below has no folder to read", async () => {
+    const base = graphOf();
+    const graph: WorkflowGraph = {
+      ...base,
+      nodes: [
+        base.nodes[0],
+        {
+          id: "x1", type: "tool", title: "Sink", from: "n1", enabled: true,
+          config: { tool_id: "sink", values: {} },
+          gpu: { required: false, wait: true, device: null },
+        },
+        { ...prepNode("t1", "prep.tag", SAVED_TAG_CONFIG), from: "x1" },
+      ],
+    };
+    const el = document.createElement("div");
+    document.body.appendChild(el);
+    const app = createApp(WorkflowNodeDrawer, {
+      open: true, node: graph.nodes[2], graph, state: {}, stale: {}, workflowId: 7,
+      toolIo: { sink: { input: "folder", output: "none", output_declared: true } },
+    });
+    app.use(ElementPlus);
+    app.mount(el);
+    for (let i = 0; i < 8; i += 1) await nextTick();
+    const input = document.querySelectorAll(".el-tab-pane")[INPUT_PANE]?.textContent ?? "";
+    expect(input).not.toContain("D:/datasets/aoi"); // the sink hands nothing on
+    app.unmount();
+  });
+});

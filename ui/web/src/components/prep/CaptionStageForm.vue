@@ -220,23 +220,7 @@
       </el-text>
     </el-form-item>
 
-    <el-form-item>
-      <template #label>
-        Caption line <FieldHelpIcon :field="help('Writes the caption to this line in each sidecar file, leaving all other lines untouched. Use 3+ to add a second caption variant — each line is treated as an independent caption at training time.')" />
-        <FieldPathTag path="caption.target_line" />
-      </template>
-      <el-input-number
-        v-model="model.target_line"
-        :min="2"
-        :max="9"
-        placeholder="2"
-        controls-position="right"
-      />
-      <el-text size="small" type="info" class="ml-8">
-        Line 2 = standard caption. Use 3+ to ADD a caption variant (e.g. queue a
-        second job: line 2 trigger-absorbed, line 3 full description).
-      </el-text>
-    </el-form-item>
+    <WriteTargetFields :form="model" stage="caption" />
 
     <el-form-item>
       <template #label>
@@ -365,14 +349,6 @@
       <el-text class="ml-8" size="small">Use tags as grounding</el-text>
     </el-form-item>
 
-    <el-form-item>
-      <template #label>
-        Overwrite <FieldHelpIcon :field="help('Re-captions images that already have content on the target line, replacing it. Turn on when you are changing the prompt or model and want to regenerate captions for the whole folder.')" />
-        <FieldPathTag path="caption.overwrite" />
-      </template>
-      <el-switch v-model="model.overwrite" />
-      <el-text class="ml-8" size="small">Overwrite existing captions</el-text>
-    </el-form-item>
   </el-form>
 </template>
 
@@ -382,6 +358,7 @@ import type { PropType } from "vue";
 import { api } from "../../api";
 import FieldHelpIcon from "../FieldHelpIcon.vue";
 import FieldPathTag from "../FieldPathTag.vue";
+import WriteTargetFields from "./WriteTargetFields.vue";
 import { NULLABLE_SAMPLING, copyKnown, help } from "./formHelpers";
 import { preselectModel } from "../../lib/modelPreselect";
 import type { PrepCaptionForm } from "../../lib/prepStageConfig";

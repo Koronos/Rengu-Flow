@@ -154,3 +154,32 @@ describe("relativeTime", () => {
     expect(relativeTime(null, now)).toBe("");
   });
 });
+
+describe("nodeConfigSummary — write target and caption format", () => {
+  const withGpu = { gpu: { required: false, wait: true, device: null } };
+
+  it("stays silent for a step on its defaults and names what differs", () => {
+    const base = { id: "a", type: "prep.tag", title: "Tag", from: "f", enabled: true, ...withGpu };
+    expect(nodeConfigSummary({ ...base, config: { models: ["m"], target_line: 1 } })).not.toMatch(/line|append|→/);
+    expect(
+      nodeConfigSummary({
+        ...base,
+        config: { models: ["m"], target_line: 3, write_mode: "append", output_format: "json" },
+      }),
+    ).toContain("line 3 · append · → captions.json");
+  });
+
+  it("uses each stage's own default line, and reads the legacy overwrite flag", () => {
+    const caption = { id: "c", type: "prep.caption", title: "C", from: "f", enabled: true, ...withGpu };
+    expect(nodeConfigSummary({ ...caption, config: { model: "m", target_line: 2 } })).not.toContain("line");
+    expect(nodeConfigSummary({ ...caption, config: { model: "m", target_line: 4, overwrite: true } })).toContain(
+      "line 4 · overwrite",
+    );
+    expect(
+      nodeConfigSummary({
+        ...caption,
+        config: { model: "m", output_format: "sidecar", output_ext: "caption" },
+      }),
+    ).toContain("→ sidecar files (.caption)");
+  });
+});

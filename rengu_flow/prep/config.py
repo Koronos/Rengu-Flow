@@ -26,6 +26,9 @@ class TagStageConfig:
     max_tags: int = 255
     batch_size: int = 16
     overwrite: bool = False  # False: skip images whose line 1 already has tags
+    # How the tags land on target_line: "" = derive from `overwrite` (False -> skip, True -> replace),
+    # or "skip" | "replace" | "append" (append adds to the line, without repeating a tag).
+    write_mode: str = ""
     # Global confidence floors applied to every selected model (None/0 = per-model
     # defaults); per-model [tag.overrides.<id>] entries still win.
     general_threshold: float | None = None
@@ -56,6 +59,7 @@ class CaptionStageConfig:
     batch_size: int = 4
     use_tags_as_grounding: bool = True
     overwrite: bool = False
+    write_mode: str = ""  # "" = derive from `overwrite`; "skip" | "replace" | "append" (space-joined)
     max_image_side: int = 1536  # downscale long side before the VLM (0 = off)
     min_image_side: int = 0  # skip images smaller than this (0 = off)
     engine: str = "hf"  # "hf" (any model) | "vllm" (JoyCaption only) | "gguf" (ToriiGate, llama.cpp)
@@ -79,6 +83,8 @@ class EditCaptionStageConfig:
     gguf_quantization: str = ""  # "" = the model's default quant (see GGUF_MODELS)
     prompt: str = ""  # "" = the default edit-instruction prompt (DEFAULT_EDIT_PROMPT)
     overwrite: bool = False  # False: skip targets whose line 1 already has text
+    write_mode: str = ""  # "" = derive from `overwrite`; "skip" | "replace" | "append" (space-joined)
+    target_line: int = 1  # 1-based caption line the instruction is written to (1 = what edit sets train on)
     # Pixel cap of EACH image sent to the VLM (controls and target). It sets the tokens per image
     # and, with the images per row, the server context — see gguf_captioner.server_budget.
     max_pixels: int = 512 * 1024
@@ -122,6 +128,11 @@ class PrepConfig:
     path: str = ""
     caption_format: str = "sidecar"  # "sidecar" | "json"
     caption_ext: str = ".txt"
+    # Set by a workflow step with its own output format: the layout the folder is in NOW. When it
+    # differs from caption_format/caption_ext (the layout this stage works in) the runner converts
+    # the folder first. Empty = no conversion (every standalone prep job).
+    convert_from_format: str = ""
+    convert_from_ext: str = ""
     tag: TagStageConfig = field(default_factory=TagStageConfig)
     caption: CaptionStageConfig = field(default_factory=CaptionStageConfig)
     edit_caption: EditCaptionStageConfig = field(default_factory=EditCaptionStageConfig)
@@ -138,6 +149,9 @@ class PrepConfig:
             raise FileNotFoundError(f"Dataset folder not found: {self.path}")
         if self.caption_format not in ("sidecar", "json"):
             raise ValueError(f"Unknown caption_format {self.caption_format!r}")
+        self._validate_write_target(stage)
+        if self.convert_from_format and self.convert_from_format not in ("sidecar", "json"):
+            raise ValueError(f"Unknown convert_from_format {self.convert_from_format!r}")
         if stage == "index" and not self.index.models:
             raise ValueError("index stage needs at least one model in [index].models")
         # A tag run with no models loads nothing, writes nothing, and exits 0 — it reports success
@@ -152,6 +166,22 @@ class PrepConfig:
             raise ValueError("caption stage needs a model in [caption].model")
         if stage == "edit_caption":
             self._validate_edit_caption()
+
+    def _validate_write_target(self, stage: str) -> None:
+        """target_line >= 1 and a known write_mode for the stages that write a caption line."""
+        if stage not in ("tag", "caption", "edit_caption"):
+            return
+        section = getattr(self, stage)
+        try:
+            line = int(section.target_line)
+        except (TypeError, ValueError):
+            raise ValueError(f"{stage} target_line must be a whole number, got {section.target_line!r}") from None
+        if line < 1:
+            raise ValueError(f"{stage} target_line must be 1 or more (1-based), got {line}")
+        if str(section.write_mode or "").strip().lower() not in ("", "skip", "replace", "append"):
+            raise ValueError(
+                f"{stage} write_mode must be skip, replace or append, got {section.write_mode!r}"
+            )
 
     def _validate_edit_caption(self) -> None:
         from rengu_flow.prep.gguf_captioner import gguf_models
@@ -189,7 +219,7 @@ def _fill_dataclass(instance, data: dict, *, context: str):
 
 def parse_prep_config(data: dict) -> PrepConfig:
     config = PrepConfig()
-    for key in ("path", "caption_format", "caption_ext"):
+    for key in ("path", "caption_format", "caption_ext", "convert_from_format", "convert_from_ext"):
         if key in data:
             setattr(config, key, data[key])
     if isinstance(data.get("tag"), dict):

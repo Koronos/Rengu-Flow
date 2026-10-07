@@ -457,7 +457,32 @@ describe("buildStageConfig — edit_caption", () => {
 
   it("uses the defaults when the form is missing", () => {
     const cfg = buildStageConfig("edit_caption", forms());
-    expect(cfg.edit_caption).toEqual(defaultEditCaptionForm());
+    // A mode never chosen and the default line are left out, so a step that was only opened
+    // is saved exactly as it was.
+    const { write_mode: _mode, target_line: _line, ...defaults } = defaultEditCaptionForm();
+    expect(cfg.edit_caption).toEqual(defaults);
+  });
+
+  it("stores a chosen write mode and a non-default line, and keeps overwrite in step", () => {
+    const cfg = buildStageConfig(
+      "edit_caption",
+      forms({ editCaptionForm: { ...defaultEditCaptionForm(), write_mode: "append", target_line: 3 } }),
+    );
+    expect(cfg.edit_caption).toMatchObject({ write_mode: "append", target_line: 3, overwrite: false });
+    const replace = buildStageConfig(
+      "tag",
+      forms({ tagForm: { ...defaultTagForm(), write_mode: "replace" } }),
+    );
+    expect(replace.tag).toMatchObject({ write_mode: "replace", overwrite: true });
+  });
+
+  it("derives overwrite from the legacy flag until a mode is chosen", () => {
+    const legacy = buildStageConfig(
+      "caption",
+      forms({ captionForm: { ...defaultCaptionForm(), overwrite: true } }),
+    );
+    expect(legacy.caption).toMatchObject({ overwrite: true });
+    expect(legacy.caption).not.toHaveProperty("write_mode");
   });
 });
 

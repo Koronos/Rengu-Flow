@@ -2,11 +2,13 @@
  * Pure edit operations on a workflow graph. Every one returns a **new** graph; nothing is
  * mutated in place, so the editor can diff, undo and stay reactive without deep watchers.
  *
- * The invariant that makes all of this simple: **`from` may only point at an EARLIER node.**
+ * The invariant that makes all of this simple: **`from` always points at an EARLIER node.**
  * Cycles are then impossible to express, so there is no cycle detection and no topological sort
- * anywhere — list order is execution order. Every operation here preserves it:
- * {@link legalSources} only offers precedents, {@link canMove} refuses to lift a node above its
- * own source, and {@link removeNode} splices children onto the deleted node's `from`.
+ * anywhere — list order is execution order. The user may *pick* any step as a source (even one
+ * below), because {@link repointNode} then **moves the step — with the steps that read from it —
+ * to right after that source**, so the invariant holds again; the one source it refuses is a
+ * descendant (that would be a loop). {@link canMove} refuses to lift a node above its own source,
+ * and {@link removeNode} splices children onto the deleted node's `from`.
  *
  * Note there is deliberately **no `workflowHash`**: staleness is computed server-side only.
  * `JSON.stringify` emits `80` where `json.dumps` emits `80.0`, and `QualityStageConfig`'s
@@ -24,6 +26,8 @@ import {
   emitsHandle,
   nodeTypeLabel,
   sourceMayBeEmpty,
+  toolIoOf,
+  type ToolIoMap,
 } from "./workflowNodeTypes";
 import type { PrepModelInfo, PrepStage } from "@/types/api";
 
@@ -260,24 +264,122 @@ export function moveNode(graph: WorkflowGraph, id: string, direction: MoveDirect
   return cloneGraph(graph, nodes);
 }
 
-/**
- * The nodes a given node may read from: **strictly earlier** ones that emit a handle.
- *
- * A node that does not consume (`folder`) has none, and `train` never appears in the list — it
- * is terminal and emits nothing.
- */
-export function legalSources(graph: WorkflowGraph, nodeId: string): WorkflowNode[] {
-  const index = indexOfNode(graph, nodeId);
-  if (index < 0) return [];
-  if (!consumesInput(graph.nodes[index].type)) return [];
-  return graph.nodes.slice(0, index).filter((node) => emitsHandle(node.type));
+/** Every step that (transitively) reads from `id` — the ones a source for `id` must not be. */
+export function descendantIds(graph: WorkflowGraph, id: string): Set<string> {
+  const out = new Set<string>();
+  const queue = [id];
+  while (queue.length) {
+    const current = queue.pop() as string;
+    for (const node of graph.nodes) {
+      if (node.from === current && !out.has(node.id)) {
+        out.add(node.id);
+        queue.push(node.id);
+      }
+    }
+  }
+  return out;
 }
 
-/** Re-point a node's `from`. An illegal source (or a forward one) is a no-op. */
+/**
+ * Why a tool cannot hand a folder to the step reading it, or `""` when it can — the client twin of
+ * `workflow_graph._source_problem`. Only tools can fail to: a tool declaring `output: none`, or a
+ * *source* tool (no input) whose declared output is not a folder. A pass-through tool is looked
+ * through to what feeds it; a tool that declares nothing is left alone (it may return a folder).
+ */
+export function toolSourceProblem(
+  graph: WorkflowGraph,
+  source: WorkflowNode,
+  toolIo?: ToolIoMap,
+): string {
+  const byId = new Map(graph.nodes.map((node) => [node.id, node]));
+  const seen = new Set<string>();
+  let current: WorkflowNode | undefined = source;
+  while (current && current.type === "tool" && current.enabled) {
+    if (seen.has(current.id)) return "";
+    seen.add(current.id);
+    const io = toolIoOf(current, toolIo);
+    const output = io?.output ?? "passthrough";
+    if (output === "none") return "declares that it outputs nothing, so there is no folder to read";
+    if (output === "folder") return "";
+    if (!current.from) {
+      return io?.output_declared
+        ? "is a source (it has no input) and does not declare a folder output; set its output to 'folder' in the Toolbox"
+        : "";
+    }
+    current = byId.get(current.from);
+  }
+  return "";
+}
+
+/** One row of the From select: a step, and whether (and why not) it can feed `nodeId`. */
+export interface SourceChoice {
+  node: WorkflowNode;
+  allowed: boolean;
+  /** Why it is not offered as a source; `""` when it is. */
+  reason: string;
+  /** The step sits below `nodeId`: picking it moves `nodeId` (and what reads from it) under it. */
+  below: boolean;
+}
+
+/**
+ * Every step that emits a folder, with whether it may be `nodeId`'s source.
+ *
+ * Any step may — above or below — except `nodeId` itself, the steps that read from `nodeId`
+ * (directly or not: that would be a loop) and a tool that hands nothing on. The disallowed ones
+ * stay in the list with their reason, so a step that cannot be connected says why instead of
+ * silently not being there. A node that does not consume (`folder`) has no choices at all.
+ */
+export function sourceChoices(
+  graph: WorkflowGraph,
+  nodeId: string,
+  toolIo?: ToolIoMap,
+): SourceChoice[] {
+  const index = indexOfNode(graph, nodeId);
+  if (index < 0 || !consumesInput(graph.nodes[index].type)) return [];
+  const descendants = descendantIds(graph, nodeId);
+  const choices: SourceChoice[] = [];
+  graph.nodes.forEach((node, position) => {
+    if (node.id === nodeId || !emitsHandle(node.type)) return;
+    let reason = "";
+    if (descendants.has(node.id)) reason = "it reads from this step, so connecting it would make a loop";
+    else if (node.type === "tool") {
+      const problem = toolSourceProblem(graph, node, toolIo);
+      if (problem) reason = `it ${problem}`;
+    }
+    choices.push({ node, allowed: !reason, reason, below: position > index });
+  });
+  return choices;
+}
+
+/**
+ * The nodes a given node may read from: every emitting step except itself and its descendants
+ * (see {@link sourceChoices} for the ones refused, with reasons). `train` never appears — it is
+ * terminal and emits nothing.
+ */
+export function legalSources(
+  graph: WorkflowGraph,
+  nodeId: string,
+  toolIo?: ToolIoMap,
+): WorkflowNode[] {
+  return sourceChoices(graph, nodeId, toolIo)
+    .filter((choice) => choice.allowed)
+    .map((choice) => choice.node);
+}
+
+/**
+ * Re-point a node's `from`. An illegal source (a loop, itself, an unknown id, a tool that hands
+ * nothing on) is a no-op — callers that want to say why use {@link sourceChoices}.
+ *
+ * A source **below** the node is allowed: the node moves, together with the steps that read from
+ * it (keeping their relative order), to right after that source, so "a source is always above its
+ * reader" — and with it list order == execution order — still holds. Everything else keeps its
+ * place.
+ */
 export function repointNode(
   graph: WorkflowGraph,
   id: string,
   sourceId: string | null,
+  toolIo?: ToolIoMap,
 ): WorkflowGraph {
   const index = indexOfNode(graph, id);
   const nodes = [...graph.nodes];
@@ -286,11 +388,27 @@ export function repointNode(
 
   if (sourceId === null) {
     if (!sourceMayBeEmpty(node.type)) return cloneGraph(graph, nodes);
-  } else if (!legalSources(graph, id).some((candidate) => candidate.id === sourceId)) {
+    nodes[index] = { ...node, from: null };
     return cloneGraph(graph, nodes);
   }
-  nodes[index] = { ...node, from: sourceId };
-  return cloneGraph(graph, nodes);
+  if (!legalSources(graph, id, toolIo).some((candidate) => candidate.id === sourceId)) {
+    return cloneGraph(graph, nodes);
+  }
+
+  const sourceIndex = indexOfNode(graph, sourceId);
+  if (sourceIndex < index) {
+    nodes[index] = { ...node, from: sourceId };
+    return cloneGraph(graph, nodes);
+  }
+
+  const block = new Set([id, ...descendantIds(graph, id)]);
+  const moved = graph.nodes
+    .filter((candidate) => block.has(candidate.id))
+    .map((candidate) => (candidate.id === id ? { ...candidate, from: sourceId } : candidate));
+  const rest = graph.nodes.filter((candidate) => !block.has(candidate.id));
+  const after = rest.findIndex((candidate) => candidate.id === sourceId) + 1;
+  rest.splice(after, 0, ...moved);
+  return cloneGraph(graph, rest);
 }
 
 /** Node id -> its 1-based position, the ① ② ③ the cards and the `⟵ from ①` badge show. */

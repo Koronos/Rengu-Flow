@@ -39,8 +39,12 @@
           <dd>{{ tagForm.prepend_tags.length }} prepend · {{ tagForm.exclude_tags.length }} exclude</dd>
         </div>
         <div class="prep-summary__row">
-          <dt>Overwrite</dt>
-          <dd>{{ tagForm.overwrite ? 'yes' : 'no' }}</dd>
+          <dt>Writes</dt>
+          <dd>{{ writesLabel(tagForm.target_line ?? 1, tagForm) }}</dd>
+        </div>
+        <div v-if="captionFormatLabel" class="prep-summary__row">
+          <dt>Caption format</dt>
+          <dd>{{ captionFormatLabel }}</dd>
         </div>
         <div v-if="tagForm.quality_tags" class="prep-summary__row">
           <dt>Quality tags</dt>
@@ -80,8 +84,12 @@
           <dd>{{ captionForm.character_name }} · {{ captionForm.outfit }}</dd>
         </div>
         <div class="prep-summary__row">
-          <dt>Caption line</dt>
-          <dd>{{ captionForm.target_line }}</dd>
+          <dt>Writes</dt>
+          <dd>{{ writesLabel(captionForm.target_line, captionForm) }}</dd>
+        </div>
+        <div v-if="captionFormatLabel" class="prep-summary__row">
+          <dt>Caption format</dt>
+          <dd>{{ captionFormatLabel }}</dd>
         </div>
       </template>
 
@@ -107,7 +115,11 @@
         </div>
         <div class="prep-summary__row">
           <dt>Writes</dt>
-          <dd>line 1{{ editCaptionForm.overwrite ? ' (overwrite)' : ' (skip existing)' }}</dd>
+          <dd>{{ writesLabel(editCaptionForm.target_line ?? 1, editCaptionForm) }}</dd>
+        </div>
+        <div v-if="captionFormatLabel" class="prep-summary__row">
+          <dt>Caption format</dt>
+          <dd>{{ captionFormatLabel }}</dd>
         </div>
       </template>
 
@@ -206,6 +218,8 @@ interface TagForm {
   prepend_tags: string[];
   max_tags: number;
   overwrite: boolean;
+  write_mode?: string;
+  target_line?: number;
   quality_tags: boolean;
   underscores: boolean;
 }
@@ -222,6 +236,8 @@ interface CaptionForm {
   character_name: string;
   outfit: string;
   target_line: number;
+  overwrite?: boolean;
+  write_mode?: string;
   engine: "hf" | "vllm" | "gguf";
   vllm_quantization: "gptq" | "fp8" | "awq" | "none";
   gguf_quantization: "Q8_0" | "Q6_K" | "Q5_K_M" | "Q4_K_M";
@@ -232,6 +248,8 @@ interface EditCaptionForm {
   gguf_quantization: string;
   max_pixels: number;
   overwrite: boolean;
+  write_mode?: string;
+  target_line?: number;
 }
 interface CleanForm {
   confidence: number;
@@ -252,7 +270,20 @@ interface QualityForm {
   output_dir: string;
 }
 
+/** `line 3 · append to the line` - where a step writes and what it does when the line is taken. */
+function writesLabel(line: number, form: { overwrite?: boolean; write_mode?: string }): string {
+  const mode = form.write_mode || (form.overwrite ? "replace" : "skip");
+  const text: Record<string, string> = {
+    skip: "skip if the line has text",
+    replace: "replace the line",
+    append: "append to the line",
+  };
+  return `line ${line} · ${text[mode] ?? mode}`;
+}
+
 const props = defineProps({
+  /** The caption layout this step converts to (`""` = it keeps the incoming one). */
+  captionFormatLabel: { type: String, default: "" },
   stage: { type: String as PropType<PrepStage>, required: true },
   form: { type: Object as PropType<CommonForm>, required: true },
   tagForm: { type: Object as PropType<TagForm>, required: true },

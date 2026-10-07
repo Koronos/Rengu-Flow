@@ -23,6 +23,7 @@ class ToolBody(BaseModel):
     requirements: list[str] = Field(default_factory=list)
     script: str = ""
     inputs: list[dict] = Field(default_factory=list)
+    io: dict | None = None
 
 
 class ToolUpdateBody(BaseModel):
@@ -32,6 +33,7 @@ class ToolUpdateBody(BaseModel):
     requirements: list[str] | None = None
     script: str | None = None
     inputs: list[dict] | None = None
+    io: dict | None = None
 
 
 class RunBody(BaseModel):
@@ -70,6 +72,7 @@ def register_toolbox_routes(app: FastAPI) -> None:
                 requirements=body.requirements,
                 script=body.script,
                 inputs=body.inputs,
+                io=body.io,
             )
 
     @app.get(f"{API_PREFIX}/toolbox/tools/{{tool_id}}")

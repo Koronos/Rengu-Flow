@@ -3,6 +3,7 @@ import {
   addNode,
   canMove,
   createNode,
+  descendantIds,
   defaultNodeConfig,
   legalSources,
   moveNode,
@@ -11,6 +12,7 @@ import {
   ordinals,
   removeNode,
   repointNode,
+  sourceChoices,
   type WorkflowGraph,
   type WorkflowNode,
 } from "./workflowGraph";
@@ -81,8 +83,10 @@ describe("createNode", () => {
    * selected". The step has to carry what the UI shows, opened or not.
    */
   it("is born carrying the form's defaults, never an empty config", () => {
+    // `write_mode` is stored once the user picks one; a born node leaves it to the legacy `overwrite`.
+    const { write_mode: _unset, ...tagDefaults } = defaultTagForm();
     expect(createNode("prep.tag").config).toEqual({
-      ...defaultTagForm(),
+      ...tagDefaults,
       overrides: {},
     });
     expect(createNode("prep.caption").config).toMatchObject({
@@ -270,10 +274,23 @@ describe("canMove / moveNode", () => {
 });
 
 describe("legalSources", () => {
-  it("never offers a later node, nor the node itself", () => {
-    expect(legalSources(chain(), "n2").map((n) => n.id)).toEqual(["n1"]);
+  it("offers every emitting step, above or below, except itself and its descendants", () => {
+    expect(legalSources(chain(), "n1")).toEqual([]); // a folder reads nothing
+    expect(legalSources(chain(), "n2").map((n) => n.id)).toEqual(["n1"]); // n3 reads from n2
     expect(legalSources(chain(), "n3").map((n) => n.id)).toEqual(["n1", "n2"]);
-    expect(legalSources(chain(), "n1")).toEqual([]);
+    const fan = {
+      ...chain(),
+      nodes: [node("n1", "folder"), node("n2", "prep.tag", "n1"), node("n3", "prep.quality", "n1")],
+    };
+    expect(legalSources(fan, "n2").map((n) => n.id)).toEqual(["n1", "n3"]); // n3 is below n2
+  });
+
+  it("lists a descendant with the reason it is refused, so no connection fails silently", () => {
+    const choices = sourceChoices(chain(), "n2");
+    const loop = choices.find((c) => c.node.id === "n3");
+    expect(loop).toMatchObject({ allowed: false, below: true });
+    expect(loop?.reason).toMatch(/loop/);
+    expect(descendantIds(chain(), "n1")).toEqual(new Set(["n2", "n3"]));
   });
 
   it("skips terminal nodes, which emit nothing", () => {
@@ -304,8 +321,8 @@ describe("repointNode", () => {
     ]);
   });
 
-  it("refuses a forward source, itself, and an unknown id", () => {
-    expect(links(repointNode(chain(), "n1", "n3"))).toEqual(links(chain()));
+  it("refuses itself, a descendant (a loop) and an unknown id", () => {
+    expect(links(repointNode(chain(), "n2", "n3"))).toEqual(links(chain()));
     expect(links(repointNode(chain(), "n2", "n2"))).toEqual(links(chain()));
     expect(links(repointNode(chain(), "n2", "nope"))).toEqual(links(chain()));
   });
@@ -315,6 +332,71 @@ describe("repointNode", () => {
     expect(repointNode(graph, "n4", null).nodes[3].from).toBeNull();
     // prep.* must keep a source: a sourceless stage dies mid-run on "needs a dataset 'path'".
     expect(repointNode(graph, "n3", null).nodes[2].from).toBe("n2");
+  });
+});
+
+describe("repointNode to a step below", () => {
+  /** folder n1 -> tag n2 -> quality n3 (reads n2), plus an independent tool n4 and index n5 (reads n4). */
+  function wide(): WorkflowGraph {
+    return {
+      ...chain(),
+      nodes: [
+        node("n1", "folder"),
+        node("n2", "prep.tag", "n1"),
+        node("n3", "prep.quality", "n2"),
+        node("n4", "tool"),
+        node("n5", "prep.index", "n4"),
+      ],
+    };
+  }
+
+  it("moves the step under its new source and keeps the dependents with it", () => {
+    const out = repointNode(wide(), "n2", "n4");
+    // n2 and its dependent n3 travel together, in their old relative order, right after n4.
+    expect(ids(out)).toEqual(["n1", "n4", "n2", "n3", "n5"]);
+    expect(out.nodes.find((n) => n.id === "n2")?.from).toBe("n4");
+    expect(out.nodes.find((n) => n.id === "n3")?.from).toBe("n2");
+  });
+
+  it("always leaves every source above its reader, whichever step is picked", () => {
+    for (const node of wide().nodes) {
+      for (const choice of sourceChoices(wide(), node.id).filter((c) => c.allowed)) {
+        const out = repointNode(wide(), node.id, choice.node.id);
+        const position = Object.fromEntries(out.nodes.map((n, i) => [n.id, i]));
+        expect(out.nodes).toHaveLength(5);
+        for (const n of out.nodes) {
+          if (n.from) expect(position[n.from]).toBeLessThan(position[n.id]);
+        }
+        expect(out.nodes.find((n) => n.id === node.id)?.from).toBe(choice.node.id);
+      }
+    }
+  });
+
+  it("can never create a cycle: every refused source is a descendant", () => {
+    const refused = sourceChoices(wide(), "n2").filter((c) => !c.allowed).map((c) => c.node.id);
+    expect(refused).toEqual(["n3"]);
+    expect(links(repointNode(wide(), "n2", "n3"))).toEqual(links(wide()));
+  });
+
+  it("refuses a tool that declares it outputs nothing, with the reason", () => {
+    const toolIo = { sink: { input: "folder", output: "none", output_declared: true } } as const;
+    const graph = wide();
+    graph.nodes[3] = { ...graph.nodes[3], config: { tool_id: "sink" } };
+    const choice = sourceChoices(graph, "n2", toolIo).find((c) => c.node.id === "n4");
+    expect(choice).toMatchObject({ allowed: false });
+    expect(choice?.reason).toMatch(/outputs nothing/);
+    expect(links(repointNode(graph, "n2", "n4", toolIo))).toEqual(links(graph));
+  });
+
+  it("refuses a source tool whose declared output is not a folder, accepts one that is", () => {
+    const graph = wide();
+    graph.nodes[3] = { ...graph.nodes[3], config: { tool_id: "extract" } };
+    const passthrough = { extract: { input: "none", output: "passthrough", output_declared: true } } as const;
+    expect(sourceChoices(graph, "n2", passthrough).find((c) => c.node.id === "n4")?.allowed).toBe(false);
+    const folder = { extract: { input: "none", output: "folder", output_declared: true } } as const;
+    expect(sourceChoices(graph, "n2", folder).find((c) => c.node.id === "n4")?.allowed).toBe(true);
+    // Undeclared: today's behaviour, it may return a folder at run time.
+    expect(sourceChoices(graph, "n2", {}).find((c) => c.node.id === "n4")?.allowed).toBe(true);
   });
 });
 
