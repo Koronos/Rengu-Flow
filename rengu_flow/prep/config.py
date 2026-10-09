@@ -58,6 +58,7 @@ class CaptionStageConfig:
     exact_generation: bool = False  # ToriiGate: per-image (unpadded), exact but ~2.5x slower
     batch_size: int = 4
     use_tags_as_grounding: bool = True
+    tags_line: int = 1  # 1-based caption line the grounding tags are read from (1 = the tag line)
     overwrite: bool = False
     write_mode: str = ""  # "" = derive from `overwrite`; "skip" | "replace" | "append" (space-joined)
     max_image_side: int = 1536  # downscale long side before the VLM (0 = off)
@@ -164,6 +165,8 @@ class PrepConfig:
         # "Unknown model ''" from inside the captioner.
         if stage == "caption" and not str(self.caption.model or "").strip():
             raise ValueError("caption stage needs a model in [caption].model")
+        if stage == "caption":
+            self._validate_tags_line()
         if stage == "edit_caption":
             self._validate_edit_caption()
 
@@ -181,6 +184,26 @@ class PrepConfig:
         if str(section.write_mode or "").strip().lower() not in ("", "skip", "replace", "append"):
             raise ValueError(
                 f"{stage} write_mode must be skip, replace or append, got {section.write_mode!r}"
+            )
+
+    def _validate_tags_line(self) -> None:
+        """tags_line >= 1; a non-default tags_line must differ from the line being written.
+
+        The default (1) is the legacy behaviour and stays valid even with target_line = 1 (the
+        tags are read before the caption lands). An explicit other line equal to target_line would
+        ground the model on the very text it is about to write.
+        """
+        stage = self.caption
+        try:
+            line = int(stage.tags_line)
+        except (TypeError, ValueError):
+            raise ValueError(f"caption tags_line must be a whole number, got {stage.tags_line!r}") from None
+        if line < 1:
+            raise ValueError(f"caption tags_line must be 1 or more (1-based), got {line}")
+        if stage.use_tags_as_grounding and line != 1 and line == int(stage.target_line):
+            raise ValueError(
+                f"caption tags_line ({line}) equals target_line: the grounding tags would be read "
+                "from the line being written. Pick another tags_line or turn off use_tags_as_grounding."
             )
 
     def _validate_edit_caption(self) -> None:

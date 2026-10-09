@@ -419,7 +419,7 @@ config already names.
   contract); saving there closes up the blank padding of a caption. Kept deliberately: making the
   editors positional changes what line numbers mean in their UI.
 - **Hashing.** `materialize_config` adds `output_format` (+ `output_ext` for sidecar) to the hashed
-  config only when not `inherit`; it also drops `write_mode` / edit `target_line` when at their
+  config only when not `inherit`; it also drops `write_mode` / edit `target_line` / caption `tags_line` when at their
   default (`_LATE_STAGE_FIELDS`) and `write_mode` when it merely restates `overwrite`. A node that
   never set them keeps its pre-existing `config_hash`.
 - **The drawer owns the keys.** The stage forms rebuild a node's whole config, so the node-level
@@ -430,6 +430,12 @@ config already names.
 **Write modes.** `CaptionSet.write_line(key, index, text, mode, sep=, tags=)` pads, then replaces or
 appends; `effective_write_mode(write_mode, overwrite)` maps the legacy flag. The tag runner
 (`_run_tag`), `caption_folder` (and its vLLM / GGUF paths) and `edit_caption_folder` use them.
+
+**Grounding line.** `caption.tags_line` (default 1) is where `_grounding_tags` in `captioner.py` reads the
+tags from, positionally (`get_tags(key, tags_line - 1)`, shared by the hf, vLLM and GGUF paths). The
+drawer's `tagLineSuggestion` walks up through pass-through steps (caption / edit_caption / quality /
+index) to the nearest enabled tag step and only *hints* its `target_line` (`CaptionStageForm`
+`suggestion` prop); applying it is a click, never a write on open.
 `CaptionStore.open(..., positional=True)` keeps leading/interior blank lines (the stage runners and
 `convert_captions` open this way); the default open still skips them, like the trainer, which is why
 the tag/caption editors are unchanged. `dataset.load_captions_json` now drops blank entries (keeping

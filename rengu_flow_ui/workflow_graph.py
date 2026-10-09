@@ -56,7 +56,7 @@ OUTPUT_FORMATS = ("inherit", "sidecar", "json")
 #: exactly as it did before the field existed, or every saved workflow turns stale on upgrade.
 _LATE_STAGE_FIELDS = {
     "tag": ("write_mode",),
-    "caption": ("write_mode",),
+    "caption": ("write_mode", "tags_line"),
     "edit_caption": ("write_mode", "target_line"),
 }
 

@@ -311,6 +311,13 @@ describe("buildStageConfig — caption (golden)", () => {
     expect(cfg.caption?.use_tags_as_grounding).toBe(false);
   });
 
+  it("omits tags_line at its default and emits it once changed", () => {
+    const at = (tags_line: number) =>
+      buildStageConfig("caption", forms({ captionForm: { ...defaultCaptionForm(), tags_line } })).caption;
+    expect(at(1)).not.toHaveProperty("tags_line");
+    expect(at(3)).toMatchObject({ tags_line: 3 });
+  });
+
   it("copies prompt_modifiers instead of aliasing the form state", () => {
     const captionForm = { ...defaultCaptionForm(), prompt_modifiers: ["demographics"] };
     const cfg = buildStageConfig("caption", forms({ captionForm }));

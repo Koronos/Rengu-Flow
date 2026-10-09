@@ -189,3 +189,59 @@ def test_global_confidence_controls_fold_into_overrides(img_dir, tmp_path, monke
     assert ov["pixai-v0.9"]["include_character"] is False
     assert ov["pixai-v0.9"]["include_rating"] is False
     assert ov["cl-tagger-1.02"]["general_threshold"] == 0.5
+
+
+@pytest.mark.parametrize(
+    ("stage", "section"), [("tag", "tag"), ("caption", "caption"), ("edit_caption", "edit_caption")]
+)
+def test_write_target_flags_set_the_stage(stage, section):
+    args = _parse(["prep", stage, "--path", "/x", "--write-mode", "append", "--target-line", "3"])
+    sec = getattr(prep_cmd._build_config(args), section)
+    assert (sec.write_mode, sec.target_line) == ("append", 3)
+
+
+def test_write_target_flags_override_toml(tmp_path):
+    toml_path = tmp_path / "prep.toml"
+    toml_path.write_text('[caption]\ntarget_line = 2\nwrite_mode = "skip"\ntags_line = 1\n')
+    args = _parse(["prep", "caption", "--config", str(toml_path), "--write-mode", "replace",
+                   "--target-line", "4", "--tags-line", "3"])
+    config = prep_cmd._build_config(args)
+    assert (config.caption.write_mode, config.caption.target_line, config.caption.tags_line) == (
+        "replace", 4, 3)
+    # Without flags the TOML stands.
+    config = prep_cmd._build_config(_parse(["prep", "caption", "--config", str(toml_path)]))
+    assert (config.caption.write_mode, config.caption.target_line, config.caption.tags_line) == (
+        "skip", 2, 1)
+
+
+def test_write_target_flags_default_to_the_config_defaults():
+    config = prep_cmd._build_config(_parse(["prep", "caption", "--path", "/x"]))
+    assert (config.caption.write_mode, config.caption.target_line, config.caption.tags_line) == ("", 2, 1)
+
+
+def test_unknown_write_mode_flag_is_rejected_by_argparse(capsys):
+    with pytest.raises(SystemExit):
+        _parse(["prep", "tag", "--write-mode", "merge"])
+    assert "--write-mode" in capsys.readouterr().err
+
+
+def test_bad_flag_values_fail_validation_clearly(tmp_path):
+    args = _parse(["prep", "caption", "--path", str(tmp_path), "--target-line", "0"])
+    with pytest.raises(ValueError, match="target_line must be 1 or more"):
+        prep_cmd._build_config(args).validate_for_stage("caption")
+    args = _parse(["prep", "caption", "--path", str(tmp_path), "--tags-line", "2"])
+    with pytest.raises(ValueError, match="equals target_line"):
+        prep_cmd._build_config(args).validate_for_stage("caption")
+
+
+def test_convert_from_flags_set_the_layouts():
+    args = _parse(["prep", "tag", "--path", "/x", "--caption-format", "json",
+                   "--convert-from-format", "sidecar", "--convert-from-ext", ".cap"])
+    config = prep_cmd._build_config(args)
+    assert (config.caption_format, config.convert_from_format, config.convert_from_ext) == (
+        "json", "sidecar", ".cap")
+
+
+def test_tags_line_is_caption_only():
+    with pytest.raises(SystemExit):
+        _parse(["prep", "tag", "--tags-line", "2"])

@@ -28,6 +28,16 @@ def add_parser(sub: argparse._SubParsersAction) -> None:
         ),
         (("--caption-ext",), dict(default=None, help="Sidecar extension (default .txt)")),
         (
+            ("--convert-from-format",),
+            dict(default=None, choices=("sidecar", "json"),
+                 help="Layout the folder's captions are in NOW; when it differs from --caption-format/"
+                      "--caption-ext the folder is converted first (verified, old files removed)"),
+        ),
+        (
+            ("--convert-from-ext",),
+            dict(default=None, help="Sidecar extension of the current layout (default .txt)"),
+        ),
+        (
             ("--job-dir",),
             dict(default=None, help=argparse.SUPPRESS),  # set by the UI job launcher
         ),
@@ -53,8 +63,18 @@ def add_parser(sub: argparse._SubParsersAction) -> None:
                    help="Prepend a deepghs aesthetic quality tag (masterpiece..worst quality)")
     t.add_argument("--underscores", action="store_true", default=None,
                    help="Keep the original danbooru form (long_hair) instead of spaces (long hair)")
-    t.add_argument("--target-line", type=int, default=None,
-                   help="1-based caption line to write tags to (default 1 = the tag line)")
+    write_mode_help = ("replace: overwrite the line | append: add to it (no repeats) | "
+                       "skip: leave lines that already have content (default: from --overwrite)")
+    for stage_parser, default_line in ((t, "1 = the tag line"), (c, "2 = the caption line"),
+                                       (ec, "1 = the instruction line")):
+        stage_parser.add_argument("--target-line", type=int, default=None, metavar="N",
+                                  help=f"1-based caption line to write (default {default_line}); "
+                                       "shorter captions are padded with empty lines")
+        stage_parser.add_argument("--write-mode", default=None, choices=("replace", "append", "skip"),
+                                  help=write_mode_help)
+    c.add_argument("--tags-line", type=int, default=None, metavar="N",
+                   help="1-based caption line the grounding tags are read from (default 1); "
+                        "set it to the tag step's --target-line")
     c.add_argument("--model", default=None, help="Caption model id (overrides config)")
     c.add_argument("--quant", default=None, choices=("bf16", "int8", "nf4"),
                    help="Quantization (overrides config)")
@@ -124,6 +144,14 @@ def add_parser(sub: argparse._SubParsersAction) -> None:
                     help="Preview the union cull (repeatable), e.g. --cull niqe:20 --cull clipiqa:10")
 
 
+def _apply_write_target(section, args: argparse.Namespace) -> None:
+    """--target-line / --write-mode override the TOML for the stages that write a caption line."""
+    if args.target_line is not None:
+        section.target_line = args.target_line
+    if args.write_mode is not None:
+        section.write_mode = args.write_mode
+
+
 def _build_config(args: argparse.Namespace) -> PrepConfig:
     config = load_prep_config(args.config) if args.config else PrepConfig()
     if args.path:
@@ -132,6 +160,10 @@ def _build_config(args: argparse.Namespace) -> PrepConfig:
         config.caption_format = args.caption_format
     if args.caption_ext:
         config.caption_ext = args.caption_ext
+    if args.convert_from_format:
+        config.convert_from_format = args.convert_from_format
+    if args.convert_from_ext:
+        config.convert_from_ext = args.convert_from_ext
 
     stage = args.prep_stage
     if stage == "tag":
@@ -143,8 +175,7 @@ def _build_config(args: argparse.Namespace) -> PrepConfig:
             config.tag.quality_tags = args.quality_tags
         if args.underscores is not None:
             config.tag.underscores = args.underscores
-        if args.target_line is not None:
-            config.tag.target_line = args.target_line
+        _apply_write_target(config.tag, args)
     elif stage == "caption":
         if args.model:
             config.caption.model = args.model
@@ -160,6 +191,9 @@ def _build_config(args: argparse.Namespace) -> PrepConfig:
             config.caption.vllm_model = args.vllm_model
         if args.gguf_quant:
             config.caption.gguf_quantization = args.gguf_quant
+        _apply_write_target(config.caption, args)
+        if args.tags_line is not None:
+            config.caption.tags_line = args.tags_line
     elif stage == "edit_caption":
         ed = config.edit_caption
         if args.control_path:
@@ -176,6 +210,7 @@ def _build_config(args: argparse.Namespace) -> PrepConfig:
             ed.n_parallel = args.parallel
         if args.overwrite is not None:
             ed.overwrite = args.overwrite
+        _apply_write_target(ed, args)
     elif stage == "clean":
         if args.in_place is not None:
             config.clean.in_place = args.in_place

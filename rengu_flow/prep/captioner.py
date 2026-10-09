@@ -100,6 +100,7 @@ def captioner_config_from_stage(stage) -> "CaptionerConfig":
         exact_generation=stage.exact_generation,
         batch_size=stage.batch_size,
         use_tags_as_grounding=stage.use_tags_as_grounding,
+        tags_line=getattr(stage, "tags_line", 1),
         overwrite=stage.overwrite,
         write_mode=getattr(stage, "write_mode", ""),
         max_image_side=stage.max_image_side,
@@ -484,6 +485,7 @@ class CaptionerConfig:
     # sequences. True = generate one image at a time (exact, ~2.5x slower).
     exact_generation: bool = False
     use_tags_as_grounding: bool = True   # only ToriiGate uses it
+    tags_line: int = 1                   # 1-based caption line the grounding tags are read from
     overwrite: bool = False              # if False, skip images that already have line 2
     # "" = derive from `overwrite`; else "skip" | "replace" | "append" (joined with a space).
     write_mode: str = ""
@@ -919,7 +921,7 @@ def _prepare_batch(cs, batch_keys: list[str], config: CaptionerConfig):
                 # In-place downscale: caption quality is unchanged (VLM vision towers
                 # see <=1536px anyway) but decode RAM and image-token counts stay bounded.
                 img.thumbnail((config.max_image_side, config.max_image_side), Image.LANCZOS)
-            tags = cs.get_tags(key) if config.use_tags_as_grounding else None
+            tags = _grounding_tags(cs, key, config)
             prompt = build_prompt(config, tags, image_key=key)
             valid_keys.append(key)
             valid_images.append(img)
@@ -928,6 +930,13 @@ def _prepare_batch(cs, batch_keys: list[str], config: CaptionerConfig):
             logger.warning("Failed to load image %s: %s", key, exc)
             failed.append(key)
     return valid_keys, valid_images, valid_prompts, failed, skipped_small
+
+
+def _grounding_tags(cs, key: str, config: "CaptionerConfig") -> Optional[list[str]]:
+    """Tags the prompt is grounded on: read positionally from ``config.tags_line`` (1-based)."""
+    if not config.use_tags_as_grounding:
+        return None
+    return cs.get_tags(key, max(0, int(config.tags_line) - 1))
 
 
 def _caption_via_vllm(
@@ -973,7 +982,7 @@ def _caption_via_vllm(
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Failed to read %s: %s", key, exc)
                 continue
-        tags = cs.get_tags(key) if config.use_tags_as_grounding else None
+        tags = _grounding_tags(cs, key, config)
         items.append({"key": key, "image": str(path), "prompt": build_prompt(config, tags, image_key=key)})
 
     total = len(items)
@@ -1113,7 +1122,7 @@ def _caption_via_gguf(
     with gg.llama_server(binary_dir, gguf, mmproj) as port:
 
         def _one(key: str) -> tuple[str, Optional[str]]:
-            tags = cs.get_tags(key) if config.use_tags_as_grounding else None
+            tags = _grounding_tags(cs, key, config)
             prompt = build_prompt(config, tags, image_key=key)
             try:
                 b64 = gg._encode_image(cs.images[key])

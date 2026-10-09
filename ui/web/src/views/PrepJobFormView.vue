@@ -119,6 +119,7 @@ import { formatError } from "../lib/formatError";
 import {
   buildStageConfig,
   effectiveOverwrite,
+  tagsLineKey,
   writeModeKey,
   defaultCaptionForm,
   defaultCleanForm,
@@ -258,6 +259,7 @@ async function submit(startNow: boolean): Promise<void> {
             exact_generation: captionForm.exact_generation,
             batch_size: captionForm.batch_size,
             use_tags_as_grounding: captionForm.use_tags_as_grounding,
+            ...tagsLineKey(captionForm),
             overwrite: effectiveOverwrite(captionForm),
             ...writeModeKey(captionForm),
             max_image_side: captionForm.max_image_side,

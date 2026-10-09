@@ -200,6 +200,7 @@
               v-model:preview-text="previewText"
               v-model:preview-native="previewNative"
               :seed="seedSection as PrepCaptionConfig | null"
+              :suggestion="tagLineSuggestion"
               :disabled="readOnly"
             />
             <!--
@@ -783,6 +784,32 @@ const controlPathSource = computed(() => {
   }
   if (!origin) return "";
   return `${ordinalGlyph(ordinals(props.graph)[origin.id] ?? 0)} ${origin.title}`;
+});
+
+/** Steps that leave the folder (and its caption lines) as they got it, so a tag step above shows through. */
+const TAG_PASS_THROUGH = ["prep.caption", "prep.edit_caption", "prep.quality", "prep.index"];
+
+/**
+ * For a caption step: the nearest tag step above it (through pass-through steps) and the line it
+ * writes tags to. Only ever shown as a hint — the caption form's grounding line is never rewritten
+ * on its own, so opening a step stays free of edits.
+ */
+const tagLineSuggestion = computed(() => {
+  if (props.node?.type !== "prep.caption") return null;
+  const byId = new Map(props.graph.nodes.map((n) => [n.id, n]));
+  const seen = new Set<string>();
+  let up = sourceNode.value;
+  while (up && !seen.has(up.id)) {
+    seen.add(up.id);
+    if (up.type === "prep.tag" && up.enabled) {
+      const raw = Number((up.config as Record<string, unknown>).target_line ?? 1);
+      const line = Number.isFinite(raw) && raw >= 1 ? Math.trunc(raw) : 1;
+      return { line, source: `Tags step ${ordinalGlyph(ordinals(props.graph)[up.id] ?? 0)}` };
+    }
+    if ((up.enabled && !TAG_PASS_THROUGH.includes(up.type) && up.type !== "prep.tag") || !up.from) return null;
+    up = byId.get(up.from);
+  }
+  return null;
 });
 
 /** Stages that read or write captions; cleanup, quality and the index see images only. */

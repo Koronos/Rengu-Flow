@@ -350,3 +350,13 @@ def test_a_write_mode_that_restates_overwrite_does_not_change_the_hash() -> None
     assert wg.node_config_hash(skip) != wg.node_config_hash(
         _node("n", "prep.caption", config={"overwrite": False, "write_mode": "append"})
     )
+
+
+def test_caption_node_without_tags_line_hashes_as_before() -> None:
+    from rengu_flow.prep.config import CaptionStageConfig
+
+    before = {k: v for k, v in asdict(CaptionStageConfig()).items() if k not in ("write_mode", "tags_line")}
+    plain = _node("n", "prep.caption", config={})
+    assert wg.node_config_hash(plain) == _old_recipe_hash("prep.caption", before)
+    assert wg.node_config_hash(_node("n", "prep.caption", config={"tags_line": 1})) == wg.node_config_hash(plain)
+    assert wg.node_config_hash(_node("n", "prep.caption", config={"tags_line": 3})) != wg.node_config_hash(plain)

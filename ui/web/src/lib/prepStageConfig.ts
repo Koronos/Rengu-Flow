@@ -57,6 +57,8 @@ export interface PrepCaptionForm {
   exact_generation: boolean;
   batch_size: number;
   use_tags_as_grounding: boolean;
+  /** 1-based caption line the grounding tags are read from (default 1, the tag line). */
+  tags_line: number;
   overwrite: boolean;
   write_mode: WriteMode;
   max_image_side: number;
@@ -157,6 +159,7 @@ export const defaultCaptionForm = (): PrepCaptionForm => ({
   exact_generation: false,
   batch_size: 4,
   use_tags_as_grounding: true,
+  tags_line: 1,
   overwrite: false,
   write_mode: "",
   max_image_side: 1536,
@@ -226,6 +229,11 @@ export function writeModeKey(f: { write_mode: WriteMode }): { write_mode?: "skip
   return f.write_mode ? { write_mode: f.write_mode } : {};
 }
 
+/** `{ tags_line }` once it leaves the default (line 1) - the same rule as the other late fields. */
+export function tagsLineKey(f: { tags_line: number }): { tags_line?: number } {
+  return f.tags_line !== 1 ? { tags_line: f.tags_line } : {};
+}
+
 /**
  * Build the `config` payload for a prep job from the form state.
  *
@@ -293,6 +301,8 @@ export function buildStageConfig(stage: PrepStage, forms: PrepStageForms): PrepC
         exact_generation: captionForm.exact_generation,
         batch_size: captionForm.batch_size,
         use_tags_as_grounding: captionForm.use_tags_as_grounding,
+        // Omitted at its default so a caption step that was only opened keeps its saved config.
+        ...tagsLineKey(captionForm),
         overwrite: effectiveOverwrite(captionForm),
         ...writeModeKey(captionForm),
         max_image_side: captionForm.max_image_side,

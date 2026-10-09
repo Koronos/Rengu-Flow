@@ -897,6 +897,7 @@ export interface PrepCaptionConfig {
   exact_generation: boolean;
   batch_size: number;
   use_tags_as_grounding: boolean;
+  tags_line?: number;
   overwrite: boolean;
   write_mode?: "skip" | "replace" | "append";
   max_image_side: number;

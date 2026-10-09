@@ -17,7 +17,7 @@ from rengu_flow.prep.caption_store import (
     merge_tags,
 )
 from rengu_flow.prep.captioner import CaptionBackend, CaptionerConfig, caption_folder
-from rengu_flow.prep.config import parse_prep_config
+from rengu_flow.prep.config import PrepConfig, parse_prep_config
 from rengu_flow.prep.runner import run_stage
 
 pytestmark = pytest.mark.no_ui_db
@@ -330,3 +330,34 @@ def test_caption_target_line_1_is_allowed(img_dir):
         backend_factory=lambda cfg: _FakeBackend(),
     )
     assert _open(img_dir).get_lines("a.jpg") == ["Fresh caption."]
+
+
+# ---------------------------------------------------------------------- caption tags_line
+
+
+def _caption_config(tmp_path, **caption):
+    config = PrepConfig(path=str(tmp_path))
+    for key, value in caption.items():
+        setattr(config.caption, key, value)
+    return config
+
+
+@pytest.mark.parametrize("bad", [0, -1, "x", None])
+def test_caption_tags_line_must_be_a_positive_whole_number(tmp_path, bad):
+    with pytest.raises(ValueError, match="tags_line"):
+        _caption_config(tmp_path, tags_line=bad).validate_for_stage("caption")
+
+
+def test_caption_tags_line_cannot_be_the_line_being_written(tmp_path):
+    config = _caption_config(tmp_path, tags_line=2, target_line=2)
+    with pytest.raises(ValueError, match="equals target_line"):
+        config.validate_for_stage("caption")
+    # Grounding off: the setting is inert, nothing to reject.
+    _caption_config(tmp_path, tags_line=2, target_line=2, use_tags_as_grounding=False
+                    ).validate_for_stage("caption")
+
+
+@pytest.mark.parametrize(("tags_line", "target_line"), [(1, 2), (3, 2), (1, 1)])
+def test_caption_tags_line_valid_combinations(tmp_path, tags_line, target_line):
+    # (1, 1) is the legacy default pair and stays valid.
+    _caption_config(tmp_path, tags_line=tags_line, target_line=target_line).validate_for_stage("caption")

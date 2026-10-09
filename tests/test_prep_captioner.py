@@ -918,3 +918,43 @@ def test_gguf_release_asset_per_platform(monkeypatch):
     monkeypatch.setattr("sys.platform", "darwin")
     with pytest.raises(RuntimeError, match="macOS"):
         gg._release_asset()
+
+
+class TestGroundingTagsLine:
+    """`tags_line`: the grounding tags are read positionally from that 1-based line."""
+
+    def _prompts(self, tmp_path, *lines, **config):
+        img_dir = _make_img_dir(tmp_path, ["a.jpg"])
+        (img_dir / "a.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
+        fb = FakeBackend()
+        caption_folder(
+            img_dir,
+            CaptionerConfig(model="toriigate-0.5", use_tags_as_grounding=True, **config),
+            backend_factory=_make_factory(fb),
+        )
+        return fb.recorded_prompts[0][0]
+
+    def test_reads_tags_from_a_padded_line(self, tmp_path):
+        # Tags on line 3, lines 1-2 empty: a blank line 1 must not shift line 3 into its place.
+        prompt = self._prompts(tmp_path, "", "", "1girl, smile", target_line=4, tags_line=3)
+        assert "[1girl, smile]" in prompt
+
+    def test_default_still_reads_line_one(self, tmp_path):
+        prompt = self._prompts(tmp_path, "1girl, smile", "other, tags", target_line=3)
+        assert "[1girl, smile]" in prompt
+        assert "other, tags" not in prompt
+
+    def test_other_line_is_not_read_when_tags_line_points_elsewhere(self, tmp_path):
+        prompt = self._prompts(tmp_path, "line, one", "", "1girl, smile", target_line=4, tags_line=3)
+        assert "line, one" not in prompt
+
+    def test_line_past_the_end_grounds_on_nothing(self, tmp_path):
+        prompt = self._prompts(tmp_path, "1girl", tags_line=5)
+        assert "1girl" not in prompt
+
+    def test_stage_config_maps_tags_line(self):
+        from rengu_flow.prep.captioner import captioner_config_from_stage
+        from rengu_flow.prep.config import CaptionStageConfig
+
+        assert captioner_config_from_stage(CaptionStageConfig()).tags_line == 1
+        assert captioner_config_from_stage(CaptionStageConfig(tags_line=3)).tags_line == 3

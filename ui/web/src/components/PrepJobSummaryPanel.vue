@@ -87,6 +87,10 @@
           <dt>Writes</dt>
           <dd>{{ writesLabel(captionForm.target_line, captionForm) }}</dd>
         </div>
+        <div v-if="captionForm.use_tags_as_grounding && (captionForm.tags_line ?? 1) !== 1" class="prep-summary__row">
+          <dt>Grounding tags</dt>
+          <dd>read from line {{ captionForm.tags_line }}</dd>
+        </div>
         <div v-if="captionFormatLabel" class="prep-summary__row">
           <dt>Caption format</dt>
           <dd>{{ captionFormatLabel }}</dd>
@@ -236,6 +240,8 @@ interface CaptionForm {
   character_name: string;
   outfit: string;
   target_line: number;
+  use_tags_as_grounding?: boolean;
+  tags_line?: number;
   overwrite?: boolean;
   write_mode?: string;
   engine: "hf" | "vllm" | "gguf";

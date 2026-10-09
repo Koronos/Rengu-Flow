@@ -342,11 +342,33 @@
 
     <el-form-item>
       <template #label>
-        Use tags as grounding <FieldHelpIcon :field="help('Feeds the line-1 booru tags to ToriiGate as context, improving tag/caption consistency. Turn off only if the tag line is absent or unreliable.')" />
+        Use tags as grounding <FieldHelpIcon :field="help('Feeds the booru tags to ToriiGate as context, improving tag/caption consistency. They are read from line 1 unless you set another line below (the line your tag step writes to). Turn off only if the tag line is absent or unreliable.')" />
         <FieldPathTag path="caption.use_tags_as_grounding" />
       </template>
       <el-switch v-model="model.use_tags_as_grounding" />
       <el-text class="ml-8" size="small">Use tags as grounding</el-text>
+    </el-form-item>
+
+    <el-form-item v-if="model.use_tags_as_grounding">
+      <template #label>
+        Read the tags from line <FieldHelpIcon :field="help('The 1-based caption line the grounding tags are read from. Set it to the line your tag step writes to (its target line). Empty lines before it keep their place: tags on line 3 are line 3 even when lines 1 and 2 are empty. It cannot be the same line this step writes (unless left at 1).')" />
+        <FieldPathTag path="caption.tags_line" />
+      </template>
+      <el-input-number
+        v-model="tagsLine"
+        :min="1"
+        :step="1"
+        :precision="0"
+        controls-position="right"
+      />
+      <div v-if="suggestion && suggestion.line !== model.tags_line" class="tags-line-hint">
+        <el-text size="small" type="warning">
+          {{ suggestion.source }} writes tags on line {{ suggestion.line }} — grounding reads line {{ model.tags_line }}.
+        </el-text>
+        <el-button size="small" link type="primary" @click="model.tags_line = suggestion.line">
+          Use line {{ suggestion.line }}
+        </el-button>
+      </div>
     </el-form-item>
 
   </el-form>
@@ -378,6 +400,18 @@ const props = defineProps({
    * disables the whole stage form — the prompt textarea and its Reset button included.
    */
   disabled: { type: Boolean, default: false },
+  /**
+   * Workflow only: the tag step feeding this one and the line it writes to. Shown as a hint with a
+   * one-click apply, never applied on its own: opening a step must not edit it.
+   */
+  suggestion: { type: Object as PropType<{ line: number; source: string } | null>, default: null },
+});
+
+const tagsLine = computed({
+  get: () => model.value.tags_line,
+  set: (value: number | null | undefined) => {
+    model.value.tags_line = Number.isFinite(value) && (value as number) >= 1 ? Math.trunc(value as number) : 1;
+  },
 });
 
 const captionModels = ref<PrepModelInfo[]>([]);
@@ -552,6 +586,12 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.tags-line-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 12px;
+}
 .section-title {
   margin: 0 0 12px;
   font-size: 14px;

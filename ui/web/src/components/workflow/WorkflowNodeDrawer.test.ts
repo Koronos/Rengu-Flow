@@ -657,6 +657,69 @@ describe("WorkflowNodeDrawer per-step caption format", () => {
   });
 });
 
+describe("WorkflowNodeDrawer caption grounding line", () => {
+  /** n1 source -> t1 tag (line 3) -> c1 caption: the caption step reads its tags from line 1. */
+  function groundingGraph(tagsLine?: number): WorkflowGraph {
+    const graph = prepGraph();
+    graph.nodes[1] = { ...graph.nodes[1], config: { ...SAVED_TAG_CONFIG, target_line: 3 } };
+    graph.nodes[2] = {
+      ...graph.nodes[2],
+      from: "t1",
+      config: { ...SAVED_CAPTION_CONFIG, ...(tagsLine ? { tags_line: tagsLine } : {}) },
+    };
+    return graph;
+  }
+
+  const hint = () => document.querySelector(".tags-line-hint")?.textContent ?? "";
+
+  it("hints at the tag step's line without editing the step", async () => {
+    vi.mocked(api.prepModels).mockResolvedValue({ models: captionRegistry() });
+    const { app, updates } = await mountDrawer("c1", { graph: groundingGraph() });
+
+    expect(hint()).toContain("writes tags on line 3");
+    expect(hint()).toContain("grounding reads line 1");
+    expect(hint()).toContain("Use line 3");
+    expect(updates.filter((node) => node.id === "c1")).toEqual([]);
+
+    app.unmount();
+  });
+
+  it("applies the suggestion only when the user clicks it", async () => {
+    vi.mocked(api.prepModels).mockResolvedValue({ models: captionRegistry() });
+    const { app, updates } = await mountDrawer("c1", { graph: groundingGraph() });
+
+    document.querySelector<HTMLButtonElement>(".tags-line-hint button")!.click();
+    for (let i = 0; i < 8; i += 1) await nextTick();
+
+    expect(updates.filter((node) => node.id === "c1").at(-1)?.config).toMatchObject({ tags_line: 3 });
+
+    app.unmount();
+  });
+
+  it("shows no hint once the grounding line already matches", async () => {
+    vi.mocked(api.prepModels).mockResolvedValue({ models: captionRegistry() });
+    const { app, updates } = await mountDrawer("c1", { graph: groundingGraph(3) });
+
+    expect(hint()).toBe("");
+    expect(updates.filter((node) => node.id === "c1")).toEqual([]);
+
+    app.unmount();
+  });
+
+  it("finds the tag step through a pass-through step", async () => {
+    vi.mocked(api.prepModels).mockResolvedValue({ models: captionRegistry() });
+    const graph = groundingGraph();
+    graph.nodes.splice(2, 0, prepNode("q1", "prep.quality", {}));
+    graph.nodes[2] = { ...graph.nodes[2], from: "t1" };
+    graph.nodes[3] = { ...graph.nodes[3], from: "q1" };
+    const { app } = await mountDrawer("c1", { graph });
+
+    expect(hint()).toContain("writes tags on line 3");
+
+    app.unmount();
+  });
+});
+
 describe("WorkflowNodeDrawer tools that declare a folder output", () => {
   function toolGraph(): WorkflowGraph {
     const base = graphOf();

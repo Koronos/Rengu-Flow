@@ -59,8 +59,14 @@ text**):
   fine for your own tools, but training will see those images as uncaptioned.
 - **The old `overwrite` key still works** (`true` = `replace`), so existing TOML files and saved
   workflow steps behave as before. An explicit `write_mode` wins over it.
-- **Tag grounding.** The captioner (ToriiGate) still reads the tags from line 1; a tag step writing
-  elsewhere does not feed it.
+- **Tag grounding.** The captioner (ToriiGate) reads its tags from line 1 by default. If your tag
+  step wrote them elsewhere, set the caption stage's **`tags_line`** (form: *Read the tags from
+  line*) to that line. The read is positional: tags on line 3 are line 3 even when lines 1 and 2
+  are empty. `tags_line` must be 1 or more, and is refused when it equals the caption's own
+  `target_line` while grounding is on (the model would be grounded on the line being written; the
+  default `1` is exempt, so existing configs keep working). In a workflow, a caption step whose
+  input comes from a tag step shows a hint ("Tags step ② writes tags on line 3 — grounding reads
+  line 1") with a **Use line 3** button; it never changes the step on its own.
 - Validation: `target_line` must be 1 or more and `write_mode` one of the three values, or the job
   refuses to start.
 
@@ -81,6 +87,28 @@ rengu prep tag --path /data/my_dataset --underscores   # long_hair instead of lo
 ```
 
 Images that already have a tag line are skipped unless `--overwrite`.
+
+The write target and layout flags below work the same on `tag`, `caption` and `edit_caption`
+and override the TOML:
+
+| Flag | Meaning |
+|---|---|
+| `--target-line N` | 1-based caption line to write (default: tag `1`, caption `2`, edit_caption `1`); shorter captions are padded with empty lines |
+| `--write-mode {replace,append,skip}` | What to do when that line already has text; unset = from `--overwrite` |
+| `--tags-line N` | `caption` only: line the grounding tags are read from (default `1`) |
+| `--caption-format {sidecar,json}`, `--caption-ext EXT` | The layout this stage works in (all stages) |
+| `--convert-from-format {sidecar,json}`, `--convert-from-ext EXT` | The layout the folder is in **now**; when it differs from `--caption-format`/`--caption-ext` the folder is converted first (new layout written and verified, then the old files removed) |
+
+```bash
+# tags on line 3, appended to what is there; then ground the caption on them
+rengu prep tag --path /data/my_dataset --target-line 3 --write-mode append
+rengu prep caption --path /data/my_dataset --model toriigate-0.5 --target-line 2 --tags-line 3
+# convert a sidecar folder to captions.json while tagging
+rengu prep tag --path /data/my_dataset --caption-format json --convert-from-format sidecar
+```
+
+Bad values (`--target-line 0`, a `--tags-line` equal to the caption's own line, an unknown
+`--write-mode`) stop the command before it does any work, naming the offending setting.
 
 **Tag form — `underscores`.** Off (default) writes the natural-language form
 (`long hair`); on keeps the original Danbooru form (`long_hair`). Kaomojis (`^_^`,
@@ -427,6 +455,7 @@ quantization = "bf16"           # bf16 | int8 | nf4
 prompt = ""                     # empty = model default
 batch_size = 4
 use_tags_as_grounding = true
+# tags_line = 1                 # line the grounding tags are read from (set to the tag step's target_line)
 overwrite = false
 
 [edit_caption]                  # edit datasets: path = the targets folder
