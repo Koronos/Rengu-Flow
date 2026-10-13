@@ -1,0 +1,13 @@
+# alias reaching validation raw must be rejected (UI rewrites it to canonical)
+dataset = "examples/minimal_dataset.toml"
+
+[model]
+type = "anima"
+dtype = "bfloat16"
+transformer_path = "path/to/anima-preview.safetensors"
+vae_path = "path/to/qwen_image_vae.safetensors"
+llm_path = "path/to/qwen3.safetensors"
+
+[optimizer]
+type = "adamw"
+lr = 1e-4

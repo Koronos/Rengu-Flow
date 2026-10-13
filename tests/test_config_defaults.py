@@ -103,3 +103,34 @@ def test_micro_batch_int_untouched(minimal_config_copy):
     minimal_config_copy["micro_batch_size_per_gpu"] = 2
     set_config_defaults(minimal_config_copy)
     assert minimal_config_copy["micro_batch_size_per_gpu"] == 2
+
+
+def _model_config(model_type: str) -> dict:
+    return {"model": {"type": model_type, "dtype": "bfloat16"}, "optimizer": {"type": "adamw", "lr": 1e-4}}
+
+
+@pytest.mark.no_ui_db
+def test_cache_text_embeddings_default_only_for_specs_that_declare_a_text_cache(monkeypatch):
+    """Built-in specs declare ``text_cache`` and get ``cache_text_embeddings = true`` by default; a
+    pipeline registered only with ``@register_model`` (``ensure_default_capability``) declares
+    none, so its raw config is left alone (and the UI toggle stays hidden)."""
+    from rengu_flow.registry import model_capabilities as mc
+    from rengu_flow.registry.builtin_models import builtin_specs
+
+    for spec in builtin_specs():
+        config = _model_config(spec.type_id)
+        set_config_defaults(config)
+        assert config["model"]["cache_text_embeddings"] is True, spec.type_id
+
+    # A throwaway copy of the registry: the third-party type is gone after the test.
+    monkeypatch.setattr(mc, "model_capability_registry", dict(mc.model_capability_registry))
+    mc.ensure_default_capability("third_party_model")
+    cap = mc.model_capability_registry["third_party_model"]
+    assert cap.text_cache is None and "text_cache_optional" not in cap.features
+    config = _model_config("third_party_model")
+    set_config_defaults(config)
+    assert "cache_text_embeddings" not in config["model"]
+    explicit = _model_config("third_party_model")
+    explicit["model"]["cache_text_embeddings"] = False
+    set_config_defaults(explicit)
+    assert explicit["model"]["cache_text_embeddings"] is False

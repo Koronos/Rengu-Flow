@@ -13,27 +13,24 @@ from rengu_flow.config.local_config import load_local_config, repo_root
 # docs/developer/smoke-tests.md. scripts/lib/smoke_common.sh uses the same value.
 SMOKE_SKIP_EXIT = 77
 
-# Env var name -> config['model'] key per model type (optional override when env is set externally).
-_MODEL_PATH_ENV: dict[str, dict[str, str]] = {
-    "sdxl": {"checkpoint_path": "RENGU_SDXL_CHECKPOINT_PATH"},
-    "cosmos_predict2": {
-        "transformer_path": "RENGU_COSMOS_TRANSFORMER_PATH",
-        "vae_path": "RENGU_COSMOS_VAE_PATH",
-        "llm_path": "RENGU_COSMOS_LLM_PATH",
-    },
-    "krea2": {
-        "transformer_path": "RENGU_KREA2_TRANSFORMER_PATH",
-        "vae_path": "RENGU_KREA2_VAE_PATH",
-        "text_encoder_path": "RENGU_KREA2_TEXT_ENCODER_PATH",
-        "checkpoint_path": "RENGU_KREA2_CHECKPOINT_PATH",
-    },
-    "qwen_image21": {
-        "transformer_path": "RENGU_QWEN_IMAGE21_TRANSFORMER_PATH",
-        "vae_path": "RENGU_QWEN_IMAGE21_VAE_PATH",
-        "text_encoder_path": "RENGU_QWEN_IMAGE21_TEXT_ENCODER_PATH",
-        "diffusers_path": "RENGU_QWEN_IMAGE21_DIFFUSERS_PATH",
-    },
-}
+def model_path_env() -> dict[str, dict[str, str]]:
+    """``config['model']`` key -> ``RENGU_<env_prefix>_<KEY>`` env var per canonical model type,
+    derived from each spec's ``components`` (those with ``env``), in spec order. Optional
+    override when the env var is set externally (smoke/CI)."""
+    from rengu_flow.registry.model_capabilities import model_capability_registry
+
+    return {
+        type_id: {c.key: f"RENGU_{cap.env_prefix}_{c.key.upper()}" for c in cap.components if c.env}
+        for type_id, cap in model_capability_registry.items()
+        if cap.components
+    }
+
+
+def __getattr__(name: str) -> Any:
+    # Back-compat: ``_MODEL_PATH_ENV`` stays readable as a (freshly derived) mapping.
+    if name == "_MODEL_PATH_ENV":
+        return model_path_env()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def parse_dotenv_line(line: str) -> tuple[str, str] | None:
@@ -77,7 +74,7 @@ def apply_model_paths_from_env(config: dict[str, Any]) -> list[str]:
     if not isinstance(model, dict):
         return []
     model_type = str(model.get("type", "")).lower()
-    mapping = _MODEL_PATH_ENV.get(model_type, {})
+    mapping = model_path_env().get(model_type, {})
     applied: list[str] = []
     for model_key, env_name in mapping.items():
         value = os.environ.get(env_name)
@@ -106,7 +103,7 @@ def model_path_errors(config: dict[str, Any]) -> list[str]:
     if not isinstance(model, dict):
         return []
     model_type = str(model.get("type", "")).lower()
-    mapping = _MODEL_PATH_ENV.get(model_type, {})
+    mapping = model_path_env().get(model_type, {})
     groups = [g for g in _one_of_groups(model_type) if all(k in mapping for k in g)]
     grouped = {k for g in groups for k in g}
 

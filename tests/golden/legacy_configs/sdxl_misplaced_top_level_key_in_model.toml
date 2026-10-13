@@ -1,0 +1,12 @@
+# blocks_to_swap written below [model]: silently ignored, flagged by the misplaced-key check
+dataset = "examples/minimal_dataset.toml"
+
+[model]
+type = "sdxl"
+dtype = "bfloat16"
+checkpoint_path = "x"
+blocks_to_swap = 20
+
+[optimizer]
+type = "adamw"
+lr = 1e-4

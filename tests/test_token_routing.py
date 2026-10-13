@@ -120,3 +120,48 @@ def test_route_layers_noop_in_eval():
         out = start(inputs)
         assert len(out) == 8 and out[0] is inputs[0]
         assert end(out) is out
+
+
+@pytest.mark.parametrize(
+    ("tread", "n_blocks", "match"),
+    [
+        ("x", 28, "must be a table"),
+        ({}, 28, None),
+        ({"start_block": 2}, 28, "needs drop_ratio"),
+        ({"drop_ratio": "a"}, 28, "non-numeric"),
+        ({"drop_ratio": 1.0}, 28, r"drop_ratio must be in \(0, 1\)"),
+        ({"drop_ratio": 0.5, "disable_after_frac": 0}, 28, r"disable_after_frac must be in \(0, 1\]"),
+        ({"drop_ratio": 0.5, "start_block": 0, "end_block": 25}, 28, "resolves to"),
+        ({"drop_ratio": 0.5, "start_block": 0, "end_block": 25}, 0, None),  # unknown count: unchecked
+    ],
+)
+def test_parse_tread_errors(tread, n_blocks, match):
+    from rengu_flow.config.validation import ConfigValidationError
+    from rengu_flow.training.token_routing import parse_tread
+
+    if match is None:
+        assert parse_tread({"tread": tread}, n_blocks) is None or n_blocks == 0
+        return
+    with pytest.raises(ConfigValidationError, match=match):
+        parse_tread({"tread": tread}, n_blocks)
+
+
+def test_parse_tread_resolves_route_and_defaults():
+    from rengu_flow.training.token_routing import parse_tread
+
+    assert parse_tread({}, 28) is None
+    got = parse_tread({"tread": {"drop_ratio": 0.5}}, 28)
+    assert (got.drop_ratio, got.disable_after_frac, got.route) == (0.5, 1.0, (2, 25))
+    assert parse_tread({"tread": {"drop_ratio": 0.5}}, 0).route is None
+
+
+def test_token_routing_parse_tread_is_torch_free():
+    import subprocess
+    import sys
+
+    code = (
+        "import sys; from rengu_flow.training.token_routing import parse_tread; "
+        "from rengu_flow.registry.model_config_rules import validate_config_model_rules; "
+        "assert 'torch' not in sys.modules"
+    )
+    subprocess.run([sys.executable, "-c", code], check=True)

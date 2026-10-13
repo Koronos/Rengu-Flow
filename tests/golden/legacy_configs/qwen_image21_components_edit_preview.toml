@@ -1,0 +1,16 @@
+dataset = "examples/minimal_dataset.toml"
+
+[model]
+type = "qwen_image21"
+dtype = "bfloat16"
+transformer_path = "path/to/transformer.safetensors"
+vae_path = "path/to/vae.safetensors"
+text_encoder_path = "path/to/te.safetensors"
+transformer_fp8_matmul = true
+
+[preview]
+prompts = [{ prompt = "make it blue", control_images = ["a.png"] }]
+
+[optimizer]
+type = "adamw"
+lr = 1e-4

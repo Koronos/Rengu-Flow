@@ -4,13 +4,18 @@ from __future__ import annotations
 
 from typing import Any
 
-WHEN_COSMOS_PREVIEW = {"field": "model.type", "in": ["cosmos_predict2"]}
-# Preview memory knobs honored by every DiT preview runner (prepare_preview_memory /
-# offload_text_encoder_after_encode exist on both pipelines); dit-for-decode stays
-# cosmos-only — the krea2 / qwen_image21 previews never read it.
-WHEN_DIT_PREVIEW = {"field": "model.type", "in": ["cosmos_predict2", "krea2", "qwen_image21"]}
-# Edit previews (condition images per prompt): only qwen_image21 renders them.
-WHEN_EDIT_PREVIEW = {"field": "model.type", "in": ["qwen_image21"]}
+# Capability gates derived from each model's ``preview_spec`` (registry/model_spec.py
+# ModelCapability.__post_init__), so no model list lives here.
+# Edge case: the memory knobs below are honored by every DiT preview runner (preview_dit_memory).
+WHEN_DIT_PREVIEW = {"capability": "preview_dit_memory"}
+# preview_blocks_to_swap streams DiT blocks through the preview offloader (memory_knobs).
+WHEN_DIT_PREVIEW_BLOCK_SWAP = {"capability": "preview_block_swap"}
+# preview_offload_dit_for_decode (memory_knobs).
+WHEN_DECODE_OFFLOAD_PREVIEW = {"capability": "preview_decode_offload"}
+# [preview] guidance_mode: models whose spec declares that preview option.
+WHEN_GUIDANCE_MODE_PREVIEW = {"capability": "preview_guidance_mode"}
+# Edit previews (condition images per prompt): ``preview_spec.edit``.
+WHEN_EDIT_PREVIEW = {"capability": "edit"}
 
 
 def _entry_field(
@@ -105,14 +110,14 @@ def get_preview_entry_fields() -> list[dict[str, Any]]:
             "integer",
             default=0,
             min_value=0,
-            when=WHEN_DIT_PREVIEW,
+            when=WHEN_DIT_PREVIEW_BLOCK_SWAP,
         ),
         _entry_field(
             "preview_offload_dit_for_decode",
             "Offload DiT for VAE decode",
             "boolean",
             default=False,
-            when=WHEN_COSMOS_PREVIEW,
+            when=WHEN_DECODE_OFFLOAD_PREVIEW,
         ),
         _entry_field(
             "preview_save_png",
@@ -132,6 +137,7 @@ PREVIEW_GLOBAL_PATHS: frozenset[str] = frozenset(
         "preview.control_resolution",
         "preview.num_inference_steps",
         "preview.guidance_scale",
+        "preview.guidance_mode",
         "preview.seed",
         "preview.seed_stride",
         "preview.preview_every_n_steps",

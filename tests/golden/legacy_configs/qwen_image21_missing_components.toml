@@ -1,0 +1,10 @@
+dataset = "examples/minimal_dataset.toml"
+
+[model]
+type = "qwen_image21"
+dtype = "bfloat16"
+transformer_path = "path/to/transformer.safetensors"
+
+[optimizer]
+type = "adamw"
+lr = 1e-4

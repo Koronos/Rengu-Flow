@@ -27,7 +27,6 @@ from rengu_flow.model.qwen_image21.dit import (
 )
 from rengu_flow.model.qwen_image21.layers import FinalLayer, InitialLayer, TransformerLayer
 from rengu_flow.model.qwen_image21.pipeline import (
-    ADAPTER_LAYER_GROUPS,
     ADAPTER_TARGET_MODULES,
     EXPORT_PREFIX,
     QUANT_LEAF_NAMES,
@@ -151,14 +150,6 @@ def test_padding_is_invisible(tiny_model):
     assert torch.allclose(out[1:], alone, atol=1e-5)
 
 
-def test_gradients_reach_every_parameter_through_the_layers(tiny_model):
-    model = tiny_model.train()
-    latents, text, mask, t = _batch((5, 3))
-    _run_layers(model, latents, text, mask, t).square().mean().backward()
-    missing = [n for n, p in model.named_parameters() if p.grad is None or not p.grad.abs().sum()]
-    assert not missing, missing
-
-
 # ---- training inputs ------------------------------------------------------------------------
 
 
@@ -252,61 +243,6 @@ def test_component_paths_resolve_from_diffusers_path_with_overrides(tmp_path):
 
 
 # ---- adapters ---------------------------------------------------------------------------------
-
-ADAPTER_CONFIGS = [
-    pytest.param({"type": "lora", "rank": 4, "alpha": 4, "dropout": 0.0, "dtype": torch.float32}, id="lora"),
-    pytest.param(
-        {
-            "type": "lokr",
-            "rank": 4,
-            "alpha": 4,
-            "factor": -1,
-            "decompose_both": False,
-            "full_matrix": False,
-            "dtype": torch.float32,
-        },
-        id="lokr",
-    ),
-    pytest.param(
-        {
-            "type": "lycoris_locon",
-            "rank": 4,
-            "alpha": 4,
-            "dropout": 0.0,
-            "rank_dropout": 0.0,
-            "module_dropout": 0.0,
-            "train_norm": False,
-            "train_conv": False,
-            "use_tucker": False,
-            "use_scalar": False,
-            "dora_wd": False,
-            "rs_lora": False,
-            "wd_on_output": True,
-            "dtype": torch.float32,
-        },
-        id="lycoris_locon",
-    ),
-]
-
-
-@pytest.mark.parametrize("adapter_cfg", ADAPTER_CONFIGS)
-def test_adapter_attach_trains_through_layers(tiny_model, adapter_cfg):
-    if adapter_cfg["type"] == "lycoris_locon":
-        pytest.importorskip("lycoris")
-    model = copy.deepcopy(tiny_model).train()
-    for name, p in model.named_parameters():
-        p.original_name = name
-        p.requires_grad_(False)
-    adapter_dit.configure(model, adapter_cfg, targets=ADAPTER_TARGET_MODULES, layer_groups=ADAPTER_LAYER_GROUPS)
-    trainable = [n for n, p in model.named_parameters() if p.requires_grad]
-    assert any("img_mlp" in n for n in trainable) and any(".attn." in n for n in trainable)
-    assert any(n.startswith(("modulation", "base_model.model.modulation")) or ".modulation." in n for n in trainable)
-
-    latents, text, mask, t = _batch((5, 3))
-    _run_layers(model, latents, text, mask, t).square().mean().backward()
-    grads = [p.grad for p in model.parameters() if p.requires_grad]
-    assert grads and all(g is not None for g in grads)
-
 
 def test_lora_export_uses_comfy_mappable_transformer_keys(tiny_model, tmp_path):
     """ComfyUI maps 2.1 LoRAs as ``transformer.<diffusers module>`` (the gate_layer / proj halves

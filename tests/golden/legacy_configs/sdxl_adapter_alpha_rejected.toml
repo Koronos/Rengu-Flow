@@ -1,0 +1,16 @@
+# alpha is derived from rank; an explicit one is rejected by set_config_defaults
+dataset = "examples/minimal_dataset.toml"
+
+[model]
+type = "sdxl"
+dtype = "bfloat16"
+checkpoint_path = "path/to/sdxl.safetensors"
+
+[adapter]
+type = "lora"
+rank = 8
+alpha = 4
+
+[optimizer]
+type = "adamw"
+lr = 1e-4

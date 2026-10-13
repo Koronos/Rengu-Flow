@@ -1,0 +1,15 @@
+dataset = "examples/minimal_dataset.toml"
+
+[model]
+type = "sdxl"
+dtype = "bfloat16"
+checkpoint_path = "path/to/sdxl.safetensors"
+
+[adapter]
+type = "lokr"
+dim = 16
+factor = 4
+
+[optimizer]
+type = "adamw"
+lr = 1e-4

@@ -446,6 +446,9 @@ def _run_training(args, config):
     )
     if use_real_dataset:
         validate_dataset_config_for_real_data(dataset_config)
+        from rengu_flow.data.dataset import apply_model_training_dataset_defaults
+
+        apply_model_training_dataset_defaults(dataset_config, model)
         train_data = Dataset(
             dataset_config,
             model,

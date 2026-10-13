@@ -2,7 +2,7 @@
 # Model paths: RENGU_KREA2_{TRANSFORMER,VAE,TEXT_ENCODER}_PATH, or RENGU_KREA2_CHECKPOINT_PATH
 # (diffusers Krea-2-Raw folder), in repo-root `.env` (see `.env.example`).
 #   scripts/run_model_smoke.sh krea2
-# No real weights? scripts/smoke_krea2_mini.py runs the same pipeline on a random mini model.
+# No real weights? scripts/smoke_mini.py --model krea2 runs the same pipeline on a tiny random model.
 
 dataset = "tests/fixtures/smoke/dataset_cc0.toml"
 output_dir = "output"

@@ -10,6 +10,7 @@ from __future__ import annotations
 import math
 
 import torch
+import torch.nn.functional as F
 
 
 def calculate_shift(
@@ -35,12 +36,14 @@ def sample_timesteps(
     batch_size: int,
     device: torch.device,
     timestep_quantile: float | None = None,
+    logit_mean: float = 0.0,
 ) -> torch.Tensor:
     """Draw unshifted training timesteps in (0, 1), shape ``(batch_size,)``.
 
     ``model.timestep_sample_method``: ``logit_normal`` (default; sigmoid of a normal scaled by
     ``model.sigmoid_scale``) or ``uniform``. ``timestep_quantile`` picks a fixed quantile of the
-    distribution instead of sampling (validation probes).
+    distribution instead of sampling (validation probes). ``logit_mean`` centers the logit-normal
+    (a model's reference recipe, e.g. nanosaur2's ``ln 2``), added after ``sigmoid_scale``.
     """
     method = model_config.get("timestep_sample_method", "logit_normal")
     if method == "logit_normal":
@@ -57,7 +60,7 @@ def sample_timesteps(
 
     if method == "logit_normal":
         sigmoid_scale = model_config.get("sigmoid_scale", 1.0)
-        t = torch.sigmoid(t * sigmoid_scale)
+        t = torch.sigmoid(t * sigmoid_scale + logit_mean)
     return t
 
 
@@ -84,3 +87,29 @@ def add_flow_noise(
     noisy_latents = (1 - t_expanded) * latents + t_expanded * noise
     target = noise - latents
     return noisy_latents, target, t.view(-1, 1)
+
+
+def flow_matching_batch(
+    model_config: dict,
+    latents: torch.Tensor,
+    mask: torch.Tensor | None,
+    timestep_quantile: float | None = None,
+    mu: float | None = None,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor | None]:
+    """The common flow-matching training batch: ``(noisy_latents, t, target, mask)``.
+
+    ``latents`` is ``(B, C, H, W)`` or ``(B, C, T, H, W)``; the pixel ``mask`` ``(B, H', W')`` (or
+    ``None``) is resized to the latent grid (nearest-exact; a frame axis is added for video).
+    Timesteps are sampled per ``model_config`` and shifted by ``shift_timesteps`` (``model.shift``
+    wins over the dynamic ``mu``), then flow noise is added. RNG order: timesteps, then noise.
+    """
+    bs = latents.shape[0]
+    h, w = latents.shape[-2:]
+    if mask is not None:
+        mask = F.interpolate(mask.unsqueeze(1), size=(h, w), mode="nearest-exact")
+        if latents.ndim == 5:
+            mask = mask.unsqueeze(2)
+    t = sample_timesteps(model_config, bs, latents.device, timestep_quantile)
+    t = shift_timesteps(t, model_config.get("shift", None), mu)
+    noisy_latents, target, t = add_flow_noise(latents, t)
+    return noisy_latents, t, target, mask

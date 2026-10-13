@@ -1,0 +1,39 @@
+# Nanosaur2 LoRA smoke (30 steps) with the versioned CC0 dataset; fits an 8 GB card in bf16
+# (measured: ~2.4 GB peak training at 1024 px, ~4 GB with the 1024 px preview).
+# Model paths: RENGU_NANOSAUR2_{TRANSFORMER,VAE,TEXT_ENCODER}_PATH in repo-root `.env`.
+#   scripts/run_model_smoke.sh nanosaur2
+# No real weights? scripts/smoke_mini.py --model nanosaur2 runs the same pipeline on a tiny random model.
+
+dataset = "tests/fixtures/smoke/dataset_cc0.toml"
+output_dir = "output"
+max_steps = 30
+epochs = 999
+micro_batch_size_per_gpu = 1
+gradient_accumulation_steps = 1
+pipeline_stages = 1
+activation_checkpointing = true
+logging_steps = 1
+caching_batch_size = 1
+save_every_n_epochs = 999
+bench = true
+
+[model]
+type = "nanosaur2"
+dtype = "bfloat16"
+
+[adapter]
+type = "lora"
+rank = 32
+
+[optimizer]
+type = "adamw"
+lr = 1e-4
+
+[preview]
+width = 1024
+height = 1024
+num_inference_steps = 30
+seed = 42
+preview_every_n_steps = 30
+preview_save_png = true
+prompts = ["newest, masterpiece, 1girl, solo, (fennec ears:1.3), long blonde wavy hair, blue eyes, big fluffy tail, smile, forest, sunlight"]

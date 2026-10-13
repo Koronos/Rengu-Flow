@@ -80,16 +80,8 @@ def test_apply_layer_groups_unknown_name_raises():
         apply_layer_groups({"layer_groups": ["anything"]}, None)
 
 
-# --- krea2: every declared group matches real module paths ----------------------
-
-
-def test_krea2_groups_match_real_modules():
-    """Regression vs module renames: each named group must select at least one linear."""
-    model = _tiny_krea2()
-    names = adapter_dit._collect_target_linears(model, KREA2_TARGETS)
-    for group, patterns in KREA2_GROUPS.items():
-        matched = filter_target_names(names, list(patterns), None)
-        assert matched, f"layer group {group!r} matched no module (patterns {patterns})"
+# --- krea2 (each declared group matching real linears, and the spec's groups being the
+# pipeline's: tests/contract/test_pipeline_contract.py, every model) ---------------------
 
 
 def test_krea2_lokr_text_fusion_only():
@@ -170,49 +162,7 @@ def test_patterns_matching_nothing_raise():
         )
 
 
-# --- cosmos ---------------------------------------------------------------------
-
-
-def test_cosmos_groups_match_real_modules():
-    from rengu_flow.model.cosmos_predict2.dit import MiniTrainDIT
-    from rengu_flow.model.cosmos_predict2.pipeline import (
-        ADAPTER_LAYER_GROUPS as COSMOS_GROUPS,
-    )
-
-    model = MiniTrainDIT(
-        max_img_h=32,
-        max_img_w=32,
-        max_frames=1,
-        in_channels=4,
-        out_channels=4,
-        patch_spatial=2,
-        patch_temporal=1,
-        model_channels=32,
-        num_blocks=2,
-        num_heads=2,
-        crossattn_emb_channels=16,
-        pos_emb_cls="rope3d",
-    )
-    names = adapter_dit._collect_target_linears(model, adapter_dit.ADAPTER_TARGET_MODULES)
-    assert names, "no target linears collected from cosmos DiT"
-    for group, patterns in COSMOS_GROUPS.items():
-        matched = filter_target_names(names, list(patterns), None)
-        assert matched, f"layer group {group!r} matched no module (patterns {patterns})"
-
-
-# --- capability / config / UI sync ----------------------------------------------
-
-
-def test_capability_names_match_pipeline_groups():
-    from rengu_flow.model.cosmos_predict2.pipeline import (
-        ADAPTER_LAYER_GROUPS as COSMOS_GROUPS,
-    )
-    from rengu_flow.registry.model_capabilities import get_capability
-
-    assert sorted(get_capability("krea2").adapter_layer_groups) == sorted(KREA2_GROUPS)
-    assert sorted(get_capability("cosmos_predict2").adapter_layer_groups) == sorted(
-        COSMOS_GROUPS
-    )
+# --- config validation (the form's options per model: tests/contract/test_spec_contract.py) ---
 
 
 def test_validate_config_rejects_unknown_group():
@@ -232,26 +182,6 @@ def test_validate_config_rejects_unknown_group():
     }
     with pytest.raises(ConfigValidationError, match="not_a_group"):
         validate_config(cfg)
-
-
-def test_schema_offers_layer_groups_for_krea2():
-    from rengu_flow_ui.config_schema import get_sections
-
-    fields = [
-        f
-        for s in get_sections()
-        for f in s["fields"]
-        if f["path"] == "adapter.layer_groups"
-    ]
-    krea2_variant = next(
-        f
-        for f in fields
-        if any(
-            cond.get("field") == "model.type" and cond.get("in") == ["krea2"]
-            for cond in (f.get("when") or {}).get("all", [])
-        )
-    )
-    assert "text_fusion" in krea2_variant["options"]
 
 
 # --- qwen_image21 -----------------------------------------------------------------
@@ -304,18 +234,3 @@ def test_qwen_image21_lokr_attention_only():
     )
     adapted = {n for n, m in model.named_modules() if hasattr(m, "_lokr_scale")}
     assert adapted and all(".attn." in n for n in adapted), adapted
-
-
-def test_schema_offers_layer_groups_for_qwen_image21():
-    from rengu_flow_ui.config_schema import get_sections
-
-    fields = [f for s in get_sections() for f in s["fields"] if f["path"] == "adapter.layer_groups"]
-    variant = next(
-        f
-        for f in fields
-        if any(
-            cond.get("field") == "model.type" and cond.get("in") == ["qwen_image21"]
-            for cond in (f.get("when") or {}).get("all", [])
-        )
-    )
-    assert "modulation" in variant["options"] and "attention" in variant["options"]

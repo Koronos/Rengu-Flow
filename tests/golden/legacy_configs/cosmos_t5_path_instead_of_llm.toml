@@ -1,0 +1,18 @@
+# older T5-based bundle: t5_path satisfies the llm_path one_of group
+dataset = "examples/minimal_dataset.toml"
+
+
+[model]
+type = "cosmos_predict2"
+dtype = "bfloat16"
+transformer_path = "path/to/anima-preview.safetensors"
+vae_path = "path/to/qwen_image_vae.safetensors"
+
+t5_path = "path/to/t5.safetensors"
+[adapter]
+type = "lora"
+rank = 16
+
+[optimizer]
+type = "adamw"
+lr = 1e-4

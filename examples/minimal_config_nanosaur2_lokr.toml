@@ -1,0 +1,31 @@
+# Minimal Nanosaur2 LoKr training (Gemma3-270M text encoder + DINOv2 semantic VAE).
+# Fits an 8 GB card in bf16 at 1024 px (no quantization or block swap needed).
+
+output_dir = 'output'
+dataset = 'examples/minimal_nanosaur2_dataset.toml'
+
+epochs = 1
+micro_batch_size_per_gpu = 1
+pipeline_stages = 1
+gradient_accumulation_steps = 1
+activation_checkpointing = true
+save_every_n_epochs = 1
+caching_batch_size = 1
+
+[model]
+type = 'nanosaur2'
+dtype = 'bfloat16'
+# Main model | image VAE | text encoder: the three files of well9472/Nanosaur2-670M.
+# Do NOT train on nanosaur2_dmad_4step_diffusion_model.safetensors (distilled, inference only).
+transformer_path = 'path/to/nanosaur2_diffusion_model.safetensors'
+vae_path = 'path/to/nanosaur2_vae.safetensors'
+text_encoder_path = 'path/to/nanosaur2_text_encoder.safetensors'
+
+[adapter]
+type = 'lokr'
+rank = 8
+factor = -1
+
+[optimizer]
+type = 'adamw'
+lr = 3e-5

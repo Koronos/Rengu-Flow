@@ -1,33 +1,35 @@
-"""Model contract and base for Rengu Flow pipelines."""
+"""Model contract and base for Rengu Flow pipelines.
 
-from rengu_flow.model.base import BasePipeline, ModelPipelineProtocol, make_contiguous
+Everything is lazy (PEP 562): model spec modules live inside this package
+(``rengu_flow/model/<m>/spec.py``, ``sdxl_spec.py``) and must import without torch, so neither the
+base contract nor any pipeline is imported up front. Pipeline classes (``Krea2Pipeline``, ...) are
+derived from the built-in specs' ``pipeline`` (``"<module>:<Class>"``).
+"""
 
-__all__ = [
-    "BasePipeline",
-    "ModelPipelineProtocol",
-    "make_contiguous",
-    "SDXLPipeline",
-    "CosmosPredict2Pipeline",
-    "Krea2Pipeline",
-    "QwenImage21Pipeline",
-]
+from __future__ import annotations
+
+import importlib
+
+_BASE_EXPORTS: dict[str, str] = {
+    "BasePipeline": "rengu_flow.model.base",
+    "ModelPipelineProtocol": "rengu_flow.model.base",
+    "make_contiguous": "rengu_flow.model.base",
+}
+
+
+def _pipeline_exports() -> dict[str, str]:
+    """Pipeline class name -> module, from the built-in model specs (registration order)."""
+    from rengu_flow.registry.builtin_models import builtin_specs
+
+    return {spec.pipeline_class_name: spec.pipeline_module for spec in builtin_specs() if spec.pipeline}
 
 
 def __getattr__(name: str):
-    if name == "SDXLPipeline":
-        from rengu_flow.model.sdxl import SDXLPipeline
-
-        return SDXLPipeline
-    if name == "CosmosPredict2Pipeline":
-        from rengu_flow.model.cosmos_predict2 import CosmosPredict2Pipeline
-
-        return CosmosPredict2Pipeline
-    if name == "Krea2Pipeline":
-        from rengu_flow.model.krea2 import Krea2Pipeline
-
-        return Krea2Pipeline
-    if name == "QwenImage21Pipeline":
-        from rengu_flow.model.qwen_image21 import QwenImage21Pipeline
-
-        return QwenImage21Pipeline
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    if name == "__all__":
+        return [*_BASE_EXPORTS, *_pipeline_exports()]
+    if name.startswith("__"):
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    module = _BASE_EXPORTS.get(name) or _pipeline_exports().get(name)
+    if module is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    return getattr(importlib.import_module(module), name)

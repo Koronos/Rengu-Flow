@@ -1,0 +1,19 @@
+dataset = "examples/minimal_dataset.toml"
+
+
+[model]
+type = "cosmos_predict2"
+dtype = "bfloat16"
+transformer_path = "path/to/anima-preview.safetensors"
+vae_path = "path/to/qwen_image_vae.safetensors"
+
+llm_path = "path/to/qwen_3_06b_base.safetensors"
+llm_adapter_path = "path/to/llm_adapter.safetensors"
+llm_adapter_lr = 0
+[adapter]
+type = "lora"
+rank = 16
+
+[optimizer]
+type = "adamw"
+lr = 1e-4

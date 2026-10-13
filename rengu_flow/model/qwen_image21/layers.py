@@ -19,6 +19,7 @@ import torch
 from torch import nn
 
 from rengu_flow.model.base import make_contiguous
+from rengu_flow.model.dit_common.layers import OffloadedBlockLayer, mark_inter_layer_grads
 from rengu_flow.model.qwen_image21.dit import (
     build_t2i_img_mask,
     pack_latents,
@@ -106,8 +107,7 @@ class InitialLayer(nn.Module):
             )
             # The RoPE table is a constant (no parameter behind it): leave it out, or every layer
             # would backprop into a leaf nobody reads.
-            for tensor in (outputs[0], outputs[1], outputs[2]):
-                tensor.requires_grad_(True)
+            mark_inter_layer_grads(outputs, False, outputs[:3])
             return outputs
 
 
@@ -115,32 +115,21 @@ def _target_token_mask(seq_len: int, prefix_len: int, device) -> torch.Tensor:
     return torch.arange(seq_len, device=device) >= prefix_len
 
 
-class TransformerLayer(nn.Module):
-    def __init__(self, block, block_idx, offloader):
-        super().__init__()
-        self.block = block
-        self.block_idx = block_idx
-        self.offloader = offloader
-
-    def forward(self, inputs):
-        with cuda_autocast():
-            hidden, temb, modulation, rope, key_valid, layout = inputs
-            prefix_len, segments = layout_segments(layout)
-
-            self.offloader.wait_for_block(self.block_idx)
-            hidden = self.block(
-                hidden,
-                modulation,
-                # Reentrant AC hands pass-through outputs back requiring grad: detach the
-                # constant table so blocks don't backprop into it (see krea2/layers.py).
-                rotary_emb=torch.view_as_complex(rope.detach()),
-                target_token_mask=_target_token_mask(hidden.shape[1], prefix_len, hidden.device),
-                segments=segments,
-                key_valid=key_valid if key_valid.numel() else None,  # 0-size sentinel = no padding
-            )
-            self.offloader.submit_move_blocks_forward(self.block_idx)
-
-            return make_contiguous(hidden, temb, modulation, rope, key_valid, layout)
+class TransformerLayer(OffloadedBlockLayer):
+    def run_block(self, inputs):
+        hidden, temb, modulation, rope, key_valid, layout = inputs
+        prefix_len, segments = layout_segments(layout)
+        hidden = self.block(
+            hidden,
+            modulation,
+            # Reentrant AC hands pass-through outputs back requiring grad: detach the
+            # constant table so blocks don't backprop into it (see krea2/layers.py).
+            rotary_emb=torch.view_as_complex(rope.detach()),
+            target_token_mask=_target_token_mask(hidden.shape[1], prefix_len, hidden.device),
+            segments=segments,
+            key_valid=key_valid if key_valid.numel() else None,  # 0-size sentinel = no padding
+        )
+        return hidden, temb, modulation, rope, key_valid, layout
 
 
 class FinalLayer(nn.Module):

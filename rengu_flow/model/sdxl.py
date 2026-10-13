@@ -208,7 +208,10 @@ def convert_openclip_text_enc_state_dict(text_enc_dict):
 
 
 def convert_openai_text_enc_state_dict(text_enc_dict):
-    return text_enc_dict
+    # The SDXL single-file layout keeps CLIP-L under ``text_model.``; transformers 5's
+    # ``CLIPTextModel`` is flat (no ``text_model`` submodule), so put the prefix back or the
+    # export is not a loadable SDXL checkpoint.
+    return {k if k.startswith("text_model.") else "text_model." + k: v for k, v in text_enc_dict.items()}
 
 
 def prepare_scheduler_for_custom_training(noise_scheduler):
@@ -350,8 +353,10 @@ from rengu_flow.training.loss_weighting import apply_debiased_estimation, apply_
 @register_model("sdxl")
 class SDXLPipeline(BasePipeline):
     name = "sdxl"
+    # InitialLayer must stay outside activation checkpointing: it marks the inter-layer tensors
+    # requires_grad, and under reentrant checkpointing that marking would run inside a no-grad
+    # recompute segment (cached text embeddings + UNet-only adapter -> no gradient at all).
     checkpointable_layers = [
-        "InitialLayer",
         "DownBlockInnerLayer",
         "MidBlockInnerLayer",
         "UpBlockInnerLayer",
@@ -604,13 +609,7 @@ class SDXLPipeline(BasePipeline):
         """Load LoRA from path/state into pipeline and fuse into base weights."""
         pipe = self.diffusers_pipeline
         networks_module.lora_sdxl.load(pipe, path)
-        fuse_lora = getattr(pipe, "fuse_lora", None)
-        if fuse_lora is not None:
-            fuse_lora(fuse_unet=True, fuse_text_encoder=True, lora_scale=1.0)
-        else:
-            for module in (pipe.unet, pipe.text_encoder, pipe.text_encoder_2):
-                if hasattr(module, "merge_and_unload"):
-                    module.merge_and_unload()
+        networks_module.lora_sdxl.fuse(pipe)
         self._set_param_original_name()
 
     def _load_and_fuse_lokr(self, path, state):
@@ -967,6 +966,10 @@ class DownBlockInnerLayer(nn.Module):
 
 
 class MidBlockInnerLayer(nn.Module):
+    """One (attn, resnet) step of UNetMidBlock2DCrossAttn: diffusers runs resnets[0], then
+    attentions[i] followed by resnets[i + 1]. The attention therefore runs *before* its paired
+    resnet (the reverse of the down/up blocks)."""
+
     def __init__(self, resnet, attn):
         super().__init__()
         self.resnet = resnet
@@ -975,9 +978,9 @@ class MidBlockInnerLayer(nn.Module):
     def forward(self, inputs):
         with cuda_autocast():
             hidden_states, timesteps, emb, encoder_hidden_states, *res_hidden_states, forward_upsample_size = inputs
-            hidden_states = self.resnet(hidden_states, emb)
             if self.attn is not None:
                 hidden_states = self.attn(hidden_states, encoder_hidden_states=encoder_hidden_states, return_dict=False)[0]
+            hidden_states = self.resnet(hidden_states, emb)
             return make_contiguous(hidden_states, timesteps, emb, encoder_hidden_states, *res_hidden_states, forward_upsample_size)
 
 

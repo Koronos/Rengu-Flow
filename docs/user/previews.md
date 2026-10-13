@@ -2,7 +2,7 @@
 
 During training you can generate **sample images** from fixed prompts and view them in **TensorBoard** (similar to OneTrainer). This helps you judge quality without waiting for a full `save_every_n_*` export. Kohya-style “sample every N steps” is covered by the schedule options below; on-demand runs use a **signal file**.
 
-Previews are supported for **SDXL** (`model.type = "sdxl"`), **Cosmos Predict2** (`model.type = "cosmos_predict2"`), **Krea 2** (`model.type = "krea2"`, defaults 28 steps / CFG 4.5 — see [Training Krea 2](training-krea2.md)), and **Qwen-Image 2.1** (`model.type = "qwen_image21"`, defaults 28 steps / no CFG — see [Training Qwen-Image 2.1](training-qwen-image21.md#previews)). Cosmos, Krea 2 and Qwen-Image 2.1 require **`pipeline_stages = 1`** (single-GPU DiT path).
+Previews are supported for **SDXL** (`model.type = "sdxl"`), **Cosmos Predict2** (`model.type = "cosmos_predict2"`), **Krea 2** (`model.type = "krea2"`, defaults 28 steps / CFG 4.5 — see [Training Krea 2](training-krea2.md)), **Qwen-Image 2.1** (`model.type = "qwen_image21"`, defaults 28 steps / no CFG — see [Training Qwen-Image 2.1](training-qwen-image21.md#previews)) and **Nanosaur2** (`model.type = "nanosaur2"`, defaults 30 steps / CFG 4 / `guidance_mode = "alternate"` — see [Training Nanosaur2](training-nanosaur2.md#previews)). Cosmos, Krea 2, Qwen-Image 2.1 and Nanosaur2 require **`pipeline_stages = 1`** (single-GPU DiT path).
 
 > **Previews are off by default** (`preview.enabled = false`). Generating samples during training costs extra VRAM and time — a 1024×1024 SDXL preview can OOM on small GPUs (e.g. 8 GB). Enable it only when you want in-training samples, and lower `width`/`height` if you are tight on VRAM.
 
@@ -76,6 +76,10 @@ Recommended for **Anima** previews: **`num_inference_steps = 20`**, **`guidance_
 | **`preview.preview_save_png`** | Also write `preview/{name}_step{N}.png` under the run directory (same folder as TensorBoard logs). **The web UI run page's preview gallery reads these PNGs, so enable this to see previews in the UI** — TensorBoard's IMAGES tab shows them either way. | `false` |
 
 The preview **VAE decode is tiled**: latents larger than 512×512 px decode in overlapping 512 px tiles that are blended together, so the decode's activation peak stays small enough to fit next to the resident DiT and training state even on a 16 GB GPU at 1024×1024.
+
+### Nanosaur2 (`nanosaur2`)
+
+Euler over the shift-3 "simple" schedule, 30 steps by default. Nanosaur2's CFG is `v = v_uncond + guidance_scale × (v_cond − v_uncond)` with the default `guidance_scale = 4.0` and `negative_prompt = "oldest, low quality"`. The extra key **`preview.guidance_mode`** picks how the unconditional pass is built: `alternate` (default; CFG on even steps, path-drop on odd ones), `cfg` (plain CFG every step) or `path_drop` (the unconditional pass skips the sparse middle blocks, every step). Details and rationale in [Training Nanosaur2 — Previews](training-nanosaur2.md#previews).
 
 ### Edit previews (Qwen-Image 2.1)
 

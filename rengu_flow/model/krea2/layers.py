@@ -7,6 +7,7 @@ import torch.utils.checkpoint
 from torch import nn
 
 from rengu_flow.model.base import make_contiguous
+from rengu_flow.model.dit_common.layers import OffloadedBlockLayer, mark_inter_layer_grads
 from rengu_flow.model.krea2.dit import pack_latents, prepare_position_ids, unpack_latents
 from rengu_flow.utils.common import cuda_autocast
 
@@ -71,33 +72,19 @@ class InitialLayer(nn.Module):
             outputs = make_contiguous(hidden, temb, temb_mod, freqs_cos, freqs_sin, attn_mask, text_mask, grid)
             # The RoPE tables are constants: marking them would make every block save fp32
             # q/k copies to backprop into a leaf nobody reads (qwen_image21 does the same).
-            marked = outputs if self.pipe_parallel else outputs[:3]
-            for tensor in marked:
-                if torch.is_floating_point(tensor):
-                    tensor.requires_grad_(True)
+            mark_inter_layer_grads(outputs, self.pipe_parallel, outputs[:3])
             return outputs
 
 
-class TransformerLayer(nn.Module):
-    def __init__(self, block, block_idx, offloader):
-        super().__init__()
-        self.block = block
-        self.block_idx = block_idx
-        self.offloader = offloader
-
-    def forward(self, inputs):
-        with cuda_autocast():
-            # Items past the base 8 are route-window state (see RouteStartLayer): pass through.
-            hidden, temb, temb_mod, freqs_cos, freqs_sin, attn_mask, text_mask, grid = inputs[:8]
-
-            self.offloader.wait_for_block(self.block_idx)
-            mask = attn_mask if attn_mask.numel() else None  # 0-size sentinel = no padding
-            # Detached: reentrant AC (and pipe stages) hand the passthrough RoPE tables back
-            # requiring grad; the block must still treat them as constants.
-            hidden = self.block(hidden, temb_mod, (freqs_cos.detach(), freqs_sin.detach()), mask)
-            self.offloader.submit_move_blocks_forward(self.block_idx)
-
-            return make_contiguous(hidden, temb, temb_mod, freqs_cos, freqs_sin, attn_mask, text_mask, grid) + tuple(inputs[8:])
+class TransformerLayer(OffloadedBlockLayer):
+    def run_block(self, inputs):
+        # Items past the base 8 are route-window state (see RouteStartLayer): they pass through.
+        hidden, temb, temb_mod, freqs_cos, freqs_sin, attn_mask, text_mask, grid = inputs[:8]
+        mask = attn_mask if attn_mask.numel() else None  # 0-size sentinel = no padding
+        # Detached: reentrant AC (and pipe stages) hand the passthrough RoPE tables back
+        # requiring grad; the block must still treat them as constants.
+        hidden = self.block(hidden, temb_mod, (freqs_cos.detach(), freqs_sin.detach()), mask)
+        return hidden, temb, temb_mod, freqs_cos, freqs_sin, attn_mask, text_mask, grid
 
 
 class RouteStartLayer(nn.Module):

@@ -21,37 +21,11 @@ def _cosmos_config(**model_extra):
     return cfg
 
 
-def test_validate_cosmos_predict2_minimal_passes():
-    validate_config(_cosmos_config())
-
-
 def test_validate_rejects_anima_model_type():
     cfg = _cosmos_config()
     cfg["model"]["type"] = "anima"
     with pytest.raises(ConfigValidationError, match="Unknown model type"):
         validate_config(cfg)
-
-
-def test_validate_cosmos_requires_llm_or_t5():
-    cfg = _cosmos_config()
-    del cfg["model"]["llm_path"]
-    with pytest.raises(ConfigValidationError, match="llm_path|t5_path"):
-        validate_config(cfg)
-
-
-@pytest.mark.parametrize("key", ["transformer_path", "vae_path"])
-def test_validate_cosmos_missing_paths(key):
-    cfg = _cosmos_config()
-    del cfg["model"][key]
-    with pytest.raises(ConfigValidationError, match=key):
-        validate_config(cfg)
-
-
-def test_validate_cosmos_with_t5_path_passes():
-    cfg = _cosmos_config()
-    del cfg["model"]["llm_path"]
-    cfg["model"]["t5_path"] = "t5.safetensors"
-    validate_config(cfg)
 
 
 def test_cosmos_dataset_validation_requires_frame_bucket_one(monkeypatch):

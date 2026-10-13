@@ -16,20 +16,29 @@ models or touches the Hub:
 - **VAE**: a diffusers folder (``vae/``) or the single ``qwen_image_vae.safetensors``
   (same file cosmos uses), key-converted via diffusers' Wan converter into
   ``AutoencoderKLQwenImage`` with the bundled config.
-- **Tokenizer**: bundled (``assets/qwen3vl_4b``); ``model.tokenizer_path`` overrides.
+- **Tokenizer**: the bundled Qwen3-VL one (``dit_common/assets/qwen3vl_tokenizer``, shared with
+  qwen_image21); ``model.tokenizer_path`` overrides.
 """
 
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 
 import torch
 
 from rengu_flow.config.validation import ConfigValidationError
+from rengu_flow.model.dit_common.loading import (
+    config_dir_or_bundled,
+    guard_not_prequantized,
+    load_file_or_folder,
+    read_safetensors,
+    require_exists,
+    strip_comfy_prefix,
+)
 
 ASSETS_DIR = Path(__file__).parent / "assets"
+# Bundled Qwen3-VL-4B model config (single-file text encoders carry none).
 QWEN3VL_ASSETS = ASSETS_DIR / "qwen3vl_4b"
 VAE_CONFIG_PATH = ASSETS_DIR / "qwen_image_vae_config.json"
 
@@ -65,32 +74,16 @@ _TOP_RENAMES = (
 )
 
 
-def _looks_like_file(path: str | Path) -> bool:
-    return Path(path).is_file()
-
-
-def _require_exists(path: str | Path, what: str) -> Path:
-    p = Path(path)
-    if not p.exists():
-        raise ConfigValidationError(
-            f"model.{what}: {p} does not exist. Point it at a local .safetensors file or "
-            "folder you already downloaded — rengu never downloads models or resolves repo ids."
-        )
-    return p
-
-
-_FP8_DTYPES = (torch.float8_e4m3fn, torch.float8_e5m2)
-
-
 def _guard_not_prequantized(state_dict: dict, what: str) -> None:
-    fp8 = set(_FP8_DTYPES) & {v.dtype for v in state_dict.values()}
-    scaled = any(k.endswith("scale_weight") for k in state_dict)
-    if fp8 or scaled:
-        raise ConfigValidationError(
-            f"model.{what} points at a pre-quantized (fp8/nvfp4 'scaled') file, which cannot be "
-            "trained. Use the bf16 file (e.g. krea2_raw_bf16.safetensors or raw.safetensors); "
-            "for VRAM use model.transformer_4bit or model.transformer_fp8_matmul instead."
-        )
+    guard_not_prequantized(
+        state_dict,
+        what,
+        kind="fp8/nvfp4 'scaled'",
+        advice=(
+            ". Use the bf16 file (e.g. krea2_raw_bf16.safetensors or raw.safetensors); for VRAM use "
+            "model.transformer_4bit or model.transformer_fp8_matmul instead."
+        ),
+    )
 
 
 def is_original_dit_state_dict(state_dict: dict) -> bool:
@@ -130,22 +123,22 @@ def load_transformer(path: str | Path, dtype: torch.dtype):
     """Load the Krea 2 DiT from a diffusers folder or a single original-layout file."""
     from rengu_flow.model.krea2.dit import Krea2Transformer2DModel
 
-    path = _require_exists(path, "transformer_path")
-    if not _looks_like_file(path):
-        return Krea2Transformer2DModel.from_pretrained(path, torch_dtype=dtype)
+    return load_file_or_folder(
+        path,
+        "transformer_path",
+        folder=lambda p: Krea2Transformer2DModel.from_pretrained(p, torch_dtype=dtype),
+        file=lambda p: _transformer_from_file(p, dtype),
+    )
 
-    from safetensors import safe_open
 
-    # Tensor by tensor, cast as read: peak host RAM is one copy of the DiT in `dtype`, not
-    # the whole file plus a second, cast copy. fp8 tensors keep their dtype for the guard.
-    state_dict = {}
-    with safe_open(str(path), framework="pt") as handle:
-        for key in handle.keys():
-            tensor = handle.get_tensor(key)
-            state_dict[key] = tensor if tensor.dtype in _FP8_DTYPES else tensor.to(dtype)
+def _transformer_from_file(path: Path, dtype: torch.dtype):
+    from rengu_flow.model.krea2.dit import Krea2Transformer2DModel
+
+    # Tensor by tensor, cast as read; fp8 tensors keep their dtype for the guard.
+    state_dict = read_safetensors(path, dtype)
     _guard_not_prequantized(state_dict, "transformer_path")
     # Some re-exports wrap the original keys in a comfy checkpoint prefix.
-    state_dict = {re.sub(r"^(model\.)?diffusion_model\.", "", k): v for k, v in state_dict.items()}
+    state_dict = strip_comfy_prefix(state_dict)
     if is_original_dit_state_dict(state_dict):
         state_dict = convert_dit_original_to_diffusers(state_dict)
     elif not any(k.startswith("transformer_blocks.") for k in state_dict):
@@ -163,28 +156,30 @@ def load_vae(path: str | Path, dtype: torch.dtype):
     """Load the Qwen-Image VAE from a diffusers folder or the single Wan-layout file."""
     from diffusers import AutoencoderKLQwenImage
 
-    path = _require_exists(path, "vae_path")
-    if not _looks_like_file(path):
-        vae = AutoencoderKLQwenImage.from_pretrained(path, torch_dtype=dtype)
-    else:
-        from diffusers.loaders.single_file_utils import convert_wan_vae_to_diffusers
-        from safetensors.torch import load_file
-
-        state_dict = load_file(path)
-        if any(k.startswith("encoder.down_blocks.") for k in state_dict):
-            converted = state_dict  # already diffusers-layout
-        else:
-            converted = convert_wan_vae_to_diffusers(state_dict)
-        config = {
-            k: v
-            for k, v in json.loads(VAE_CONFIG_PATH.read_text()).items()
-            if not k.startswith("_")
-        }
-        vae = AutoencoderKLQwenImage.from_config(config)
-        vae.load_state_dict(converted)
-        vae = vae.to(dtype)
+    vae = load_file_or_folder(
+        path,
+        "vae_path",
+        folder=lambda p: AutoencoderKLQwenImage.from_pretrained(p, torch_dtype=dtype),
+        file=lambda p: _vae_from_file(p, dtype),
+    )
     vae.eval().requires_grad_(False)
     return vae
+
+
+def _vae_from_file(path: Path, dtype: torch.dtype):
+    from diffusers import AutoencoderKLQwenImage
+    from diffusers.loaders.single_file_utils import convert_wan_vae_to_diffusers
+    from safetensors.torch import load_file
+
+    state_dict = load_file(path)
+    if any(k.startswith("encoder.down_blocks.") for k in state_dict):
+        converted = state_dict  # already diffusers-layout
+    else:
+        converted = convert_wan_vae_to_diffusers(state_dict)
+    config = {k: v for k, v in json.loads(VAE_CONFIG_PATH.read_text()).items() if not k.startswith("_")}
+    vae = AutoencoderKLQwenImage.from_config(config)
+    vae.load_state_dict(converted)
+    return vae.to(dtype)
 
 
 def load_text_encoder(path: str | Path, dtype: torch.dtype):
@@ -195,8 +190,8 @@ def load_text_encoder(path: str | Path, dtype: torch.dtype):
 
     from rengu_flow.model.dit_common.qwen3vl import checkpoint_files, load_qwen3vl_text_model
 
-    path = _require_exists(path, "text_encoder_path")
-    config_dir = path if (not _looks_like_file(path) and (path / "config.json").exists()) else QWEN3VL_ASSETS
+    path = require_exists(path, "text_encoder_path")
+    config_dir = config_dir_or_bundled(path, QWEN3VL_ASSETS)
     files = checkpoint_files(path)
     if not files:
         raise ConfigValidationError(f"model.text_encoder_path: no .safetensors found in {path}.")
@@ -206,8 +201,6 @@ def load_text_encoder(path: str | Path, dtype: torch.dtype):
 
 
 def load_tokenizer(path: str | Path | None):
-    from transformers import AutoTokenizer
+    from rengu_flow.model.dit_common.qwen3vl import load_qwen3vl_tokenizer
 
-    if path:
-        return AutoTokenizer.from_pretrained(_require_exists(path, "tokenizer_path"))
-    return AutoTokenizer.from_pretrained(QWEN3VL_ASSETS)
+    return load_qwen3vl_tokenizer(path, "tokenizer_path")

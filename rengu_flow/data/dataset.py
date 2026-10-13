@@ -2418,6 +2418,17 @@ class DirectoryDataset:
             sb.uncond_text_embeddings.append(uncond_ds)
 
 
+def apply_model_training_dataset_defaults(dataset_config: dict, model) -> dict:
+    """Training-dataset defaults a model's reference recipe asks for (e.g. nanosaur2's 10%
+    caption dropout: ``model.default_uncond_fraction``). Applied to the TRAINING dataset only —
+    eval datasets keep deterministic, undropped captions — and independent of
+    ``--i_know_what_i_am_doing``. An explicit dataset or ``[[directory]]`` value wins."""
+    default = getattr(model, "default_uncond_fraction", None)
+    if default is not None:
+        dataset_config.setdefault("uncond_fraction", float(default))
+    return dataset_config
+
+
 def control_round_to_multiple(model) -> int:
     """Pixel multiple control images are floored to for ``model`` (contract point 2)."""
     value = getattr(model, "control_round_to_multiple", None)

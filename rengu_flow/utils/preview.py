@@ -194,6 +194,24 @@ def _dist_barrier() -> None:
     distributed.barrier()
 
 
+def _preview_spec(model: Any) -> Any:
+    """The ``PreviewSpec`` of ``model.name`` (aliases resolved), None when not registered or
+    without previews."""
+    from rengu_flow.registry.model_capabilities import get_capability
+
+    cap = get_capability(str(getattr(model, "name", "") or ""))
+    return cap.preview_spec if cap is not None else None
+
+
+def _edit_preview_models() -> str:
+    """Canonical types whose preview runner takes ``control_images`` (``PreviewSpec.edit``)."""
+    from rengu_flow.registry.model_capabilities import model_capability_registry
+
+    return " / ".join(
+        t for t, c in model_capability_registry.items() if c.preview_spec is not None and c.preview_spec.edit
+    )
+
+
 def run_previews(
     model: Any,
     config: dict[str, Any],
@@ -209,17 +227,19 @@ def run_previews(
     if not prompts:
         return
 
-    if model.name != "qwen_image21" and any(c for _, _, c in preview_prompt_entries(preview_cfg)):
+    preview_spec = _preview_spec(model)
+    renders_edit = preview_spec is not None and preview_spec.edit
+    if not renders_edit and any(c for _, _, c in preview_prompt_entries(preview_cfg)):
         if is_main_process():
             print(
                 f"rengu_flow: preview control_images are ignored for {model.name} "
-                "(only qwen_image21 renders edit previews); those prompts render text-to-image."
+                f"(only {_edit_preview_models()} renders edit previews); those prompts render text-to-image."
             )
 
-    if model.name == "sdxl":
+    if preview_spec is not None and preview_spec.runner == "sdxl":
         preview_runner = _run_sdxl_previews
         use_block_swap_hooks = True
-    elif model.name in ("cosmos_predict2", "anima", "krea2", "qwen_image21"):
+    elif preview_spec is not None and preview_spec.runner == "dit":
         if config.get("pipeline_stages", 1) != 1:
             if is_main_process():
                 print(
@@ -316,8 +336,11 @@ def _run_sdxl_previews(
     negative_prompt = preview_cfg.get("negative_prompt", "")
     width = int(preview_cfg.get("width", 1024))
     height = int(preview_cfg.get("height", 1024))
-    num_inference_steps = int(preview_cfg.get("num_inference_steps", 20))
-    guidance_scale = float(preview_cfg.get("guidance_scale", 7.0))
+    # The model's sampler defaults when [preview] omits them (its spec does not write them into
+    # the config: PreviewSpec.write_defaults = False).
+    spec = _preview_spec(model)
+    num_inference_steps = int(preview_cfg.get("num_inference_steps", spec.steps if spec else 20))
+    guidance_scale = float(preview_cfg.get("guidance_scale", spec.guidance if spec else 7.0))
 
     modules = (pipe.unet, pipe.vae, pipe.text_encoder, pipe.text_encoder_2)
     prev_training = [m.training for m in modules]
@@ -375,7 +398,7 @@ def _run_cosmos_previews(
     controls = [c for _, _, c in preview_prompt_entries(preview_cfg)]
     for idx, (name, prompt) in enumerate(prompts):
         seed = _preview_seed(preview_cfg, step, idx)
-        if controls[idx] and model.name == "qwen_image21":
+        if controls[idx] and getattr(_preview_spec(model), "edit", False):
             image = model.generate_preview_image(preview_cfg, prompt, step, seed, control_images=controls[idx])
         else:
             image = model.generate_preview_image(preview_cfg, prompt, step, seed)

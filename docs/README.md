@@ -6,6 +6,7 @@
   - [Training SDXL LoRA and LoKr](user/training-sdxl-lora-lokr.md) — Config, saving, and running adapter training.
   - [Training Cosmos Predict2 / Anima](user/training-cosmos-predict2-lora-lokr-finetune.md) — LoRA, LoKr, and full finetune for Cosmos Predict2 DiT checkpoints.
   - [Training Krea 2](user/training-krea2.md) — Adapters and full finetune for the open-weights Krea 2 12B DiT.
+  - [Training Nanosaur2](user/training-nanosaur2.md) — Adapters and full finetune for the small (670M) MIT-licensed Nanosaur2 illustration DiT; trains in bf16 on 8 GB.
   - [Training Qwen-Image 2.1](user/training-qwen-image21.md) — Text-to-image adapters (LoRA/LoKr/LyCORIS) and full finetune for the 7B Qwen-Image 2.1 DiT, incl. the 8 GB recipe.
   - [Full-model finetuning (SDXL)](user/full-model-training-sdxl.md) — Training the full model (no adapter), optional UNet-only with `freeze_text_encoders`.
   - [Dataset configuration](user/dataset-config.md) — Dataset TOML, resolutions, directories, and eval datasets.
@@ -35,6 +36,8 @@
   - [Training step skip on OOM](developer/training-step-skip-on-oom.md) — ai-toolkit-style skip (implemented for single-GPU); config and tests.
   - [Checkpoints, model export, and retention](developer/checkpoint-and-save.md) — Saver, pruning, export signal naming.
   - [Training previews](developer/previews.md) — `preview` module, SDXL pipeline call, loop integration.
+  - [Adding or porting a model](developer/adding-a-model.md) — Normative flow for a new model (research, numeric parity, port on `dit_common`, spec, contract/seam tests, smokes, docs), final checklist, anti-patterns, where-does-X-go map.
+  - [Model capabilities and validation](developer/model-capabilities-and-validation.md) — Model specs, derived surfaces, field library, validation and UI visibility.
   - [Model pipeline contract (implementation status)](developer/model-pipeline-contract.md) — `ModelPipelineProtocol` methods for SDXL and Cosmos Predict2.
   - [Cosmos Predict2 pipeline](developer/cosmos-predict2-pipeline.md) — Layout, cache hooks, adapters, param groups.
   - [Dependencies and upstream](developer/dependencies-and-upstream.md) — diffusion-pipe submodules vs in-repo incorporation.
@@ -46,5 +49,6 @@
   - [Workflows](developer/workflows.md) — Module map, the backward-only `from` invariant, `content`/`state_json` split, `mutate_state` CAS, GPU lease and holder-validity reaping, node lifecycle, the normative output contract, adding a node type.
   - [Full-model training](developer/full-model-training.md) — How full-model mode is chosen, save path, freeze_text_encoders, and future dataset/VAE note.
   - [VRAM optimization](developer/vram-optimization.md) — Low-VRAM levers (bf16+Kahan, checkpointing, gradient_release, frugal optimizers, freeze+cache, block swap, prefetch), how they interact, trade-offs, and a measured 8 GB curve.
+  - [Spec: Model-spec refactor](spec/model-spec-refactor.md) — One model = one package + one spec; implemented (status and leftovers inside).
   - [Spec: SDXL full fine-tune on low VRAM](spec/sdxl-full-finetune-low-vram.md) — Root causes (WSL allocator, version drift, save path, block-swap wiring), decisions, WSL conditionals, and Linux validation hand-off.
   - [Spec: Workflows](spec/workflows.md) — Chainable prep/Toolbox/training nodes with one saved state per workflow; `DatasetHandle` payload, backward-only `from` links, GPU lease and device selection, and the migration of prep off the training queue.

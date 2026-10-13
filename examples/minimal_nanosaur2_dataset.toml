@@ -1,0 +1,18 @@
+# Minimal dataset for Nanosaur2 image training (frame_buckets = [1]).
+# Nanosaur2 was trained on ~1 MP aspect-ratio buckets (512x2048 ... 2048x512), so 1024 with
+# AR bucketing is the native setup. Captions: booru tags or natural language.
+
+resolutions = [1024]
+enable_ar_bucket = true
+min_ar = 0.25
+max_ar = 4.0
+num_ar_buckets = 7
+frame_buckets = [1]
+
+# Caption dropout is on by default for Nanosaur2 (uncond_fraction = 0.1 on the training
+# dataset). Set it here only to override.
+# uncond_fraction = 0.1
+
+[[directory]]
+path = 'path/to/images'
+num_repeats = 1

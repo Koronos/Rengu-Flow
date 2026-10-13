@@ -49,13 +49,25 @@ Execution is launched from a main TOML (and optional dataset TOML), similar to d
 | Component | Registry / mechanism | Status |
 |-----------|----------------------|--------|
 | Engine backend | `rengu_flow.engine` / `select_backend` | `"accelerate"` (single-GPU, `SingleDeviceBackend`) and `"deepspeed"` (multi-GPU, `DeepSpeedPipeBackend`); resolved from `RENGU_ENGINE` env → `engine` config key → OS default |
-| Model | `rengu_flow.registry.models` | `sdxl`, `cosmos_predict2`, `krea2`, `qwen_image21` (`anima` is a UI-only alias; the validator requires canonical ids) |
+| Model | one **spec** per model (`rengu_flow/model/<m>/spec.py`, listed in `registry/builtin_models.py`) + `@register_model` pipeline (`rengu_flow.registry.models`) | See the table below |
 | Optimizer | `rengu_flow.registry.optimizers` + `optim/resolver.py` | Aliases + qualified paths + vendor optimizers |
 | Scheduler | `scheduler_registry` / `register_scheduler` in `optim/resolver.py` | constant, linear, cosine, rex, wsd, none, paths |
 | Adapter | Branches in pipeline + `rengu_flow/networks/*` | LoRA/LoKr; **no adapter registry yet** — see BACKLOG P0-3 |
 | Dataset | `Dataset` / `DirectoryDataset` + `DatasetManager` | Directory + buckets |
 | Step/epoch callbacks | `Saver`, eval, previews | **No generic callback registry** — BACKLOG P0-4 |
 | Pre/post hooks | `DatasetManager.cache()` only | **Named hook registry** — BACKLOG P0-5, P0-6 |
+
+### Models
+
+| Type | Package | Pipeline base | Notes |
+|------|---------|---------------|-------|
+| `sdxl` | `model/sdxl.py`, `model/sdxl_spec.py` | `BasePipeline` | diffusers UNet; has a spec, no `dit_common` |
+| `cosmos_predict2` (UI alias `anima`) | `model/cosmos_predict2/` | `DiTPipeline` (partial) | video, LLM adapter, own quantization scheme |
+| `krea2` | `model/krea2/` | `DiTPipeline` | 12B, TREAD, Qwen3-VL text |
+| `qwen_image21` | `model/qwen_image21/` | `DiTPipeline` | 7B, t2i + edit, streamed Qwen3-VL-8B |
+| `nanosaur2` | `model/nanosaur2/` | `DiTPipeline` | 670M, single-file release, SPRINT path-drop |
+
+**How a model type is resolved.** `[model] type` (canonical id; the raw alias `anima` is rejected by the validator) -> `registry.model_capabilities.get_capability` returns the model's `ModelCapability` spec -> every surface reads it: validation (`registry/model_config_rules.py`), defaults (`config/defaults.py`), env overrides (`config/local_env.py`), installer profiles, preview dispatch, the UI schema/form/help (`rengu_flow_ui`), and the shared contract tests. The pipeline class is resolved lazily from `spec.pipeline` (`"<module>:<Class>"`, `@register_model`). Specs are torch-free, so none of this imports a model. Registration is explicit: one line per model in `registry/builtin_models.py`. Adding a model: [adding-a-model.md](adding-a-model.md); the spec in detail: [model-capabilities-and-validation.md](model-capabilities-and-validation.md); the pipeline hooks: [model-pipeline-contract.md](model-pipeline-contract.md).
 
 ---
 
@@ -78,6 +90,8 @@ Migration-friendly names are kept where they match diffusion-pipe (`DatasetManag
 
 ## Related docs
 
+- [Adding or porting a model](adding-a-model.md) — the normative flow
+- [Model capabilities and validation](model-capabilities-and-validation.md) — the spec and what derives from it
 - [Model pipeline contract](model-pipeline-contract.md) — per-method implementation status
 - [Networks](networks.md) — adapter modules and how to add types
 - [Adding optimizers and schedulers](adding-optimizers-and-schedulers.md)

@@ -36,7 +36,7 @@ PROFILE_LABELS: dict[str, str] = {
 PROFILE_DESCRIPTIONS: dict[str, str] = {
     "base": "Core training dependencies from uv.lock.",
     "ui": "FastAPI control plane and TensorBoard integration.",
-    "cosmos": "transformers, accelerate, torchvision, einops for Cosmos training.",
+    "cosmos": "transformers, accelerate, torchvision, einops, sentencepiece for the DiT models (Cosmos, Krea 2, Qwen-Image 2.1, Nanosaur2).",
     "cosmos_predict2": "Same as cosmos.",
     "optim": "Optional optimizer backends (bitsandbytes, pytorch-optimizer, …).",
     "lycoris": "LyCORIS-style adapter backend.",
@@ -52,8 +52,8 @@ ALL_PROFILE_NAMES = ("base", "ui", "cosmos", "optim", "lycoris", "dev", "kaon", 
 # to decide whether anything needs installing (on-demand) and to verify success afterwards.
 PROFILE_IMPORT_CHECKS: dict[str, tuple[str, ...]] = {
     "ui": ("fastapi", "uvicorn"),
-    "cosmos": ("transformers", "einops"),
-    "cosmos_predict2": ("transformers", "einops"),
+    "cosmos": ("transformers", "einops", "sentencepiece"),
+    "cosmos_predict2": ("transformers", "einops", "sentencepiece"),
     "lycoris": ("lycoris",),
     "optim": ("bitsandbytes",),
     "dev": ("pytest",),

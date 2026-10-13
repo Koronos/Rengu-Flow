@@ -32,8 +32,8 @@ uv run --extra dev pytest tests/test_install.py::test_name        # single test
 uv run --extra dev pytest -k augmentation -x
 
 # GPU smoke tests (optional, local, needs real checkpoints via .env) — docs/developer/smoke-tests.md
-scripts/run_model_smoke.sh sdxl|sdxl_lokr|cosmos|cosmos_lokr|krea2
-python scripts/smoke_krea2_mini.py   # random mini Krea 2, no weights/DeepSpeed (native Windows ok)
+scripts/run_model_smoke.sh <model>[_lokr|_full]   # tests/fixtures/smoke/train_<model>[...].toml; exit 77 = weights missing
+python scripts/smoke_mini.py --model <model> [--adapter lora|lokr|full]   # tiny random model from the model's testkit; no weights/DeepSpeed/GPU
 ```
 
 There is **no linter/formatter/typechecker configured** for the Python side. Don't invent a `ruff`/`black` step. The Vue frontend in `ui/web/` uses `npm` (`npm run build`, `npm run dev`, `npm run test` via Vitest, `vue-tsc` for types) — separate from Python.
@@ -44,7 +44,9 @@ There is **no linter/formatter/typechecker configured** for the Python side. Don
 
 Fixed execution phases (`rengu_flow/main.py`): config+dataset load → validate → distributed/DeepSpeed init → resolve components → pre-train (`DatasetManager.cache()`, load weights, configure adapter) → build pipeline from `model.to_layers()` → train loop (`train_batch` → logging, eval, `Saver`, signal files, previews) → shutdown. Adapters have **no registry yet** — they're branches in the pipeline + `rengu_flow/networks/*`.
 
-Core packages under `rengu_flow/`: `cli/` (subcommand dispatch), `data/` (dataset/loader/cache + `DatasetManager`), `model/` (sdxl, cosmos_predict2 pipelines), `networks/` (LoRA/LoKr), `optim/`, `registry/`, `training/` (loop, EMA, block-swap, OOM-skip), `install/` (profile-based installer), `platform_compat.py`.
+Core packages under `rengu_flow/`: `cli/` (subcommand dispatch), `data/` (dataset/loader/cache + `DatasetManager`), `model/` (one package per model: sdxl, cosmos_predict2, krea2, qwen_image21, nanosaur2; shared DiT code in `model/dit_common/`), `networks/` (LoRA/LoKr), `optim/`, `registry/` (models, optimizers; model specs in `registry/model_spec.py`, listed in `registry/builtin_models.py`), `training/` (loop, EMA, block-swap, OOM-skip), `install/` (profile-based installer), `platform_compat.py`.
+
+**Adding or porting a model:** read and follow `docs/developer/adding-a-model.md` *before* writing code — it is the normative flow (research → numeric parity → port on `dit_common` → `spec.py` → contract/seam tests → mini + GPU smoke → docs). A model is its package plus one line in `registry/builtin_models.py`; never add per-model lists to config/UI/installer code.
 
 ### Non-obvious boundaries — respect these
 
@@ -60,4 +62,4 @@ Core packages under `rengu_flow/`: `cli/` (subcommand dispatch), `data/` (datase
 
 ## Docs
 
-`docs/developer/` (architecture, testing, adding-optimizers-and-schedulers, networks, signal-files, vram-optimization, wsl-windows-workflow) and `docs/user/`. `docs/BACKLOG.md` tracks planned/deferred work (e.g. adapter registry, callback/hook registries). Follow `docs/developer/documentation-conventions.md` when editing docs.
+`docs/developer/` (architecture, adding-a-model, testing, adding-optimizers-and-schedulers, networks, signal-files, vram-optimization, wsl-windows-workflow) and `docs/user/`. `docs/BACKLOG.md` tracks planned/deferred work (e.g. adapter registry, callback/hook registries). Follow `docs/developer/documentation-conventions.md` when editing docs.

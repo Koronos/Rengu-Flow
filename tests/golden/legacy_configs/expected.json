@@ -1,0 +1,3620 @@
+{
+  "cosmos_alias_anima_rejected.toml": {
+    "collect_cadence_issues": {
+      "result": []
+    },
+    "collect_default_prerequisite_issues": {
+      "result": []
+    },
+    "collect_misplaced_top_level_keys": {
+      "result": []
+    },
+    "collect_validation_errors": {
+      "result": [
+        "Unknown model type 'anima'. Use one of: ['cosmos_predict2', 'krea2', 'nanosaur2', 'qwen_image21', 'sdxl']."
+      ]
+    },
+    "collect_validation_warnings_after_defaults": {
+      "result": []
+    },
+    "model_path_errors": {
+      "result": []
+    },
+    "profiles_for_config_dict": {
+      "result": [
+        "cosmos"
+      ]
+    },
+    "set_config_defaults": {
+      "config": {
+        "activation_budget_backoff": true,
+        "activation_checkpointing": false,
+        "activation_offload": false,
+        "activation_offload_max_ram_gb": null,
+        "activation_offload_min_tensor_mb": 4.0,
+        "activation_offload_prefetch_mb": 512.0,
+        "cache_keep_in_memory": false,
+        "cache_num_proc": "<min(8,cpu_count)>",
+        "caching_batch_size": 1,
+        "compile": false,
+        "compile_cache_dir": null,
+        "compile_disk_cache": "auto",
+        "dataloader_num_workers": 0,
+        "dataloader_persistent_workers": true,
+        "dataloader_pin_memory": false,
+        "dataloader_prefetch": true,
+        "dataloader_prefetch_factor": 2,
+        "dataset": "examples/minimal_dataset.toml",
+        "disable_block_swap_for_eval": false,
+        "epochs": 1,
+        "eval_before_first_step": true,
+        "eval_datasets": [],
+        "eval_every_n_epochs": null,
+        "eval_every_n_examples": null,
+        "eval_every_n_steps": null,
+        "eval_gradient_accumulation_steps": 1,
+        "gradient_accumulation_steps": 1,
+        "logging_steps": 1,
+        "lr_scheduler": "constant",
+        "lr_scheduler_args": {},
+        "micro_batch_size_per_gpu": 1,
+        "model": {
+          "cache_text_embeddings": true,
+          "dtype": "torch.bfloat16",
+          "fp8_grad_mode": "bf16",
+          "fp8_matmul_dtype": "e5m2",
+          "llm_path": "path/to/qwen3.safetensors",
+          "transformer_4bit": false,
+          "transformer_fp8_matmul": false,
+          "transformer_path": "path/to/anima-preview.safetensors",
+          "type": "anima",
+          "vae_path": "path/to/qwen_image_vae.safetensors"
+        },
+        "optimizer": {
+          "lr": 0.0001,
+          "type": "adamw"
+        },
+        "output_dir": "output",
+        "partition_method": "parameters",
+        "partition_split": null,
+        "pipeline_stages": 1,
+        "reentrant_activation_checkpointing": false,
+        "save_every_n_epochs": 1,
+        "steps_per_print": 1,
+        "tracking": {
+          "backends": [
+            "manifest",
+            "tensorboard"
+          ],
+          "capture_lineage": true,
+          "enabled": true,
+          "system_sampler": {
+            "enabled": true,
+            "interval_sec": 10
+          },
+          "wandb": {
+            "api_key": null,
+            "project": "rengu-flow",
+            "run_name": null
+          }
+        },
+        "train": {
+          "oom_skip": {
+            "bump_block_swap": false,
+            "bump_block_swap_step": 2,
+            "clear_cache_on_skip": true,
+            "enabled": true,
+            "max_in_window": 3
+          }
+        },
+        "train_seed": 42,
+        "val_gap_enable": true,
+        "val_gap_probe_batches": 8,
+        "warmup_steps": 0,
+        "x_axis_examples": false
+      }
+    },
+    "validate_config_model_rules": {
+      "error": "ConfigValidationError: Unknown model type 'anima'. Use one of: ['cosmos_predict2', 'krea2', 'nanosaur2', 'qwen_image21', 'sdxl']."
+    }
+  },
+  "cosmos_diffusion_model_dtype_float8.toml": {
+    "collect_cadence_issues": {
+      "result": []
+    },
+    "collect_default_prerequisite_issues": {
+      "result": []
+    },
+    "collect_misplaced_top_level_keys": {
+      "result": []
+    },
+    "collect_validation_errors": {
+      "result": []
+    },
+    "collect_validation_warnings_after_defaults": {
+      "result": []
+    },
+    "model_path_errors": {
+      "result": [
+        "[model].transformer_path not found: path/to/anima-preview.safetensors",
+        "[model].vae_path not found: path/to/qwen_image_vae.safetensors",
+        "[model].llm_path not found: path/to/qwen3.safetensors"
+      ]
+    },
+    "profiles_for_config_dict": {
+      "result": [
+        "cosmos"
+      ]
+    },
+    "set_config_defaults": {
+      "config": {
+        "activation_budget_backoff": true,
+        "activation_checkpointing": false,
+        "activation_offload": false,
+        "activation_offload_max_ram_gb": null,
+        "activation_offload_min_tensor_mb": 4.0,
+        "activation_offload_prefetch_mb": 512.0,
+        "cache_keep_in_memory": false,
+        "cache_num_proc": "<min(8,cpu_count)>",
+        "caching_batch_size": 1,
+        "compile": false,
+        "compile_cache_dir": null,
+        "compile_disk_cache": "auto",
+        "dataloader_num_workers": 0,
+        "dataloader_persistent_workers": true,
+        "dataloader_pin_memory": false,
+        "dataloader_prefetch": true,
+        "dataloader_prefetch_factor": 2,
+        "dataset": "examples/minimal_dataset.toml",
+        "disable_block_swap_for_eval": false,
+        "epochs": 1,
+        "eval_before_first_step": true,
+        "eval_datasets": [],
+        "eval_every_n_epochs": null,
+        "eval_every_n_examples": null,
+        "eval_every_n_steps": null,
+        "eval_gradient_accumulation_steps": 1,
+        "gradient_accumulation_steps": 1,
+        "logging_steps": 1,
+        "lr_scheduler": "constant",
+        "lr_scheduler_args": {},
+        "micro_batch_size_per_gpu": 1,
+        "model": {
+          "cache_text_embeddings": true,
+          "diffusion_model_dtype": "torch.float8_e4m3fn",
+          "dtype": "torch.bfloat16",
+          "fp8_grad_mode": "bf16",
+          "fp8_matmul_dtype": "e5m2",
+          "llm_path": "path/to/qwen3.safetensors",
+          "transformer_4bit": false,
+          "transformer_dtype": "torch.float8_e4m3fn",
+          "transformer_fp8_matmul": false,
+          "transformer_path": "path/to/anima-preview.safetensors",
+          "type": "cosmos_predict2",
+          "vae_path": "path/to/qwen_image_vae.safetensors"
+        },
+        "optimizer": {
+          "lr": 0.0001,
+          "type": "adamw"
+        },
+        "output_dir": "output",
+        "partition_method": "parameters",
+        "partition_split": null,
+        "pipeline_stages": 1,
+        "reentrant_activation_checkpointing": false,
+        "save_every_n_epochs": 1,
+        "steps_per_print": 1,
+        "tracking": {
+          "backends": [
+            "manifest",
+            "tensorboard"
+          ],
+          "capture_lineage": true,
+          "enabled": true,
+          "system_sampler": {
+            "enabled": true,
+            "interval_sec": 10
+          },
+          "wandb": {
+            "api_key": null,
+            "project": "rengu-flow",
+            "run_name": null
+          }
+        },
+        "train": {
+          "oom_skip": {
+            "bump_block_swap": false,
+            "bump_block_swap_step": 2,
+            "clear_cache_on_skip": true,
+            "enabled": true,
+            "max_in_window": 3
+          }
+        },
+        "train_seed": 42,
+        "val_gap_enable": true,
+        "val_gap_probe_batches": 8,
+        "warmup_steps": 0,
+        "x_axis_examples": false
+      }
+    },
+    "validate_config_model_rules": {
+      "result": null
+    }
+  },
+  "cosmos_fp8_and_4bit_conflict.toml": {
+    "collect_cadence_issues": {
+      "result": []
+    },
+    "collect_default_prerequisite_issues": {
+      "result": []
+    },
+    "collect_misplaced_top_level_keys": {
+      "result": []
+    },
+    "collect_validation_errors": {
+      "result": [
+        "model.transformer_4bit quantizes the frozen base and needs an [adapter] section; full finetune (no [adapter]) cannot train quantized weights."
+      ]
+    },
+    "model_path_errors": {
+      "result": [
+        "[model].transformer_path not found: path/to/anima-preview.safetensors",
+        "[model].vae_path not found: path/to/qwen_image_vae.safetensors",
+        "[model].llm_path not found: path/to/qwen3.safetensors"
+      ]
+    },
+    "profiles_for_config_dict": {
+      "result": [
+        "cosmos"
+      ]
+    },
+    "set_config_defaults": {
+      "config": {
+        "activation_checkpointing": false,
+        "dataset": "examples/minimal_dataset.toml",
+        "model": {
+          "cache_text_embeddings": true,
+          "dtype": "torch.bfloat16",
+          "llm_path": "path/to/qwen3.safetensors",
+          "transformer_4bit": true,
+          "transformer_fp8_matmul": true,
+          "transformer_path": "path/to/anima-preview.safetensors",
+          "type": "cosmos_predict2",
+          "vae_path": "path/to/qwen_image_vae.safetensors"
+        },
+        "optimizer": {
+          "lr": 0.0001,
+          "type": "adamw"
+        },
+        "output_dir": "output",
+        "pipeline_stages": 1,
+        "reentrant_activation_checkpointing": false,
+        "save_every_n_epochs": 1,
+        "warmup_steps": 0
+      },
+      "error": "ConfigValidationError: model.transformer_fp8_matmul and model.transformer_4bit are mutually exclusive; enable only one."
+    },
+    "validate_config_model_rules": {
+      "result": null
+    }
+  },
+  "cosmos_fp8_compile_block_ac.toml": {
+    "collect_cadence_issues": {
+      "result": []
+    },
+    "collect_default_prerequisite_issues": {
+      "result": []
+    },
+    "collect_misplaced_top_level_keys": {
+      "result": []
+    },
+    "collect_validation_errors": {
+      "result": []
+    },
+    "collect_validation_warnings_after_defaults": {
+      "result": []
+    },
+    "model_path_errors": {
+      "result": [
+        "[model].transformer_path not found: path/to/anima-preview.safetensors",
+        "[model].vae_path not found: path/to/qwen_image_vae.safetensors",
+        "[model].llm_path not found: path/to/qwen3.safetensors"
+      ]
+    },
+    "profiles_for_config_dict": {
+      "result": [
+        "cosmos"
+      ]
+    },
+    "set_config_defaults": {
+      "config": {
+        "activation_budget_backoff": true,
+        "activation_checkpointing": true,
+        "activation_offload": false,
+        "activation_offload_max_ram_gb": null,
+        "activation_offload_min_tensor_mb": 4.0,
+        "activation_offload_prefetch_mb": 512.0,
+        "adapter": {
+          "alpha": 16,
+          "dropout": 0.0,
+          "dtype": "torch.float32",
+          "rank": 16,
+          "type": "lora"
+        },
+        "cache_keep_in_memory": false,
+        "cache_num_proc": "<min(8,cpu_count)>",
+        "caching_batch_size": 1,
+        "compile": true,
+        "compile_cache_dir": null,
+        "compile_disk_cache": "auto",
+        "compile_scope": "block",
+        "dataloader_num_workers": 0,
+        "dataloader_persistent_workers": true,
+        "dataloader_pin_memory": false,
+        "dataloader_prefetch": true,
+        "dataloader_prefetch_factor": 2,
+        "dataset": "examples/minimal_dataset.toml",
+        "disable_block_swap_for_eval": false,
+        "epochs": 1,
+        "eval_before_first_step": true,
+        "eval_datasets": [],
+        "eval_every_n_epochs": null,
+        "eval_every_n_examples": null,
+        "eval_every_n_steps": null,
+        "eval_gradient_accumulation_steps": 1,
+        "gradient_accumulation_steps": 1,
+        "logging_steps": 1,
+        "lr_scheduler": "constant",
+        "lr_scheduler_args": {},
+        "micro_batch_size_per_gpu": 1,
+        "model": {
+          "cache_text_embeddings": true,
+          "dtype": "torch.bfloat16",
+          "fp8_grad_mode": "bf16",
+          "fp8_matmul_dtype": "e5m2",
+          "llm_path": "path/to/qwen3.safetensors",
+          "transformer_4bit": false,
+          "transformer_fp8_matmul": true,
+          "transformer_path": "path/to/anima-preview.safetensors",
+          "type": "cosmos_predict2",
+          "vae_path": "path/to/qwen_image_vae.safetensors"
+        },
+        "optimizer": {
+          "lr": 0.0001,
+          "type": "adamw"
+        },
+        "output_dir": "output",
+        "partition_method": "parameters",
+        "partition_split": null,
+        "pipeline_stages": 1,
+        "reentrant_activation_checkpointing": true,
+        "save_every_n_epochs": 1,
+        "steps_per_print": 1,
+        "tracking": {
+          "backends": [
+            "manifest",
+            "tensorboard"
+          ],
+          "capture_lineage": true,
+          "enabled": true,
+          "system_sampler": {
+            "enabled": true,
+            "interval_sec": 10
+          },
+          "wandb": {
+            "api_key": null,
+            "project": "rengu-flow",
+            "run_name": null
+          }
+        },
+        "train": {
+          "oom_skip": {
+            "bump_block_swap": false,
+            "bump_block_swap_step": 2,
+            "clear_cache_on_skip": true,
+            "enabled": true,
+            "max_in_window": 3
+          }
+        },
+        "train_seed": 42,
+        "val_gap_enable": true,
+        "val_gap_probe_batches": 8,
+        "warmup_steps": 0,
+        "x_axis_examples": false
+      }
+    },
+    "validate_config_model_rules": {
+      "result": null
+    }
+  },
+  "cosmos_fp8_e4m3_preview_defaults.toml": {
+    "collect_cadence_issues": {
+      "result": []
+    },
+    "collect_default_prerequisite_issues": {
+      "result": []
+    },
+    "collect_misplaced_top_level_keys": {
+      "result": []
+    },
+    "collect_validation_errors": {
+      "result": []
+    },
+    "collect_validation_warnings_after_defaults": {
+      "result": []
+    },
+    "model_path_errors": {
+      "result": [
+        "[model].transformer_path not found: path/to/anima-preview.safetensors",
+        "[model].vae_path not found: path/to/qwen_image_vae.safetensors",
+        "[model].llm_path not found: path/to/qwen3.safetensors"
+      ]
+    },
+    "profiles_for_config_dict": {
+      "result": [
+        "cosmos"
+      ]
+    },
+    "set_config_defaults": {
+      "config": {
+        "activation_budget_backoff": true,
+        "activation_checkpointing": false,
+        "activation_offload": false,
+        "activation_offload_max_ram_gb": null,
+        "activation_offload_min_tensor_mb": 4.0,
+        "activation_offload_prefetch_mb": 512.0,
+        "adapter": {
+          "alpha": 16,
+          "dim": 16,
+          "dropout": 0.0,
+          "dtype": "torch.float32",
+          "rank": 16,
+          "type": "lora"
+        },
+        "cache_keep_in_memory": false,
+        "cache_num_proc": "<min(8,cpu_count)>",
+        "caching_batch_size": 1,
+        "compile": false,
+        "compile_cache_dir": null,
+        "compile_disk_cache": "auto",
+        "dataloader_num_workers": 0,
+        "dataloader_persistent_workers": true,
+        "dataloader_pin_memory": false,
+        "dataloader_prefetch": true,
+        "dataloader_prefetch_factor": 2,
+        "dataset": "examples/minimal_dataset.toml",
+        "disable_block_swap_for_eval": false,
+        "epochs": 1,
+        "eval_before_first_step": true,
+        "eval_datasets": [],
+        "eval_every_n_epochs": null,
+        "eval_every_n_examples": null,
+        "eval_every_n_steps": null,
+        "eval_gradient_accumulation_steps": 1,
+        "gradient_accumulation_steps": 1,
+        "logging_steps": 1,
+        "lr_scheduler": "constant",
+        "lr_scheduler_args": {},
+        "micro_batch_size_per_gpu": 1,
+        "model": {
+          "cache_text_embeddings": true,
+          "dtype": "torch.bfloat16",
+          "fp8_grad_mode": "bf16",
+          "fp8_matmul_dtype": "e4m3",
+          "llm_path": "path/to/qwen3.safetensors",
+          "transformer_4bit": false,
+          "transformer_fp8_matmul": true,
+          "transformer_path": "path/to/anima-preview.safetensors",
+          "type": "cosmos_predict2",
+          "vae_path": "path/to/qwen_image_vae.safetensors"
+        },
+        "optimizer": {
+          "lr": 0.0001,
+          "type": "adamw"
+        },
+        "output_dir": "output",
+        "partition_method": "parameters",
+        "partition_split": null,
+        "pipeline_stages": 1,
+        "preview": {
+          "guidance_scale": 4.0,
+          "height": 1024,
+          "negative_prompt": "",
+          "num_inference_steps": 20,
+          "preview_offload_dit_for_decode": false,
+          "preview_offload_text_encoder": true,
+          "prompts": [
+            "a cat"
+          ],
+          "width": 1024
+        },
+        "reentrant_activation_checkpointing": false,
+        "save_every_n_epochs": 1,
+        "steps_per_print": 1,
+        "tracking": {
+          "backends": [
+            "manifest",
+            "tensorboard"
+          ],
+          "capture_lineage": true,
+          "enabled": true,
+          "system_sampler": {
+            "enabled": true,
+            "interval_sec": 10
+          },
+          "wandb": {
+            "api_key": null,
+            "project": "rengu-flow",
+            "run_name": null
+          }
+        },
+        "train": {
+          "oom_skip": {
+            "bump_block_swap": false,
+            "bump_block_swap_step": 2,
+            "clear_cache_on_skip": true,
+            "enabled": true,
+            "max_in_window": 3
+          }
+        },
+        "train_seed": 42,
+        "val_gap_enable": true,
+        "val_gap_probe_batches": 8,
+        "warmup_steps": 0,
+        "x_axis_examples": false
+      }
+    },
+    "validate_config_model_rules": {
+      "result": null
+    }
+  },
+  "cosmos_llm_adapter_path.toml": {
+    "collect_cadence_issues": {
+      "result": []
+    },
+    "collect_default_prerequisite_issues": {
+      "result": []
+    },
+    "collect_misplaced_top_level_keys": {
+      "result": []
+    },
+    "collect_validation_errors": {
+      "result": []
+    },
+    "collect_validation_warnings_after_defaults": {
+      "result": []
+    },
+    "model_path_errors": {
+      "result": [
+        "[model].transformer_path not found: path/to/anima-preview.safetensors",
+        "[model].vae_path not found: path/to/qwen_image_vae.safetensors",
+        "[model].llm_path not found: path/to/qwen_3_06b_base.safetensors"
+      ]
+    },
+    "profiles_for_config_dict": {
+      "result": [
+        "cosmos"
+      ]
+    },
+    "set_config_defaults": {
+      "config": {
+        "activation_budget_backoff": true,
+        "activation_checkpointing": false,
+        "activation_offload": false,
+        "activation_offload_max_ram_gb": null,
+        "activation_offload_min_tensor_mb": 4.0,
+        "activation_offload_prefetch_mb": 512.0,
+        "adapter": {
+          "alpha": 16,
+          "dropout": 0.0,
+          "dtype": "torch.float32",
+          "rank": 16,
+          "type": "lora"
+        },
+        "cache_keep_in_memory": false,
+        "cache_num_proc": "<min(8,cpu_count)>",
+        "caching_batch_size": 1,
+        "compile": false,
+        "compile_cache_dir": null,
+        "compile_disk_cache": "auto",
+        "dataloader_num_workers": 0,
+        "dataloader_persistent_workers": true,
+        "dataloader_pin_memory": false,
+        "dataloader_prefetch": true,
+        "dataloader_prefetch_factor": 2,
+        "dataset": "examples/minimal_dataset.toml",
+        "disable_block_swap_for_eval": false,
+        "epochs": 1,
+        "eval_before_first_step": true,
+        "eval_datasets": [],
+        "eval_every_n_epochs": null,
+        "eval_every_n_examples": null,
+        "eval_every_n_steps": null,
+        "eval_gradient_accumulation_steps": 1,
+        "gradient_accumulation_steps": 1,
+        "logging_steps": 1,
+        "lr_scheduler": "constant",
+        "lr_scheduler_args": {},
+        "micro_batch_size_per_gpu": 1,
+        "model": {
+          "cache_text_embeddings": true,
+          "dtype": "torch.bfloat16",
+          "fp8_grad_mode": "bf16",
+          "fp8_matmul_dtype": "e5m2",
+          "llm_adapter_lr": 0,
+          "llm_adapter_path": "path/to/llm_adapter.safetensors",
+          "llm_path": "path/to/qwen_3_06b_base.safetensors",
+          "transformer_4bit": false,
+          "transformer_fp8_matmul": false,
+          "transformer_path": "path/to/anima-preview.safetensors",
+          "type": "cosmos_predict2",
+          "vae_path": "path/to/qwen_image_vae.safetensors"
+        },
+        "optimizer": {
+          "lr": 0.0001,
+          "type": "adamw"
+        },
+        "output_dir": "output",
+        "partition_method": "parameters",
+        "partition_split": null,
+        "pipeline_stages": 1,
+        "reentrant_activation_checkpointing": false,
+        "save_every_n_epochs": 1,
+        "steps_per_print": 1,
+        "tracking": {
+          "backends": [
+            "manifest",
+            "tensorboard"
+          ],
+          "capture_lineage": true,
+          "enabled": true,
+          "system_sampler": {
+            "enabled": true,
+            "interval_sec": 10
+          },
+          "wandb": {
+            "api_key": null,
+            "project": "rengu-flow",
+            "run_name": null
+          }
+        },
+        "train": {
+          "oom_skip": {
+            "bump_block_swap": false,
+            "bump_block_swap_step": 2,
+            "clear_cache_on_skip": true,
+            "enabled": true,
+            "max_in_window": 3
+          }
+        },
+        "train_seed": 42,
+        "val_gap_enable": true,
+        "val_gap_probe_batches": 8,
+        "warmup_steps": 0,
+        "x_axis_examples": false
+      }
+    },
+    "validate_config_model_rules": {
+      "result": null
+    }
+  },
+  "cosmos_missing_text_encoder.toml": {
+    "collect_cadence_issues": {
+      "result": []
+    },
+    "collect_default_prerequisite_issues": {
+      "result": []
+    },
+    "collect_misplaced_top_level_keys": {
+      "result": []
+    },
+    "collect_validation_errors": {
+      "result": [
+        "config['model'] must contain at least one of: 'llm_path', 't5_path' (for cosmos_predict2)."
+      ]
+    },
+    "collect_validation_warnings_after_defaults": {
+      "result": []
+    },
+    "model_path_errors": {
+      "result": [
+        "[model].transformer_path not found: path/to/anima-preview.safetensors",
+        "[model].vae_path not found: path/to/qwen_image_vae.safetensors",
+        "Set [model].llm_path in your training config"
+      ]
+    },
+    "profiles_for_config_dict": {
+      "result": [
+        "cosmos"
+      ]
+    },
+    "set_config_defaults": {
+      "config": {
+        "activation_budget_backoff": true,
+        "activation_checkpointing": false,
+        "activation_offload": false,
+        "activation_offload_max_ram_gb": null,
+        "activation_offload_min_tensor_mb": 4.0,
+        "activation_offload_prefetch_mb": 512.0,
+        "cache_keep_in_memory": false,
+        "cache_num_proc": "<min(8,cpu_count)>",
+        "caching_batch_size": 1,
+        "compile": false,
+        "compile_cache_dir": null,
+        "compile_disk_cache": "auto",
+        "dataloader_num_workers": 0,
+        "dataloader_persistent_workers": true,
+        "dataloader_pin_memory": false,
+        "dataloader_prefetch": true,
+        "dataloader_prefetch_factor": 2,
+        "dataset": "examples/minimal_dataset.toml",
+        "disable_block_swap_for_eval": false,
+        "epochs": 1,
+        "eval_before_first_step": true,
+        "eval_datasets": [],
+        "eval_every_n_epochs": null,
+        "eval_every_n_examples": null,
+        "eval_every_n_steps": null,
+        "eval_gradient_accumulation_steps": 1,
+        "gradient_accumulation_steps": 1,
+        "logging_steps": 1,
+        "lr_scheduler": "constant",
+        "lr_scheduler_args": {},
+        "micro_batch_size_per_gpu": 1,
+        "model": {
+          "cache_text_embeddings": true,
+          "dtype": "torch.bfloat16",
+          "fp8_grad_mode": "bf16",
+          "fp8_matmul_dtype": "e5m2",
+          "transformer_4bit": false,
+          "transformer_fp8_matmul": false,
+          "transformer_path": "path/to/anima-preview.safetensors",
+          "type": "cosmos_predict2",
+          "vae_path": "path/to/qwen_image_vae.safetensors"
+        },
+        "optimizer": {
+          "lr": 0.0001,
+          "type": "adamw"
+        },
+        "output_dir": "output",
+        "partition_method": "parameters",
+        "partition_split": null,
+        "pipeline_stages": 1,
+        "reentrant_activation_checkpointing": false,
+        "save_every_n_epochs": 1,
+        "steps_per_print": 1,
+        "tracking": {
+          "backends": [
+            "manifest",
+            "tensorboard"
+          ],
+          "capture_lineage": true,
+          "enabled": true,
+          "system_sampler": {
+            "enabled": true,
+            "interval_sec": 10
+          },
+          "wandb": {
+            "api_key": null,
+            "project": "rengu-flow",
+            "run_name": null
+          }
+        },
+        "train": {
+          "oom_skip": {
+            "bump_block_swap": false,
+            "bump_block_swap_step": 2,
+            "clear_cache_on_skip": true,
+            "enabled": true,
+            "max_in_window": 3
+          }
+        },
+        "train_seed": 42,
+        "val_gap_enable": true,
+        "val_gap_probe_batches": 8,
+        "warmup_steps": 0,
+        "x_axis_examples": false
+      }
+    },
+    "validate_config_model_rules": {
+      "error": "ConfigValidationError: config['model'] must contain at least one of: 'llm_path', 't5_path' (for cosmos_predict2)."
+    }
+  },
+  "cosmos_t5_path_instead_of_llm.toml": {
+    "collect_cadence_issues": {
+      "result": []
+    },
+    "collect_default_prerequisite_issues": {
+      "result": []
+    },
+    "collect_misplaced_top_level_keys": {
+      "result": []
+    },
+    "collect_validation_errors": {
+      "result": []
+    },
+    "collect_validation_warnings_after_defaults": {
+      "result": []
+    },
+    "model_path_errors": {
+      "result": [
+        "[model].transformer_path not found: path/to/anima-preview.safetensors",
+        "[model].vae_path not found: path/to/qwen_image_vae.safetensors",
+        "Set [model].llm_path in your training config"
+      ]
+    },
+    "profiles_for_config_dict": {
+      "result": [
+        "cosmos"
+      ]
+    },
+    "set_config_defaults": {
+      "config": {
+        "activation_budget_backoff": true,
+        "activation_checkpointing": false,
+        "activation_offload": false,
+        "activation_offload_max_ram_gb": null,
+        "activation_offload_min_tensor_mb": 4.0,
+        "activation_offload_prefetch_mb": 512.0,
+        "adapter": {
+          "alpha": 16,
+          "dropout": 0.0,
+          "dtype": "torch.float32",
+          "rank": 16,
+          "type": "lora"
+        },
+        "cache_keep_in_memory": false,
+        "cache_num_proc": "<min(8,cpu_count)>",
+        "caching_batch_size": 1,
+        "compile": false,
+        "compile_cache_dir": null,
+        "compile_disk_cache": "auto",
+        "dataloader_num_workers": 0,
+        "dataloader_persistent_workers": true,
+        "dataloader_pin_memory": false,
+        "dataloader_prefetch": true,
+        "dataloader_prefetch_factor": 2,
+        "dataset": "examples/minimal_dataset.toml",
+        "disable_block_swap_for_eval": false,
+        "epochs": 1,
+        "eval_before_first_step": true,
+        "eval_datasets": [],
+        "eval_every_n_epochs": null,
+        "eval_every_n_examples": null,
+        "eval_every_n_steps": null,
+        "eval_gradient_accumulation_steps": 1,
+        "gradient_accumulation_steps": 1,
+        "logging_steps": 1,
+        "lr_scheduler": "constant",
+        "lr_scheduler_args": {},
+        "micro_batch_size_per_gpu": 1,
+        "model": {
+          "cache_text_embeddings": true,
+          "dtype": "torch.bfloat16",
+          "fp8_grad_mode": "bf16",
+          "fp8_matmul_dtype": "e5m2",
+          "t5_path": "path/to/t5.safetensors",
+          "transformer_4bit": false,
+          "transformer_fp8_matmul": false,
+          "transformer_path": "path/to/anima-preview.safetensors",
+          "type": "cosmos_predict2",
+          "vae_path": "path/to/qwen_image_vae.safetensors"
+        },
+        "optimizer": {
+          "lr": 0.0001,
+          "type": "adamw"
+        },
+        "output_dir": "output",
+        "partition_method": "parameters",
+        "partition_split": null,
+        "pipeline_stages": 1,
+        "reentrant_activation_checkpointing": false,
+        "save_every_n_epochs": 1,
+        "steps_per_print": 1,
+        "tracking": {
+          "backends": [
+            "manifest",
+            "tensorboard"
+          ],
+          "capture_lineage": true,
+          "enabled": true,
+          "system_sampler": {
+            "enabled": true,
+            "interval_sec": 10
+          },
+          "wandb": {
+            "api_key": null,
+            "project": "rengu-flow",
+            "run_name": null
+          }
+        },
+        "train": {
+          "oom_skip": {
+            "bump_block_swap": false,
+            "bump_block_swap_step": 2,
+            "clear_cache_on_skip": true,
+            "enabled": true,
+            "max_in_window": 3
+          }
+        },
+        "train_seed": 42,
+        "val_gap_enable": true,
+        "val_gap_probe_batches": 8,
+        "warmup_steps": 0,
+        "x_axis_examples": false
+      }
+    },
+    "validate_config_model_rules": {
+      "result": null
+    }
+  },
+  "krea2_4bit_blocks_to_swap_ac_selective.toml": {
+    "collect_cadence_issues": {
+      "result": []
+    },
+    "collect_default_prerequisite_issues": {
+      "result": []
+    },
+    "collect_misplaced_top_level_keys": {
+      "result": []
+    },
+    "collect_validation_errors": {
+      "result": [
+        "model.transformer_4bit quantizes the frozen base and needs an [adapter] section; full finetune (no [adapter]) cannot train quantized weights."
+      ]
+    },
+    "collect_validation_warnings_after_defaults": {
+      "result": []
+    },
+    "model_path_errors": {
+      "result": [
+        "[model].checkpoint_path not found: path/to/krea2_bundle.safetensors"
+      ]
+    },
+    "profiles_for_config_dict": {
+      "result": [
+        "cosmos"
+      ]
+    },
+    "set_config_defaults": {
+      "config": {
+        "activation_budget_backoff": true,
+        "activation_checkpointing": true,
+        "activation_offload": false,
+        "activation_offload_max_ram_gb": null,
+        "activation_offload_min_tensor_mb": 4.0,
+        "activation_offload_prefetch_mb": 512.0,
+        "blocks_to_swap": 8,
+        "cache_keep_in_memory": false,
+        "cache_num_proc": "<min(8,cpu_count)>",
+        "caching_batch_size": 1,
+        "compile": false,
+        "compile_cache_dir": null,
+        "compile_disk_cache": "auto",
+        "dataloader_num_workers": 0,
+        "dataloader_persistent_workers": true,
+        "dataloader_pin_memory": false,
+        "dataloader_prefetch": true,
+        "dataloader_prefetch_factor": 2,
+        "dataset": "examples/minimal_dataset.toml",
+        "disable_block_swap_for_eval": false,
+        "epochs": 1,
+        "eval_before_first_step": true,
+        "eval_datasets": [],
+        "eval_every_n_epochs": null,
+        "eval_every_n_examples": null,
+        "eval_every_n_steps": null,
+        "eval_gradient_accumulation_steps": 1,
+        "gradient_accumulation_steps": 1,
+        "logging_steps": 1,
+        "lr_scheduler": "constant",
+        "lr_scheduler_args": {},
+        "micro_batch_size_per_gpu": 1,
+        "model": {
+          "cache_text_embeddings": true,
+          "checkpoint_path": "path/to/krea2_bundle.safetensors",
+          "dtype": "torch.bfloat16",
+          "fp8_grad_mode": "bf16",
+          "transformer_4bit": true,
+          "transformer_fp8_matmul": false,
+          "type": "krea2"
+        },
+        "optimizer": {
+          "lr": 0.0001,
+          "type": "adamw"
+        },
+        "output_dir": "output",
+        "partition_method": "parameters",
+        "partition_split": null,
+        "pipeline_stages": 1,
+        "reentrant_activation_checkpointing": true,
+        "save_every_n_epochs": 1,
+        "steps_per_print": 1,
+        "tracking": {
+          "backends": [
+            "manifest",
+            "tensorboard"
+          ],
+          "capture_lineage": true,
+          "enabled": true,
+          "system_sampler": {
+            "enabled": true,
+            "interval_sec": 10
+          },
+          "wandb": {
+            "api_key": null,
+            "project": "rengu-flow",
+            "run_name": null
+          }
+        },
+        "train": {
+          "oom_skip": {
+            "bump_block_swap": false,
+            "bump_block_swap_step": 2,
+            "clear_cache_on_skip": true,
+            "enabled": true,
+            "max_in_window": 3
+          }
+        },
+        "train_seed": 42,
+        "val_gap_enable": true,
+        "val_gap_probe_batches": 8,
+        "warmup_steps": 0,
+        "x_axis_examples": false
+      },
+      "stdout": "[checkpoint] activation_checkpointing='selective' was retired; falling back to full checkpointing (true). For the speed gains use activation_checkpointing='auto' with compile=true (better speed AND VRAM).\n"
+    },
+    "validate_config_model_rules": {
+      "result": null
+    }
+  },
+  "krea2_checkpoint_path_only.toml": {
+    "collect_cadence_issues": {
+      "result": []
+    },
+    "collect_default_prerequisite_issues": {
+      "result": []
+    },
+    "collect_misplaced_top_level_keys": {
+      "result": []
+    },
+    "collect_validation_errors": {
+      "result": []
+    },
+    "collect_validation_warnings_after_defaults": {
+      "result": []
+    },
+    "model_path_errors": {
+      "result": [
+        "[model].checkpoint_path not found: path/to/krea2_bundle.safetensors"
+      ]
+    },
+    "profiles_for_config_dict": {
+      "result": [
+        "cosmos"
+      ]
+    },
+    "set_config_defaults": {
+      "config": {
+        "activation_budget_backoff": true,
+        "activation_checkpointing": false,
+        "activation_offload": false,
+        "activation_offload_max_ram_gb": null,
+        "activation_offload_min_tensor_mb": 4.0,
+        "activation_offload_prefetch_mb": 512.0,
+        "adapter": {
+          "alpha": 16,
+          "dropout": 0.0,
+          "dtype": "torch.float32",
+          "rank": 16,
+          "type": "lora"
+        },
+        "cache_keep_in_memory": false,
+        "cache_num_proc": "<min(8,cpu_count)>",
+        "caching_batch_size": 1,
+        "compile": false,
+        "compile_cache_dir": null,
+        "compile_disk_cache": "auto",
+        "dataloader_num_workers": 0,
+        "dataloader_persistent_workers": true,
+        "dataloader_pin_memory": false,
+        "dataloader_prefetch": true,
+        "dataloader_prefetch_factor": 2,
+        "dataset": "examples/minimal_dataset.toml",
+        "disable_block_swap_for_eval": false,
+        "epochs": 1,
+        "eval_before_first_step": true,
+        "eval_datasets": [],
+        "eval_every_n_epochs": null,
+        "eval_every_n_examples": null,
+        "eval_every_n_steps": null,
+        "eval_gradient_accumulation_steps": 1,
+        "gradient_accumulation_steps": 1,
+        "logging_steps": 1,
+        "lr_scheduler": "constant",
+        "lr_scheduler_args": {},
+        "micro_batch_size_per_gpu": 1,
+        "model": {
+          "cache_text_embeddings": true,
+          "checkpoint_path": "path/to/krea2_bundle.safetensors",
+          "dtype": "torch.bfloat16",
+          "fp8_grad_mode": "bf16",
+          "transformer_4bit": false,
+          "transformer_fp8_matmul": false,
+          "type": "krea2"
+        },
+        "optimizer": {
+          "lr": 0.0001,
+          "type": "adamw"
+        },
+        "output_dir": "output",
+        "partition_method": "parameters",
+        "partition_split": null,
+        "pipeline_stages": 1,
+        "reentrant_activation_checkpointing": false,
+        "save_every_n_epochs": 1,
+        "steps_per_print": 1,
+        "tracking": {
+          "backends": [
+            "manifest",
+            "tensorboard"
+          ],
+          "capture_lineage": true,
+          "enabled": true,
+          "system_sampler": {
+            "enabled": true,
+            "interval_sec": 10
+          },
+          "wandb": {
+            "api_key": null,
+            "project": "rengu-flow",
+            "run_name": null
+          }
+        },
+        "train": {
+          "oom_skip": {
+            "bump_block_swap": false,
+            "bump_block_swap_step": 2,
+            "clear_cache_on_skip": true,
+            "enabled": true,
+            "max_in_window": 3
+          }
+        },
+        "train_seed": 42,
+        "val_gap_enable": true,
+        "val_gap_probe_batches": 8,
+        "warmup_steps": 0,
+        "x_axis_examples": false
+      }
+    },
+    "validate_config_model_rules": {
+      "result": null
+    }
+  },
+  "krea2_components_preview_defaults.toml": {
+    "collect_cadence_issues": {
+      "result": []
+    },
+    "collect_default_prerequisite_issues": {
+      "result": []
+    },
+    "collect_misplaced_top_level_keys": {
+      "result": []
+    },
+    "collect_validation_errors": {
+      "result": []
+    },
+    "collect_validation_warnings_after_defaults": {
+      "result": []
+    },
+    "model_path_errors": {
+      "result": [
+        "[model].transformer_path not found: path/to/krea2.safetensors",
+        "[model].vae_path not found: path/to/vae.safetensors",
+        "[model].text_encoder_path not found: path/to/te.safetensors"
+      ]
+    },
+    "profiles_for_config_dict": {
+      "result": [
+        "cosmos"
+      ]
+    },
+    "set_config_defaults": {
+      "config": {
+        "activation_budget_backoff": true,
+        "activation_checkpointing": false,
+        "activation_offload": false,
+        "activation_offload_max_ram_gb": null,
+        "activation_offload_min_tensor_mb": 4.0,
+        "activation_offload_prefetch_mb": 512.0,
+        "cache_keep_in_memory": false,
+        "cache_num_proc": "<min(8,cpu_count)>",
+        "caching_batch_size": 1,
+        "compile": false,
+        "compile_cache_dir": null,
+        "compile_disk_cache": "auto",
+        "dataloader_num_workers": 0,
+        "dataloader_persistent_workers": true,
+        "dataloader_pin_memory": false,
+        "dataloader_prefetch": true,
+        "dataloader_prefetch_factor": 2,
+        "dataset": "examples/minimal_dataset.toml",
+        "disable_block_swap_for_eval": false,
+        "epochs": 1,
+        "eval_before_first_step": true,
+        "eval_datasets": [],
+        "eval_every_n_epochs": null,
+        "eval_every_n_examples": null,
+        "eval_every_n_steps": null,
+        "eval_gradient_accumulation_steps": 1,
+        "gradient_accumulation_steps": 1,
+        "logging_steps": 1,
+        "lr_scheduler": "constant",
+        "lr_scheduler_args": {},
+        "micro_batch_size_per_gpu": 1,
+        "model": {
+          "cache_text_embeddings": true,
+          "dtype": "torch.bfloat16",
+          "fp8_grad_mode": "bf16",
+          "text_encoder_path": "path/to/te.safetensors",
+          "transformer_4bit": false,
+          "transformer_fp8_matmul": false,
+          "transformer_path": "path/to/krea2.safetensors",
+          "type": "krea2",
+          "vae_path": "path/to/vae.safetensors"
+        },
+        "optimizer": {
+          "lr": 0.0001,
+          "type": "adamw"
+        },
+        "output_dir": "output",
+        "partition_method": "parameters",
+        "partition_split": null,
+        "pipeline_stages": 1,
+        "preview": {
+          "guidance_scale": 4.5,
+          "height": 1024,
+          "negative_prompt": "",
+          "num_inference_steps": 28,
+          "preview_offload_text_encoder": true,
+          "prompts": [
+            "a portrait"
+          ],
+          "width": 1024
+        },
+        "reentrant_activation_checkpointing": false,
+        "save_every_n_epochs": 1,
+        "steps_per_print": 1,
+        "tracking": {
+          "backends": [
+            "manifest",
+            "tensorboard"
+          ],
+          "capture_lineage": true,
+          "enabled": true,
+          "system_sampler": {
+            "enabled": true,
+            "interval_sec": 10
+          },
+          "wandb": {
+            "api_key": null,
+            "project": "rengu-flow",
+            "run_name": null
+          }
+        },
+        "train": {
+          "oom_skip": {
+            "bump_block_swap": false,
+            "bump_block_swap_step": 2,
+            "clear_cache_on_skip": true,
+            "enabled": true,
+            "max_in_window": 3
+          }
+        },
+        "train_seed": 42,
+        "val_gap_enable": true,
+        "val_gap_probe_batches": 8,
+        "warmup_steps": 0,
+        "x_axis_examples": false
+      }
+    },
+    "validate_config_model_rules": {
+      "result": null
+    }
+  },
+  "krea2_missing_vae.toml": {
+    "collect_cadence_issues": {
+      "result": []
+    },
+    "collect_default_prerequisite_issues": {
+      "result": []
+    },
+    "collect_misplaced_top_level_keys": {
+      "result": []
+    },
+    "collect_validation_errors": {
+      "result": [
+        "config['model'] must contain at least one of: 'vae_path', 'checkpoint_path' (for krea2)."
+      ]
+    },
+    "collect_validation_warnings_after_defaults": {
+      "result": []
+    },
+    "model_path_errors": {
+      "result": [
+        "Set one of [model].vae_path / [model].checkpoint_path in your training config",
+        "[model].transformer_path not found: path/to/krea2.safetensors",
+        "[model].text_encoder_path not found: path/to/te.safetensors"
+      ]
+    },
+    "profiles_for_config_dict": {
+      "result": [
+        "cosmos"
+      ]
+    },
+    "set_config_defaults": {
+      "config": {
+        "activation_budget_backoff": true,
+        "activation_checkpointing": false,
+        "activation_offload": false,
+        "activation_offload_max_ram_gb": null,
+        "activation_offload_min_tensor_mb": 4.0,
+        "activation_offload_prefetch_mb": 512.0,
+        "cache_keep_in_memory": false,
+        "cache_num_proc": "<min(8,cpu_count)>",
+        "caching_batch_size": 1,
+        "compile": false,
+        "compile_cache_dir": null,
+        "compile_disk_cache": "auto",
+        "dataloader_num_workers": 0,
+        "dataloader_persistent_workers": true,
+        "dataloader_pin_memory": false,
+        "dataloader_prefetch": true,
+        "dataloader_prefetch_factor": 2,
+        "dataset": "examples/minimal_dataset.toml",
+        "disable_block_swap_for_eval": false,
+        "epochs": 1,
+        "eval_before_first_step": true,
+        "eval_datasets": [],
+        "eval_every_n_epochs": null,
+        "eval_every_n_examples": null,
+        "eval_every_n_steps": null,
+        "eval_gradient_accumulation_steps": 1,
+        "gradient_accumulation_steps": 1,
+        "logging_steps": 1,
+        "lr_scheduler": "constant",
+        "lr_scheduler_args": {},
+        "micro_batch_size_per_gpu": 1,
+        "model": {
+          "cache_text_embeddings": true,
+          "dtype": "torch.bfloat16",
+          "fp8_grad_mode": "bf16",
+          "text_encoder_path": "path/to/te.safetensors",
+          "transformer_4bit": false,
+          "transformer_fp8_matmul": false,
+          "transformer_path": "path/to/krea2.safetensors",
+          "type": "krea2"
+        },
+        "optimizer": {
+          "lr": 0.0001,
+          "type": "adamw"
+        },
+        "output_dir": "output",
+        "partition_method": "parameters",
+        "partition_split": null,
+        "pipeline_stages": 1,
+        "reentrant_activation_checkpointing": false,
+        "save_every_n_epochs": 1,
+        "steps_per_print": 1,
+        "tracking": {
+          "backends": [
+            "manifest",
+            "tensorboard"
+          ],
+          "capture_lineage": true,
+          "enabled": true,
+          "system_sampler": {
+            "enabled": true,
+            "interval_sec": 10
+          },
+          "wandb": {
+            "api_key": null,
+            "project": "rengu-flow",
+            "run_name": null
+          }
+        },
+        "train": {
+          "oom_skip": {
+            "bump_block_swap": false,
+            "bump_block_swap_step": 2,
+            "clear_cache_on_skip": true,
+            "enabled": true,
+            "max_in_window": 3
+          }
+        },
+        "train_seed": 42,
+        "val_gap_enable": true,
+        "val_gap_probe_batches": 8,
+        "warmup_steps": 0,
+        "x_axis_examples": false
+      }
+    },
+    "validate_config_model_rules": {
+      "error": "ConfigValidationError: config['model'] must contain at least one of: 'vae_path', 'checkpoint_path' (for krea2)."
+    }
+  },
+  "krea2_tread_missing_ratio.toml": {
+    "collect_cadence_issues": {
+      "result": []
+    },
+    "collect_default_prerequisite_issues": {
+      "result": []
+    },
+    "collect_misplaced_top_level_keys": {
+      "result": []
+    },
+    "collect_validation_errors": {
+      "result": [
+        "[tread] needs drop_ratio (fraction of image tokens routed around the middle blocks, e.g. 0.5); remove the [tread] table to turn routing off."
+      ]
+    },
+    "collect_validation_warnings_after_defaults": {
+      "result": []
+    },
+    "model_path_errors": {
+      "result": [
+        "[model].checkpoint_path not found: path/to/krea2_bundle.safetensors"
+      ]
+    },
+    "profiles_for_config_dict": {
+      "result": [
+        "cosmos"
+      ]
+    },
+    "set_config_defaults": {
+      "config": {
+        "activation_budget_backoff": true,
+        "activation_checkpointing": false,
+        "activation_offload": false,
+        "activation_offload_max_ram_gb": null,
+        "activation_offload_min_tensor_mb": 4.0,
+        "activation_offload_prefetch_mb": 512.0,
+        "cache_keep_in_memory": false,
+        "cache_num_proc": "<min(8,cpu_count)>",
+        "caching_batch_size": 1,
+        "compile": false,
+        "compile_cache_dir": null,
+        "compile_disk_cache": "auto",
+        "dataloader_num_workers": 0,
+        "dataloader_persistent_workers": true,
+        "dataloader_pin_memory": false,
+        "dataloader_prefetch": true,
+        "dataloader_prefetch_factor": 2,
+        "dataset": "examples/minimal_dataset.toml",
+        "disable_block_swap_for_eval": false,
+        "epochs": 1,
+        "eval_before_first_step": true,
+        "eval_datasets": [],
+        "eval_every_n_epochs": null,
+        "eval_every_n_examples": null,
+        "eval_every_n_steps": null,
+        "eval_gradient_accumulation_steps": 1,
+        "gradient_accumulation_steps": 1,
+        "logging_steps": 1,
+        "lr_scheduler": "constant",
+        "lr_scheduler_args": {},
+        "micro_batch_size_per_gpu": 1,
+        "model": {
+          "cache_text_embeddings": true,
+          "checkpoint_path": "path/to/krea2_bundle.safetensors",
+          "dtype": "torch.bfloat16",
+          "fp8_grad_mode": "bf16",
+          "transformer_4bit": false,
+          "transformer_fp8_matmul": false,
+          "type": "krea2"
+        },
+        "optimizer": {
+          "lr": 0.0001,
+          "type": "adamw"
+        },
+        "output_dir": "output",
+        "partition_method": "parameters",
+        "partition_split": null,
+        "pipeline_stages": 1,
+        "reentrant_activation_checkpointing": false,
+        "save_every_n_epochs": 1,
+        "steps_per_print": 1,
+        "tracking": {
+          "backends": [
+            "manifest",
+            "tensorboard"
+          ],
+          "capture_lineage": true,
+          "enabled": true,
+          "system_sampler": {
+            "enabled": true,
+            "interval_sec": 10
+          },
+          "wandb": {
+            "api_key": null,
+            "project": "rengu-flow",
+            "run_name": null
+          }
+        },
+        "train": {
+          "oom_skip": {
+            "bump_block_swap": false,
+            "bump_block_swap_step": 2,
+            "clear_cache_on_skip": true,
+            "enabled": true,
+            "max_in_window": 3
+          }
+        },
+        "train_seed": 42,
+        "tread": {
+          "start_block": 2
+        },
+        "val_gap_enable": true,
+        "val_gap_probe_batches": 8,
+        "warmup_steps": 0,
+        "x_axis_examples": false
+      }
+    },
+    "validate_config_model_rules": {
+      "error": "ConfigValidationError: [tread] needs drop_ratio (fraction of image tokens routed around the middle blocks, e.g. 0.5); remove the [tread] table to turn routing off."
+    }
+  },
+  "krea2_tread_valid.toml": {
+    "collect_cadence_issues": {
+      "result": []
+    },
+    "collect_default_prerequisite_issues": {
+      "result": []
+    },
+    "collect_misplaced_top_level_keys": {
+      "result": []
+    },
+    "collect_validation_errors": {
+      "result": []
+    },
+    "collect_validation_warnings_after_defaults": {
+      "result": []
+    },
+    "model_path_errors": {
+      "result": [
+        "[model].checkpoint_path not found: path/to/krea2_bundle.safetensors"
+      ]
+    },
+    "profiles_for_config_dict": {
+      "result": [
+        "cosmos"
+      ]
+    },
+    "set_config_defaults": {
+      "config": {
+        "activation_budget_backoff": true,
+        "activation_checkpointing": false,
+        "activation_offload": false,
+        "activation_offload_max_ram_gb": null,
+        "activation_offload_min_tensor_mb": 4.0,
+        "activation_offload_prefetch_mb": 512.0,
+        "cache_keep_in_memory": false,
+        "cache_num_proc": "<min(8,cpu_count)>",
+        "caching_batch_size": 1,
+        "compile": false,
+        "compile_cache_dir": null,
+        "compile_disk_cache": "auto",
+        "dataloader_num_workers": 0,
+        "dataloader_persistent_workers": true,
+        "dataloader_pin_memory": false,
+        "dataloader_prefetch": true,
+        "dataloader_prefetch_factor": 2,
+        "dataset": "examples/minimal_dataset.toml",
+        "disable_block_swap_for_eval": false,
+        "epochs": 1,
+        "eval_before_first_step": true,
+        "eval_datasets": [],
+        "eval_every_n_epochs": null,
+        "eval_every_n_examples": null,
+        "eval_every_n_steps": null,
+        "eval_gradient_accumulation_steps": 1,
+        "gradient_accumulation_steps": 1,
+        "logging_steps": 1,
+        "lr_scheduler": "constant",
+        "lr_scheduler_args": {},
+        "micro_batch_size_per_gpu": 1,
+        "model": {
+          "cache_text_embeddings": true,
+          "checkpoint_path": "path/to/krea2_bundle.safetensors",
+          "dtype": "torch.bfloat16",
+          "fp8_grad_mode": "bf16",
+          "transformer_4bit": false,
+          "transformer_fp8_matmul": false,
+          "type": "krea2"
+        },
+        "optimizer": {
+          "lr": 0.0001,
+          "type": "adamw"
+        },
+        "output_dir": "output",
+        "partition_method": "parameters",
+        "partition_split": null,
+        "pipeline_stages": 1,
+        "reentrant_activation_checkpointing": false,
+        "save_every_n_epochs": 1,
+        "steps_per_print": 1,
+        "tracking": {
+          "backends": [
+            "manifest",
+            "tensorboard"
+          ],
+          "capture_lineage": true,
+          "enabled": true,
+          "system_sampler": {
+            "enabled": true,
+            "interval_sec": 10
+          },
+          "wandb": {
+            "api_key": null,
+            "project": "rengu-flow",
+            "run_name": null
+          }
+        },
+        "train": {
+          "oom_skip": {
+            "bump_block_swap": false,
+            "bump_block_swap_step": 2,
+            "clear_cache_on_skip": true,
+            "enabled": true,
+            "max_in_window": 3
+          }
+        },
+        "train_seed": 42,
+        "tread": {
+          "drop_ratio": 0.5
+        },
+        "val_gap_enable": true,
+        "val_gap_probe_batches": 8,
+        "warmup_steps": 0,
+        "x_axis_examples": false
+      }
+    },
+    "validate_config_model_rules": {
+      "result": null
+    }
+  },
+  "model_dtype_alias_bf16.toml": {
+    "collect_cadence_issues": {
+      "result": []
+    },
+    "collect_default_prerequisite_issues": {
+      "result": [
+        "model.dtype = 'bf16' is not a valid dtype. Use one of: `float32`, `float16`, `bfloat16`, `float8`, `float8_e4m3fn`, `float8_e5m2`."
+      ]
+    },
+    "collect_misplaced_top_level_keys": {
+      "result": []
+    },
+    "collect_validation_errors": {
+      "result": []
+    },
+    "model_path_errors": {
+      "result": [
+        "[model].checkpoint_path not found: x"
+      ]
+    },
+    "profiles_for_config_dict": {
+      "result": []
+    },
+    "set_config_defaults": {
+      "config": {
+        "activation_checkpointing": false,
+        "dataset": "examples/minimal_dataset.toml",
+        "model": {
+          "checkpoint_path": "x",
+          "dtype": "bf16",
+          "type": "sdxl"
+        },
+        "optimizer": {
+          "lr": 0.0001,
+          "type": "adamw"
+        },
+        "output_dir": "output",
+        "pipeline_stages": 1,
+        "reentrant_activation_checkpointing": false,
+        "save_every_n_epochs": 1,
+        "warmup_steps": 0
+      },
+      "error": "KeyError: 'bf16'"
+    },
+    "validate_config_model_rules": {
+      "result": null
+    }
+  },
+  "no_model_section.toml": {
+    "collect_cadence_issues": {
+      "result": []
+    },
+    "collect_default_prerequisite_issues": {
+      "result": [
+        "Missing `[model]`. Add a `[model]` table with `type` (e.g. `sdxl`, `cosmos_predict2`) and `dtype` (e.g. `bfloat16`)."
+      ]
+    },
+    "collect_misplaced_top_level_keys": {
+      "result": []
+    },
+    "collect_validation_errors": {
+      "result": [
+        "Missing `model`. Add a `[model]` table with `type` (e.g. `sdxl`, `cosmos_predict2`) and `dtype` (e.g. `bfloat16`)."
+      ]
+    },
+    "model_path_errors": {
+      "result": []
+    },
+    "profiles_for_config_dict": {
+      "result": []
+    },
+    "set_config_defaults": {
+      "config": {
+        "activation_checkpointing": false,
+        "dataset": "examples/minimal_dataset.toml",
+        "optimizer": {
+          "lr": 0.0001,
+          "type": "adamw"
+        },
+        "output_dir": "output",
+        "pipeline_stages": 1,
+        "reentrant_activation_checkpointing": false,
+        "save_every_n_epochs": 1,
+        "warmup_steps": 0
+      },
+      "error": "KeyError: 'model'"
+    },
+    "validate_config_model_rules": {
+      "result": null
+    }
+  },
+  "qwen_image21_components_edit_preview.toml": {
+    "collect_cadence_issues": {
+      "result": []
+    },
+    "collect_default_prerequisite_issues": {
+      "result": []
+    },
+    "collect_misplaced_top_level_keys": {
+      "result": []
+    },
+    "collect_validation_errors": {
+      "result": [
+        "model.transformer_fp8_matmul quantizes the frozen base and needs an [adapter] section; full finetune (no [adapter]) cannot train quantized weights."
+      ]
+    },
+    "collect_validation_warnings_after_defaults": {
+      "result": []
+    },
+    "model_path_errors": {
+      "result": [
+        "[model].transformer_path not found: path/to/transformer.safetensors",
+        "[model].vae_path not found: path/to/vae.safetensors",
+        "[model].text_encoder_path not found: path/to/te.safetensors"
+      ]
+    },
+    "profiles_for_config_dict": {
+      "result": [
+        "cosmos"
+      ]
+    },
+    "set_config_defaults": {
+      "config": {
+        "activation_budget_backoff": true,
+        "activation_checkpointing": false,
+        "activation_offload": false,
+        "activation_offload_max_ram_gb": null,
+        "activation_offload_min_tensor_mb": 4.0,
+        "activation_offload_prefetch_mb": 512.0,
+        "cache_keep_in_memory": false,
+        "cache_num_proc": "<min(8,cpu_count)>",
+        "caching_batch_size": 1,
+        "compile": false,
+        "compile_cache_dir": null,
+        "compile_disk_cache": "auto",
+        "dataloader_num_workers": 0,
+        "dataloader_persistent_workers": true,
+        "dataloader_pin_memory": false,
+        "dataloader_prefetch": true,
+        "dataloader_prefetch_factor": 2,
+        "dataset": "examples/minimal_dataset.toml",
+        "disable_block_swap_for_eval": false,
+        "epochs": 1,
+        "eval_before_first_step": true,
+        "eval_datasets": [],
+        "eval_every_n_epochs": null,
+        "eval_every_n_examples": null,
+        "eval_every_n_steps": null,
+        "eval_gradient_accumulation_steps": 1,
+        "gradient_accumulation_steps": 1,
+        "logging_steps": 1,
+        "lr_scheduler": "constant",
+        "lr_scheduler_args": {},
+        "micro_batch_size_per_gpu": 1,
+        "model": {
+          "cache_text_embeddings": true,
+          "dtype": "torch.bfloat16",
+          "fp8_grad_mode": "bf16",
+          "text_encoder_path": "path/to/te.safetensors",
+          "transformer_4bit": false,
+          "transformer_fp8_matmul": true,
+          "transformer_path": "path/to/transformer.safetensors",
+          "type": "qwen_image21",
+          "vae_path": "path/to/vae.safetensors"
+        },
+        "optimizer": {
+          "lr": 0.0001,
+          "type": "adamw"
+        },
+        "output_dir": "output",
+        "partition_method": "parameters",
+        "partition_split": null,
+        "pipeline_stages": 1,
+        "preview": {
+          "guidance_scale": 1.0,
+          "height": 1024,
+          "negative_prompt": "",
+          "num_inference_steps": 28,
+          "preview_offload_text_encoder": true,
+          "prompts": [
+            {
+              "control_images": [
+                "a.png"
+              ],
+              "prompt": "make it blue"
+            }
+          ],
+          "width": 1024
+        },
+        "reentrant_activation_checkpointing": false,
+        "save_every_n_epochs": 1,
+        "steps_per_print": 1,
+        "tracking": {
+          "backends": [
+            "manifest",
+            "tensorboard"
+          ],
+          "capture_lineage": true,
+          "enabled": true,
+          "system_sampler": {
+            "enabled": true,
+            "interval_sec": 10
+          },
+          "wandb": {
+            "api_key": null,
+            "project": "rengu-flow",
+            "run_name": null
+          }
+        },
+        "train": {
+          "oom_skip": {
+            "bump_block_swap": false,
+            "bump_block_swap_step": 2,
+            "clear_cache_on_skip": true,
+            "enabled": true,
+            "max_in_window": 3
+          }
+        },
+        "train_seed": 42,
+        "val_gap_enable": true,
+        "val_gap_probe_batches": 8,
+        "warmup_steps": 0,
+        "x_axis_examples": false
+      }
+    },
+    "validate_config_model_rules": {
+      "result": null
+    }
+  },
+  "qwen_image21_diffusers_path_only.toml": {
+    "collect_cadence_issues": {
+      "result": []
+    },
+    "collect_default_prerequisite_issues": {
+      "result": []
+    },
+    "collect_misplaced_top_level_keys": {
+      "result": []
+    },
+    "collect_validation_errors": {
+      "result": []
+    },
+    "collect_validation_warnings_after_defaults": {
+      "result": []
+    },
+    "model_path_errors": {
+      "result": [
+        "[model].diffusers_path not found: path/to/qwen_image21_diffusers"
+      ]
+    },
+    "profiles_for_config_dict": {
+      "result": [
+        "cosmos"
+      ]
+    },
+    "set_config_defaults": {
+      "config": {
+        "activation_budget_backoff": true,
+        "activation_checkpointing": false,
+        "activation_offload": false,
+        "activation_offload_max_ram_gb": null,
+        "activation_offload_min_tensor_mb": 4.0,
+        "activation_offload_prefetch_mb": 512.0,
+        "adapter": {
+          "alpha": 16,
+          "dropout": 0.0,
+          "dtype": "torch.float32",
+          "rank": 16,
+          "type": "lora"
+        },
+        "cache_keep_in_memory": false,
+        "cache_num_proc": "<min(8,cpu_count)>",
+        "caching_batch_size": 1,
+        "compile": false,
+        "compile_cache_dir": null,
+        "compile_disk_cache": "auto",
+        "dataloader_num_workers": 0,
+        "dataloader_persistent_workers": true,
+        "dataloader_pin_memory": false,
+        "dataloader_prefetch": true,
+        "dataloader_prefetch_factor": 2,
+        "dataset": "examples/minimal_dataset.toml",
+        "disable_block_swap_for_eval": false,
+        "epochs": 1,
+        "eval_before_first_step": true,
+        "eval_datasets": [],
+        "eval_every_n_epochs": null,
+        "eval_every_n_examples": null,
+        "eval_every_n_steps": null,
+        "eval_gradient_accumulation_steps": 1,
+        "gradient_accumulation_steps": 1,
+        "logging_steps": 1,
+        "lr_scheduler": "constant",
+        "lr_scheduler_args": {},
+        "micro_batch_size_per_gpu": 1,
+        "model": {
+          "cache_text_embeddings": true,
+          "diffusers_path": "path/to/qwen_image21_diffusers",
+          "dtype": "torch.bfloat16",
+          "fp8_grad_mode": "bf16",
+          "transformer_4bit": false,
+          "transformer_fp8_matmul": false,
+          "type": "qwen_image21"
+        },
+        "optimizer": {
+          "lr": 0.0001,
+          "type": "adamw"
+        },
+        "output_dir": "output",
+        "partition_method": "parameters",
+        "partition_split": null,
+        "pipeline_stages": 1,
+        "reentrant_activation_checkpointing": false,
+        "save_every_n_epochs": 1,
+        "steps_per_print": 1,
+        "tracking": {
+          "backends": [
+            "manifest",
+            "tensorboard"
+          ],
+          "capture_lineage": true,
+          "enabled": true,
+          "system_sampler": {
+            "enabled": true,
+            "interval_sec": 10
+          },
+          "wandb": {
+            "api_key": null,
+            "project": "rengu-flow",
+            "run_name": null
+          }
+        },
+        "train": {
+          "oom_skip": {
+            "bump_block_swap": false,
+            "bump_block_swap_step": 2,
+            "clear_cache_on_skip": true,
+            "enabled": true,
+            "max_in_window": 3
+          }
+        },
+        "train_seed": 42,
+        "val_gap_enable": true,
+        "val_gap_probe_batches": 8,
+        "warmup_steps": 0,
+        "x_axis_examples": false
+      }
+    },
+    "validate_config_model_rules": {
+      "result": null
+    }
+  },
+  "qwen_image21_missing_components.toml": {
+    "collect_cadence_issues": {
+      "result": []
+    },
+    "collect_default_prerequisite_issues": {
+      "result": []
+    },
+    "collect_misplaced_top_level_keys": {
+      "result": []
+    },
+    "collect_validation_errors": {
+      "result": [
+        "config['model'] must contain at least one of: 'vae_path', 'diffusers_path' (for qwen_image21)."
+      ]
+    },
+    "collect_validation_warnings_after_defaults": {
+      "result": []
+    },
+    "model_path_errors": {
+      "result": [
+        "Set one of [model].vae_path / [model].diffusers_path in your training config",
+        "Set one of [model].text_encoder_path / [model].diffusers_path in your training config",
+        "[model].transformer_path not found: path/to/transformer.safetensors"
+      ]
+    },
+    "profiles_for_config_dict": {
+      "result": [
+        "cosmos"
+      ]
+    },
+    "set_config_defaults": {
+      "config": {
+        "activation_budget_backoff": true,
+        "activation_checkpointing": false,
+        "activation_offload": false,
+        "activation_offload_max_ram_gb": null,
+        "activation_offload_min_tensor_mb": 4.0,
+        "activation_offload_prefetch_mb": 512.0,
+        "cache_keep_in_memory": false,
+        "cache_num_proc": "<min(8,cpu_count)>",
+        "caching_batch_size": 1,
+        "compile": false,
+        "compile_cache_dir": null,
+        "compile_disk_cache": "auto",
+        "dataloader_num_workers": 0,
+        "dataloader_persistent_workers": true,
+        "dataloader_pin_memory": false,
+        "dataloader_prefetch": true,
+        "dataloader_prefetch_factor": 2,
+        "dataset": "examples/minimal_dataset.toml",
+        "disable_block_swap_for_eval": false,
+        "epochs": 1,
+        "eval_before_first_step": true,
+        "eval_datasets": [],
+        "eval_every_n_epochs": null,
+        "eval_every_n_examples": null,
+        "eval_every_n_steps": null,
+        "eval_gradient_accumulation_steps": 1,
+        "gradient_accumulation_steps": 1,
+        "logging_steps": 1,
+        "lr_scheduler": "constant",
+        "lr_scheduler_args": {},
+        "micro_batch_size_per_gpu": 1,
+        "model": {
+          "cache_text_embeddings": true,
+          "dtype": "torch.bfloat16",
+          "fp8_grad_mode": "bf16",
+          "transformer_4bit": false,
+          "transformer_fp8_matmul": false,
+          "transformer_path": "path/to/transformer.safetensors",
+          "type": "qwen_image21"
+        },
+        "optimizer": {
+          "lr": 0.0001,
+          "type": "adamw"
+        },
+        "output_dir": "output",
+        "partition_method": "parameters",
+        "partition_split": null,
+        "pipeline_stages": 1,
+        "reentrant_activation_checkpointing": false,
+        "save_every_n_epochs": 1,
+        "steps_per_print": 1,
+        "tracking": {
+          "backends": [
+            "manifest",
+            "tensorboard"
+          ],
+          "capture_lineage": true,
+          "enabled": true,
+          "system_sampler": {
+            "enabled": true,
+            "interval_sec": 10
+          },
+          "wandb": {
+            "api_key": null,
+            "project": "rengu-flow",
+            "run_name": null
+          }
+        },
+        "train": {
+          "oom_skip": {
+            "bump_block_swap": false,
+            "bump_block_swap_step": 2,
+            "clear_cache_on_skip": true,
+            "enabled": true,
+            "max_in_window": 3
+          }
+        },
+        "train_seed": 42,
+        "val_gap_enable": true,
+        "val_gap_probe_batches": 8,
+        "warmup_steps": 0,
+        "x_axis_examples": false
+      }
+    },
+    "validate_config_model_rules": {
+      "error": "ConfigValidationError: config['model'] must contain at least one of: 'vae_path', 'diffusers_path' (for qwen_image21)."
+    }
+  },
+  "sdxl_ac_selective.toml": {
+    "collect_cadence_issues": {
+      "result": []
+    },
+    "collect_default_prerequisite_issues": {
+      "result": []
+    },
+    "collect_misplaced_top_level_keys": {
+      "result": []
+    },
+    "collect_validation_errors": {
+      "result": []
+    },
+    "collect_validation_warnings_after_defaults": {
+      "result": []
+    },
+    "model_path_errors": {
+      "result": [
+        "[model].checkpoint_path not found: path/to/sdxl.safetensors"
+      ]
+    },
+    "profiles_for_config_dict": {
+      "result": []
+    },
+    "set_config_defaults": {
+      "config": {
+        "activation_budget_backoff": true,
+        "activation_checkpointing": true,
+        "activation_offload": false,
+        "activation_offload_max_ram_gb": null,
+        "activation_offload_min_tensor_mb": 4.0,
+        "activation_offload_prefetch_mb": 512.0,
+        "cache_keep_in_memory": false,
+        "cache_num_proc": "<min(8,cpu_count)>",
+        "caching_batch_size": 1,
+        "compile": false,
+        "compile_cache_dir": null,
+        "compile_disk_cache": "auto",
+        "dataloader_num_workers": 0,
+        "dataloader_persistent_workers": true,
+        "dataloader_pin_memory": false,
+        "dataloader_prefetch": true,
+        "dataloader_prefetch_factor": 2,
+        "dataset": "examples/minimal_dataset.toml",
+        "disable_block_swap_for_eval": false,
+        "epochs": 1,
+        "eval_before_first_step": true,
+        "eval_datasets": [],
+        "eval_every_n_epochs": null,
+        "eval_every_n_examples": null,
+        "eval_every_n_steps": null,
+        "eval_gradient_accumulation_steps": 1,
+        "gradient_accumulation_steps": 1,
+        "logging_steps": 1,
+        "lr_scheduler": "constant",
+        "lr_scheduler_args": {},
+        "micro_batch_size_per_gpu": 1,
+        "model": {
+          "cache_text_embeddings": true,
+          "checkpoint_path": "path/to/sdxl.safetensors",
+          "dtype": "torch.bfloat16",
+          "guidance": 1.0,
+          "type": "sdxl"
+        },
+        "optimizer": {
+          "lr": 0.0001,
+          "type": "adamw"
+        },
+        "output_dir": "output",
+        "partition_method": "parameters",
+        "partition_split": null,
+        "pipeline_stages": 1,
+        "reentrant_activation_checkpointing": false,
+        "save_every_n_epochs": 1,
+        "steps_per_print": 1,
+        "tracking": {
+          "backends": [
+            "manifest",
+            "tensorboard"
+          ],
+          "capture_lineage": true,
+          "enabled": true,
+          "system_sampler": {
+            "enabled": true,
+            "interval_sec": 10
+          },
+          "wandb": {
+            "api_key": null,
+            "project": "rengu-flow",
+            "run_name": null
+          }
+        },
+        "train": {
+          "oom_skip": {
+            "bump_block_swap": false,
+            "bump_block_swap_step": 2,
+            "clear_cache_on_skip": true,
+            "enabled": true,
+            "max_in_window": 3
+          }
+        },
+        "train_seed": 42,
+        "val_gap_enable": true,
+        "val_gap_probe_batches": 8,
+        "warmup_steps": 0,
+        "x_axis_examples": false
+      },
+      "stdout": "[checkpoint] activation_checkpointing='selective' was retired; falling back to full checkpointing (true). For the speed gains use activation_checkpointing='auto' with compile=true (better speed AND VRAM).\n"
+    },
+    "validate_config_model_rules": {
+      "result": null
+    }
+  },
+  "sdxl_ac_unsloth.toml": {
+    "collect_cadence_issues": {
+      "result": []
+    },
+    "collect_default_prerequisite_issues": {
+      "result": []
+    },
+    "collect_misplaced_top_level_keys": {
+      "result": []
+    },
+    "collect_validation_errors": {
+      "result": []
+    },
+    "collect_validation_warnings_after_defaults": {
+      "result": []
+    },
+    "model_path_errors": {
+      "result": [
+        "[model].checkpoint_path not found: path/to/sdxl.safetensors"
+      ]
+    },
+    "profiles_for_config_dict": {
+      "result": []
+    },
+    "set_config_defaults": {
+      "config": {
+        "activation_budget_backoff": true,
+        "activation_checkpointing": true,
+        "activation_offload": false,
+        "activation_offload_max_ram_gb": null,
+        "activation_offload_min_tensor_mb": 4.0,
+        "activation_offload_prefetch_mb": 512.0,
+        "cache_keep_in_memory": false,
+        "cache_num_proc": "<min(8,cpu_count)>",
+        "caching_batch_size": 1,
+        "compile": false,
+        "compile_cache_dir": null,
+        "compile_disk_cache": "auto",
+        "dataloader_num_workers": 0,
+        "dataloader_persistent_workers": true,
+        "dataloader_pin_memory": false,
+        "dataloader_prefetch": true,
+        "dataloader_prefetch_factor": 2,
+        "dataset": "examples/minimal_dataset.toml",
+        "disable_block_swap_for_eval": false,
+        "epochs": 1,
+        "eval_before_first_step": true,
+        "eval_datasets": [],
+        "eval_every_n_epochs": null,
+        "eval_every_n_examples": null,
+        "eval_every_n_steps": null,
+        "eval_gradient_accumulation_steps": 1,
+        "gradient_accumulation_steps": 1,
+        "logging_steps": 1,
+        "lr_scheduler": "constant",
+        "lr_scheduler_args": {},
+        "micro_batch_size_per_gpu": 1,
+        "model": {
+          "cache_text_embeddings": true,
+          "checkpoint_path": "path/to/sdxl.safetensors",
+          "dtype": "torch.bfloat16",
+          "guidance": 1.0,
+          "type": "sdxl"
+        },
+        "optimizer": {
+          "lr": 0.0001,
+          "type": "adamw"
+        },
+        "output_dir": "output",
+        "partition_method": "parameters",
+        "partition_split": null,
+        "pipeline_stages": 1,
+        "reentrant_activation_checkpointing": false,
+        "save_every_n_epochs": 1,
+        "steps_per_print": 1,
+        "tracking": {
+          "backends": [
+            "manifest",
+            "tensorboard"
+          ],
+          "capture_lineage": true,
+          "enabled": true,
+          "system_sampler": {
+            "enabled": true,
+            "interval_sec": 10
+          },
+          "wandb": {
+            "api_key": null,
+            "project": "rengu-flow",
+            "run_name": null
+          }
+        },
+        "train": {
+          "oom_skip": {
+            "bump_block_swap": false,
+            "bump_block_swap_step": 2,
+            "clear_cache_on_skip": true,
+            "enabled": true,
+            "max_in_window": 3
+          }
+        },
+        "train_seed": 42,
+        "val_gap_enable": true,
+        "val_gap_probe_batches": 8,
+        "warmup_steps": 0,
+        "x_axis_examples": false
+      },
+      "stdout": "[checkpoint] activation_checkpointing='unsloth' was retired; falling back to full checkpointing (true). For the speed gains use activation_checkpointing='auto' with compile=true (better speed AND VRAM).\n"
+    },
+    "validate_config_model_rules": {
+      "result": null
+    }
+  },
+  "sdxl_adapter_alpha_rejected.toml": {
+    "collect_cadence_issues": {
+      "result": []
+    },
+    "collect_default_prerequisite_issues": {
+      "result": []
+    },
+    "collect_misplaced_top_level_keys": {
+      "result": []
+    },
+    "collect_validation_errors": {
+      "result": []
+    },
+    "model_path_errors": {
+      "result": [
+        "[model].checkpoint_path not found: path/to/sdxl.safetensors"
+      ]
+    },
+    "profiles_for_config_dict": {
+      "result": []
+    },
+    "set_config_defaults": {
+      "config": {
+        "activation_checkpointing": false,
+        "adapter": {
+          "alpha": 4,
+          "rank": 8,
+          "type": "lora"
+        },
+        "dataset": "examples/minimal_dataset.toml",
+        "model": {
+          "cache_text_embeddings": true,
+          "checkpoint_path": "path/to/sdxl.safetensors",
+          "dtype": "torch.bfloat16",
+          "guidance": 1.0,
+          "type": "sdxl"
+        },
+        "optimizer": {
+          "lr": 0.0001,
+          "type": "adamw"
+        },
+        "output_dir": "output",
+        "pipeline_stages": 1,
+        "reentrant_activation_checkpointing": false,
+        "save_every_n_epochs": 1,
+        "warmup_steps": 0
+      },
+      "error": "ConfigValidationError: Remove alpha from [adapter]; rengu-flow sets alpha=rank for Comfy-compatible saves."
+    },
+    "validate_config_model_rules": {
+      "result": null
+    }
+  },
+  "sdxl_adapter_dim_alias.toml": {
+    "collect_cadence_issues": {
+      "result": []
+    },
+    "collect_default_prerequisite_issues": {
+      "result": []
+    },
+    "collect_misplaced_top_level_keys": {
+      "result": []
+    },
+    "collect_validation_errors": {
+      "result": []
+    },
+    "collect_validation_warnings_after_defaults": {
+      "result": []
+    },
+    "model_path_errors": {
+      "result": [
+        "[model].checkpoint_path not found: path/to/sdxl.safetensors"
+      ]
+    },
+    "profiles_for_config_dict": {
+      "result": []
+    },
+    "set_config_defaults": {
+      "config": {
+        "activation_budget_backoff": true,
+        "activation_checkpointing": false,
+        "activation_offload": false,
+        "activation_offload_max_ram_gb": null,
+        "activation_offload_min_tensor_mb": 4.0,
+        "activation_offload_prefetch_mb": 512.0,
+        "adapter": {
+          "alpha": 8,
+          "dim": 8,
+          "dropout": 0.0,
+          "dtype": "torch.float32",
+          "rank": 8,
+          "type": "lora"
+        },
+        "cache_keep_in_memory": false,
+        "cache_num_proc": "<min(8,cpu_count)>",
+        "caching_batch_size": 1,
+        "compile": false,
+        "compile_cache_dir": null,
+        "compile_disk_cache": "auto",
+        "dataloader_num_workers": 0,
+        "dataloader_persistent_workers": true,
+        "dataloader_pin_memory": false,
+        "dataloader_prefetch": true,
+        "dataloader_prefetch_factor": 2,
+        "dataset": "examples/minimal_dataset.toml",
+        "disable_block_swap_for_eval": false,
+        "epochs": 1,
+        "eval_before_first_step": true,
+        "eval_datasets": [],
+        "eval_every_n_epochs": null,
+        "eval_every_n_examples": null,
+        "eval_every_n_steps": null,
+        "eval_gradient_accumulation_steps": 1,
+        "gradient_accumulation_steps": 1,
+        "logging_steps": 1,
+        "lr_scheduler": "constant",
+        "lr_scheduler_args": {},
+        "micro_batch_size_per_gpu": 1,
+        "model": {
+          "cache_text_embeddings": true,
+          "checkpoint_path": "path/to/sdxl.safetensors",
+          "dtype": "torch.bfloat16",
+          "guidance": 1.0,
+          "type": "sdxl"
+        },
+        "optimizer": {
+          "lr": 0.0001,
+          "type": "adamw"
+        },
+        "output_dir": "output",
+        "partition_method": "parameters",
+        "partition_split": null,
+        "pipeline_stages": 1,
+        "reentrant_activation_checkpointing": false,
+        "save_every_n_epochs": 1,
+        "steps_per_print": 1,
+        "tracking": {
+          "backends": [
+            "manifest",
+            "tensorboard"
+          ],
+          "capture_lineage": true,
+          "enabled": true,
+          "system_sampler": {
+            "enabled": true,
+            "interval_sec": 10
+          },
+          "wandb": {
+            "api_key": null,
+            "project": "rengu-flow",
+            "run_name": null
+          }
+        },
+        "train": {
+          "oom_skip": {
+            "bump_block_swap": false,
+            "bump_block_swap_step": 2,
+            "clear_cache_on_skip": true,
+            "enabled": true,
+            "max_in_window": 3
+          }
+        },
+        "train_seed": 42,
+        "val_gap_enable": true,
+        "val_gap_probe_batches": 8,
+        "warmup_steps": 0,
+        "x_axis_examples": false
+      }
+    },
+    "validate_config_model_rules": {
+      "result": null
+    }
+  },
+  "sdxl_blocks_to_swap_and_tread_gate.toml": {
+    "collect_cadence_issues": {
+      "result": []
+    },
+    "collect_default_prerequisite_issues": {
+      "result": []
+    },
+    "collect_misplaced_top_level_keys": {
+      "result": []
+    },
+    "collect_validation_errors": {
+      "result": [
+        "'tread' is only supported for models with feature 'tread' (not for sdxl). Remove it or change model.type."
+      ]
+    },
+    "collect_validation_warnings_after_defaults": {
+      "result": []
+    },
+    "model_path_errors": {
+      "result": [
+        "[model].checkpoint_path not found: path/to/sdxl.safetensors"
+      ]
+    },
+    "profiles_for_config_dict": {
+      "result": []
+    },
+    "set_config_defaults": {
+      "config": {
+        "activation_budget_backoff": true,
+        "activation_checkpointing": false,
+        "activation_offload": false,
+        "activation_offload_max_ram_gb": null,
+        "activation_offload_min_tensor_mb": 4.0,
+        "activation_offload_prefetch_mb": 512.0,
+        "blocks_to_swap": 4,
+        "cache_keep_in_memory": false,
+        "cache_num_proc": "<min(8,cpu_count)>",
+        "caching_batch_size": 1,
+        "compile": false,
+        "compile_cache_dir": null,
+        "compile_disk_cache": "auto",
+        "dataloader_num_workers": 0,
+        "dataloader_persistent_workers": true,
+        "dataloader_pin_memory": false,
+        "dataloader_prefetch": true,
+        "dataloader_prefetch_factor": 2,
+        "dataset": "examples/minimal_dataset.toml",
+        "disable_block_swap_for_eval": false,
+        "epochs": 1,
+        "eval_before_first_step": true,
+        "eval_datasets": [],
+        "eval_every_n_epochs": null,
+        "eval_every_n_examples": null,
+        "eval_every_n_steps": null,
+        "eval_gradient_accumulation_steps": 1,
+        "gradient_accumulation_steps": 1,
+        "logging_steps": 1,
+        "lr_scheduler": "constant",
+        "lr_scheduler_args": {},
+        "micro_batch_size_per_gpu": 1,
+        "model": {
+          "cache_text_embeddings": true,
+          "checkpoint_path": "path/to/sdxl.safetensors",
+          "dtype": "torch.bfloat16",
+          "guidance": 1.0,
+          "type": "sdxl"
+        },
+        "optimizer": {
+          "lr": 0.0001,
+          "type": "adamw"
+        },
+        "output_dir": "output",
+        "partition_method": "parameters",
+        "partition_split": null,
+        "pipeline_stages": 1,
+        "reentrant_activation_checkpointing": false,
+        "save_every_n_epochs": 1,
+        "steps_per_print": 1,
+        "tracking": {
+          "backends": [
+            "manifest",
+            "tensorboard"
+          ],
+          "capture_lineage": true,
+          "enabled": true,
+          "system_sampler": {
+            "enabled": true,
+            "interval_sec": 10
+          },
+          "wandb": {
+            "api_key": null,
+            "project": "rengu-flow",
+            "run_name": null
+          }
+        },
+        "train": {
+          "oom_skip": {
+            "bump_block_swap": false,
+            "bump_block_swap_step": 2,
+            "clear_cache_on_skip": true,
+            "enabled": true,
+            "max_in_window": 3
+          }
+        },
+        "train_seed": 42,
+        "tread": {
+          "drop_ratio": 0.5
+        },
+        "val_gap_enable": true,
+        "val_gap_probe_batches": 8,
+        "warmup_steps": 0,
+        "x_axis_examples": false
+      }
+    },
+    "validate_config_model_rules": {
+      "error": "ConfigValidationError: 'tread' is only supported for models with feature 'tread' (not for sdxl). Remove it or change model.type."
+    }
+  },
+  "sdxl_full_finetune_defaults.toml": {
+    "collect_cadence_issues": {
+      "result": []
+    },
+    "collect_default_prerequisite_issues": {
+      "result": []
+    },
+    "collect_misplaced_top_level_keys": {
+      "result": []
+    },
+    "collect_validation_errors": {
+      "result": []
+    },
+    "collect_validation_warnings_after_defaults": {
+      "result": []
+    },
+    "model_path_errors": {
+      "result": [
+        "[model].checkpoint_path not found: path/to/sdxl.safetensors"
+      ]
+    },
+    "profiles_for_config_dict": {
+      "result": []
+    },
+    "set_config_defaults": {
+      "config": {
+        "activation_budget_backoff": true,
+        "activation_checkpointing": false,
+        "activation_offload": false,
+        "activation_offload_max_ram_gb": null,
+        "activation_offload_min_tensor_mb": 4.0,
+        "activation_offload_prefetch_mb": 512.0,
+        "cache_keep_in_memory": false,
+        "cache_num_proc": "<min(8,cpu_count)>",
+        "caching_batch_size": 1,
+        "compile": false,
+        "compile_cache_dir": null,
+        "compile_disk_cache": "auto",
+        "dataloader_num_workers": 0,
+        "dataloader_persistent_workers": true,
+        "dataloader_pin_memory": false,
+        "dataloader_prefetch": true,
+        "dataloader_prefetch_factor": 2,
+        "dataset": "examples/minimal_dataset.toml",
+        "disable_block_swap_for_eval": false,
+        "epochs": 1,
+        "eval_before_first_step": true,
+        "eval_datasets": [],
+        "eval_every_n_epochs": null,
+        "eval_every_n_examples": null,
+        "eval_every_n_steps": null,
+        "eval_gradient_accumulation_steps": 1,
+        "gradient_accumulation_steps": 1,
+        "logging_steps": 1,
+        "lr_scheduler": "constant",
+        "lr_scheduler_args": {},
+        "micro_batch_size_per_gpu": 1,
+        "model": {
+          "cache_text_embeddings": true,
+          "checkpoint_path": "path/to/sdxl.safetensors",
+          "dtype": "torch.bfloat16",
+          "guidance": 1.0,
+          "type": "sdxl"
+        },
+        "optimizer": {
+          "lr": 0.0001,
+          "type": "adamw"
+        },
+        "output_dir": "output",
+        "partition_method": "parameters",
+        "partition_split": null,
+        "pipeline_stages": 1,
+        "reentrant_activation_checkpointing": false,
+        "save_every_n_epochs": 1,
+        "steps_per_print": 1,
+        "tracking": {
+          "backends": [
+            "manifest",
+            "tensorboard"
+          ],
+          "capture_lineage": true,
+          "enabled": true,
+          "system_sampler": {
+            "enabled": true,
+            "interval_sec": 10
+          },
+          "wandb": {
+            "api_key": null,
+            "project": "rengu-flow",
+            "run_name": null
+          }
+        },
+        "train": {
+          "oom_skip": {
+            "bump_block_swap": false,
+            "bump_block_swap_step": 2,
+            "clear_cache_on_skip": true,
+            "enabled": true,
+            "max_in_window": 3
+          }
+        },
+        "train_seed": 42,
+        "val_gap_enable": true,
+        "val_gap_probe_batches": 8,
+        "warmup_steps": 0,
+        "x_axis_examples": false
+      }
+    },
+    "validate_config_model_rules": {
+      "result": null
+    }
+  },
+  "sdxl_kaon_optimizer_8bit.toml": {
+    "collect_cadence_issues": {
+      "result": []
+    },
+    "collect_default_prerequisite_issues": {
+      "result": []
+    },
+    "collect_misplaced_top_level_keys": {
+      "result": []
+    },
+    "collect_validation_errors": {
+      "result": []
+    },
+    "collect_validation_warnings_after_defaults": {
+      "result": []
+    },
+    "model_path_errors": {
+      "result": [
+        "[model].checkpoint_path not found: path/to/sdxl.safetensors"
+      ]
+    },
+    "profiles_for_config_dict": {
+      "result": [
+        "lycoris",
+        "kaon"
+      ]
+    },
+    "set_config_defaults": {
+      "config": {
+        "activation_budget_backoff": true,
+        "activation_checkpointing": false,
+        "activation_offload": false,
+        "activation_offload_max_ram_gb": null,
+        "activation_offload_min_tensor_mb": 4.0,
+        "activation_offload_prefetch_mb": 512.0,
+        "adapter": {
+          "alpha": 8,
+          "decompose_both": false,
+          "dtype": "torch.float32",
+          "factor": -1,
+          "full_matrix": false,
+          "rank": 8,
+          "type": "lokr"
+        },
+        "cache_keep_in_memory": false,
+        "cache_num_proc": "<min(8,cpu_count)>",
+        "caching_batch_size": 1,
+        "compile": false,
+        "compile_cache_dir": null,
+        "compile_disk_cache": "auto",
+        "dataloader_num_workers": 0,
+        "dataloader_persistent_workers": true,
+        "dataloader_pin_memory": false,
+        "dataloader_prefetch": true,
+        "dataloader_prefetch_factor": 2,
+        "dataset": "examples/minimal_dataset.toml",
+        "disable_block_swap_for_eval": false,
+        "epochs": 1,
+        "eval_before_first_step": true,
+        "eval_datasets": [],
+        "eval_every_n_epochs": null,
+        "eval_every_n_examples": null,
+        "eval_every_n_steps": null,
+        "eval_gradient_accumulation_steps": 1,
+        "gradient_accumulation_steps": 1,
+        "logging_steps": 1,
+        "lr_scheduler": "constant",
+        "lr_scheduler_args": {},
+        "micro_batch_size_per_gpu": 1,
+        "model": {
+          "cache_text_embeddings": true,
+          "checkpoint_path": "path/to/sdxl.safetensors",
+          "dtype": "torch.bfloat16",
+          "guidance": 1.0,
+          "type": "sdxl"
+        },
+        "optimizer": {
+          "lr": 0.0001,
+          "type": "kaon.adakaon"
+        },
+        "output_dir": "output",
+        "partition_method": "parameters",
+        "partition_split": null,
+        "pipeline_stages": 1,
+        "reentrant_activation_checkpointing": false,
+        "save_every_n_epochs": 1,
+        "steps_per_print": 1,
+        "tracking": {
+          "backends": [
+            "manifest",
+            "tensorboard"
+          ],
+          "capture_lineage": true,
+          "enabled": true,
+          "system_sampler": {
+            "enabled": true,
+            "interval_sec": 10
+          },
+          "wandb": {
+            "api_key": null,
+            "project": "rengu-flow",
+            "run_name": null
+          }
+        },
+        "train": {
+          "oom_skip": {
+            "bump_block_swap": false,
+            "bump_block_swap_step": 2,
+            "clear_cache_on_skip": true,
+            "enabled": true,
+            "max_in_window": 3
+          }
+        },
+        "train_seed": 42,
+        "val_gap_enable": true,
+        "val_gap_probe_batches": 8,
+        "warmup_steps": 0,
+        "x_axis_examples": false
+      }
+    },
+    "validate_config_model_rules": {
+      "result": null
+    }
+  },
+  "sdxl_lokr_dim_alias.toml": {
+    "collect_cadence_issues": {
+      "result": []
+    },
+    "collect_default_prerequisite_issues": {
+      "result": []
+    },
+    "collect_misplaced_top_level_keys": {
+      "result": []
+    },
+    "collect_validation_errors": {
+      "result": []
+    },
+    "collect_validation_warnings_after_defaults": {
+      "result": []
+    },
+    "model_path_errors": {
+      "result": [
+        "[model].checkpoint_path not found: path/to/sdxl.safetensors"
+      ]
+    },
+    "profiles_for_config_dict": {
+      "result": [
+        "lycoris"
+      ]
+    },
+    "set_config_defaults": {
+      "config": {
+        "activation_budget_backoff": true,
+        "activation_checkpointing": false,
+        "activation_offload": false,
+        "activation_offload_max_ram_gb": null,
+        "activation_offload_min_tensor_mb": 4.0,
+        "activation_offload_prefetch_mb": 512.0,
+        "adapter": {
+          "alpha": 16,
+          "decompose_both": false,
+          "dim": 16,
+          "dtype": "torch.float32",
+          "factor": 4,
+          "full_matrix": false,
+          "rank": 16,
+          "type": "lokr"
+        },
+        "cache_keep_in_memory": false,
+        "cache_num_proc": "<min(8,cpu_count)>",
+        "caching_batch_size": 1,
+        "compile": false,
+        "compile_cache_dir": null,
+        "compile_disk_cache": "auto",
+        "dataloader_num_workers": 0,
+        "dataloader_persistent_workers": true,
+        "dataloader_pin_memory": false,
+        "dataloader_prefetch": true,
+        "dataloader_prefetch_factor": 2,
+        "dataset": "examples/minimal_dataset.toml",
+        "disable_block_swap_for_eval": false,
+        "epochs": 1,
+        "eval_before_first_step": true,
+        "eval_datasets": [],
+        "eval_every_n_epochs": null,
+        "eval_every_n_examples": null,
+        "eval_every_n_steps": null,
+        "eval_gradient_accumulation_steps": 1,
+        "gradient_accumulation_steps": 1,
+        "logging_steps": 1,
+        "lr_scheduler": "constant",
+        "lr_scheduler_args": {},
+        "micro_batch_size_per_gpu": 1,
+        "model": {
+          "cache_text_embeddings": true,
+          "checkpoint_path": "path/to/sdxl.safetensors",
+          "dtype": "torch.bfloat16",
+          "guidance": 1.0,
+          "type": "sdxl"
+        },
+        "optimizer": {
+          "lr": 0.0001,
+          "type": "adamw"
+        },
+        "output_dir": "output",
+        "partition_method": "parameters",
+        "partition_split": null,
+        "pipeline_stages": 1,
+        "reentrant_activation_checkpointing": false,
+        "save_every_n_epochs": 1,
+        "steps_per_print": 1,
+        "tracking": {
+          "backends": [
+            "manifest",
+            "tensorboard"
+          ],
+          "capture_lineage": true,
+          "enabled": true,
+          "system_sampler": {
+            "enabled": true,
+            "interval_sec": 10
+          },
+          "wandb": {
+            "api_key": null,
+            "project": "rengu-flow",
+            "run_name": null
+          }
+        },
+        "train": {
+          "oom_skip": {
+            "bump_block_swap": false,
+            "bump_block_swap_step": 2,
+            "clear_cache_on_skip": true,
+            "enabled": true,
+            "max_in_window": 3
+          }
+        },
+        "train_seed": 42,
+        "val_gap_enable": true,
+        "val_gap_probe_batches": 8,
+        "warmup_steps": 0,
+        "x_axis_examples": false
+      }
+    },
+    "validate_config_model_rules": {
+      "result": null
+    }
+  },
+  "sdxl_lycoris_locon_adapter_dtype_bf16.toml": {
+    "collect_cadence_issues": {
+      "result": []
+    },
+    "collect_default_prerequisite_issues": {
+      "result": []
+    },
+    "collect_misplaced_top_level_keys": {
+      "result": []
+    },
+    "collect_validation_errors": {
+      "result": []
+    },
+    "collect_validation_warnings_after_defaults": {
+      "result": []
+    },
+    "model_path_errors": {
+      "result": [
+        "[model].checkpoint_path not found: path/to/sdxl.safetensors"
+      ]
+    },
+    "profiles_for_config_dict": {
+      "result": [
+        "lycoris"
+      ]
+    },
+    "set_config_defaults": {
+      "config": {
+        "activation_budget_backoff": true,
+        "activation_checkpointing": false,
+        "activation_offload": false,
+        "activation_offload_max_ram_gb": null,
+        "activation_offload_min_tensor_mb": 4.0,
+        "activation_offload_prefetch_mb": 512.0,
+        "adapter": {
+          "alpha": 8,
+          "dora_wd": false,
+          "dropout": 0.0,
+          "dtype": "torch.bfloat16",
+          "module_dropout": 0.0,
+          "rank": 8,
+          "rank_dropout": 0.0,
+          "rs_lora": false,
+          "train_conv": false,
+          "train_norm": false,
+          "type": "lycoris_locon",
+          "use_scalar": false,
+          "use_tucker": false,
+          "wd_on_output": true
+        },
+        "cache_keep_in_memory": false,
+        "cache_num_proc": "<min(8,cpu_count)>",
+        "caching_batch_size": 1,
+        "compile": false,
+        "compile_cache_dir": null,
+        "compile_disk_cache": "auto",
+        "dataloader_num_workers": 0,
+        "dataloader_persistent_workers": true,
+        "dataloader_pin_memory": false,
+        "dataloader_prefetch": true,
+        "dataloader_prefetch_factor": 2,
+        "dataset": "examples/minimal_dataset.toml",
+        "disable_block_swap_for_eval": false,
+        "epochs": 1,
+        "eval_before_first_step": true,
+        "eval_datasets": [],
+        "eval_every_n_epochs": null,
+        "eval_every_n_examples": null,
+        "eval_every_n_steps": null,
+        "eval_gradient_accumulation_steps": 1,
+        "gradient_accumulation_steps": 1,
+        "logging_steps": 1,
+        "lr_scheduler": "constant",
+        "lr_scheduler_args": {},
+        "micro_batch_size_per_gpu": 1,
+        "model": {
+          "cache_text_embeddings": true,
+          "checkpoint_path": "path/to/sdxl.safetensors",
+          "dtype": "torch.bfloat16",
+          "guidance": 1.0,
+          "type": "sdxl"
+        },
+        "optimizer": {
+          "lr": 0.0001,
+          "type": "adamw"
+        },
+        "output_dir": "output",
+        "partition_method": "parameters",
+        "partition_split": null,
+        "pipeline_stages": 1,
+        "reentrant_activation_checkpointing": false,
+        "save_every_n_epochs": 1,
+        "steps_per_print": 1,
+        "tracking": {
+          "backends": [
+            "manifest",
+            "tensorboard"
+          ],
+          "capture_lineage": true,
+          "enabled": true,
+          "system_sampler": {
+            "enabled": true,
+            "interval_sec": 10
+          },
+          "wandb": {
+            "api_key": null,
+            "project": "rengu-flow",
+            "run_name": null
+          }
+        },
+        "train": {
+          "oom_skip": {
+            "bump_block_swap": false,
+            "bump_block_swap_step": 2,
+            "clear_cache_on_skip": true,
+            "enabled": true,
+            "max_in_window": 3
+          }
+        },
+        "train_seed": 42,
+        "val_gap_enable": true,
+        "val_gap_probe_batches": 8,
+        "warmup_steps": 0,
+        "x_axis_examples": false
+      },
+      "stdout": "NOTE: adapter.dtype is 16-bit; plain optimizers (adamw, adam, sgd) lose updates below ~0.2% of a weight's magnitude to rounding, which can stall training (flat loss, normal grad norm). Use the float32 default, or a Kahan/stochastic-rounding optimizer (adamw8bitkahan, adamw_optimi). kaon optimizers set bf16_method instead: \"stochastic_rounding\" (default) or \"kahan8\"/\"kahan16\" for low learning rates or fp32 fidelity.\n"
+    },
+    "validate_config_model_rules": {
+      "result": null
+    }
+  },
+  "sdxl_micro_batch_dict.toml": {
+    "collect_cadence_issues": {
+      "result": []
+    },
+    "collect_default_prerequisite_issues": {
+      "result": []
+    },
+    "collect_misplaced_top_level_keys": {
+      "result": []
+    },
+    "collect_validation_errors": {
+      "result": []
+    },
+    "collect_validation_warnings_after_defaults": {
+      "result": []
+    },
+    "model_path_errors": {
+      "result": [
+        "[model].checkpoint_path not found: path/to/sdxl.safetensors"
+      ]
+    },
+    "profiles_for_config_dict": {
+      "result": []
+    },
+    "set_config_defaults": {
+      "config": {
+        "activation_budget_backoff": true,
+        "activation_checkpointing": false,
+        "activation_offload": false,
+        "activation_offload_max_ram_gb": null,
+        "activation_offload_min_tensor_mb": 4.0,
+        "activation_offload_prefetch_mb": 512.0,
+        "cache_keep_in_memory": false,
+        "cache_num_proc": "<min(8,cpu_count)>",
+        "caching_batch_size": 1,
+        "compile": false,
+        "compile_cache_dir": null,
+        "compile_disk_cache": "auto",
+        "dataloader_num_workers": 0,
+        "dataloader_persistent_workers": true,
+        "dataloader_pin_memory": false,
+        "dataloader_prefetch": true,
+        "dataloader_prefetch_factor": 2,
+        "dataset": "examples/minimal_dataset.toml",
+        "disable_block_swap_for_eval": false,
+        "epochs": 1,
+        "eval_before_first_step": true,
+        "eval_datasets": [],
+        "eval_every_n_epochs": null,
+        "eval_every_n_examples": null,
+        "eval_every_n_steps": null,
+        "eval_gradient_accumulation_steps": 1,
+        "gradient_accumulation_steps": 1,
+        "logging_steps": 1,
+        "lr_scheduler": "constant",
+        "lr_scheduler_args": {},
+        "micro_batch_size_per_gpu": {
+          "1024": 1,
+          "512": 2
+        },
+        "model": {
+          "cache_text_embeddings": true,
+          "checkpoint_path": "path/to/sdxl.safetensors",
+          "dtype": "torch.bfloat16",
+          "guidance": 1.0,
+          "type": "sdxl"
+        },
+        "optimizer": {
+          "lr": 0.0001,
+          "type": "adamw"
+        },
+        "output_dir": "output",
+        "partition_method": "parameters",
+        "partition_split": null,
+        "pipeline_stages": 1,
+        "reentrant_activation_checkpointing": false,
+        "save_every_n_epochs": 1,
+        "steps_per_print": 1,
+        "tracking": {
+          "backends": [
+            "manifest",
+            "tensorboard"
+          ],
+          "capture_lineage": true,
+          "enabled": true,
+          "system_sampler": {
+            "enabled": true,
+            "interval_sec": 10
+          },
+          "wandb": {
+            "api_key": null,
+            "project": "rengu-flow",
+            "run_name": null
+          }
+        },
+        "train": {
+          "oom_skip": {
+            "bump_block_swap": false,
+            "bump_block_swap_step": 2,
+            "clear_cache_on_skip": true,
+            "enabled": true,
+            "max_in_window": 3
+          }
+        },
+        "train_seed": 42,
+        "val_gap_enable": true,
+        "val_gap_probe_batches": 8,
+        "warmup_steps": 0,
+        "x_axis_examples": false
+      }
+    },
+    "validate_config_model_rules": {
+      "result": null
+    }
+  },
+  "sdxl_misplaced_top_level_key_in_model.toml": {
+    "collect_cadence_issues": {
+      "result": []
+    },
+    "collect_default_prerequisite_issues": {
+      "result": []
+    },
+    "collect_misplaced_top_level_keys": {
+      "result": [
+        "model.blocks_to_swap: 'blocks_to_swap' belongs at top level (before the first [section] header), not inside [model] — as written it is ignored."
+      ]
+    },
+    "collect_validation_errors": {
+      "result": [
+        "model.blocks_to_swap: 'blocks_to_swap' belongs at top level (before the first [section] header), not inside [model] — as written it is ignored."
+      ]
+    },
+    "collect_validation_warnings_after_defaults": {
+      "result": []
+    },
+    "model_path_errors": {
+      "result": [
+        "[model].checkpoint_path not found: x"
+      ]
+    },
+    "profiles_for_config_dict": {
+      "result": []
+    },
+    "set_config_defaults": {
+      "config": {
+        "activation_budget_backoff": true,
+        "activation_checkpointing": false,
+        "activation_offload": false,
+        "activation_offload_max_ram_gb": null,
+        "activation_offload_min_tensor_mb": 4.0,
+        "activation_offload_prefetch_mb": 512.0,
+        "cache_keep_in_memory": false,
+        "cache_num_proc": "<min(8,cpu_count)>",
+        "caching_batch_size": 1,
+        "compile": false,
+        "compile_cache_dir": null,
+        "compile_disk_cache": "auto",
+        "dataloader_num_workers": 0,
+        "dataloader_persistent_workers": true,
+        "dataloader_pin_memory": false,
+        "dataloader_prefetch": true,
+        "dataloader_prefetch_factor": 2,
+        "dataset": "examples/minimal_dataset.toml",
+        "disable_block_swap_for_eval": false,
+        "epochs": 1,
+        "eval_before_first_step": true,
+        "eval_datasets": [],
+        "eval_every_n_epochs": null,
+        "eval_every_n_examples": null,
+        "eval_every_n_steps": null,
+        "eval_gradient_accumulation_steps": 1,
+        "gradient_accumulation_steps": 1,
+        "logging_steps": 1,
+        "lr_scheduler": "constant",
+        "lr_scheduler_args": {},
+        "micro_batch_size_per_gpu": 1,
+        "model": {
+          "blocks_to_swap": 20,
+          "cache_text_embeddings": true,
+          "checkpoint_path": "x",
+          "dtype": "torch.bfloat16",
+          "guidance": 1.0,
+          "type": "sdxl"
+        },
+        "optimizer": {
+          "lr": 0.0001,
+          "type": "adamw"
+        },
+        "output_dir": "output",
+        "partition_method": "parameters",
+        "partition_split": null,
+        "pipeline_stages": 1,
+        "reentrant_activation_checkpointing": false,
+        "save_every_n_epochs": 1,
+        "steps_per_print": 1,
+        "tracking": {
+          "backends": [
+            "manifest",
+            "tensorboard"
+          ],
+          "capture_lineage": true,
+          "enabled": true,
+          "system_sampler": {
+            "enabled": true,
+            "interval_sec": 10
+          },
+          "wandb": {
+            "api_key": null,
+            "project": "rengu-flow",
+            "run_name": null
+          }
+        },
+        "train": {
+          "oom_skip": {
+            "bump_block_swap": false,
+            "bump_block_swap_step": 2,
+            "clear_cache_on_skip": true,
+            "enabled": true,
+            "max_in_window": 3
+          }
+        },
+        "train_seed": 42,
+        "val_gap_enable": true,
+        "val_gap_probe_batches": 8,
+        "warmup_steps": 0,
+        "x_axis_examples": false
+      }
+    },
+    "validate_config_model_rules": {
+      "result": null
+    }
+  },
+  "sdxl_missing_checkpoint_path.toml": {
+    "collect_cadence_issues": {
+      "result": []
+    },
+    "collect_default_prerequisite_issues": {
+      "result": []
+    },
+    "collect_misplaced_top_level_keys": {
+      "result": []
+    },
+    "collect_validation_errors": {
+      "result": [
+        "config['model'] must contain 'checkpoint_path' for sdxl."
+      ]
+    },
+    "collect_validation_warnings_after_defaults": {
+      "result": []
+    },
+    "model_path_errors": {
+      "result": [
+        "Set [model].checkpoint_path in your training config"
+      ]
+    },
+    "profiles_for_config_dict": {
+      "result": []
+    },
+    "set_config_defaults": {
+      "config": {
+        "activation_budget_backoff": true,
+        "activation_checkpointing": false,
+        "activation_offload": false,
+        "activation_offload_max_ram_gb": null,
+        "activation_offload_min_tensor_mb": 4.0,
+        "activation_offload_prefetch_mb": 512.0,
+        "cache_keep_in_memory": false,
+        "cache_num_proc": "<min(8,cpu_count)>",
+        "caching_batch_size": 1,
+        "compile": false,
+        "compile_cache_dir": null,
+        "compile_disk_cache": "auto",
+        "dataloader_num_workers": 0,
+        "dataloader_persistent_workers": true,
+        "dataloader_pin_memory": false,
+        "dataloader_prefetch": true,
+        "dataloader_prefetch_factor": 2,
+        "dataset": "examples/minimal_dataset.toml",
+        "disable_block_swap_for_eval": false,
+        "epochs": 1,
+        "eval_before_first_step": true,
+        "eval_datasets": [],
+        "eval_every_n_epochs": null,
+        "eval_every_n_examples": null,
+        "eval_every_n_steps": null,
+        "eval_gradient_accumulation_steps": 1,
+        "gradient_accumulation_steps": 1,
+        "logging_steps": 1,
+        "lr_scheduler": "constant",
+        "lr_scheduler_args": {},
+        "micro_batch_size_per_gpu": 1,
+        "model": {
+          "cache_text_embeddings": true,
+          "dtype": "torch.bfloat16",
+          "guidance": 1.0,
+          "type": "sdxl"
+        },
+        "optimizer": {
+          "lr": 0.0001,
+          "type": "adamw"
+        },
+        "output_dir": "output",
+        "partition_method": "parameters",
+        "partition_split": null,
+        "pipeline_stages": 1,
+        "reentrant_activation_checkpointing": false,
+        "save_every_n_epochs": 1,
+        "steps_per_print": 1,
+        "tracking": {
+          "backends": [
+            "manifest",
+            "tensorboard"
+          ],
+          "capture_lineage": true,
+          "enabled": true,
+          "system_sampler": {
+            "enabled": true,
+            "interval_sec": 10
+          },
+          "wandb": {
+            "api_key": null,
+            "project": "rengu-flow",
+            "run_name": null
+          }
+        },
+        "train": {
+          "oom_skip": {
+            "bump_block_swap": false,
+            "bump_block_swap_step": 2,
+            "clear_cache_on_skip": true,
+            "enabled": true,
+            "max_in_window": 3
+          }
+        },
+        "train_seed": 42,
+        "val_gap_enable": true,
+        "val_gap_probe_batches": 8,
+        "warmup_steps": 0,
+        "x_axis_examples": false
+      }
+    },
+    "validate_config_model_rules": {
+      "error": "ConfigValidationError: config['model'] must contain 'checkpoint_path' for sdxl."
+    }
+  },
+  "unknown_model_type.toml": {
+    "collect_cadence_issues": {
+      "result": []
+    },
+    "collect_default_prerequisite_issues": {
+      "result": []
+    },
+    "collect_misplaced_top_level_keys": {
+      "result": []
+    },
+    "collect_validation_errors": {
+      "result": [
+        "Unknown model type 'flux'. Use one of: ['cosmos_predict2', 'krea2', 'nanosaur2', 'qwen_image21', 'sdxl']."
+      ]
+    },
+    "collect_validation_warnings_after_defaults": {
+      "result": []
+    },
+    "model_path_errors": {
+      "result": []
+    },
+    "profiles_for_config_dict": {
+      "result": []
+    },
+    "set_config_defaults": {
+      "config": {
+        "activation_budget_backoff": true,
+        "activation_checkpointing": false,
+        "activation_offload": false,
+        "activation_offload_max_ram_gb": null,
+        "activation_offload_min_tensor_mb": 4.0,
+        "activation_offload_prefetch_mb": 512.0,
+        "cache_keep_in_memory": false,
+        "cache_num_proc": "<min(8,cpu_count)>",
+        "caching_batch_size": 1,
+        "compile": false,
+        "compile_cache_dir": null,
+        "compile_disk_cache": "auto",
+        "dataloader_num_workers": 0,
+        "dataloader_persistent_workers": true,
+        "dataloader_pin_memory": false,
+        "dataloader_prefetch": true,
+        "dataloader_prefetch_factor": 2,
+        "dataset": "examples/minimal_dataset.toml",
+        "disable_block_swap_for_eval": false,
+        "epochs": 1,
+        "eval_before_first_step": true,
+        "eval_datasets": [],
+        "eval_every_n_epochs": null,
+        "eval_every_n_examples": null,
+        "eval_every_n_steps": null,
+        "eval_gradient_accumulation_steps": 1,
+        "gradient_accumulation_steps": 1,
+        "logging_steps": 1,
+        "lr_scheduler": "constant",
+        "lr_scheduler_args": {},
+        "micro_batch_size_per_gpu": 1,
+        "model": {
+          "dtype": "torch.bfloat16",
+          "type": "flux"
+        },
+        "optimizer": {
+          "lr": 0.0001,
+          "type": "adamw"
+        },
+        "output_dir": "output",
+        "partition_method": "parameters",
+        "partition_split": null,
+        "pipeline_stages": 1,
+        "reentrant_activation_checkpointing": false,
+        "save_every_n_epochs": 1,
+        "steps_per_print": 1,
+        "tracking": {
+          "backends": [
+            "manifest",
+            "tensorboard"
+          ],
+          "capture_lineage": true,
+          "enabled": true,
+          "system_sampler": {
+            "enabled": true,
+            "interval_sec": 10
+          },
+          "wandb": {
+            "api_key": null,
+            "project": "rengu-flow",
+            "run_name": null
+          }
+        },
+        "train": {
+          "oom_skip": {
+            "bump_block_swap": false,
+            "bump_block_swap_step": 2,
+            "clear_cache_on_skip": true,
+            "enabled": true,
+            "max_in_window": 3
+          }
+        },
+        "train_seed": 42,
+        "val_gap_enable": true,
+        "val_gap_probe_batches": 8,
+        "warmup_steps": 0,
+        "x_axis_examples": false
+      }
+    },
+    "validate_config_model_rules": {
+      "error": "ConfigValidationError: Unknown model type 'flux'. Use one of: ['cosmos_predict2', 'krea2', 'nanosaur2', 'qwen_image21', 'sdxl']."
+    }
+  }
+}

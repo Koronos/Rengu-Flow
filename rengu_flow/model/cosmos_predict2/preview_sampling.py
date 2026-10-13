@@ -11,7 +11,7 @@ from rengu_flow.model import dit_common
 from rengu_flow.model.cosmos_predict2.layers import NoopOffloader
 from rengu_flow.model.cosmos_predict2.text import compute_text_embeddings, tokenize
 from rengu_flow.model.cosmos_predict2.vae import vae_decode_tiled
-from rengu_flow.utils.common import round_to_nearest_multiple
+from rengu_flow.model.dit_common.preview_sampler import CFG_FROM_UNCOND, apply_cfg, preview_size, run_blocks
 
 # Wan VAE spatial compression (three stride-2 downsamples in the encoder).
 WAN_VAE_SPATIAL_FACTOR = 8
@@ -31,13 +31,17 @@ class PreviewPromptData:
     t5_input_ids: torch.Tensor
     t5_attn_mask: torch.Tensor
 
+    def to(self, device) -> "PreviewPromptData":
+        return PreviewPromptData(
+            self.crossattn_emb.to(device),
+            self.attn_mask.to(device),
+            self.t5_input_ids.to(device),
+            self.t5_attn_mask.to(device),
+        )
+
 
 _model_compute_dtype = dit_common.preview_compute_dtype
 _preview_autocast = dit_common.preview_autocast
-
-
-def round_preview_pixels(value: int, multiple: int = 16) -> int:
-    return max(multiple, round_to_nearest_multiple(int(value), multiple))
 
 
 def apply_timestep_shift(t: torch.Tensor, h_lat: int, w_lat: int, model_config: dict) -> torch.Tensor:
@@ -137,15 +141,12 @@ def forward_transformer(
             "adaln_lora_B_T_3D": adaln_lora_B_T_3D,
             "extra_per_block_pos_emb": extra_pos_emb,
         }
-        for block_idx, block in enumerate(transformer.blocks):
-            offloader.wait_for_block(block_idx)
-            x_B_T_H_W_D = block(
-                x_B_T_H_W_D,
-                t_embedding_B_T_D,
-                crossattn_emb,
-                **block_kwargs,
-            )
-            offloader.submit_move_blocks_forward(block_idx)
+        x_B_T_H_W_D = run_blocks(
+            pipeline,
+            transformer.blocks,
+            x_B_T_H_W_D,
+            lambda _i, block, hidden: block(hidden, t_embedding_B_T_D, crossattn_emb, **block_kwargs),
+        )
 
         x_B_T_H_W_O = transformer.final_layer(
             x_B_T_H_W_D, t_embedding_B_T_D, adaln_lora_B_T_3D=adaln_lora_B_T_3D
@@ -168,7 +169,7 @@ def _predict_velocity(
     emb2 = torch.cat([crossattn_emb, crossattn_uncond], dim=0)
     v2 = forward_transformer(pipeline, x2, t2, emb2)
     v_cond, v_uncond = v2.chunk(2, dim=0)
-    return v_uncond + guidance_scale * (v_cond - v_uncond)
+    return apply_cfg(v_cond, v_uncond, guidance_scale, CFG_FROM_UNCOND)
 
 
 def euler_sample_latents(
@@ -239,20 +240,19 @@ def generate_preview_image(
     step: int,
     seed: int,
 ) -> Any:
-    device = torch.device("cuda", index=0)
-    width = round_preview_pixels(preview_cfg.get("width", 1024), pipeline.pixels_round_to_multiple)
-    height = round_preview_pixels(preview_cfg.get("height", 1024), pipeline.pixels_round_to_multiple)
+    device = torch.device("cuda", index=0) if torch.cuda.is_available() else torch.device("cpu")
+    multiple = pipeline.pixels_round_to_multiple
+    width, height = preview_size(preview_cfg, multiple, minimum=multiple)
     num_steps = int(preview_cfg.get("num_inference_steps", 20))
     guidance_scale = float(preview_cfg.get("guidance_scale", 4.0))
     negative_prompt = preview_cfg.get("negative_prompt", "")
 
     print("rengu_flow: encoding preview prompt...", flush=True)
-    pipeline.ensure_text_encoder_for_preview(device)
-    prompt_data = encode_preview_prompt(pipeline, prompt, device)
-    uncond_data = None
-    if guidance_scale != 1.0:
-        uncond_data = encode_preview_prompt(pipeline, negative_prompt or "", device)
-    pipeline.offload_text_encoder_after_encode(preview_cfg)
+    # Memoized across previews: the text encoder is only loaded for prompts never seen.
+    prompts = [prompt] + ([negative_prompt or ""] if guidance_scale != 1.0 else [])
+    rows = [data.to(device) for data in pipeline.preview_prompt_embeds(prompts, preview_cfg, device)]
+    prompt_data = rows[0]
+    uncond_data = rows[1] if guidance_scale != 1.0 else None
     print(f"rengu_flow: Euler sampling ({num_steps} steps, cfg={guidance_scale})...", flush=True)
 
     latents = euler_sample_latents(

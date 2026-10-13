@@ -1,0 +1,16 @@
+# reentrant AC defaults on for a block-swapped 4-bit base; selective AC degrades to true
+dataset = "examples/minimal_dataset.toml"
+
+blocks_to_swap = 8
+activation_checkpointing = "selective"
+
+[model]
+type = "krea2"
+dtype = "bfloat16"
+
+checkpoint_path = "path/to/krea2_bundle.safetensors"
+transformer_4bit = true
+
+[optimizer]
+type = "adamw"
+lr = 1e-4

@@ -129,7 +129,12 @@ def _when_model(*type_ids: str) -> dict[str, Any]:
     return {"field": "model.type", "in": list(type_ids)}
 
 
-def _field_from_template(spec: dict[str, Any], when: dict[str, Any] | None) -> dict[str, Any] | None:
+def _field_from_template(
+    spec: dict[str, Any], when: dict[str, Any] | None, default_doc: str = ""
+) -> dict[str, Any] | None:
+    """Schema field of a template. A model spec's ``help`` (long text) and ``doc`` (repo-relative
+    guide; ``default_doc`` = the model's ``user_doc`` whenever ``help`` is set) are carried onto
+    the field and win over ``FIELD_HELP`` in ``enrich_schema``."""
     if spec.get("ui") is False:
         return None
     opts = spec.get("options")
@@ -142,7 +147,7 @@ def _field_from_template(spec: dict[str, Any], when: dict[str, Any] | None) -> d
         # per-model gate in it — otherwise every model sharing the path would show it
         # (e.g. krea2's and qwen_image21's model.fp8_grad_mode both on a cosmos form).
         visibility = {"all": [effective_when, visibility]}
-    return _field(
+    built = _field(
         spec["path"],
         spec["label"],
         spec["type"],
@@ -163,6 +168,11 @@ def _field_from_template(spec: dict[str, Any], when: dict[str, Any] | None) -> d
         visibility=visibility,
         path_expect=spec.get("path_expect"),
     )
+    if spec.get("help"):
+        built["help"] = spec["help"]
+    if doc := spec.get("doc") or (default_doc if spec.get("help") else ""):
+        built["doc_path"] = doc
+    return built
 
 
 def _model_section_fields() -> list[dict[str, Any]]:
@@ -185,8 +195,14 @@ def _model_section_fields() -> list[dict[str, Any]]:
     ]
     for cap in model_capability_registry.values():
         when = _when_model(cap.type_id)
+        # A component path takes what its loader accepts (ComponentPath.expect): a field that
+        # does not say so itself gets it, so the form's path check does not reject a valid
+        # folder ("file" is the form's default for a path field).
+        expects = {f"model.{c.key}": c.expect for c in cap.components if c.expect != "file"}
         for spec in cap.model_fields:
-            built = _field_from_template(spec, when)
+            if spec["path"] in expects and not spec.get("path_expect"):
+                spec = {**spec, "path_expect": expects[spec["path"]]}
+            built = _field_from_template(spec, when, cap.user_doc)
             if built is not None:
                 fields.append(built)
     return fields
@@ -276,7 +292,7 @@ def _adapter_section_fields() -> list[dict[str, Any]]:
             "all": [
                 HAS_ADAPTER,
                 {"field": "adapter.type", "in": ["lora", "lokr"]},
-                {"field": "model.type", "in": [c.type_id for c in group_models]},
+                {"capability": "adapter_layer_groups"},
             ]
         }
         fields.append(
@@ -309,31 +325,67 @@ def _adapter_section_fields() -> list[dict[str, Any]]:
 # the DiTs, rengu_flow.utils.preview for sdxl). One field per distinct pair, gated by model.type,
 # so the form shows the value a run will actually use (Qwen-Image 2.1 samples without CFG).
 # tests/test_ui_qwen_image21_schema.py checks these against set_config_defaults().
-PREVIEW_SAMPLER_DEFAULTS: dict[str, tuple[int, float]] = {
-    "cosmos_predict2": (20, 4.0),
-    "krea2": (28, 4.5),
-    "qwen_image21": (28, 1.0),
-}
+def _preview_sampler_defaults() -> dict[str, tuple[int, float]]:
+    return {
+        c.type_id: (c.preview_spec.steps, c.preview_spec.guidance)
+        for c in model_capability_registry.values()
+        if c.preview_spec is not None
+    }
+
+
+def __getattr__(name: str) -> Any:
+    # Back-compat: ``PREVIEW_SAMPLER_DEFAULTS`` stays readable, derived when read (not at import)
+    # so a spec registered later gets its own defaults too.
+    if name == "PREVIEW_SAMPLER_DEFAULTS":
+        return _preview_sampler_defaults()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
 _PREVIEW_SAMPLER_FALLBACK: tuple[int, float] = (20, 7.0)
 
 
 def _preview_sampler_fields(preview_models: list[str]) -> list[dict[str, Any]]:
-    groups: dict[tuple[int, float], list[str]] = {}
+    # A model with its own sampler help (``PreviewSpec.help``) gets its own field pair even when
+    # another model shares its defaults; the rest group by (steps, guidance).
+    groups: dict[tuple[int, float, str], list[str]] = {}
+    sampler_defaults = _preview_sampler_defaults()
     for type_id in preview_models:
-        groups.setdefault(PREVIEW_SAMPLER_DEFAULTS.get(type_id, _PREVIEW_SAMPLER_FALLBACK), []).append(type_id)
+        steps, guidance = sampler_defaults.get(type_id, _PREVIEW_SAMPLER_FALLBACK)
+        spec = model_capability_registry[type_id].preview_spec
+        own_help = type_id if spec is not None and spec.help else ""
+        groups.setdefault((steps, guidance, own_help), []).append(type_id)
     fields: list[dict[str, Any]] = []
-    for (steps, guidance), type_ids in groups.items():
+    for (steps, guidance, own_help), type_ids in groups.items():
         when = _when_model(*type_ids)
-        fields.append(_field("preview.num_inference_steps", "Inference steps", "integer", default=steps, when=when))
-        fields.append(_field("preview.guidance_scale", "Guidance scale", "number", default=guidance, when=when))
+        pair = (
+            ("num_inference_steps", _field("preview.num_inference_steps", "Inference steps", "integer", default=steps, when=when)),
+            ("guidance_scale", _field("preview.guidance_scale", "Guidance scale", "number", default=guidance, when=when)),
+        )
+        for key, built in pair:
+            if own_help:
+                spec = model_capability_registry[own_help].preview_spec
+                text = spec.help.get(key) or {}
+                if text.get("description"):
+                    built["description"] = text["description"]
+                if text.get("help"):
+                    built["help"] = text["help"]
+                if doc := text.get("doc") or (model_capability_registry[own_help].user_doc if text.get("help") else ""):
+                    built["doc_path"] = doc
+            fields.append(built)
     return fields
 
 
 def _preview_section() -> dict[str, Any]:
-    from rengu_flow_ui.preview_form import WHEN_COSMOS_PREVIEW, WHEN_DIT_PREVIEW, WHEN_EDIT_PREVIEW
+    from rengu_flow_ui.preview_form import (
+        WHEN_DECODE_OFFLOAD_PREVIEW,
+        WHEN_DIT_PREVIEW,
+        WHEN_DIT_PREVIEW_BLOCK_SWAP,
+        WHEN_EDIT_PREVIEW,
+        WHEN_GUIDANCE_MODE_PREVIEW,
+    )
 
     preview_models = [c.type_id for c in model_capability_registry.values() if c.preview]
-    when_preview = _when_model(*preview_models) if preview_models else {"field": "model.type", "in": []}
+    when_preview = {"capability": "preview"}
     return {
         "id": "preview",
         "title": "Sampling",
@@ -409,6 +461,19 @@ def _preview_section() -> dict[str, Any]:
                 placeholder="empty = side of width × height",
             ),
             *_preview_sampler_fields(preview_models),
+            _field(
+                "preview.guidance_mode",
+                "Guidance mode",
+                "select",
+                default="alternate",
+                options=["alternate", "cfg", "path_drop"],
+                when=WHEN_GUIDANCE_MODE_PREVIEW,
+                description=(
+                    "Unconditional pass for guidance: cfg = negative prompt through the full model; "
+                    "path_drop = negative prompt without the sparse middle blocks; alternate = cfg on "
+                    "even steps, path_drop on odd ones (recommended)."
+                ),
+            ),
             _field("preview.seed", "Seed", "integer", default=0, when=when_preview),
             _field("preview.seed_stride", "Seed stride", "integer", default=0, when=when_preview),
             _field(
@@ -424,14 +489,14 @@ def _preview_section() -> dict[str, Any]:
                 "integer",
                 default=0,
                 min_value=0,
-                when=WHEN_DIT_PREVIEW,
+                when=WHEN_DIT_PREVIEW_BLOCK_SWAP,
             ),
             _field(
                 "preview.preview_offload_dit_for_decode",
                 "Offload DiT to CPU for VAE decode",
                 "boolean",
                 default=False,
-                when=WHEN_COSMOS_PREVIEW,
+                when=WHEN_DECODE_OFFLOAD_PREVIEW,
             ),
             _field(
                 "preview.preview_save_png",
@@ -684,7 +749,7 @@ def get_sections() -> list[dict[str, Any]]:
                     "boolean",
                     default=True,
                     recommended=True,
-                    when=_when_model("cosmos_predict2", "sdxl"),
+                    when={"capability": "text_cache_optional"},
                     description=(
                         "Encode captions once and cache them (faster steps, more disk; "
                         "frees the text encoder from the GPU). For rotating dropout "
@@ -861,7 +926,7 @@ def get_sections() -> list[dict[str, Any]]:
                     "number",
                     min_value=0.0,
                     importance="advanced",
-                    when={"field": "model.type", "in": ["krea2"]},
+                    when={"capability": "tread"},
                     placeholder="empty = off (no token routing)",
                     description=(
                         "Fraction of image tokens skipped through the routed block window each "
@@ -877,7 +942,7 @@ def get_sections() -> list[dict[str, Any]]:
                     importance="advanced",
                     when={
                         "all": [
-                            {"field": "model.type", "in": ["krea2"]},
+                            {"capability": "tread"},
                             {"form_nonempty": "tread.drop_ratio"},
                         ],
                     },
@@ -891,7 +956,7 @@ def get_sections() -> list[dict[str, Any]]:
                     default=-3,
                     when={
                         "all": [
-                            {"field": "model.type", "in": ["krea2"]},
+                            {"capability": "tread"},
                             {"form_nonempty": "tread.drop_ratio"},
                         ],
                     },
@@ -905,7 +970,7 @@ def get_sections() -> list[dict[str, Any]]:
                     default=1.0,
                     when={
                         "all": [
-                            {"field": "model.type", "in": ["krea2"]},
+                            {"capability": "tread"},
                             {"form_nonempty": "tread.drop_ratio"},
                         ],
                     },
@@ -1072,7 +1137,7 @@ def get_sections() -> list[dict[str, Any]]:
                     options=["single_beginning", "single_middle"],
                     default="single_beginning",
                     importance="advanced",
-                    when=_when_model("cosmos_predict2"),
+                    when={"capability": "video"},
                     description=(
                         "How a longer source video is cut down to the target frame count: "
                         "single_beginning (default) takes the first N frames; single_middle takes N "

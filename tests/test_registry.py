@@ -9,6 +9,11 @@ except ImportError as e:
 
 
 def test_model_registry_contains_sdxl():
+    # The registry is lazy: built-ins register on first resolve, so this test must not
+    # depend on another test having imported the sdxl pipeline first.
+    from rengu_flow.registry.models import _ensure_model_imported
+
+    _ensure_model_imported("sdxl")
     assert "sdxl" in model_registry
 
 

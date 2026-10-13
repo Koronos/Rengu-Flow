@@ -1,0 +1,15 @@
+# single bundle checkpoint satisfies every one_of group
+dataset = "examples/minimal_dataset.toml"
+
+[model]
+type = "krea2"
+dtype = "bfloat16"
+
+checkpoint_path = "path/to/krea2_bundle.safetensors"
+[adapter]
+type = "lora"
+rank = 16
+
+[optimizer]
+type = "adamw"
+lr = 1e-4

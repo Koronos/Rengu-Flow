@@ -146,5 +146,10 @@ def apply_diffusers_transformers_v5_single_file_patch() -> None:
         return model
 
     sfu.create_diffusers_clip_model_from_ldm = patched
+    # ``from_single_file`` (diffusers.loaders.single_file) imported the builder by name: patch
+    # that reference too, or the loader keeps calling the transformers-4 version.
+    import diffusers.loaders.single_file as single_file
+
+    single_file.create_diffusers_clip_model_from_ldm = patched
     _PATCHED = True
     logger.debug("Applied diffusers single-file patch for transformers 5 CLIPTextModel")

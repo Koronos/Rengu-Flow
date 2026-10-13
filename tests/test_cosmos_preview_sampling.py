@@ -11,8 +11,8 @@ from rengu_flow.model.cosmos_predict2.preview_sampling import (
     apply_timestep_shift,
     build_timestep_schedule,
     encode_preview_prompt,
-    round_preview_pixels,
 )
+from rengu_flow.model.dit_common.preview_sampler import preview_size
 
 
 def test_build_timestep_schedule_monotonic_and_endpoints():
@@ -32,8 +32,8 @@ def test_apply_timestep_shift_with_flux_shift():
 
 
 def test_round_preview_pixels_multiple_of_16():
-    assert round_preview_pixels(500) == 496
-    assert round_preview_pixels(512) == 512
+    assert preview_size({"width": 500, "height": 512}, 16, minimum=16) == (496, 512)
+    assert preview_size({"width": 1, "height": 1024}, 16, minimum=16) == (16, 1024)
 
 
 def test_encode_preview_prompt_mocked():

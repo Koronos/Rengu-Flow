@@ -28,6 +28,12 @@ Rengu Flow combines original code with material adapted from other projects. **T
 - **Origin:** diffusers `main` commit `6256aa7` (PR #14804)  
 - **Notice:** [rengu_flow/model/qwen_image21/NOTICE.md](rengu_flow/model/qwen_image21/NOTICE.md)
 
+## Nanosaur2 modeling (well9472/Nanosaur2-670M ComfyUI node)
+
+- **Files:** `rengu_flow/model/nanosaur2/dit.py`, `vae.py`, `text.py`  
+- **License:** MIT — well9472 (`nanosaur2_support/` of the `well9472/Nanosaur2-670M` repository)  
+- **Notice:** [rengu_flow/model/nanosaur2/NOTICE.md](rengu_flow/model/nanosaur2/NOTICE.md)
+
 ## Alibaba Wan VAE
 
 - **File:** `rengu_flow/model/cosmos_predict2/wan_vae.py`  

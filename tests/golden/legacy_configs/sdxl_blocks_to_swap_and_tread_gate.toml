@@ -1,0 +1,16 @@
+# blocks_to_swap is allowed on sdxl (block_swap feature); tread is not
+dataset = "examples/minimal_dataset.toml"
+
+blocks_to_swap = 4
+
+[tread]
+drop_ratio = 0.5
+
+[model]
+type = "sdxl"
+dtype = "bfloat16"
+checkpoint_path = "path/to/sdxl.safetensors"
+
+[optimizer]
+type = "adamw"
+lr = 1e-4

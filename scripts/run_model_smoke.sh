@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 # GPU smoke: vendor smoke_cc0 fixtures, load .env model paths, cache_only, then train steps.
+# Usage: run_model_smoke.sh <model>[_lokr|_full]  -> tests/fixtures/smoke/train_<model>[_lokr|_full].toml
+#   (<model> = a registered model type; "cosmos" is short for cosmos_predict2), plus the lycoris
+#   families below. The export is checked generically from the model spec
+#   (python -m rengu_flow.networks.export_check). Exit 77 = skipped (weights missing from .env).
 # By default removes output/, fixture caches, and tmp/smoke_*.log afterward (disk-friendly).
 # Set KEEP_SMOKE_ARTIFACTS=1 to keep run dirs and cache; KEEP_SMOKE_LOG=1 to keep logs on success.
 set -euo pipefail
@@ -26,40 +30,53 @@ COSMOS_LYCORIS_ALGOS="locon loha lokr dylora glora diag_oft boft"
 LYCORIS_STYLE="kohya"
 LYCORIS_STEM="${SDXL_LYCORIS_STEM}"
 LYCORIS_ALGOS="${SDXL_LYCORIS_ALGOS}"
-EXPORT_CHECK=""
+SMOKE_FIXTURES_DIR="${REPO_ROOT}/tests/fixtures/smoke"
+
+# Default case: tests/fixtures/smoke/train_<model>.toml (adding a model adds no case here).
+# Legacy short name: cosmos* -> cosmos_predict2*.
+default_fixture() {
+  local name="${1}" candidate
+  for candidate in "${name}" "${name/#cosmos/cosmos_predict2}"; do
+    if [[ -f "${SMOKE_FIXTURES_DIR}/train_${candidate}.toml" ]]; then
+      echo "${SMOKE_FIXTURES_DIR}/train_${candidate}.toml"
+      return 0
+    fi
+  done
+  return 1
+}
 
 case "${MODEL}" in
-  sdxl)        CONFIG="${REPO_ROOT}/tests/fixtures/smoke/train_sdxl.toml" ;;
-  sdxl_lokr)   CONFIG="${REPO_ROOT}/tests/fixtures/smoke/train_sdxl_lokr.toml" ;;
-  cosmos)      CONFIG="${REPO_ROOT}/tests/fixtures/smoke/train_cosmos_predict2.toml" ;;
-  cosmos_lokr) CONFIG="${REPO_ROOT}/tests/fixtures/smoke/train_cosmos_predict2_lokr.toml" ;;
-  krea2)       CONFIG="${REPO_ROOT}/tests/fixtures/smoke/train_krea2.toml"; EXPORT_CHECK="krea2" ;;
-  cosmos_lokr_autolr) CONFIG="${REPO_ROOT}/tests/fixtures/smoke/train_cosmos_predict2_lokr_autolr.toml" ;;
+  "")
+    echo "Usage: $0 <model>[_lokr|_full] | <family>_lycoris_<algo|extras|all>" >&2
+    echo "  <model>: a registered model type with tests/fixtures/smoke/train_<model>.toml" >&2
+    echo "  fixtures: $(cd "${SMOKE_FIXTURES_DIR}" && ls train_*.toml | sed 's/^train_//; s/\.toml$//' | grep -v lycoris | paste -sd' ' -)" >&2
+    exit 1
+    ;;
   sdxl_lycoris_locon|sdxl_lycoris_loha|sdxl_lycoris_lokr|sdxl_lycoris_dylora|sdxl_lycoris_glora|sdxl_lycoris_diag_oft|sdxl_lycoris_boft)
     IS_LYCORIS=1; ALGO="${MODEL#sdxl_lycoris_}"
-    CONFIG="${REPO_ROOT}/tests/fixtures/smoke/${SDXL_LYCORIS_STEM}_${ALGO}.toml" ;;
+    CONFIG="${SMOKE_FIXTURES_DIR}/${SDXL_LYCORIS_STEM}_${ALGO}.toml" ;;
   cosmos_lycoris_locon|cosmos_lycoris_loha|cosmos_lycoris_lokr|cosmos_lycoris_dylora|cosmos_lycoris_glora|cosmos_lycoris_diag_oft|cosmos_lycoris_boft)
     IS_LYCORIS=1; ALGO="${MODEL#cosmos_lycoris_}"; LYCORIS_STYLE="cosmos"
-    CONFIG="${REPO_ROOT}/tests/fixtures/smoke/${COSMOS_LYCORIS_STEM}_${ALGO}.toml" ;;
+    CONFIG="${SMOKE_FIXTURES_DIR}/${COSMOS_LYCORIS_STEM}_${ALGO}.toml" ;;
   # extras fixtures: locon + dora_wd + rs_lora + train_norm (SDXL) + target globs
   sdxl_lycoris_extras)
     IS_LYCORIS=1; ALGO="locon"
-    CONFIG="${REPO_ROOT}/tests/fixtures/smoke/${SDXL_LYCORIS_STEM}_extras.toml" ;;
+    CONFIG="${SMOKE_FIXTURES_DIR}/${SDXL_LYCORIS_STEM}_extras.toml" ;;
   cosmos_lycoris_extras)
     IS_LYCORIS=1; ALGO="locon"; LYCORIS_STYLE="cosmos"
-    CONFIG="${REPO_ROOT}/tests/fixtures/smoke/${COSMOS_LYCORIS_STEM}_extras.toml" ;;
+    CONFIG="${SMOKE_FIXTURES_DIR}/${COSMOS_LYCORIS_STEM}_extras.toml" ;;
   sdxl_lycoris_all)
     IS_LYCORIS_ALL=1
-    CONFIG="${REPO_ROOT}/tests/fixtures/smoke/${SDXL_LYCORIS_STEM}_locon.toml" ;;
+    CONFIG="${SMOKE_FIXTURES_DIR}/${SDXL_LYCORIS_STEM}_locon.toml" ;;
   cosmos_lycoris_all)
     IS_LYCORIS_ALL=1; LYCORIS_STYLE="cosmos"
     LYCORIS_STEM="${COSMOS_LYCORIS_STEM}"; LYCORIS_ALGOS="${COSMOS_LYCORIS_ALGOS}"
-    CONFIG="${REPO_ROOT}/tests/fixtures/smoke/${COSMOS_LYCORIS_STEM}_locon.toml" ;;
+    CONFIG="${SMOKE_FIXTURES_DIR}/${COSMOS_LYCORIS_STEM}_locon.toml" ;;
   *)
-    echo "Usage: $0 sdxl|sdxl_lokr|cosmos|cosmos_lokr|cosmos_lokr_autolr|krea2|sdxl_lycoris_<algo>|sdxl_lycoris_extras|sdxl_lycoris_all|cosmos_lycoris_<algo>|cosmos_lycoris_extras|cosmos_lycoris_all" >&2
-    echo "  sdxl lycoris algos:   ${SDXL_LYCORIS_ALGOS// /|}" >&2
-    echo "  cosmos lycoris algos: ${COSMOS_LYCORIS_ALGOS// /|}" >&2
-    exit 1
+    if ! CONFIG="$(default_fixture "${MODEL}")"; then
+      echo "ERROR: no smoke fixture tests/fixtures/smoke/train_${MODEL}.toml (run with no argument for the list)." >&2
+      exit 1
+    fi
     ;;
 esac
 
@@ -118,31 +135,10 @@ lycoris_export_check() {
     --algo "lycoris_${algo}" --style "${LYCORIS_STYLE}"
 }
 
-# Krea 2 LoRA: official `transformer.*` prefix, lora_A/lora_B pairs, every tensor finite.
-krea2_export_check() {
-  local adapter_file
-  adapter_file="$(find "${SMOKE_OUTPUT_DIR}" -name "adapter_model.safetensors" | sort | tail -1)"
-  if [[ -z "${adapter_file}" ]]; then
-    echo "ERROR: no adapter_model.safetensors found in ${SMOKE_OUTPUT_DIR} after ${MODEL} run." >&2
-    return 1
-  fi
-  echo "=== export check: ${adapter_file} (${MODEL}) ==="
-  "${VENV}/bin/python" - "${adapter_file}" <<'PY'
-import sys
-
-import torch
-from safetensors.torch import load_file
-
-sd = load_file(sys.argv[1])
-bad = [k for k in sd if not k.startswith("transformer.")]
-assert sd and not bad, f"keys without transformer. prefix: {bad[:5]}"
-n_a = sum(".lora_A." in k or k.endswith((".lokr_w1", ".lokr_w1_a")) for k in sd)
-n_b = sum(".lora_B." in k or k.endswith((".lokr_w2", ".lokr_w2_a")) for k in sd)
-assert n_a and n_a == n_b, "adapter factor keys missing or unpaired (lora_A/B or lokr_w1/w2)"
-nonfinite = [k for k, v in sd.items() if not torch.isfinite(v.float()).all()]
-assert not nonfinite, f"non-finite tensors: {nonfinite[:5]}"
-print(f"export OK: {len(sd)} tensors, {n_a} adapted modules")
-PY
+# Generic export check: model type / adapter kind from the config, key prefix from the spec.
+export_check() {
+  echo "=== export check: ${MODEL} ==="
+  "${VENV}/bin/python" -m rengu_flow.networks.export_check --config "${CONFIG}" --output "${SMOKE_OUTPUT_DIR}"
 }
 
 if [[ "${KEEP_SMOKE_ARTIFACTS:-0}" != "1" ]]; then
@@ -199,9 +195,7 @@ else
     "${DEEPSPEED}" --num_gpus=1 --master_port="${MASTER_PORT}" --module rengu_flow.main --config "${CONFIG}" --cache_only
     echo "=== train max_steps=${STEPS} ==="
     "${DEEPSPEED}" --num_gpus=1 --master_port="${MASTER_PORT}" --module rengu_flow.main --config "${CONFIG}" --trust_cache
-    if [[ -n "${EXPORT_CHECK}" ]]; then
-      "${EXPORT_CHECK}_export_check"
-    fi
+    export_check
   } 2>&1 | tee "${LOG_FILE}" || SMOKE_EXIT=$?
 fi
 

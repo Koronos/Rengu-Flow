@@ -1,0 +1,5 @@
+dataset = "examples/minimal_dataset.toml"
+
+[optimizer]
+type = "adamw"
+lr = 1e-4

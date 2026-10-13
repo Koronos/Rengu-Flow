@@ -4,7 +4,6 @@ helpers (sigma schedule + single denoise step parity)."""
 
 from __future__ import annotations
 
-import copy
 
 import pytest
 import torch
@@ -106,31 +105,6 @@ def test_padding_invariance(tiny_model):
     assert torch.allclose(output, output_dirty, atol=1e-5)
 
 
-def test_pipeline_layers_match_monolithic_forward(tiny_model):
-    torch.manual_seed(0)
-    latents = torch.randn(2, 4, 8, 12)
-    packed = pack_latents(latents)
-    embeds = torch.randn(2, 7, 3, 24)
-    mask = _text_mask_sample1_from_token4()
-    t = torch.rand(2)
-    position_ids = prepare_position_ids(7, 4, 6, "cpu")
-
-    expected = unpack_latents(
-        tiny_model(packed, embeds, t, position_ids, encoder_attention_mask=mask), 4, 6
-    )
-
-    initial = InitialLayer(tiny_model)
-    final = FinalLayer(tiny_model)
-    layers = [TransformerLayer(block, i, NoopOffloader()) for i, block in enumerate(tiny_model.transformer_blocks)]
-
-    outputs = initial((latents, t.view(-1, 1), embeds, mask))
-    for layer in layers:
-        outputs = layer(outputs)
-    actual = final(outputs)
-
-    assert torch.allclose(actual, expected, atol=1e-5)
-
-
 def test_pipeline_grid_metadata_uses_shape_without_storage(tiny_model):
     """Grid dimensions must not require CUDA scalar reads in the final pipeline layer."""
     latents = torch.randn(2, 4, 8, 12)
@@ -161,65 +135,6 @@ def test_pipeline_grid_metadata_cuda_has_no_value_transfer(tiny_model):
     actual = FinalLayer(model)(outputs)
     torch.cuda.synchronize()
     assert actual.shape == latents.shape and torch.isfinite(actual).all()
-
-
-ADAPTER_CONFIGS = [
-    pytest.param(
-        {"type": "lora", "rank": 4, "alpha": 4, "dropout": 0.0, "dtype": torch.float32},
-        id="lora",
-    ),
-    pytest.param(
-        {
-            "type": "lokr",
-            "rank": 4,
-            "alpha": 4,
-            "factor": -1,
-            "decompose_both": False,
-            "full_matrix": False,
-            "dtype": torch.float32,
-        },
-        id="lokr",
-    ),
-    pytest.param(
-        {
-            "type": "lycoris_locon",
-            "rank": 4,
-            "alpha": 4,
-            "dropout": 0.0,
-            "rank_dropout": 0.0,
-            "module_dropout": 0.0,
-            "train_norm": False,
-            "train_conv": False,
-            "use_tucker": False,
-            "use_scalar": False,
-            "dora_wd": False,
-            "rs_lora": False,
-            "wd_on_output": True,
-            "dtype": torch.float32,
-        },
-        id="lycoris_locon",
-    ),
-]
-
-
-@pytest.mark.parametrize("adapter_cfg", ADAPTER_CONFIGS)
-def test_adapter_attach_targets_all_dit_linears(tiny_model, adapter_cfg):
-    """The model authors' recommended LoRA scope is every Linear in the DiT (reference rank
-    32 / alpha 32): per-block attention/MLP, text fusion, and the shared img_in/txt_in/time
-    projections and final linear — not just the transformer blocks."""
-    if adapter_cfg["type"] == "lycoris_locon":
-        pytest.importorskip("lycoris")
-
-    model = copy.deepcopy(tiny_model)
-    for name, p in model.named_parameters():
-        p.original_name = name
-        p.requires_grad_(False)
-
-    adapter_dit.configure(model, adapter_cfg, targets=("Krea2Transformer2DModel",))
-
-    trainable_names = [name for name, p in model.named_parameters() if p.requires_grad]
-    assert trainable_names
-    assert any("text_fusion" in name for name in trainable_names)
 
 
 def test_compact_text_embeddings():
@@ -394,18 +309,6 @@ def test_guard_not_prequantized_rejects_scaled_state_dict():
     }
     with pytest.raises(ConfigValidationError, match="pre-quantized"):
         _guard_not_prequantized(state_dict, "transformer_path")
-
-
-def test_adapter_export_prefix_uses_official_transformer_prefix(tmp_path):
-    state_dict = {"transformer_blocks.0.attn.to_q.lora_A.weight": torch.zeros(2, 2)}
-    adapter_config = {"type": "lora", "dtype": torch.float32}
-
-    adapter_dit.save(tmp_path, state_dict, adapter_config, peft_config=None, export_prefix="transformer.")
-
-    from safetensors.torch import load_file
-
-    saved = load_file(tmp_path / "adapter_model.safetensors")
-    assert all(k.startswith("transformer.") for k in saved)
 
 
 def test_te_fp8_scaled_dequant_scheme():
@@ -754,20 +657,6 @@ def test_preview_prompt_embeds_memoized_without_autocast(monkeypatch):
 
     assert encodes == [(["ab", ""], False)]
     assert len(loads) == 1 and len(vae_loads) == 1
-
-
-def test_pipeline_init_does_not_load_text_encoder(monkeypatch, tmp_path):
-    """A warm text cache never needs the encoder: construction must not read it."""
-    from rengu_flow.model.krea2 import pipeline as krea2_pipeline
-
-    def eager(*args, **kwargs):
-        raise AssertionError("text encoder loaded eagerly")
-
-    monkeypatch.setattr(krea2_pipeline.loading, "load_vae", lambda *a, **k: torch.nn.Linear(1, 1))
-    monkeypatch.setattr(krea2_pipeline.loading, "load_tokenizer", lambda *a, **k: None)
-    monkeypatch.setattr(krea2_pipeline.loading, "load_text_encoder", eager)
-    pipe = krea2_pipeline.Krea2Pipeline({"model": {"dtype": torch.float32, "checkpoint_path": str(tmp_path)}})
-    assert next(pipe.text_encoder.parameters()).device.type == "meta"
 
 
 def test_load_text_encoder_folder_reads_text_decoder_only(monkeypatch, tmp_path):

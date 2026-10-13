@@ -143,3 +143,18 @@ def load_qwen3vl_vision_model(files: list[Path], vision_config, dtype: torch.dty
     model.load_state_dict(state_dict, strict=True, assign=True)
     model.eval().requires_grad_(False)
     return model
+
+
+# The Qwen3-VL tokenizer (byte-identical across the 4B/8B releases), bundled so a bare weights
+# file loads with no network access. Shared by krea2 and qwen_image21.
+QWEN3VL_TOKENIZER = Path(__file__).parent / "assets" / "qwen3vl_tokenizer"
+
+
+def load_qwen3vl_tokenizer(path: str | Path | None, what: str):
+    """``AutoTokenizer`` from ``path`` (``model.<what>``, must exist) or the bundled
+    ``QWEN3VL_TOKENIZER`` when ``path`` is empty."""
+    from transformers import AutoTokenizer
+
+    from rengu_flow.model.dit_common.loading import require_exists
+
+    return AutoTokenizer.from_pretrained(require_exists(path, what) if path else QWEN3VL_TOKENIZER)

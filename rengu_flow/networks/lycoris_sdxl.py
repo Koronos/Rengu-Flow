@@ -9,7 +9,7 @@ from pathlib import Path
 
 import safetensors.torch
 
-from rengu_flow.networks import lycoris_attach
+from rengu_flow.networks import lycoris_attach, sdxl_te_names
 from rengu_flow.networks.lycoris_meta import create_lycoris_kwargs
 from rengu_flow.utils.common import is_main_process
 from rengu_flow.utils.save_io import atomic_save_safetensors
@@ -50,7 +50,9 @@ def save(save_dir, state_dict, adapter_config):
     """Save the adapter snapshot as a kohya-flat lycoris file with metadata."""
     save_dir = Path(save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
-    flat = lycoris_attach.save_transform(state_dict, adapter_config, PREFIX_MAP)
+    flat = sdxl_te_names.canonical_flat(
+        lycoris_attach.save_transform(state_dict, adapter_config, PREFIX_MAP)
+    )
     algo, _ = create_lycoris_kwargs(adapter_config)
     metadata = {
         "format": "pt",
@@ -61,19 +63,22 @@ def save(save_dir, state_dict, adapter_config):
     atomic_save_safetensors(save_dir / "adapter_model.safetensors", flat, metadata)
 
 
-def _read_state(adapter_path):
+def _read_state(adapter_path, pipeline):
+    """The file's weights under the live modules' own names (canonical or flat TE1 keys)."""
     adapter_path = Path(adapter_path)
     files = sorted(adapter_path.glob("*.safetensors"))
     if not files:
         raise RuntimeError(f"No .safetensors file found in {adapter_path}")
-    return safetensors.torch.load_file(files[0])
+    return sdxl_te_names.native_flat(
+        safetensors.torch.load_file(files[0]), pipeline.text_encoder, pipeline.text_encoder_2
+    )
 
 
 def load(pipeline, adapter_path):
     """Load exported lycoris weights into the already-configured (attached) adapters."""
     if is_main_process():
         print(f"Loading LyCORIS adapter weights from {adapter_path}")
-    lycoris_attach.load_into(_load_roots(pipeline), _read_state(adapter_path))
+    lycoris_attach.load_into(_load_roots(pipeline), _read_state(adapter_path, pipeline))
 
 
 def fuse(pipeline):
@@ -87,7 +92,7 @@ def load_and_fuse(pipeline, adapter_path):
     """Merge an exported lycoris file straight into base weights (no configure)."""
     if is_main_process():
         print(f"Fusing LyCORIS adapter from {adapter_path}")
-    lycoris_attach.fuse_weights_into(_load_roots(pipeline), _read_state(adapter_path))
+    lycoris_attach.fuse_weights_into(_load_roots(pipeline), _read_state(adapter_path, pipeline))
 
 
 def looks_like_lycoris_state(state) -> bool:

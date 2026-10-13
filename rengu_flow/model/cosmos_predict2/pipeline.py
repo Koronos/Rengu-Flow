@@ -7,7 +7,6 @@ from pathlib import Path
 import safetensors
 import torch
 from torch import nn
-import torch.nn.functional as F
 from accelerate import init_empty_weights
 from accelerate.utils import set_module_tensor_to_device
 
@@ -55,12 +54,11 @@ class CosmosPredict2Pipeline(dit_common.DiTPipeline):
     adapter_target_modules = ["Block", "TransformerBlock"]
     adapter_layer_groups = ADAPTER_LAYER_GROUPS
     pixels_round_to_multiple = 16
+    blocks_attr = "blocks"
 
     def __init__(self, config):
-        self.config = config
-        self.model_config = config["model"]
-        self._init_block_swap_state()
-        self.cache_text_embeddings = self.model_config.get("cache_text_embeddings", True)
+        # Text cache is optional here (spec.text_cache = "optional"): the raw value is kept.
+        self._init_pipeline(config)
 
         self.vae = self._load_vae()
 
@@ -72,7 +70,6 @@ class CosmosPredict2Pipeline(dit_common.DiTPipeline):
             self.name,
         ) = load_text_stack(self.model_config)
         self.text_encoder.requires_grad_(False)
-        self.transformer = None
 
     def _load_vae(self) -> WanVAE:
         vae = WanVAE(vae_pth=self.model_config["vae_path"], device="cpu", dtype=self.model_config["dtype"])
@@ -147,11 +144,7 @@ class CosmosPredict2Pipeline(dit_common.DiTPipeline):
 
         self.transformer = transformer
         self._maybe_quantize_frozen_dit()
-        self.transformer.train()
-        for name, p in self.transformer.named_parameters():
-            p.original_name = name
-            if "adapter" not in self.config:
-                p.requires_grad_(True)
+        self._init_transformer_params()
 
     def _maybe_quantize_frozen_dit(self) -> None:
         """Optionally quantize the frozen DiT's matmul linears (default-off, A/B knobs).
@@ -270,26 +263,15 @@ class CosmosPredict2Pipeline(dit_common.DiTPipeline):
                 t5_batch_encoding.attention_mask,
             )
 
-        bs, _channels, _num_frames, h, w = latents.shape
-
-        if mask is not None:
-            mask = mask.unsqueeze(1)
-            mask = F.interpolate(mask, size=(h, w), mode="nearest-exact")
-            mask = mask.unsqueeze(2)
-
-        t = dit_common.sample_timesteps(self.model_config, bs, latents.device, timestep_quantile)
+        h, w = latents.shape[-2:]
         mu = None
         if self.model_config.get("flux_shift", False):
             mu = get_lin_function(y1=0.5, y2=1.15)((h // 2) * (w // 2))
-        t = dit_common.shift_timesteps(t, self.model_config.get("shift", None), mu)
-        noisy_latents, target, t = dit_common.add_flow_noise(latents, t)
+        noisy_latents, t, target, mask = dit_common.flow_matching_batch(
+            self.model_config, latents, mask, timestep_quantile, mu=mu
+        )
 
         return (noisy_latents, t, *prompt_data), (target, mask)
-
-    def get_block_swap_modules(self) -> list[nn.Module]:
-        if self.transformer is None:
-            return []
-        return list(self.transformer.blocks)
 
     def _block_swap_root_modules(self) -> list:
         # The DiT holds the swappable transformer.blocks; the generic _place_for_block_swap puts the
@@ -377,15 +359,22 @@ class CosmosPredict2Pipeline(dit_common.DiTPipeline):
     def _preview_vae_module(self) -> nn.Module:
         return self.vae.model
 
-    def _reload_vae_for_preview(self) -> None:
-        self.vae = self._load_vae()
-
     def _reload_text_encoder_for_preview(self) -> nn.Module:
         _, _, text_encoder, _, _ = load_text_stack(self.model_config)
         text_encoder.requires_grad_(False)
         if is_main_process():
             print("rengu_flow: text encoder ready for preview.", flush=True)
         return text_encoder
+
+    def preview_prompt_embeds(self, prompts: list[str], preview_cfg: dict, device) -> list:
+        """Per prompt, its text-encoder output (``PreviewPromptData``, before the LLM adapter) on
+        CPU, memoized across previews."""
+        from rengu_flow.model.cosmos_predict2.preview_sampling import encode_preview_prompt
+
+        def encode(missing):
+            return [encode_preview_prompt(self, caption, device).to("cpu") for caption in missing]
+
+        return self._memoized_preview_embeds(prompts, preview_cfg, device, encode)
 
     def ensure_transformer_for_preview(
         self, device: str | torch.device = "cuda", *, force_move: bool = False
@@ -417,16 +406,17 @@ class CosmosPredict2Pipeline(dit_common.DiTPipeline):
         # over block placement and its retained GPU copies are released. resume() on restore.
         train_offloader = self._suspend_training_block_swap()
         blocks_swap = int(preview_cfg.get("preview_blocks_to_swap", 0))
+        device = "cuda" if torch.cuda.is_available() else "cpu"
         # Training block swap parked the frozen blocks on the CPU; with no preview offloader to
         # stream them, the whole DiT must be brought back. (With preview swap the preview
         # offloader below streams the blocks instead, so the full move must not happen.)
         self.ensure_transformer_for_preview(
-            "cuda", force_move=blocks_swap == 0 and self._training_block_swap_active()
+            device, force_move=blocks_swap == 0 and self._training_block_swap_active()
         )
         state: dict = {}
         if blocks_swap > 0:
             self._preview_offloader = self._make_preview_offloader(
-                self.transformer.blocks, blocks_swap, "cuda", train_offloader
+                self.transformer.blocks, blocks_swap, device, train_offloader
             )
         else:
             self._preview_offloader = None

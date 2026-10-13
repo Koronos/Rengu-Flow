@@ -14,6 +14,9 @@ from pathlib import Path
 import numpy as np
 import torch
 
+from rengu_flow.registry.model_capabilities import model_capability_registry
+from rengu_flow.registry.model_spec import BASE_RAGGED_CACHE_KEYS
+
 FORMAT_VERSION = 3
 MANIFEST_NAME = "manifest.json"
 META_DB_NAME = "meta.db"
@@ -26,13 +29,25 @@ CHECKPOINT_EVERY = 128  # items between resume checkpoints (flush + commit + man
 # fixed-width stack padded to the shard's longest caption (which wasted most of the disk and
 # forced O(n^2) whole-file rewrites as longer captions appeared). Fixed-shape tensors (latents)
 # keep the mmap stack layout. ``image_pad_mask`` (qwen_image21 edit rows) is the (L,) vision-slot
-# mask of the prompt, one entry per embedding position.
-_SEQUENCE_TENSOR_KEYS = frozenset({"prompt_embeds", "text_mask", "image_pad_mask"})
+# mask of the prompt, one entry per embedding position; ``token_weights`` (nanosaur2) the (L,)
+# per-token prompt-emphasis weights.
+# The model-specific ones come from the specs' ``ragged_cache_keys``, read at use time (a spec
+# registered after this module was imported counts too).
+def sequence_tensor_keys() -> frozenset[str]:
+    """The ragged cache keys: base keys plus every registered spec's ``ragged_cache_keys``."""
+    return BASE_RAGGED_CACHE_KEYS.union(*(cap.ragged_cache_keys for cap in model_capability_registry.values()))
+
+
+def __getattr__(name: str):
+    # Back-compat: ``_SEQUENCE_TENSOR_KEYS`` stays readable (freshly derived).
+    if name == "_SEQUENCE_TENSOR_KEYS":
+        return sequence_tensor_keys()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def _is_sequence_key(key: str, shape) -> bool:
     """A row of *key* is a variable-length sequence (stored ragged), not a fixed stack row."""
-    return len(shape) == 2 or key in _SEQUENCE_TENSOR_KEYS
+    return len(shape) == 2 or key in sequence_tensor_keys()
 
 
 def _dtype_to_str(dtype: torch.dtype) -> str:
@@ -385,7 +400,7 @@ class Cache:
             # are (L, layers, D), masks (L,)). Everything else — e.g. latents, where dim 0
             # is channels — keeps raising: a dim-0 mismatch there is a data bug that padding
             # would silently corrupt.
-            if len(spec_shape) != 2 and key not in _SEQUENCE_TENSOR_KEYS:
+            if len(spec_shape) != 2 and key not in sequence_tensor_keys():
                 raise ValueError(
                     f"Cache tensor {key} shape {actual} incompatible with bucket {spec_shape}"
                 )
@@ -737,10 +752,10 @@ class StaleCacheLayoutError(ValueError):
 
 
 def reject_stale_sequence_layout(path: str | Path) -> None:
-    """Raise if the cache at *path* stores a ``_SEQUENCE_TENSOR_KEYS`` key as a fixed-width stack.
+    """Raise if the cache at *path* stores a ``sequence_tensor_keys()`` key as a fixed-width stack.
 
     Sequence keys are read as ragged rows (per-row length + byte offset). A key that joined
-    ``_SEQUENCE_TENSOR_KEYS`` after a cache was written (``image_pad_mask``) sits in that cache
+    ``sequence_tensor_keys()`` after a cache was written (``image_pad_mask``) sits in that cache
     as a padded fixed stack, and reading it as ragged would misalign every row — so refuse it up
     front instead of training on it. Checked on the manifest only; nothing is cleared. A cache of
     another format version is skipped: ``Cache.init`` clears those anyway.
@@ -751,7 +766,7 @@ def reject_stale_sequence_layout(path: str | Path) -> None:
     tensors = manifest.get("tensors")
     if not isinstance(tensors, dict):
         return
-    for key in sorted(_SEQUENCE_TENSOR_KEYS):
+    for key in sorted(sequence_tensor_keys()):
         spec = tensors.get(key)
         if isinstance(spec, dict) and not spec.get("ragged"):
             raise StaleCacheLayoutError(

@@ -9,6 +9,7 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 
+from rengu_flow.networks import sdxl_te_names
 from rengu_flow.networks.factorization import factorization
 from rengu_flow.utils.common import is_main_process
 from rengu_flow.utils.save_io import atomic_save_safetensors
@@ -272,7 +273,7 @@ def save(save_dir, state_dict, adapter_config):
         alpha_val = adapter_config.get("alpha", adapter_config.get("rank"))
         for base in lokr_modules:
             sd[f"{base}.alpha"] = torch.tensor(float(alpha_val))
-    atomic_save_safetensors(save_dir / "adapter_model.safetensors", sd)
+    atomic_save_safetensors(save_dir / "adapter_model.safetensors", sdxl_te_names.canonical_dotted(sd))
 
 
 def infer_lokr_config_from_state(state):
@@ -331,24 +332,15 @@ def load(pipeline, adapter_path):
             return {k[len(prefix):]: v for k, v in modified.items() if k.startswith(prefix) and not k.startswith(skip_longer_prefix)}
         return {k[len(prefix):]: v for k, v in modified.items() if k.startswith(prefix)}
 
-    if LYCORIS_AVAILABLE:
-        for module in (pipeline.unet, pipeline.text_encoder, pipeline.text_encoder_2):
-            net = getattr(module, "_lycoris_net", None)
-            if net is not None:
-                if module is pipeline.unet:
-                    sub = subset_for("unet.")
-                elif module is pipeline.text_encoder:
-                    sub = subset_for("text_encoder.", "text_encoder_2.")
-                else:
-                    sub = subset_for("text_encoder_2.")
-                if sub:
-                    net.load_state_dict(sub, strict=False)
-    else:
-        for root, prefix, skip in [
-            (pipeline.unet, "unet.", None),
-            (pipeline.text_encoder, "text_encoder.", "text_encoder_2."),
-            (pipeline.text_encoder_2, "text_encoder_2.", None),
-        ]:
-            sub = subset_for(prefix, skip) if skip else subset_for(prefix)
-            if sub:
-                root.load_state_dict(sub, strict=False)
+    # configure() always injects the vendored LoKr (params on each nn.Linear, never a LyCORIS
+    # network), so the weights load into the modules themselves — also when lycoris is installed.
+    for root, prefix, skip in [
+        (pipeline.unet, "unet.", None),
+        (pipeline.text_encoder, "text_encoder.", "text_encoder_2."),
+        (pipeline.text_encoder_2, "text_encoder_2.", None),
+    ]:
+        sub = subset_for(prefix, skip) if skip else subset_for(prefix)
+        if sub and prefix != "unet.":
+            sub = sdxl_te_names.native_dotted_for_module(sub, root)
+        if sub:
+            root.load_state_dict(sub, strict=False)

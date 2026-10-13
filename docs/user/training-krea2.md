@@ -98,7 +98,7 @@ nothing is ever downloaded automatically, rengu never resolves repo ids.
 | **`vae_path`** | Qwen-Image VAE: `qwen_image_vae.safetensors` (same file Cosmos uses) or a diffusers `vae/` folder. | One of `vae_path` / `checkpoint_path` | — |
 | **`text_encoder_path`** | Qwen3-VL: `qwen3vl_4b_bf16.safetensors` or a transformers `text_encoder/` folder. | One of `text_encoder_path` / `checkpoint_path` | — |
 | **`checkpoint_path`** | Full diffusers-layout folder (`transformer/`, `vae/`, `text_encoder/`); fills any of the three component paths left empty. Set either this or the three component paths. | No | Unset |
-| **`tokenizer_path`** | Folder with tokenizer files. | No | Bundled Qwen3-VL tokenizer (`rengu_flow/model/krea2/assets/qwen3vl_4b`) |
+| **`tokenizer_path`** | Folder with tokenizer files. | No | Bundled Qwen3-VL tokenizer (`rengu_flow/model/dit_common/assets/qwen3vl_tokenizer`) |
 | **`max_sequence_length`** | Prompt token budget before truncation (integer >= 1). Lower it to shrink the text-embedding cache; captions longer than this lose their tail. | No | `512` |
 | **`transformer_dtype`** | DiT checkpoint load dtype only (VAE/text unaffected). | No | `dtype` |
 | **`transformer_4bit`** | Quantize the frozen DiT's linears to 4-bit NF4 (bitsandbytes). Adapter training only; mutually exclusive with `transformer_fp8_matmul`. | No | `false` |
@@ -422,7 +422,7 @@ per-prompt tables, signal files).
 python -m rengu_flow.main --config my.toml --validate-only
 ```
 
-To check the whole training path on your GPU: `python scripts/smoke_krea2_mini.py` trains a
-few steps on a small random-weight Krea 2 (no downloads, any 4 GB+ GPU); with the real files
+To check the whole training path without weights: `python scripts/smoke_mini.py --model krea2`
+trains a few steps on a tiny random-weight Krea 2 (no downloads, CPU); with the real files
 in `.env` (`RENGU_KREA2_*`, see `.env.example`), `scripts/run_model_smoke.sh krea2` runs a
 16 GB-sized LoRA smoke (Linux/WSL). See [Smoke tests](../developer/smoke-tests.md).

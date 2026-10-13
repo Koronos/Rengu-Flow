@@ -1,0 +1,25 @@
+# Full DiT finetune (no [adapter] section). 670M params: fits an 8 GB card at 1024 px with
+# 8-bit AdamW states (~4.3 GB peak measured). No block swap needed.
+
+output_dir = 'output'
+dataset = 'examples/minimal_nanosaur2_dataset.toml'
+
+epochs = 1
+micro_batch_size_per_gpu = 1
+pipeline_stages = 1
+gradient_accumulation_steps = 1
+activation_checkpointing = true
+save_every_n_epochs = 1
+caching_batch_size = 1
+
+[model]
+type = 'nanosaur2'
+dtype = 'bfloat16'
+# Main model | image VAE | text encoder: the three files of well9472/Nanosaur2-670M.
+transformer_path = 'path/to/nanosaur2_diffusion_model.safetensors'
+vae_path = 'path/to/nanosaur2_vae.safetensors'
+text_encoder_path = 'path/to/nanosaur2_text_encoder.safetensors'
+
+[optimizer]
+type = 'adamw8bit'
+lr = 5e-6

@@ -19,9 +19,10 @@ def scheduler_runtime_tokens_help_detail(*, intro: str) -> str:
 
 
 # path -> {summary, detail?, doc?}
-# Keys are field paths. A "path@model_type" key overrides the bare path for fields the
-# schema emits per model capability (their `when` pins model.type), so models that share
-# a path (e.g. model.checkpoint_path on sdxl and krea2) get accurate help each.
+# Keys are field paths of GENERIC fields only (shared by every model, or model-agnostic). Help of
+# a field that belongs to one model lives in that model's spec (``model_fields`` entries carry
+# ``help`` / ``doc``; ``PreviewSpec.help`` for the sampler defaults), which wins over this table
+# in ``enrich_schema``.
 FIELD_HELP: dict[str, dict[str, str]] = {
     "dataset": {
         "summary": "Training data: one dataset TOML or several merged at run time.",
@@ -62,282 +63,6 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         ),
         "doc": "docs/user/training-sdxl-lora-lokr.md",
     },
-    "model.checkpoint_path": {
-        "summary": "SDXL base model — one .safetensors file or a Diffusers folder.",
-        "detail": (
-            "The full pretrained SDXL you downloaded (often a single large .safetensors). "
-            "This is not a LoRA and not your dataset. Diffusers-style directories are also accepted."
-        ),
-        "doc": "docs/user/training-sdxl-lora-lokr.md",
-    },
-    "model.guidance": {
-        "summary": "Legacy [model] CFG scale (TOML-only; hidden in UI).",
-        "detail": (
-            "Parsed and defaulted in config but not used by SDXL training. "
-            "Use preview.guidance_scale for sample images during training."
-        ),
-    },
-    "model.freeze_text_encoders": {
-        "summary": "Train UNet only; freeze both CLIP text encoders.",
-        "detail": (
-            "Keeps both text encoders frozen so their weights don't update — reduces VRAM and speeds up "
-            "each training step. Turn off only if you need the model to respond differently to new prompt words "
-            "(e.g. training a new concept with a novel trigger token)."
-        ),
-        "doc": "docs/user/full-model-training-sdxl.md",
-    },
-    "model.checkpoint_path@krea2": {
-        "summary": "Alternative to the per-file fields: a full Krea-2-Raw diffusers folder.",
-        "detail": (
-            "Optional. If you downloaded the whole krea/Krea-2-Raw folder (transformer/, vae/, "
-            "text_encoder/, tokenizer/ subfolders), point here and leave the per-component fields "
-            "empty — each one resolves as <checkpoint_path>/<subfolder>. Files you set explicitly "
-            "always win. Never a repo id; nothing is downloaded."
-        ),
-        "doc": "docs/user/training-krea2.md",
-    },
-    "model.transformer_path@krea2": {
-        "summary": "Main DiT — one .safetensors file (the big checkpoint you train).",
-        "detail": (
-            "The official raw.safetensors or ComfyUI's krea2_raw_bf16.safetensors — original key "
-            "layout is converted automatically. A diffusers transformer folder also works. "
-            "Pre-quantized fp8/nvfp4 'scaled' files cannot be trained; use the bf16 file."
-        ),
-        "doc": "docs/user/training-krea2.md",
-    },
-    "model.vae_path@krea2": {
-        "summary": "Image VAE — the same qwen_image_vae.safetensors used for Cosmos/Anima.",
-        "detail": (
-            "One .safetensors (ComfyUI layout, converted automatically) or a diffusers VAE folder. "
-            "Training reads your images through this file to build latent caches."
-        ),
-        "doc": "docs/user/training-krea2.md",
-    },
-    "model.text_encoder_path": {
-        "summary": "Text encoder (Qwen3-VL) — one .safetensors file or a transformers folder.",
-        "detail": (
-            "ComfyUI's qwen3vl_4b_bf16.safetensors works as-is (vision weights are ignored; the "
-            "tokenizer is bundled with rengu). Captions are encoded once into the cache; the "
-            "encoder never runs during training steps."
-        ),
-        "doc": "docs/user/training-krea2.md",
-    },
-    "model.max_sequence_length": {
-        "summary": "Caption token budget (default 512); longer captions lose their tail.",
-        "detail": (
-            "Also caps the text-embedding cache entry size — Krea 2 caches a 12-layer hidden-state "
-            "stack per token, so halving this halves the cache for long captions. Compaction already "
-            "trims unused padding, so lowering it only matters when captions actually reach the limit."
-        ),
-        "doc": "docs/user/training-krea2.md",
-    },
-    "model.transformer_4bit": {
-        "summary": "QLoRA-style 4-bit base: frozen DiT linears stored as NF4 (bitsandbytes).",
-        "detail": (
-            "Adapter training only — the quantized base stays frozen while the adapter trains in "
-            "full precision on top. Roughly quarters the DiT's VRAM. Mutually exclusive with "
-            "model.transformer_fp8_matmul. Use adapter type LoKr: it is quantization-aware, "
-            "while the LyCORIS kinds reject a quantized base."
-        ),
-        "doc": "docs/user/training-cosmos-predict2-lora-lokr-finetune.md",
-    },
-    "model.transformer_4bit@krea2": {
-        "summary": "QLoRA-style 4-bit base: frozen DiT linears stored as NF4 (bitsandbytes).",
-        "detail": (
-            "Adapter training only — the quantized base stays frozen while the adapter trains in "
-            "full precision on top. Krea 2's DiT drops from ~26 GB bf16 to ~7 GB (text fusion "
-            "stays bf16). A 16 GB card needs 4-bit or fp8 (model.transformer_fp8_matmul, the "
-            "faster and more accurate one on RTX 40xx); they are mutually exclusive. Use adapter "
-            "type LoKr: it is quantization-aware, while the LyCORIS kinds reject a quantized base."
-        ),
-        "doc": "docs/user/training-krea2.md",
-    },
-    "model.transformer_fp8_matmul@krea2": {
-        "summary": "fp8 frozen base: DiT block linears stored as tensorwise-scaled e4m3 (1 byte/param).",
-        "detail": (
-            "Adapter training only: the DiT drops from ~25.6 to ~12.9 GB (2.65% RMS weight error vs "
-            "NF4's 9.55%), and with compile = true + compile_scope = \"block\" the matmuls run ~2x "
-            "faster on RTX 40xx (sm89+). Mutually exclusive with transformer_4bit; use adapter type LoKr."
-        ),
-        "doc": "docs/user/training-krea2.md",
-    },
-    "model.transformer_dtype@krea2": {
-        "summary": "Optional: dtype used to load the DiT only (defaults to model.dtype).",
-        "detail": (
-            "The VAE and the Qwen3-VL text encoder keep model.dtype; adapters default to float32 "
-            "(adapter.dtype). Leave empty unless you need a different DiT load precision. For VRAM, "
-            "use transformer_4bit / transformer_fp8_matmul instead."
-        ),
-        "doc": "docs/user/training-krea2.md",
-    },
-    "model.tokenizer_path@krea2": {
-        "summary": "Optional folder with Qwen3-VL tokenizer files (default: the bundled tokenizer).",
-        "detail": (
-            "rengu ships the Qwen3-VL tokenizer, so leave this empty. Changing it re-encodes the "
-            "text-embedding cache."
-        ),
-        "doc": "docs/user/training-krea2.md",
-    },
-    "model.shift@krea2": {
-        "summary": "Advanced: fixed timestep shift; empty keeps the reference resolution-aware shift.",
-        "detail": (
-            "Empty uses the reference Krea 2 schedule: mu from 0.5 at 256 latent tokens to 1.15 at "
-            "6400 (1024x1024 = 4096 tokens), equal to a fixed shift of exp(mu) ~1.65 to ~3.16. A number "
-            "(> 0) replaces it at every resolution — only for a deliberate schedule A/B."
-        ),
-        "doc": "docs/user/training-krea2.md",
-    },
-    "model.sigmoid_scale@krea2": {
-        "summary": "Advanced: scale on the logit-normal sample before the sigmoid (default 1.0 = reference).",
-        "detail": (
-            "Only used with timestep_sample_method = logit_normal. Raising it pushes sampled "
-            "timesteps toward the extremes (near 0 or 1)."
-        ),
-        "doc": "docs/user/training-krea2.md",
-    },
-    "model.timestep_sample_method@krea2": {
-        "summary": "Advanced: training timestep distribution — logit_normal (default, reference) or uniform.",
-        "detail": (
-            "logit_normal concentrates steps on mid-range noise levels, like the reference Krea 2 "
-            "training; uniform samples t evenly in [0, 1]. The resolution-aware shift (or "
-            "model.shift) is applied on top of either."
-        ),
-        "doc": "docs/user/training-krea2.md",
-    },
-    "model.fp8_grad_mode": {
-        "summary": "Input-gradient GEMM precision through the frozen fp8 base (Krea 2, transformer_fp8_matmul only).",
-        "detail": (
-            "'bf16' (default) keeps the backward's input-gradient GEMM unquantized for a clean "
-            "gradient; 'fp8' runs it through the same e4m3 tensorwise kernel as the forward, "
-            "measured ~15-20% faster per step. Only takes effect when model.transformer_fp8_matmul "
-            "is true."
-        ),
-        "doc": "docs/user/training-krea2.md",
-    },
-    "model.transformer_path@qwen_image21": {
-        "summary": "Main DiT — one .safetensors file (the ~14 GB checkpoint you train).",
-        "detail": (
-            "ComfyUI's qwen_image_2.1_bf16.safetensors (its fused img_mlp.gate_up is split on load), a "
-            "diffusers-layout file or the diffusers transformer/ folder. Pre-quantized int8_convrot / "
-            "fp8 files cannot be trained; use the bf16 file."
-        ),
-        "doc": "docs/user/training-qwen-image21.md",
-    },
-    "model.vae_path@qwen_image21": {
-        "summary": "Image VAE — Qwen-Image 2.1's own RGBA VAE (not the Qwen-Image / Cosmos one).",
-        "detail": (
-            "ComfyUI's qwen_image_2.1_vae_bf16.safetensors (original layout, converted on load), a "
-            "diffusers-layout file or the diffusers vae/ folder. Training reads your images through "
-            "it to build the latent cache."
-        ),
-        "doc": "docs/user/training-qwen-image21.md",
-    },
-    "model.text_encoder_path@qwen_image21": {
-        "summary": "Text encoder (Qwen3-VL-8B) — one .safetensors file or a transformers folder.",
-        "detail": (
-            "ComfyUI's qwen3vl_8b_bf16.safetensors or the diffusers text_encoder/ folder; both carry the "
-            "vision tower that edit training (control_path) uses. Captions are encoded once into the "
-            "cache; int8 / w4a8 files are refused."
-        ),
-        "doc": "docs/user/training-qwen-image21.md",
-    },
-    "model.diffusers_path@qwen_image21": {
-        "summary": "Alternative to the three file fields: the whole Qwen/Qwen-Image-2.1 diffusers download.",
-        "detail": (
-            "Optional. Point at the folder holding transformer/, vae/, text_encoder/ and processor/ "
-            "(e.g. the Hugging Face cache snapshot) and leave the file fields empty — each resolves to "
-            "<folder>/<subfolder>; files you set explicitly always win. Never a repo id; nothing is downloaded."
-        ),
-        "doc": "docs/user/training-qwen-image21.md",
-    },
-    "model.processor_path@qwen_image21": {
-        "summary": "Optional tokenizer folder (the processor/ subfolder).",
-        "detail": (
-            "Defaults to <diffusers_path>/processor, else the Qwen3-VL tokenizer and image processor "
-            "bundled with rengu (identical tokenization of the Qwen-Image 2.1 prompt template)."
-        ),
-        "doc": "docs/user/training-qwen-image21.md",
-    },
-    "model.text_encoder_offload@qwen_image21": {
-        "summary": "Where the 17.5 GB Qwen3-VL-8B encoder runs while captions are cached.",
-        "detail": (
-            "auto (default): stream the 36 decoder layers one at a time from pinned host RAM when the "
-            "encoder does not fit in free VRAM (~2 GB VRAM, ~16 GB host RAM); stream: always; none: load "
-            "it whole onto the GPU (needs ~20 GB free). The encoder loads only when captions still need "
-            "encoding and is unloaded after caching."
-        ),
-        "doc": "docs/user/training-qwen-image21.md",
-    },
-    "model.transformer_4bit@qwen_image21": {
-        "summary": "QLoRA-style 4-bit base: frozen DiT block linears stored as NF4 (bitsandbytes).",
-        "detail": (
-            "Adapter training only — the quantized base stays frozen while the adapter trains in full "
-            "precision on top. The 7B DiT drops from ~14 GB bf16 to ~4 GB. Mutually exclusive with "
-            "model.transformer_fp8_matmul. Use adapter type LoKr: the LyCORIS kinds reject a "
-            "quantized base."
-        ),
-        "doc": "docs/user/training-qwen-image21.md",
-    },
-    "model.fp8_grad_mode@qwen_image21": {
-        "summary": "Input-gradient GEMM precision through the frozen fp8 base (transformer_fp8_matmul only).",
-        "detail": (
-            "'bf16' (default) keeps the backward's input-gradient GEMM unquantized; 'fp8' runs it "
-            "through the same e4m3 tensorwise kernel as the forward (faster). Only takes effect when "
-            "model.transformer_fp8_matmul is true."
-        ),
-        "doc": "docs/user/training-qwen-image21.md",
-    },
-    "model.transformer_fp8_matmul@qwen_image21": {
-        "summary": "fp8 frozen base: DiT block linears stored as tensorwise-scaled e4m3 (1 byte/param).",
-        "detail": (
-            "Adapter training only. The 7B DiT drops from ~14.2 GB to ~7.3 GB. Needs an sm89+ GPU "
-            "(RTX 40xx / Ada); on older cards use transformer_4bit with LoKr instead. Mutually "
-            "exclusive with model.transformer_4bit. The 8 GB recipe pairs it with blocks_to_swap = 24 "
-            "and activation checkpointing."
-        ),
-        "doc": "docs/user/training-qwen-image21.md",
-    },
-    "model.transformer_dtype@qwen_image21": {
-        "summary": "Optional: dtype used to load the DiT only (defaults to model.dtype).",
-        "detail": (
-            "The VAE, the Qwen3-VL text encoder and the adapters keep model.dtype. Leave empty "
-            "unless you need a different DiT load precision."
-        ),
-        "doc": "docs/user/training-qwen-image21.md",
-    },
-    "model.shift@qwen_image21": {
-        "summary": "Fixed timestep shift; empty keeps the resolution-aware dynamic shift.",
-        "detail": (
-            "By default training timesteps follow the reference scheduler's exponential shift: mu "
-            "interpolates from 0.5 at 256 latent tokens to 0.9 at 8192 (1024x1024 = 4096 tokens, "
-            "mu ~0.70). A number here replaces it for every resolution."
-        ),
-        "doc": "docs/user/training-qwen-image21.md",
-    },
-    "model.sigmoid_scale@qwen_image21": {
-        "summary": "Scale on the logit-normal sample before the sigmoid (default 1.0).",
-        "detail": (
-            "Only used with timestep_sample_method = logit_normal. Raising it pushes sampled "
-            "timesteps toward the extremes (near 0 or 1)."
-        ),
-        "doc": "docs/user/training-qwen-image21.md",
-    },
-    "model.timestep_sample_method@qwen_image21": {
-        "summary": "Training timestep distribution: logit_normal (default) or uniform.",
-        "detail": (
-            "logit_normal concentrates steps on mid-range noise levels; uniform samples t evenly in "
-            "[0, 1]. The resolution-aware shift (or model.shift) is applied on top of either."
-        ),
-        "doc": "docs/user/training-qwen-image21.md",
-    },
-    "preview.num_inference_steps@qwen_image21": {
-        "summary": "Denoising steps per preview image (Qwen-Image 2.1 default 28).",
-        "detail": (
-            "Euler steps over the reference sigma schedule (resolution-aware shift, last step at "
-            "0.02). The reference sampler uses 40; 28 keeps previews faster."
-        ),
-        "doc": "docs/user/training-qwen-image21.md",
-    },
     "preview.control_resolution": {
         "summary": "Side of the target area of edit-preview condition images (Qwen-Image 2.1).",
         "detail": (
@@ -347,57 +72,6 @@ FIELD_HELP: dict[str, dict[str, str]] = {
             "At least 256 (the vision encoder's minimum area)."
         ),
         "doc": "docs/user/training-qwen-image21.md",
-    },
-    "preview.guidance_scale@qwen_image21": {
-        "summary": "CFG scale for previews; Qwen-Image 2.1 samples without CFG (default 1.0).",
-        "detail": (
-            "1.0 runs one conditional pass per step, like the reference. Above 1.0 CFG runs with the "
-            "negative prompt (an empty one is encoded as a single space) as neg + g*(pos - neg), "
-            "doubling the preview cost."
-        ),
-        "doc": "docs/user/training-qwen-image21.md",
-    },
-    "model.transformer_path": {
-        "summary": "Main image model — one .safetensors file (the big checkpoint you train).",
-        "detail": (
-            "Example: Anima preview or another Cosmos Predict2 release as a single .safetensors on disk. "
-            "This file is the core diffusion model. Do not point here at the VAE or text encoder — "
-            "those have their own fields below."
-        ),
-        "doc": "docs/user/training-cosmos-predict2-lora-lokr-finetune.md",
-    },
-    "model.vae_path": {
-        "summary": "Image VAE — one .safetensors that encodes/decodes pixels for training.",
-        "detail": (
-            "Usually the Qwen image VAE paired with Cosmos/Anima (e.g. qwen_image_vae.safetensors). "
-            "Training reads your images through this file to build latent caches."
-        ),
-        "doc": "docs/user/training-cosmos-predict2-lora-lokr-finetune.md",
-    },
-    "model.llm_path": {
-        "summary": "Text encoder (Qwen3) — .safetensors file or folder with weights.",
-        "detail": (
-            "Converts dataset captions into conditioning vectors. Required for modern Anima/Cosmos setups "
-            "that use Qwen3. Set llm_adapter_lr = 0 unless you intentionally train the small LLM adapter."
-        ),
-        "doc": "docs/user/training-cosmos-predict2-lora-lokr-finetune.md",
-    },
-    "model.t5_path": {
-        "summary": "Text encoder (T5) — use on older stacks instead of llm_path.",
-        "detail": (
-            "Single .safetensors or compatible layout. Pick either llm_path (Qwen3) or t5_path, not both, "
-            "unless you know your checkpoint bundle requires a specific combination."
-        ),
-        "doc": "docs/user/training-cosmos-predict2-lora-lokr-finetune.md",
-    },
-    "model.llm_adapter_path": {
-        "summary": "Optional extra weights on the text encoder (.safetensors).",
-        "detail": "Leave empty unless your checkpoint pack includes a separate LLM adapter file to load.",
-        "doc": "docs/user/training-cosmos-predict2-lora-lokr-finetune.md",
-    },
-    "model.llm_adapter_lr": {
-        "summary": "Finetune-only LR for the embedded Qwen3 LLM adapter; frozen by default (0), set a value to train it.",
-        "doc": "docs/user/training-cosmos-predict2-lora-lokr-finetune.md",
     },
     "model.cache_text_embeddings": {
         "summary": "Cache captions as embeddings once (faster training, more disk).",
@@ -838,6 +512,17 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "detail": "Enable if preview sampling OOMs; the transfer adds latency but lets the DiT use more VRAM during generation.",
         "doc": "docs/user/previews.md",
     },
+    "preview.guidance_mode": {
+        "summary": "Nanosaur2 preview guidance: alternate (recommended), cfg or path_drop.",
+        "detail": (
+            "How the unconditional pass of each preview step is computed. cfg: the negative prompt "
+            "through the full model (classic classifier-free guidance). path_drop: the negative prompt "
+            "with the SPRINT sparse middle blocks skipped (path-drop guidance), which the model learns "
+            "through model.sparse_skip_prob. alternate: cfg on even steps and path_drop on odd ones — "
+            "the reference sampler's default and the recommended mode."
+        ),
+        "doc": "docs/user/previews.md",
+    },
     "preview.preview_blocks_to_swap": {
         "summary": "Number of DiT blocks to keep on CPU during preview sampling (Cosmos, Krea 2, Qwen-Image 2.1).",
         "detail": (
@@ -879,33 +564,6 @@ FIELD_HELP: dict[str, dict[str, str]] = {
     "tracking.wandb.api_key": {
         "summary": "WandB API key (prefer WANDB_API_KEY env var).",
         "doc": "docs/user/training-loop-and-eval.md",
-    },
-    "model.transformer_dtype": {
-        "summary": "Optional: dtype when loading the main DiT checkpoint only.",
-        "detail": (
-            "Defaults to model.dtype. Applies to most weights in transformer_path; "
-            "VAE, text encoder, and embedder/norm layers still use model.dtype. "
-            "Leave empty unless you need a different load precision (VRAM / load errors)."
-        ),
-        "doc": "docs/user/training-cosmos-predict2-lora-lokr-finetune.md",
-    },
-    "model.diffusion_model_dtype": {
-        "summary": "DiT forward autocast dtype (Cosmos Predict2).",
-        "detail": (
-            "Sets the training forward autocast dtype (main.py). Defaults to model.dtype. On Cosmos, "
-            "when set and transformer_dtype is omitted, it is also copied to transformer_dtype for "
-            "the checkpoint load."
-        ),
-        "doc": "docs/user/training-cosmos-predict2-lora-lokr-finetune.md",
-    },
-    "model.diffusion_model_dtype@sdxl": {
-        "summary": "UNet forward autocast dtype override (defaults to model.dtype).",
-        "detail": (
-            "Sets training forward autocast (main.py). SDXL has no separate checkpoint-load dtype "
-            "path (unlike Cosmos/Krea 2's transformer_dtype) — this only changes the forward-pass "
-            "compute dtype, not how weights are loaded from disk."
-        ),
-        "doc": "docs/user/training-sdxl-lora-lokr.md",
     },
     "ema_decay": {
         "summary": "EMA decay for trainable weights (fp32 CPU shadow).",
@@ -1451,23 +1109,21 @@ def _apply_field_help(field: dict[str, Any], meta: dict[str, str]) -> None:
         field["help"] = meta["detail"]
     elif meta.get("summary"):
         field["help"] = meta["summary"]
-    if meta.get("doc"):
+    if meta.get("doc") and not field.get("doc_path"):
         field["doc_path"] = meta["doc"]
 
 
 def enrich_schema(schema: dict[str, Any]) -> dict[str, Any]:
-    """Attach help, doc_path, and ensure every field has UI help text."""
+    """Attach help, doc_path, and ensure every field has UI help text.
+
+    Precedence: the field's own ``help`` / ``doc_path`` (set from the model spec by the schema
+    builder) > ``FIELD_HELP[path]`` (generic) > the field's description."""
     for section in schema.get("sections", []):
         for field in section.get("fields", []):
             path = field.get("path")
             if not path:
                 continue
-            meta = None
-            when = field.get("when") or {}
-            if when.get("field") == "model.type" and len(when.get("in") or []) == 1:
-                meta = FIELD_HELP.get(f"{path}@{when['in'][0]}")
-            if meta is None:
-                meta = FIELD_HELP.get(path)
+            meta = None if field.get("help") else FIELD_HELP.get(path)
             if meta:
                 _apply_field_help(field, meta)
             if not field.get("help"):

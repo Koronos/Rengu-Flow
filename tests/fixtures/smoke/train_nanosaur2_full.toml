@@ -1,0 +1,33 @@
+# Nanosaur2 full-finetune smoke (10 steps, 8-bit AdamW states; ~4.3 GB peak at 1024 px).
+# Model paths: RENGU_NANOSAUR2_{TRANSFORMER,VAE,TEXT_ENCODER}_PATH in repo-root `.env`.
+#   scripts/run_model_smoke.sh nanosaur2_full
+
+dataset = "tests/fixtures/smoke/dataset_cc0.toml"
+output_dir = "output"
+max_steps = 10
+epochs = 999
+micro_batch_size_per_gpu = 1
+gradient_accumulation_steps = 1
+pipeline_stages = 1
+activation_checkpointing = true
+logging_steps = 1
+caching_batch_size = 1
+save_every_n_epochs = 999
+bench = true
+
+[model]
+type = "nanosaur2"
+dtype = "bfloat16"
+
+[optimizer]
+type = "adamw8bit"
+lr = 5e-6
+
+[preview]
+width = 1024
+height = 1024
+num_inference_steps = 30
+seed = 42
+preview_every_n_steps = 10
+preview_save_png = true
+prompts = ["newest, masterpiece, 1girl, solo, (fennec ears:1.3), long blonde wavy hair, blue eyes, big fluffy tail, smile, forest, sunlight"]

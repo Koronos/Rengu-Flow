@@ -135,38 +135,8 @@ def test_preview_enabled_without_prompts(tmp_path):
     assert any("preview.prompts is empty" in i for i in collect_preflight_issues(cfg))
 
 
-def test_module_roots_match_real_krea2_dit():
-    """The torch-free roots in the capability must track the real DiT's top-level modules."""
-    import torch  # noqa: F401  (model import needs torch)
-
-    from rengu_flow.registry.model_capabilities import get_capability
-    # Same-directory test module: pytest puts tests/ itself on sys.path (rootdir import
-    # mode); the `tests.` package form fails (no tests/__init__.py).
-    from test_adapter_layer_groups import _tiny_krea2
-
-    roots = set(get_capability("krea2").adapter_module_roots)
-    model = _tiny_krea2()
-    real_roots = {name for name, _ in model.named_children()}
-    with_params = {
-        n for n in real_roots
-        if any(True for _ in getattr(model, n).parameters())
-    }
-    missing = with_params - roots
-    assert not missing, f"capability adapter_module_roots is missing: {sorted(missing)}"
-
-
-def test_module_roots_match_real_qwen_image21_dit():
-    import torch  # noqa: F401  (model import needs torch)
-
-    from rengu_flow.registry.model_capabilities import get_capability
-    from test_adapter_layer_groups import _tiny_qwen_image21
-
-    roots = set(get_capability("qwen_image21").adapter_module_roots)
-    model = _tiny_qwen_image21()
-    real_roots = {name for name, _ in model.named_children()}
-    with_params = {n for n in real_roots if any(True for _ in getattr(model, n).parameters())}
-    assert with_params <= roots, f"missing: {sorted(with_params - roots)}"
-    assert roots <= real_roots, f"stale: {sorted(roots - real_roots)}"
+# The module roots tracking each model's real DiT (and preflight accepting each root):
+# tests/contract/test_pipeline_contract.py::test_layer_groups_and_module_roots_match_the_real_dit.
 
 
 def test_qwen_image21_diffusers_path_is_checked(tmp_path):

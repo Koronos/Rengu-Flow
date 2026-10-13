@@ -634,11 +634,17 @@ class DatasetManager:
             return
         submodel = self.submodels[task_id]
         if isinstance(submodel, nn.Module):
-            if next(submodel.parameters()).device.type != "cuda":
+            # CPU when there is no GPU (CPU tests of the data <-> model seam): a meta / lazy
+            # submodel still has to be materialized on a real device before it encodes.
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            if next(submodel.parameters()).device.type != device:
                 for i, sm in enumerate(self.submodels):
                     if i != task_id and isinstance(sm, nn.Module):
                         sm.to("cpu")
-                submodel.to("cuda")
+                submodel.to(device)
+                # A lazy encoder (dit_common.streaming) loads itself on .to("cuda") only.
+                if next(submodel.parameters()).device.type == "meta" and callable(getattr(submodel, "load", None)):
+                    submodel.load()
         else:
             if hasattr(submodel, "load_model_if_needed"):
                 submodel.load_model_if_needed()

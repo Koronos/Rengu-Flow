@@ -1,7 +1,9 @@
 """Regression guards for user-reported incidents that had no dedicated test yet.
 
 Each test pins one production failure mode:
-  * preview memory controls hidden for Krea 2 (gated to cosmos-only in the UI),
+  * preview memory controls hidden for Krea 2 (gated to cosmos-only in the UI) — now checked
+    for every model by tests/contract/test_spec_contract.py (each preview memory knob shows
+    exactly on the models whose runner honors it); the model-agnostic PNG toggle stays here,
   * preview OOM without preview block swap dying with a bare error (no actionable hint),
   * an explicit 16-bit adapter dtype silently pairing with a plain optimizer (the
     bf16-stall class) without the startup NOTE.
@@ -24,28 +26,31 @@ def _preview_field_variants(path):
 
 
 def _models_in_when(field):
+    """Canonical model types the field's model gate admits (a ``model.type`` list or a
+    ``{"capability": ...}`` clause); None when the field has no model gate."""
+    from rengu_flow.registry.model_capabilities import (
+        capabilities_for_api,
+        get_canonical_model_types,
+    )
+    from rengu_flow_ui.field_visibility import eval_visibility_clause
+
     when = field.get("when") or {}
     conds = when.get("all", [when]) if isinstance(when, dict) else []
-    for cond in conds:
-        if isinstance(cond, dict) and cond.get("field") == "model.type":
-            return cond.get("in") or []
-    return None  # ungated
+    model_conds = [
+        c for c in conds
+        if isinstance(c, dict) and (c.get("field") == "model.type" or "capability" in c)
+    ]
+    if not model_conds:
+        return None  # ungated
+    caps = capabilities_for_api()
+    return [
+        t for t in get_canonical_model_types()
+        if all(eval_visibility_clause(c, {"model.type": t}, caps) for c in model_conds)
+    ]
 
 
-def test_preview_memory_controls_visible_for_krea2():
-    """Regression: preview_blocks_to_swap / preview_offload_text_encoder were gated to
-    cosmos_predict2 only, hiding exactly the knob that fixes Krea 2's preview OOM."""
-    for path in ("preview.preview_blocks_to_swap", "preview.preview_offload_text_encoder"):
-        variants = _preview_field_variants(path)
-        assert variants, f"{path} missing from schema"
-        models = _models_in_when(variants[0])
-        assert models is not None and set(models) >= {"cosmos_predict2", "krea2"}, (
-            f"{path} gated to {models}; both DiT preview runners honor it"
-        )
-    # krea2's preview never reads dit-for-decode — it must stay cosmos-only (no dead knob).
-    dit_decode = _preview_field_variants("preview.preview_offload_dit_for_decode")
-    assert _models_in_when(dit_decode[0]) == ["cosmos_predict2"]
-    # save_png is model-agnostic (utils/preview.py): ungated.
+def test_preview_save_png_is_model_agnostic():
+    """``preview_save_png`` is read by the shared preview loop (utils/preview.py): ungated."""
     save_png = _preview_field_variants("preview.preview_save_png")
     assert _models_in_when(save_png[0]) is None
 

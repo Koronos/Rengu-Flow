@@ -14,8 +14,10 @@ Clean-room implementation of the published mechanism (MAE-style shuffle-and-slic
 
 from __future__ import annotations
 
-import torch
+from typing import TYPE_CHECKING, Any, NamedTuple
 
+if TYPE_CHECKING:
+    import torch
 
 def resolve_route(num_blocks: int, start_block: int, end_block: int) -> tuple[int, int]:
     """Normalize (possibly negative) route block indices to ``0 <= start < end < num_blocks``.
@@ -33,6 +35,56 @@ def resolve_route(num_blocks: int, start_block: int, end_block: int) -> tuple[in
     return start, end
 
 
+class TreadSettings(NamedTuple):
+    """Validated ``[tread]`` table. ``route`` is the resolved inclusive ``(start, end)`` block
+    window, None when the block count is unknown (config time without a registered count)."""
+
+    drop_ratio: float
+    disable_after_frac: float
+    route: tuple[int, int] | None
+
+
+def parse_tread(config: dict[str, Any], n_blocks: int) -> TreadSettings | None:
+    """Parse and validate the ``[tread]`` table of ``config`` (None when absent/empty).
+
+    Torch-free: shared by config validation (``registry/model_config_rules``, with the model's
+    registered block count, 0 = unknown, route range unchecked) and the pipeline's
+    ``to_layers`` (with the real block count). Raises ``ConfigValidationError``.
+    """
+    from rengu_flow.config.validation import ConfigValidationError
+
+    tread = config.get("tread")
+    if not tread:
+        return None
+    if not isinstance(tread, dict):
+        raise ConfigValidationError("[tread] must be a table.")
+    if tread.get("drop_ratio") is None:
+        raise ConfigValidationError(
+            "[tread] needs drop_ratio (fraction of image tokens routed around the middle "
+            "blocks, e.g. 0.5); remove the [tread] table to turn routing off."
+        )
+    try:
+        drop_ratio = float(tread["drop_ratio"])
+        disable_after_frac = float(tread.get("disable_after_frac", 1.0))
+        start_block = int(tread.get("start_block", 2))
+        end_block = int(tread.get("end_block", -3))
+    except (TypeError, ValueError) as e:
+        raise ConfigValidationError(f"[tread] has a non-numeric value: {e}") from e
+    if not 0.0 < drop_ratio < 1.0:
+        raise ConfigValidationError(f"tread.drop_ratio must be in (0, 1), got {drop_ratio}.")
+    if not 0.0 < disable_after_frac <= 1.0:
+        raise ConfigValidationError(
+            f"tread.disable_after_frac must be in (0, 1], got {disable_after_frac}."
+        )
+    route = None
+    if n_blocks:
+        try:
+            route = resolve_route(n_blocks, start_block, end_block)
+        except ValueError as e:
+            raise ConfigValidationError(str(e)) from e
+    return TreadSettings(drop_ratio, disable_after_frac, route)
+
+
 def sample_keep_index(
     text_len: int, image_len: int, drop_ratio: float, device: torch.device
 ) -> torch.Tensor:
@@ -42,6 +94,8 @@ def sample_keep_index(
     kept. Returns sorted long indices into the full sequence (order-preserving), length
     ``text_len + image_len - dropped``.
     """
+    import torch
+
     n_drop = int(image_len * drop_ratio)
     if n_drop <= 0:
         return torch.arange(text_len + image_len, device=device)

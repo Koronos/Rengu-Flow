@@ -85,57 +85,59 @@ def set_config_defaults(config: dict[str, Any]) -> None:
     model_config["dtype"] = DTYPE_MAP[model_dtype_str]
     if transformer_dtype := model_config.get("transformer_dtype", None):
         model_config["transformer_dtype"] = DTYPE_MAP[transformer_dtype]
+    # Everything below derives from the model's spec (registry/model_spec.py); the alias
+    # (``anima``) is resolved once through get_capability.
+    from rengu_flow.registry.model_capabilities import get_capability
+
+    cap = get_capability(str(model_config.get("type", "")).lower())
     if diffusion_model_dtype := model_config.get("diffusion_model_dtype", None):
         model_config["diffusion_model_dtype"] = DTYPE_MAP[diffusion_model_dtype]
-        if str(model_config.get("type", "")).lower() in ("cosmos_predict2", "anima"):
+        if cap is not None and cap.diffusion_dtype_sets_load_dtype:
             model_config.setdefault("transformer_dtype", model_config["diffusion_model_dtype"])
-    model_type = str(model_config.get("type", "")).lower()
-    if model_type == "sdxl":
-        # Legacy diffusion-pipe key (TOML-only, hidden in the UI); no pipeline reads it.
-        model_config.setdefault("guidance", 1.0)
-    if str(model_config.get("type", "")).lower() in ("cosmos_predict2", "sdxl", "krea2", "qwen_image21"):
-        model_config.setdefault("cache_text_embeddings", True)
+    if cap is not None:
+        for key, value in cap.model_defaults.items():
+            model_config.setdefault(key, value)
+        # A model whose spec declares its text cache (every built-in) caches text embeddings by
+        # default (a "required" one also rejects false at validation); a pipeline registered
+        # only with @register_model (no declaration) gets no default.
+        if cap.text_cache is not None:
+            model_config.setdefault("cache_text_embeddings", True)
 
-
-    if str(model_config.get("type", "")).lower() in ("cosmos_predict2", "anima", "krea2", "qwen_image21"):
-        # Frozen-base quantization knobs (A/B; default-off, mutually exclusive).
-        model_config.setdefault("transformer_fp8_matmul", False)
-        model_config.setdefault("transformer_4bit", False)
-        if model_config["transformer_fp8_matmul"] and model_config["transformer_4bit"]:
-            raise ConfigValidationError(
-                "model.transformer_fp8_matmul and model.transformer_4bit are mutually "
-                "exclusive; enable only one."
-            )
-        if model_type in ("cosmos_predict2", "anima"):
-            # Only cosmos' scaled-matmul path reads the weight format; krea2 / qwen_image21
-            # always quantize tensorwise e4m3.
-            model_config.setdefault("fp8_matmul_dtype", "e5m2")
-            if model_config["fp8_matmul_dtype"] not in ("e5m2", "e4m3"):
+        if (quant := cap.quant) is not None:
+            # Frozen-base quantization knobs (A/B; default-off, mutually exclusive).
+            model_config.setdefault("transformer_fp8_matmul", False)
+            model_config.setdefault("transformer_4bit", False)
+            if model_config["transformer_fp8_matmul"] and model_config["transformer_4bit"]:
                 raise ConfigValidationError(
-                    "model.fp8_matmul_dtype must be 'e5m2' (default) or 'e4m3'."
+                    "model.transformer_fp8_matmul and model.transformer_4bit are mutually "
+                    "exclusive; enable only one."
                 )
-        model_config.setdefault("fp8_grad_mode", "bf16")
-        if model_config["fp8_grad_mode"] not in ("bf16", "fp8"):
-            raise ConfigValidationError(
-                "model.fp8_grad_mode must be 'bf16' (default) or 'fp8'."
-            )
+            if quant.fp8_dtypes:
+                # Only a scaled-matmul model (cosmos) reads the weight format; tensorwise
+                # models (krea2 / qwen_image21) always quantize e4m3.
+                model_config.setdefault("fp8_matmul_dtype", quant.fp8_dtypes[0])
+                if model_config["fp8_matmul_dtype"] not in quant.fp8_dtypes:
+                    first, *rest = quant.fp8_dtypes
+                    options = " or ".join([f"'{first}' (default)", *(f"'{d}'" for d in rest)])
+                    raise ConfigValidationError(f"model.fp8_matmul_dtype must be {options}.")
+            model_config.setdefault("fp8_grad_mode", "bf16")
+            if model_config["fp8_grad_mode"] not in ("bf16", "fp8"):
+                raise ConfigValidationError(
+                    "model.fp8_grad_mode must be 'bf16' (default) or 'fp8'."
+                )
 
-    if str(model_config.get("type", "")).lower() in ("cosmos_predict2", "anima", "krea2", "qwen_image21"):
         preview_cfg = config.get("preview")
-        if isinstance(preview_cfg, dict):
-            # Krea 2 reference settings: 28 steps, CFG 4.5 (cond + g*(cond - uncond)).
-            # Qwen-Image 2.1 samples without CFG (reference true_cfg_scale = 1.0); its reference
-            # 40 steps are trimmed to 28 for previews.
-            preview_steps = {"krea2": 28, "qwen_image21": 28}.get(model_type, 20)
-            preview_guidance = {"krea2": 4.5, "qwen_image21": 1.0}.get(model_type, 4.0)
-            preview_cfg.setdefault("num_inference_steps", preview_steps)
-            preview_cfg.setdefault("guidance_scale", preview_guidance)
-            preview_cfg.setdefault("negative_prompt", "")
+        if (pspec := cap.preview_spec) is not None and pspec.write_defaults and isinstance(preview_cfg, dict):
+            # Per-model reference sampler settings live in the spec (PreviewSpec).
+            preview_cfg.setdefault("num_inference_steps", pspec.steps)
+            preview_cfg.setdefault("guidance_scale", pspec.guidance)
+            preview_cfg.setdefault("negative_prompt", pspec.negative_prompt)
+            for key, value in pspec.defaults.items():
+                preview_cfg.setdefault(key, value)
             preview_cfg.setdefault("width", 1024)
             preview_cfg.setdefault("height", 1024)
             preview_cfg.setdefault("preview_offload_text_encoder", True)
-            if model_type in ("cosmos_predict2", "anima"):
-                # Only the cosmos preview runner reads it.
+            if "offload_dit_for_decode" in pspec.memory_knobs:
                 preview_cfg.setdefault("preview_offload_dit_for_decode", False)
 
     if "adapter" in config:

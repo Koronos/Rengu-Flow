@@ -1,0 +1,12 @@
+dataset = "examples/minimal_dataset.toml"
+
+activation_checkpointing = "unsloth"
+
+[model]
+type = "sdxl"
+dtype = "bfloat16"
+checkpoint_path = "path/to/sdxl.safetensors"
+
+[optimizer]
+type = "adamw"
+lr = 1e-4

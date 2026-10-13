@@ -63,3 +63,21 @@ def pad_text_embeddings(
         out[i, : e.shape[0]] = e
         out_mask[i, : m.shape[0]] = m.bool()
     return out, out_mask
+
+
+def ragged_rows(embeds, mask, **extra) -> dict[str, list[torch.Tensor]]:
+    """The text-encoder cache fn's return: one row per caption at its own valid length.
+
+    ``embeds`` ``(B, L, *feature)`` and ``mask`` ``(B, L)`` bool (or per-row sequences of them)
+    -> ``{"prompt_embeds": [e[m]], "text_mask": [m[m]]}``; each ``extra`` key (e.g. qwen's
+    ``image_pad_mask``) is a per-row sequence sliced by the same mask. A padded batch tensor would
+    store every row at the caching batch's longest caption (False tails), which then stack into
+    padded — masked-attention — training batches.
+    """
+    out = {
+        "prompt_embeds": [e[m] for e, m in zip(embeds, mask)],
+        "text_mask": [m[m] for m in mask],
+    }
+    for key, rows in extra.items():
+        out[key] = [r[m] for r, m in zip(rows, mask)]
+    return out

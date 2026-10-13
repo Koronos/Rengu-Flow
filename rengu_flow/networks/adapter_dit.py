@@ -109,7 +109,7 @@ def configure(transformer, adapter_config, targets=ADAPTER_TARGET_MODULES, layer
     raise NotImplementedError(f"Adapter type {adapter_type} is not implemented")
 
 
-def save(save_dir, state_dict, adapter_config, peft_config=None, export_prefix="diffusion_model."):
+def save(save_dir, state_dict, adapter_config, peft_config=None, export_prefix="diffusion_model.", lora_alpha_keys=False):
     save_dir = Path(save_dir)
     if adapter_config["type"].startswith("lycoris_"):
         from rengu_flow.networks import lycoris_dit
@@ -129,11 +129,21 @@ def save(save_dir, state_dict, adapter_config, peft_config=None, export_prefix="
     else:
         if peft_config is not None:
             peft_config.save_pretrained(save_dir)
+        if lora_alpha_keys:
+            # One "<module>.alpha" scalar per LoRA module (kohya / ComfyUI convention); the
+            # loaders read alpha / rank from it, without it they assume scale 1.
+            modules = {k.rsplit(".lora_A.", 1)[0] for k in state_dict if ".lora_A." in k}
+            for module_name in sorted(modules):
+                state_dict[f"{module_name}.alpha"] = torch.tensor(float(adapter_config["alpha"]))
         state_dict = {export_prefix + k: v for k, v in state_dict.items()}
     atomic_save_safetensors(save_dir / "adapter_model.safetensors", state_dict)
 
 
-def load_weights(transformer, adapter_path):
+def load_weights(transformer, adapter_path, expected_alpha=None):
+    """Load an exported adapter into the attached one. ``expected_alpha`` (the run's
+    ``adapter.alpha``) is compared with the file's ``<module>.alpha`` scalars: they set the
+    LoRA/LoKr scale (alpha / rank), so a mismatch changes the adapter's effect — warned, not
+    fatal, because the attached adapter keeps the run's alpha."""
     if is_main_process():
         print(f"Loading adapter weights from path {adapter_path}")
     safetensors_files = list(Path(adapter_path).glob("*.safetensors"))
@@ -145,14 +155,28 @@ def load_weights(transformer, adapter_path):
     is_lokr = any("lokr_" in k for k in adapter_state_dict.keys())
     modified_state_dict = {}
     model_parameters = set(name for name, _ in transformer.named_parameters())
+    file_alphas = set()
     for k, v in adapter_state_dict.items():
         k = re.sub(r"^(transformer|diffusion_model)\.", "", k)
-        if is_lokr:
-            if k.endswith(".alpha"):
-                continue
-        else:
+        if k.endswith(".alpha"):
+            # Export-time scalar (the adapter.alpha the file was trained with); the attached
+            # adapter's scale comes from the run config, never from a parameter.
+            file_alphas.add(float(v.item()))
+            continue
+        if not is_lokr:
             k = re.sub(r"\.weight$", ".default.weight", k)
         if k not in model_parameters:
             raise RuntimeError(f"modified_state_dict key {k} is not in the model parameters")
         modified_state_dict[k] = v
+    if expected_alpha is not None and any(abs(a - float(expected_alpha)) > 1e-6 for a in file_alphas):
+        import warnings
+
+        msg = (
+            f"adapter {adapter_path}: its .alpha {sorted(file_alphas)} differs from this run's "
+            f"adapter.alpha {float(expected_alpha)}; the loaded weights are applied at this run's "
+            "scale (alpha / rank), so their effect changes."
+        )
+        warnings.warn(msg, stacklevel=2)
+        if is_main_process():
+            print(f"WARNING: {msg}")
     transformer.load_state_dict(modified_state_dict, strict=False)

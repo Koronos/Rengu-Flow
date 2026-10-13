@@ -68,6 +68,35 @@ Tests are designed to run in a few seconds. They do **not** use GPU, real checkp
 | `test_docs_reader.py` | Safe markdown path resolution |
 | `test_registry_probe.py` | Optimizer/scheduler import probe |
 
+### Model contract suites (`tests/contract/`)
+
+Every registered model is covered by shared suites, parametrized over the registry, so a new model is tested by registering its spec and shipping its testkit (`rengu_flow/model/<m>/testkit.py`, a tiny random model built through the real loaders). Do not write per-model copies of these checks. A check a model cannot honor is declared by its testkit (`NOT_APPLICABLE`, with a reason), never by branching on the model type in the suite. Flow: [adding-a-model.md](adding-a-model.md).
+
+| Suite | File | What it proves |
+|-------|------|----------------|
+| A, spec | `test_spec_contract.py` | The spec is consistent and everything derived from it works: validation, defaults, env, installer, preview dispatch, UI form/help/visibility, examples, README row, `.env.example`, NOTICE, package data. No torch. |
+| B, pipeline | `test_pipeline_contract.py` | The real pipeline over the tiny kit (CPU): layers equal the model's own forward, gradients, adapter scope and export keys, layer groups, quantization scope, cache fns, flow target, previews, `save_model` round trip. |
+| C, seam | `test_data_model_seam.py` | Real images -> real `Dataset`/`DatasetManager` cache -> micro-batch split -> `prepare_inputs` -> every layer -> loss/backward, per `cases()` entry. No doubles. |
+| D, synthetic model | `test_synthetic_model_integration.py` (+ `toy_model/`) | A model that is only package + spec + one registration line reaches every surface; suites A and B run on it. A per-type list left anywhere fails here. |
+| E, smoke tooling | `test_smoke_mini.py` | Every kit model runs in `scripts/smoke_mini.py`; smoke fixture or `SMOKE_FIXTURE_EXEMPT`; docs use generic smoke commands. |
+
+Run them: `uv run --no-sync pytest -q tests/contract` (needs the `dev` and `cosmos_predict2` extras; a missing extra skips that model).
+
+**Goldens.** Two kinds pin behavior so refactors of shared code cannot move it silently:
+
+- *Numeric* (`tests/golden/model_numeric/<type>.json`): tiny-model outputs (layer outputs, export keys, preview hash) compared by the `golden` fixture in `tests/contract/conftest.py`.
+- *Surface* (`tests/golden/model_surface/<type>.json` + `_global.json`, `tests/golden/legacy_configs/`): everything a type touches outside its package (descriptor, UI schema, defaults, validation, env, installer, preview dispatch), dumped by `scripts/dump_model_surface.py` and compared by `tests/test_model_surface_golden.py`.
+
+Regenerating is an explicit, reviewed act. Only for an intended change, and one writer per file:
+
+```bash
+RENGU_UPDATE_GOLDEN=1 uv run --no-sync pytest tests/contract tests/test_model_surface_golden.py -n 0
+# surface only: uv run --no-sync python scripts/dump_model_surface.py     (--check = drift report, exit 1)
+git diff tests/golden        # read every changed line and justify it; never regenerate to turn a test green
+```
+
+A new model's first run creates its golden files; for an existing model a changed golden is a behavior change that needs a reason in the commit.
+
 ### Web UI (control plane)
 
 Run the UI-focused suite (no browser, no GPU):
@@ -164,7 +193,7 @@ Dataset-related tests (config, loader, captions, cache hooks, smoke fixture):
 | `tests/test_ui_signals.py` | `send_signal` and job signals API. |
 | `tests/test_genericoptim_cpu_state.py` | `GenericOptim` + `kahan_buffer_offload` CPU state roundtrip. |
 
-**GPU smokes (optional, local):** Convention, inventory and checklist for adding one: [Smoke tests](smoke-tests.md). Copy `.env.example` to `.env` (gitignored) and set `RENGU_SDXL_CHECKPOINT_PATH` / `RENGU_COSMOS_*` / `RENGU_KREA2_*`. Configs live under `tests/fixtures/smoke/` (not `examples/`). `scripts/run_model_smoke.sh sdxl|cosmos|krea2` vendors fixtures if needed, runs `--cache_only`, then **30** training steps. `scripts/smoke_training_signals.sh` exercises every signal file plus `genericoptim` resume (requires the `optim` extra (`./rengu init optim`)). `rengu_flow.config.local_env` applies env vars before validation; missing weights exit **77** (skipped). `python scripts/smoke_krea2_mini.py` trains Krea 2 on a random mini model (no weights, no DeepSpeed; native Windows or Linux). Scripts **purge** `output/`, fixture caches, and `tmp/smoke_*.log` by default (`KEEP_SMOKE_ARTIFACTS=1` / `KEEP_SMOKE_LOG=1` to retain).
+**GPU smokes (optional, local):** Convention, inventory and checklist for adding one: [Smoke tests](smoke-tests.md). Copy `.env.example` to `.env` (gitignored) and set `RENGU_SDXL_CHECKPOINT_PATH` / `RENGU_COSMOS_*` / `RENGU_KREA2_*`. Configs live under `tests/fixtures/smoke/` (not `examples/`). `scripts/run_model_smoke.sh <model>` vendors fixtures if needed, runs `--cache_only`, then **30** training steps. `scripts/smoke_training_signals.sh` exercises every signal file plus `genericoptim` resume (requires the `optim` extra (`./rengu init optim`)). `rengu_flow.config.local_env` applies env vars before validation; missing weights exit **77** (skipped). `python scripts/smoke_mini.py --model <model>` trains any model with a testkit on a tiny random model (no weights, no DeepSpeed, no GPU; native Windows or Linux). Scripts **purge** `output/`, fixture caches, and `tmp/smoke_*.log` by default (`KEEP_SMOKE_ARTIFACTS=1` / `KEEP_SMOKE_LOG=1` to retain).
 
 **GPU smoke A/B (dataloader/cache flags):** After unit tests pass, run `scripts/smoke_perf_ab.sh sdxl` for baseline `iter_sec_mean` (steps ≥ 6 from `bench_steps.csv`), then e.g. `scripts/smoke_perf_ab.sh sdxl prefetch` to compare `dataloader_prefetch=true`. Presets: `prefetch`, `workers2`. See [performance-cpu-ram](performance-cpu-ram.md).
 

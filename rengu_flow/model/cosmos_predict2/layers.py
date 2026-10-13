@@ -7,6 +7,7 @@ from torch import nn
 
 from rengu_flow.model.base import make_contiguous
 from rengu_flow.model.cosmos_predict2.text import compute_text_embeddings, tokenize
+from rengu_flow.model.dit_common.layers import OffloadedBlockLayer, mark_inter_layer_grads
 from rengu_flow.training.block_swap import NoopOffloader
 from rengu_flow.utils.common import cuda_autocast
 
@@ -63,10 +64,7 @@ class InitialLayer(nn.Module):
             # the text embedding is a cached (or no_grad-encoded) leaf — it gets its grad from
             # the LLM adapter when that trains. Marking the RoPE table would make every block
             # backprop into a leaf nobody reads.
-            marked = outputs if self.pipe_parallel else (outputs[0], outputs[1], outputs[7])
-            for tensor in marked:
-                if tensor is not None and torch.is_floating_point(tensor):
-                    tensor.requires_grad_(True)
+            mark_inter_layer_grads(outputs, self.pipe_parallel, (outputs[0], outputs[1], outputs[7]))
             return outputs
 
 
@@ -97,30 +95,16 @@ class LLMAdapterLayer(nn.Module):
             )
 
 
-class TransformerLayer(nn.Module):
-    def __init__(self, block, block_idx, offloader):
-        super().__init__()
-        self.block = block
-        self.block_idx = block_idx
-        self.offloader = offloader
-
-    def forward(self, inputs):
-        with cuda_autocast():
-            x_B_T_H_W_D, t_embedding_B_T_D, crossattn_emb, rope_emb_L_1_1_D, adaln_lora_B_T_3D, timesteps_B_T = inputs
-
-            self.offloader.wait_for_block(self.block_idx)
-            # Detached: reentrant AC (and pipe stages) hand the passthrough RoPE table back
-            # requiring grad; the block must still treat it as a constant.
-            x_B_T_H_W_D = self.block(
-                x_B_T_H_W_D, t_embedding_B_T_D, crossattn_emb,
-                rope_emb_L_1_1_D=rope_emb_L_1_1_D.detach(), adaln_lora_B_T_3D=adaln_lora_B_T_3D,
-            )
-            self.offloader.submit_move_blocks_forward(self.block_idx)
-
-            return make_contiguous(
-                x_B_T_H_W_D, t_embedding_B_T_D, crossattn_emb, rope_emb_L_1_1_D,
-                adaln_lora_B_T_3D, timesteps_B_T,
-            )
+class TransformerLayer(OffloadedBlockLayer):
+    def run_block(self, inputs):
+        x_B_T_H_W_D, t_embedding_B_T_D, crossattn_emb, rope_emb_L_1_1_D, adaln_lora_B_T_3D, timesteps_B_T = inputs
+        # Detached: reentrant AC (and pipe stages) hand the passthrough RoPE table back
+        # requiring grad; the block must still treat it as a constant.
+        x_B_T_H_W_D = self.block(
+            x_B_T_H_W_D, t_embedding_B_T_D, crossattn_emb,
+            rope_emb_L_1_1_D=rope_emb_L_1_1_D.detach(), adaln_lora_B_T_3D=adaln_lora_B_T_3D,
+        )
+        return x_B_T_H_W_D, t_embedding_B_T_D, crossattn_emb, rope_emb_L_1_1_D, adaln_lora_B_T_3D, timesteps_B_T
 
 
 class FinalLayer(nn.Module):

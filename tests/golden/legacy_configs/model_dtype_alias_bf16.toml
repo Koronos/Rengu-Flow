@@ -1,0 +1,10 @@
+dataset = "examples/minimal_dataset.toml"
+
+[model]
+type = "sdxl"
+dtype = "bf16"
+checkpoint_path = "x"
+
+[optimizer]
+type = "adamw"
+lr = 1e-4

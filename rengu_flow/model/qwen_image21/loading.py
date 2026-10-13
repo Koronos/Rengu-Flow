@@ -35,6 +35,15 @@ from pathlib import Path
 import torch
 
 from rengu_flow.config.validation import ConfigValidationError
+from rengu_flow.model.dit_common.loading import (
+    config_dir_or_bundled,
+    guard_not_prequantized,
+    load_file_or_folder,
+    read_safetensors,
+    require_exists,
+    strip_comfy_prefix,
+)
+from rengu_flow.model.dit_common.qwen3vl import load_qwen3vl_tokenizer
 
 ASSETS_DIR = Path(__file__).parent / "assets"
 QWEN3VL_8B_ASSETS = ASSETS_DIR / "qwen3vl_8b"
@@ -45,30 +54,23 @@ _QUANTIZED_DTYPES = {torch.float8_e4m3fn, torch.float8_e5m2, torch.int8, torch.u
 _QUANT_KEY_SUFFIXES = ("scale_weight", "weight_scale", "comfy_quant", "input_scale")
 
 
-def _require_exists(path: str | Path, what: str) -> Path:
-    p = Path(path)
-    if not p.exists():
-        raise ConfigValidationError(
-            f"model.{what}: {p} does not exist. Point it at a local .safetensors file or "
-            "folder you already downloaded — rengu never downloads models or resolves repo ids."
-        )
-    return p
-
-
 def _config_kwargs(path: Path) -> dict:
     return {k: v for k, v in json.loads(path.read_text()).items() if not k.startswith("_")}
 
 
 def _guard_not_prequantized(state_dict: dict, what: str) -> None:
-    quantized = _QUANTIZED_DTYPES & {v.dtype for v in state_dict.values()}
-    marked = any(k.endswith(_QUANT_KEY_SUFFIXES) for k in state_dict)
-    if quantized or marked:
-        raise ConfigValidationError(
-            f"model.{what} points at a pre-quantized (int8/fp8) file, which cannot be trained. "
-            "Use the bf16 file (e.g. qwen_image_2.1_bf16.safetensors or the diffusers "
+    guard_not_prequantized(
+        state_dict,
+        what,
+        kind="int8/fp8",
+        advice=(
+            ". Use the bf16 file (e.g. qwen_image_2.1_bf16.safetensors or the diffusers "
             "transformer/ folder); for VRAM use model.transformer_fp8_matmul or "
             "model.transformer_4bit instead."
-        )
+        ),
+        dtypes=_QUANTIZED_DTYPES,
+        key_suffixes=_QUANT_KEY_SUFFIXES,
+    )
 
 
 def split_fused_mlp(state_dict: dict) -> dict:
@@ -89,16 +91,23 @@ def load_transformer(path: str | Path, dtype: torch.dtype):
     """Load the Qwen-Image 2.1 DiT from a diffusers folder or a single file."""
     from rengu_flow.model.qwen_image21.dit import QwenImage21Transformer2DModel
 
-    path = _require_exists(path, "transformer_path")
-    if not path.is_file():
-        return QwenImage21Transformer2DModel.from_pretrained(path, torch_dtype=dtype)
+    return load_file_or_folder(
+        path,
+        "transformer_path",
+        folder=lambda p: QwenImage21Transformer2DModel.from_pretrained(p, torch_dtype=dtype),
+        file=lambda p: _transformer_from_file(p, dtype),
+    )
 
-    from safetensors.torch import load_file
 
-    state_dict = load_file(path)
+def _transformer_from_file(path: Path, dtype: torch.dtype):
+    from rengu_flow.model.qwen_image21.dit import QwenImage21Transformer2DModel
+
+    # Tensor by tensor, cast as read (peak RAM = one copy in ``dtype``); the quantized dtypes
+    # keep theirs so the guard still sees them.
+    state_dict = read_safetensors(path, dtype, keep_dtypes=_QUANTIZED_DTYPES)
     _guard_not_prequantized(state_dict, "transformer_path")
     # Some re-exports wrap the keys in a comfy checkpoint prefix.
-    state_dict = {re.sub(r"^(model\.)?diffusion_model\.", "", k): v for k, v in state_dict.items()}
+    state_dict = strip_comfy_prefix(state_dict)
     if not any(k.startswith("transformer_blocks.") for k in state_dict):
         raise ConfigValidationError(
             "model.transformer_path: unrecognized Qwen-Image 2.1 checkpoint key layout (expected "
@@ -110,7 +119,6 @@ def load_transformer(path: str | Path, dtype: torch.dtype):
     # include_buffers=False: the rope/timestep freqs are not in the checkpoint and must stay real.
     with init_empty_weights(include_buffers=False):
         transformer = QwenImage21Transformer2DModel(**_config_kwargs(TRANSFORMER_CONFIG_PATH))
-    state_dict = {k: v.to(dtype) for k, v in state_dict.items()}
     transformer.load_state_dict(state_dict, strict=True, assign=True)
     return transformer
 
@@ -170,29 +178,36 @@ def load_vae(path: str | Path, dtype: torch.dtype):
     ComfyUI's original layout, converted here)."""
     from rengu_flow.model.qwen_image21.vae import AutoencoderKLQwenImage21
 
-    path = _require_exists(path, "vae_path")
-    if not path.is_file():
-        vae = AutoencoderKLQwenImage21.from_pretrained(path, torch_dtype=dtype)
-    else:
-        from safetensors.torch import load_file
-
-        state_dict = load_file(path)
-        if is_original_vae_layout(state_dict):
-            state_dict = convert_original_vae_state_dict(state_dict)
-        vae = AutoencoderKLQwenImage21.from_config(_config_kwargs(VAE_CONFIG_PATH))
-        expected = set(vae.state_dict())
-        missing, unexpected = expected - set(state_dict), set(state_dict) - expected
-        if missing or unexpected:
-            raise ConfigValidationError(
-                "model.vae_path: not a Qwen-Image 2.1 VAE (expected ComfyUI's "
-                "qwen_image_2.1_vae_bf16.safetensors, a diffusers-layout file or the diffusers "
-                f"vae/ folder); {len(missing)} missing keys (e.g. {sorted(missing)[:3]}), "
-                f"{len(unexpected)} unexpected (e.g. {sorted(unexpected)[:3]})."
-            )
-        vae.load_state_dict(state_dict, strict=True)
-        vae = vae.to(dtype)
+    vae = load_file_or_folder(
+        path,
+        "vae_path",
+        folder=lambda p: AutoencoderKLQwenImage21.from_pretrained(p, torch_dtype=dtype),
+        file=lambda p: _vae_from_file(p, dtype),
+    )
     vae.eval().requires_grad_(False)
     return vae
+
+
+def _vae_from_file(path: Path, dtype: torch.dtype):
+    from safetensors.torch import load_file
+
+    from rengu_flow.model.qwen_image21.vae import AutoencoderKLQwenImage21
+
+    state_dict = load_file(path)
+    if is_original_vae_layout(state_dict):
+        state_dict = convert_original_vae_state_dict(state_dict)
+    vae = AutoencoderKLQwenImage21.from_config(_config_kwargs(VAE_CONFIG_PATH))
+    expected = set(vae.state_dict())
+    missing, unexpected = expected - set(state_dict), set(state_dict) - expected
+    if missing or unexpected:
+        raise ConfigValidationError(
+            "model.vae_path: not a Qwen-Image 2.1 VAE (expected ComfyUI's "
+            "qwen_image_2.1_vae_bf16.safetensors, a diffusers-layout file or the diffusers "
+            f"vae/ folder); {len(missing)} missing keys (e.g. {sorted(missing)[:3]}), "
+            f"{len(unexpected)} unexpected (e.g. {sorted(unexpected)[:3]})."
+        )
+    vae.load_state_dict(state_dict, strict=True)
+    return vae.to(dtype)
 
 
 def load_qwen3vl_config(path: str | Path):
@@ -201,8 +216,7 @@ def load_qwen3vl_config(path: str | Path):
     from transformers import AutoConfig
 
     path = Path(path)
-    config_dir = path if (not path.is_file() and (path / "config.json").exists()) else QWEN3VL_8B_ASSETS
-    return AutoConfig.from_pretrained(config_dir)
+    return AutoConfig.from_pretrained(config_dir_or_bundled(path, QWEN3VL_8B_ASSETS))
 
 
 def load_text_encoder(path: str | Path, dtype: torch.dtype):
@@ -210,7 +224,7 @@ def load_text_encoder(path: str | Path, dtype: torch.dtype):
     single file, reading only the text-decoder tensors."""
     from rengu_flow.model.dit_common.qwen3vl import checkpoint_files, load_qwen3vl_text_model
 
-    path = _require_exists(path, "text_encoder_path")
+    path = require_exists(path, "text_encoder_path")
     text_config = load_qwen3vl_config(path).text_config
     files = checkpoint_files(path)
     if not files:
@@ -235,7 +249,7 @@ def load_vision_encoder(path: str | Path, dtype: torch.dtype):
     same checkpoint as the text decoder, reading only its ``visual.*`` tensors (~0.6B params)."""
     from rengu_flow.model.dit_common.qwen3vl import load_qwen3vl_vision_model, vision_checkpoint_files
 
-    path = _require_exists(path, "text_encoder_path")
+    path = require_exists(path, "text_encoder_path")
     try:
         return load_qwen3vl_vision_model(
             vision_checkpoint_files(path), load_qwen3vl_config(path).vision_config, dtype
@@ -255,7 +269,7 @@ def load_processor(path: str | Path | None, tokenizer):
     from transformers import AutoImageProcessor, Qwen3VLProcessor
     from transformers.models.qwen3_vl.video_processing_qwen3_vl import Qwen3VLVideoProcessor
 
-    source = _require_exists(path, "processor_path") if path else QWEN3VL_8B_ASSETS
+    source = require_exists(path, "processor_path") if path else QWEN3VL_8B_ASSETS
     return Qwen3VLProcessor(
         image_processor=AutoImageProcessor.from_pretrained(source),
         tokenizer=tokenizer,
@@ -265,10 +279,5 @@ def load_processor(path: str | Path | None, tokenizer):
 
 
 def load_tokenizer(path: str | Path | None):
-    from transformers import AutoTokenizer
-
-    if path:
-        return AutoTokenizer.from_pretrained(_require_exists(path, "processor_path"))
-    from rengu_flow.model.krea2.loading import QWEN3VL_ASSETS  # same Qwen3-VL tokenizer
-
-    return AutoTokenizer.from_pretrained(QWEN3VL_ASSETS)
+    """The processor folder's tokenizer, else the bundled Qwen3-VL one (shared with krea2)."""
+    return load_qwen3vl_tokenizer(path, "processor_path")

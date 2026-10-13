@@ -53,6 +53,9 @@ cosmos_predict2 = [
     "transformers>=4.51.0",
     "accelerate>=0.30.0",
     "einops>=0.7.0",
+    # nanosaur2 (same profile): its Gemma3 tokenizer is a SentencePiece model stored inside the
+    # text-encoder file.
+    "sentencepiece>=0.2.0",
 ]
 optim = [
     "bitsandbytes",
@@ -123,6 +126,7 @@ include = ["rengu_flow*", "rengu_flow_ui*", "rengu_track*"]
 
 [tool.setuptools.package-data]
 "rengu_flow.model.cosmos_predict2" = ["assets/**/*"]
+"rengu_flow.model.dit_common" = ["assets/**/*"]
 "rengu_flow.model.krea2" = ["assets/**/*"]
 "rengu_flow.model.qwen_image21" = ["assets/**/*"]
 

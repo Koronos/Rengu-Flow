@@ -23,6 +23,16 @@ import math
 import torch
 
 from rengu_flow.model.dit_common import pad_text_embeddings, preview_autocast, preview_compute_dtype
+from rengu_flow.model.dit_common import preview_sampler
+from rengu_flow.model.dit_common.preview_sampler import (
+    CFG_FROM_UNCOND,
+    apply_cfg,
+    decode_to_pil,
+    preview_settings,
+    preview_size,
+    run_blocks,
+    seeded_noise,
+)
 from rengu_flow.model.qwen_image21.dit import (
     QwenImage21KVCache,
     build_t2i_img_mask,
@@ -30,7 +40,6 @@ from rengu_flow.model.qwen_image21.dit import (
     t2i_img_shapes,
     unpack_latents,
 )
-from rengu_flow.utils.common import round_to_nearest_multiple
 
 # Condition-image and output sizes are multiples of 32 px (16x VAE, 2x2 latents per vision slot).
 CONDITION_MULTIPLE = 32
@@ -46,12 +55,9 @@ def shifted_sigmas(num_steps: int, image_seq_len: int, device="cpu") -> torch.Te
     """The ``num_steps + 1`` sigmas (terminal 0 appended) of the reference scheduler."""
     from rengu_flow.model.qwen_image21.pipeline import calculate_shift
 
-    mu = calculate_shift(image_seq_len)
-    sigmas = torch.linspace(1.0, 1.0 / num_steps, num_steps, dtype=torch.float64)
-    sigmas = math.exp(mu) / (math.exp(mu) + (1 / sigmas - 1))
-    one_minus = 1 - sigmas
-    sigmas = 1 - one_minus / (one_minus[-1] / (1 - SHIFT_TERMINAL))
-    return torch.cat([sigmas, sigmas.new_zeros(1)]).float().to(device)
+    return preview_sampler.shifted_sigmas(
+        num_steps, calculate_shift(image_seq_len), shift_terminal=SHIFT_TERMINAL, device=device
+    )
 
 
 def denoise_step(
@@ -71,16 +77,15 @@ def denoise_step(
     ``[condition latents | target]``; ``target_len`` (default: all of it) is the target's
     ``h*w``."""
     transformer = pipeline.transformer
-    offloader = getattr(pipeline, "_preview_offloader", None)
     prepared = transformer.prepare_inputs(
         hidden_states, embeds, timestep, img_shapes, img_mask, encoder_mask, kv_cache, kv_cache_mode
     )
-    hidden = prepared.hidden_states
-    for i, block in enumerate(transformer.transformer_blocks):
-        if offloader is not None:
-            offloader.wait_for_block(i)
-        hidden = block(
-            hidden,
+    hidden = run_blocks(
+        pipeline,
+        transformer.transformer_blocks,
+        prepared.hidden_states,
+        lambda i, block, h: block(
+            h,
             prepared.modulation,
             prepared.rotary_emb,
             prepared.attention_mask,
@@ -90,9 +95,8 @@ def denoise_step(
             prepared.cache_write_slice,
             prepared.segments,
             prepared.key_valid,
-        )
-        if offloader is not None:
-            offloader.submit_move_blocks_forward(i)
+        ),
+    )
     n = hidden_states.shape[1] if target_len is None else target_len
     mask = None if prepared.modulation_mask is None else prepared.modulation_mask[-n:]
     return transformer.finalize(hidden[:, -n:], prepared.temb, mask)
@@ -120,11 +124,8 @@ def generate_preview_image(
 ):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     # 16x VAE and 2x2 latent groups per vision slot: pixels must be multiples of 32.
-    width = round_to_nearest_multiple(int(preview_cfg.get("width", 1024)), 32)
-    height = round_to_nearest_multiple(int(preview_cfg.get("height", 1024)), 32)
-    num_steps = int(preview_cfg.get("num_inference_steps", 28))
-    guidance = float(preview_cfg.get("guidance_scale", 1.0))
-    negative_prompt = str(preview_cfg.get("negative_prompt", ""))
+    width, height = preview_size(preview_cfg, CONDITION_MULTIPLE)
+    num_steps, guidance, negative_prompt = preview_settings(pipeline, preview_cfg)
     do_cfg = guidance > 1.0
 
     pipeline.ensure_vae_for_preview()
@@ -160,13 +161,7 @@ def generate_preview_image(
     grid_h, grid_w = height // 16, width // 16
     batch = len(prompts)
 
-    generator = torch.Generator(device=device).manual_seed(seed)
-    latents = torch.randn(
-        (1, transformer.config.in_channels, grid_h, grid_w),
-        generator=generator,
-        device=device,
-        dtype=torch.float32,
-    )
+    latents = seeded_noise((1, transformer.config.in_channels, grid_h, grid_w), seed, device)
     packed = pack_latents(latents)
     sigmas = shifted_sigmas(num_steps, grid_h * grid_w, device)
 
@@ -215,28 +210,33 @@ def generate_preview_image(
             ).float()
             if do_cfg:
                 cond, uncond = velocity[:1], velocity[1:]
-                velocity = uncond + guidance * (cond - uncond)
+                velocity = apply_cfg(cond, uncond, guidance, CFG_FROM_UNCOND)
             packed = packed + (sigmas[i + 1] - sigmas[i]) * velocity
         del kv_cache
 
         latents = unpack_latents(packed, grid_h, grid_w)
-        vae = pipeline.vae.to(device)
-        mean, std = pipeline._latent_stats(device, vae.dtype)
-        latents = latents.to(vae.dtype) * std + mean
         # An untiled 1024x1024 decode needs ~6.6 GB of activations (measured, bf16) — more
         # than an 8 GB card has left next to the DiT. 512 px tiles with a 64 px blended overlap
         # cap it at ~1.7 GB; smaller images decode in one piece exactly as before.
-        was_tiling = vae.use_tiling
-        vae.enable_tiling(PREVIEW_TILE, PREVIEW_TILE, PREVIEW_TILE_STRIDE, PREVIEW_TILE_STRIDE)
-        try:
-            image = vae.decode(latents.unsqueeze(2)).sample[:, :, 0]
-        finally:
-            vae.use_tiling = was_tiling
+        return decode_to_pil(pipeline, latents, device, decode=_decode_tiled, to_pil=_rgba_over_white)
 
-    rgba = (image[0].float().clamp(-1, 1) + 1) / 2  # (4, H, W) in [0, 1]
-    # The VAE decodes RGBA; show it composited over white (what an image viewer does).
-    rgb = rgba[:3] * rgba[3:4] + (1 - rgba[3:4])
-    rgb = (rgb * 255).round().to(torch.uint8)
+
+def _decode_tiled(vae, latents: torch.Tensor) -> torch.Tensor:
+    """Decode ``(B, C, h, w)`` latents (RGBA out) with the preview's tiled VAE."""
+    was_tiling = vae.use_tiling
+    vae.enable_tiling(PREVIEW_TILE, PREVIEW_TILE, PREVIEW_TILE_STRIDE, PREVIEW_TILE_STRIDE)
+    try:
+        return vae.decode(latents.unsqueeze(2)).sample[:, :, 0]
+    finally:
+        vae.use_tiling = was_tiling
+
+
+def _rgba_over_white(image: torch.Tensor):
+    """``(4, H, W)`` RGBA in ``[-1, 1]`` -> PIL RGB, composited over white (what an image viewer
+    does with the alpha the VAE decodes)."""
     from PIL import Image
 
+    rgba = (image.float().clamp(-1, 1) + 1) / 2  # (4, H, W) in [0, 1]
+    rgb = rgba[:3] * rgba[3:4] + (1 - rgba[3:4])
+    rgb = (rgb * 255).round().to(torch.uint8)
     return Image.fromarray(rgb.permute(1, 2, 0).cpu().numpy())

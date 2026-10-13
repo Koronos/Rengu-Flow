@@ -19,14 +19,12 @@ from __future__ import annotations
 from pathlib import Path
 
 import torch
-import torch.nn.functional as F
-from torch import nn
 
 from rengu_flow.config.validation import ConfigValidationError
 from rengu_flow.data.control import summarize_control_problems
-from rengu_flow.data.preprocess_media import PreprocessMediaFile
 from rengu_flow.model import dit_common
 from rengu_flow.model.dit_common.streaming import OFFLOAD_MODES, LazyStreamedEncoderWithCompanion
+from rengu_flow.model.dit_common.text import ragged_rows
 from rengu_flow.model.qwen_image21 import loading
 from rengu_flow.model.qwen_image21.dit import pack_latents
 from rengu_flow.model.qwen_image21.layers import MAX_CONDITION_IMAGES, FinalLayer, InitialLayer, TransformerLayer
@@ -38,7 +36,6 @@ from rengu_flow.model.qwen_image21.text import (
     vision_language_model,
 )
 from rengu_flow.registry.models import register_model
-from rengu_flow.utils.save_io import atomic_save_safetensors
 
 # Every Linear in the DiT (per-block attention/SwiGLU, the shared modulation, text/image
 # projections, timestep MLP, output norm/projection) — the same all-linears scope krea2 uses.
@@ -178,26 +175,29 @@ class QwenImage21Pipeline(dit_common.DiTPipeline):
     # VAE f16, unpatched latents, and 2x2 latent groups per vision slot -> even latent grid.
     pixels_round_to_multiple = 32
     vae_spatial_compression = 16
+    # The ~16 GB text encoder caching freed is unloaded after a preview (prompts are memoized).
+    preview_unload_freed_text_encoder = True
+
+    # The adapter-composable frozen-base quantization (model.transformer_fp8_matmul / _4bit).
+    quant_leaf_names = QUANT_LEAF_NAMES
+    quant_skip_substrings = QUANT_SKIP_SUBSTRINGS
+    quant_label = "Qwen-Image 2.1"
+    text_cache_required_reason = ": the 8B Qwen3-VL text encoder cannot run inside the training graph."
+    missing_component_message = (
+        "model.{component}_path is required for {name} unless model.{bundle} points at the "
+        "Qwen-Image-2.1 diffusers folder (transformer/, vae/, text_encoder/, processor/)."
+    )
 
     def __init__(self, config):
-        self.config = config
-        self.model_config = config["model"]
-        self._init_block_swap_state()
+        self._init_pipeline(config)
         dtype = self.model_config["dtype"]
-
-        if not self.model_config.get("cache_text_embeddings", True):
-            raise ConfigValidationError(
-                "qwen_image21 requires cache_text_embeddings = true: the 8B Qwen3-VL text "
-                "encoder cannot run inside the training graph."
-            )
-        self.cache_text_embeddings = True
         offload = str(self.model_config.get("text_encoder_offload", "auto"))
         if offload not in OFFLOAD_MODES:
             raise ConfigValidationError(
                 f"model.text_encoder_offload must be one of {', '.join(OFFLOAD_MODES)}; got {offload!r}."
             )
 
-        self.vae = loading.load_vae(self._component_path("vae"), dtype)
+        self.vae = self._load_vae()
         self.tokenizer = loading.load_tokenizer(self._processor_path())
         self.drop_idx = drop_index(self.tokenizer)
         text_encoder_path = self._component_path("text_encoder")
@@ -211,28 +211,8 @@ class QwenImage21Pipeline(dit_common.DiTPipeline):
             name="Qwen3-VL text encoder",
             companion_name="Qwen3-VL vision tower",
         )
-        self.transformer = None
-        self._preview_embed_cache: dict = {}
         self._processor = None
         self._vlm_shell = None
-
-    # ---- component paths ------------------------------------------------------------------
-
-    def _component_path(self, component: str) -> str:
-        """``model.<component>_path`` (a local file or folder) when set, else the
-        ``<component>`` subfolder of ``model.diffusers_path`` (the Qwen/Qwen-Image-2.1
-        download). Never a repo id, never downloaded."""
-        override = self.model_config.get(f"{component}_path")
-        if override:
-            return str(override)
-        root = self.model_config.get("diffusers_path")
-        if not root:
-            raise ConfigValidationError(
-                f"model.{component}_path is required for qwen_image21 unless model.diffusers_path "
-                "points at the Qwen-Image-2.1 diffusers folder (transformer/, vae/, text_encoder/, "
-                "processor/)."
-            )
-        return str(Path(root) / component)
 
     def _processor_path(self) -> str | None:
         if override := self.model_config.get("processor_path"):
@@ -242,46 +222,24 @@ class QwenImage21Pipeline(dit_common.DiTPipeline):
             return str(Path(root) / "processor")
         return None  # bundled Qwen3-VL tokenizer
 
-    # ---- DiT -------------------------------------------------------------------------------
+    # ---- DiTPipeline hooks -----------------------------------------------------------------
 
-    def load_diffusion_model(self, *, force: bool = False) -> None:
-        if self.transformer is not None and not force:
-            return
-        dtype = self.model_config["dtype"]
-        transformer_dtype = self.model_config.get("transformer_dtype", dtype)
-        self.transformer = loading.load_transformer(
-            self._component_path("transformer"), transformer_dtype
-        )
-        dit_common.quantize_frozen_dit(
-            self.transformer,
-            self.model_config,
-            leaf_names=QUANT_LEAF_NAMES,
-            skip_substrings=QUANT_SKIP_SUBSTRINGS,
-            label="Qwen-Image 2.1",
-        )
-        self.transformer.train()
-        for name, p in self.transformer.named_parameters():
-            p.original_name = name
-            if "adapter" not in self.config:
-                p.requires_grad_(True)
+    def _load_transformer(self, dtype):
+        return loading.load_transformer(self._component_path("transformer"), dtype)
+
+    def _load_vae(self):
+        return loading.load_vae(self._component_path("vae"), self.model_config["dtype"])
+
+    def _encode_text(self, text_encoder, prompts, device):
+        return encode_prompts(text_encoder, self.tokenizer, prompts, device=device, drop_idx=self.drop_idx)
 
     # ---- caching hooks ---------------------------------------------------------------------
 
-    def get_vae(self):
-        return self.vae
-
-    def get_text_encoders(self):
-        return [self.text_encoder]
-
-    def get_preprocess_media_file_fn(self, augmentation_resolver=None):
-        return PreprocessMediaFile(
-            self.config, support_video=False, augmentation_resolver=augmentation_resolver
-        )
-
-    def _latent_stats(self, device, dtype) -> tuple[torch.Tensor, torch.Tensor]:
-        mean = torch.tensor(self.vae.config.latents_mean, device=device, dtype=dtype).view(1, -1, 1, 1)
-        std = torch.tensor(self.vae.config.latents_std, device=device, dtype=dtype).view(1, -1, 1, 1)
-        return mean, std
+    def _vae_pixels(self, tensor: torch.Tensor) -> torch.Tensor:
+        # The VAE reads RGBA; dataset images are RGB -> fully opaque alpha (1 in [-1, 1]).
+        if tensor.shape[1] == 3:
+            tensor = torch.cat([tensor, torch.ones_like(tensor[:, :1])], dim=1)
+        return tensor
 
     def encode_condition_latents(self, vae, tensor: torch.Tensor) -> torch.Tensor:
         """Normalized VAE latents ``(B, 64, 1, H/16, W/16)`` of a condition-image batch
@@ -291,25 +249,13 @@ class QwenImage21Pipeline(dit_common.DiTPipeline):
         tensor = tensor.to(p.device, p.dtype)
         if tensor.ndim == 4:
             tensor = tensor.unsqueeze(2)
-        if tensor.shape[1] == 3:
-            tensor = torch.cat([tensor, torch.ones_like(tensor[:, :1])], dim=1)
-        latents = vae.encode(tensor).latent_dist.mode()
+        latents = vae.encode(self._vae_pixels(tensor)).latent_dist.mode()
         mean, std = self._latent_stats(latents.device, latents.dtype)
         return (latents - mean.unsqueeze(2)) / std.unsqueeze(2)
 
     def get_call_vae_fn(self, vae):
         def fn(tensor, control_tensors=None):
-            p = next(vae.parameters())
-            tensor = tensor.to(p.device, p.dtype)
-            if tensor.shape[1] == 3:
-                # The VAE reads RGBA; dataset images are RGB -> fully opaque alpha (1 in [-1, 1]).
-                tensor = torch.cat([tensor, torch.ones_like(tensor[:, :1])], dim=1)
-            # (B, 4, T=1, H, W) in -> (B, 64, 1, H/16, W/16) out. The distribution's mode: a
-            # cached latent is reused every epoch, so one frozen random draw would bake that
-            # noise in for the whole run.
-            latents = vae.encode(tensor.unsqueeze(2)).latent_dist.mode().squeeze(2)
-            mean, std = self._latent_stats(latents.device, latents.dtype)
-            out = {"latents": (latents - mean) / std}
+            out = {"latents": self.encode_latents(vae, tensor)}
             if control_tensors is not None:
                 if torch.is_tensor(control_tensors):
                     control_tensors = [control_tensors]
@@ -398,13 +344,7 @@ class QwenImage21Pipeline(dit_common.DiTPipeline):
             # every row at the caching batch's longest caption (False tails), which then stack
             # into padded — masked-attention — training batches.
             if not edit_rows:
-                embeds, mask = encode_prompts(
-                    text_encoder, self.tokenizer, captions, device=device, drop_idx=self.drop_idx
-                )
-                return {
-                    "prompt_embeds": [e[m] for e, m in zip(embeds, mask)],
-                    "text_mask": [m[m] for m in mask],
-                }
+                return ragged_rows(*self._encode_text(text_encoder, captions, device))
             # Captions with condition images go through the full VLM; any without (a mixed batch)
             # through the unchanged text-only path. image_pad_mask is ragged like the embeddings.
             rows = {}
@@ -415,21 +355,15 @@ class QwenImage21Pipeline(dit_common.DiTPipeline):
                 rows[i] = (edit[0][j], edit[1][j], edit[2][j])
             plain_rows = [i for i in range(len(captions)) if i not in rows]
             if plain_rows:
-                embeds, mask = encode_prompts(
-                    text_encoder,
-                    self.tokenizer,
-                    [captions[i] for i in plain_rows],
-                    device=device,
-                    drop_idx=self.drop_idx,
-                )
+                embeds, mask = self._encode_text(text_encoder, [captions[i] for i in plain_rows], device)
                 for j, i in enumerate(plain_rows):
                     rows[i] = (embeds[j], mask[j], torch.zeros_like(mask[j]))
             ordered = [rows[i] for i in range(len(captions))]
-            return {
-                "prompt_embeds": [e[m] for e, m, _ in ordered],
-                "text_mask": [m[m] for _, m, _ in ordered],
-                "image_pad_mask": [pad[m] for _, m, pad in ordered],
-            }
+            return ragged_rows(
+                [e for e, _, _ in ordered],
+                [m for _, m, _ in ordered],
+                image_pad_mask=[pad for _, _, pad in ordered],
+            )
 
         return fn
 
@@ -440,20 +374,13 @@ class QwenImage21Pipeline(dit_common.DiTPipeline):
         with ``control_latents_*``) appends ``(img_mask, control_latents, control_layout)`` — see
         ``_edit_inputs``. Noise, the timestep shift and the loss involve the target only."""
         latents = inputs["latents"].float()
-        mask = inputs["mask"]
         prompt_embeds, text_mask = dit_common.pad_text_embeddings(inputs["prompt_embeds"], inputs["text_mask"])
-
-        bs, _channels, h, w = latents.shape
-
-        if mask is not None:
-            mask = mask.unsqueeze(1)
-            mask = F.interpolate(mask, size=(h, w), mode="nearest-exact")
-
-        t = dit_common.sample_timesteps(self.model_config, bs, latents.device, timestep_quantile)
+        h, w = latents.shape[-2:]
         # Resolution-aware exponential shift of the reference scheduler (the image sequence is
         # the unpatched latent grid); a fixed model.shift overrides it.
-        t = dit_common.shift_timesteps(t, self.model_config.get("shift", None), calculate_shift(h * w))
-        noisy_latents, target, t = dit_common.add_flow_noise(latents, t)
+        noisy_latents, t, target, mask = dit_common.flow_matching_batch(
+            self.model_config, latents, inputs["mask"], timestep_quantile, mu=calculate_shift(h * w)
+        )
 
         edit = _edit_inputs(inputs, prompt_embeds.shape[1], h, w)
         if edit is None:
@@ -469,58 +396,19 @@ class QwenImage21Pipeline(dit_common.DiTPipeline):
         layers.append(FinalLayer(self.transformer))
         return layers
 
-    def freeze_text_encoders(self):
-        pass
-
-    # ---- block swap ------------------------------------------------------------------------
-
-    def get_block_swap_modules(self) -> list[nn.Module]:
-        if self.transformer is None:
-            return []
-        return list(self.transformer.transformer_blocks)
-
-    def _block_swap_root_modules(self) -> list:
-        return [self.transformer]
-
-    # ---- adapters (configure/save/load come from DiTPipeline) ------------------------------
-
-    def load_and_fuse_adapter(self, path):
-        raise NotImplementedError("load_and_fuse_adapter is not implemented for qwen_image21")
-
-    # ---- export ----------------------------------------------------------------------------
-
-    def save_model(self, save_dir, state_dict):
-        """Write a diffusers-layout transformer folder (config.json + weights), loadable by
-        ``QwenImage21Transformer2DModel.from_pretrained`` and as the ``transformer`` component
-        of diffusers' ``QwenImage21Pipeline``."""
-        save_dir = Path(save_dir)
-        save_dir.mkdir(parents=True, exist_ok=True)
-        self.transformer.save_config(save_dir)
-        atomic_save_safetensors(save_dir / "diffusion_pytorch_model.safetensors", state_dict)
-
-    # ---- previews --------------------------------------------------------------------------
-
-    def _reload_vae_for_preview(self) -> None:
-        self.vae = loading.load_vae(self._component_path("vae"), self.model_config["dtype"])
-
-    def _reload_text_encoder_for_preview(self) -> nn.Module:
-        # The lazy wrapper reloads itself on the next .to(<cuda>).
-        return self.text_encoder
+    # ---- previews (VAE/TE lifecycle, memory, block swap, export: DiTPipeline) ---------------
 
     def preview_prompt_embeds(self, prompts: list[str], preview_cfg: dict, device) -> list[tuple[torch.Tensor, int]]:
         """``(embeds (L, D) on CPU, L)`` per prompt. Preview prompts repeat every preview, so
         their embeddings are memoized: the 8B encoder is loaded only for prompts never seen."""
-        missing = [p for p in dict.fromkeys(prompts) if p not in self._preview_embed_cache]
-        if missing:
-            self.ensure_text_encoder_for_preview(device)
+
+        def encode(missing):
             # No autocast: encode exactly like the training-caption cache does.
-            embeds, mask = encode_prompts(
-                self.text_encoder, self.tokenizer, missing, device=device, drop_idx=self.drop_idx
-            )
-            for i, p in enumerate(missing):
-                self._preview_embed_cache[p] = embeds[i][mask[i]].cpu()
-            self.offload_text_encoder_after_encode(preview_cfg)
-        return [(self._preview_embed_cache[p], self._preview_embed_cache[p].shape[0]) for p in prompts]
+            embeds, mask = self._encode_text(self.text_encoder, missing, device)
+            return [embeds[i][mask[i]].cpu() for i in range(len(missing))]
+
+        rows = self._memoized_preview_embeds(prompts, preview_cfg, device, encode)
+        return [(row, row.shape[0]) for row in rows]
 
     def preview_edit_prompt_embeds(
         self, prompts: list[str], control_paths: list, images: list, resolution: int, preview_cfg: dict, device
@@ -532,27 +420,14 @@ class QwenImage21Pipeline(dit_common.DiTPipeline):
 
         identity = (tuple((str(path), control_stamp(path)) for path in control_paths), int(resolution))
         keys = [("edit", prompt, identity) for prompt in prompts]
-        missing = [k for k in dict.fromkeys(keys) if k not in self._preview_embed_cache]
-        if missing:
-            self.ensure_text_encoder_for_preview(device)
+
+        def encode(missing):
             embeds, mask, image_pad_mask = self.encode_edit_prompts(
                 self.text_encoder, [k[1] for k in missing], [images] * len(missing), device
             )
-            for i, k in enumerate(missing):
-                self._preview_embed_cache[k] = (embeds[i][mask[i]].cpu(), image_pad_mask[i][mask[i]].cpu())
-            self.offload_text_encoder_after_encode(preview_cfg)
-        return [self._preview_embed_cache[k] for k in keys]
+            return [(embeds[i][mask[i]].cpu(), image_pad_mask[i][mask[i]].cpu()) for i in range(len(missing))]
 
-    def prepare_preview_memory(self, preview_cfg: dict) -> None:
-        self._prepare_blocks_preview_memory(preview_cfg)
-
-    def restore_after_preview(self) -> None:
-        super().restore_after_preview()
-        # Preview prompts are memoized, so an encoder that caching had freed is not needed
-        # again: unload it instead of parking ~16 GB of weights in host RAM between previews.
-        if getattr(self, "_preview_te_rest_device", None) is not None and self._preview_te_rest_device.type == "cpu":
-            self.text_encoder.to("meta")
-            self._preview_te_rest_device = None
+        return self._memoized_preview_embeds(keys, preview_cfg, device, encode)
 
     def generate_preview_image(
         self, preview_cfg: dict, prompt: str, step: int, seed: int, control_images: list | None = None

@@ -548,32 +548,8 @@ def test_open_rejects_text_cache_with_fixed_width_sequence_key(tmp_path):
     open_disk_cache(cache_dir, "fp-old")  # the fresh (empty) cache no longer trips the guard
 
 
-def _valid_text_rows(model: str, n: int) -> dict:
-    """One text-embedding row as each model's text-encoder fn caches it."""
-    if model == "sdxl":  # encoder 1 and 2 share a cache dir per index; both key sets here
-        return {"prompt_embeds": torch.randn(77, 16), "prompt_embeds_2": torch.randn(77, 24),
-                "pooled_prompt_embeds": torch.randn(24)}
-    if model == "cosmos":  # token ids / masks are padded to the tokenizer's max length
-        return {"prompt_embeds": torch.randn(n, 16), "attn_mask": torch.ones(12, dtype=torch.int64),
-                "t5_input_ids": torch.ones(12, dtype=torch.int64), "t5_attn_mask": torch.ones(12, dtype=torch.int64)}
-    if model == "krea2":  # compacted (L, layers, D) stack + (L,) mask
-        return {"prompt_embeds": torch.randn(n, 3, 16), "text_mask": torch.ones(n, dtype=torch.bool)}
-    if model == "qwen_t2i":
-        return {"prompt_embeds": torch.randn(n, 16), "text_mask": torch.ones(n, dtype=torch.bool)}
-    raise AssertionError(model)
-
-
-@pytest.mark.parametrize("model", ["sdxl", "cosmos", "krea2", "qwen_t2i"])
-def test_valid_text_caches_do_not_trip_the_layout_guard(tmp_path, model):
-    cache_dir = tmp_path / model
-    cache = open_disk_cache(cache_dir, "fp")
-    for i, n in enumerate([5, 9, 7]):
-        cache.add({**_valid_text_rows(model, n), "caption": f"c{i}"})
-    cache.finalize_current_shard()
-    cache.close()
-    reopened = open_disk_cache(cache_dir, "fp")  # must not raise
-    assert len(reopened) == 3
-    reject_stale_sequence_layout(cache_dir)
+# Real text rows of every registered model passing this guard after caching:
+# tests/contract/test_data_model_seam.py (the real data path, each model's own text-encoder fn).
 
 
 def test_map_and_cache_guard_blocks_load_but_not_regenerate(tmp_path):
