@@ -184,15 +184,36 @@ def _model_section_fields() -> list[dict[str, Any]]:
             required=True,
             description="Registered pipeline type (e.g. sdxl, cosmos_predict2).",
         ),
+    ]
+    # Model dtype: one field per refusal profile, so a model's form never offers a dtype it refuses
+    # (ModelCapability.refused_dtypes); every other model keeps the full list.
+    restricted = [c for c in model_capability_registry.values() if c.refused_dtypes]
+    dtype_args = dict(
+        required=True, description="Default precision for VAE, text stack, adapters, and most weights."
+    )
+    fields.append(
         _field(
             "model.dtype",
             "Model dtype",
             "select",
-            required=True,
             options=DTYPE_OPTIONS,
-            description="Default precision for VAE, text stack, adapters, and most weights.",
-        ),
-    ]
+            when={"not": _when_model(*[c.type_id for c in restricted])} if restricted else None,
+            **dtype_args,
+        )
+    )
+    for cap in restricted:
+        fields.append(
+            _field(
+                "model.dtype",
+                "Model dtype",
+                "select",
+                options=[o for o in DTYPE_OPTIONS if o not in cap.refused_dtypes],
+                when=_when_model(cap.type_id),
+                **{**dtype_args, "description": dtype_args["description"] + " " + "; ".join(
+                    f"{d} is refused ({why})" for d, why in cap.refused_dtypes.items()
+                ) + "."},
+            )
+        )
     for cap in model_capability_registry.values():
         when = _when_model(cap.type_id)
         # A component path takes what its loader accepts (ComponentPath.expect): a field that
@@ -204,6 +225,8 @@ def _model_section_fields() -> list[dict[str, Any]]:
                 spec = {**spec, "path_expect": expects[spec["path"]]}
             built = _field_from_template(spec, when, cap.user_doc)
             if built is not None:
+                if spec.get("options_key") == "dtypes" and cap.refused_dtypes:
+                    built["options"] = [o for o in built["options"] if o not in cap.refused_dtypes]
                 fields.append(built)
     return fields
 
@@ -272,6 +295,10 @@ def _adapter_section_fields() -> list[dict[str, Any]]:
     # get them from LYCORIS_FIELD_GROUPS on every model).
     group_models = [c for c in model_capability_registry.values() if c.adapter_layer_groups]
     for cap in group_models:
+        defaults = list(cap.adapter_default_layer_groups)
+        default_scope = (
+            "the default scope of this model (" + " + ".join(defaults) + ")" if defaults else "every targeted linear"
+        )
         fields.append(
             _field(
                 "adapter.layer_groups",
@@ -279,10 +306,10 @@ def _adapter_section_fields() -> list[dict[str, Any]]:
                 "string_list",
                 options=list(cap.adapter_layer_groups),
                 when={"all": [HAS_ADAPTER, {"field": "model.type", "in": [cap.type_id]}]},
-                placeholder="empty = all layers",
+                placeholder=f"empty = {default_scope}",
                 description=(
                     "Train the adapter only on these layer groups (pick one or several). "
-                    "Empty trains every targeted linear. Combines with the include/exclude "
+                    f"Empty trains {default_scope}. Combines with the include/exclude "
                     "glob patterns below."
                 ),
             )
@@ -304,7 +331,8 @@ def _adapter_section_fields() -> list[dict[str, Any]]:
                 placeholder="e.g. text_fusion.*",
                 description=(
                     "fnmatch globs over dotted module paths; only matching linears get the "
-                    "adapter. Empty = all. Layer groups above expand into these patterns."
+                    "adapter. Empty = the model's default scope (see Layer groups). Layer groups "
+                    "above expand into these patterns."
                 ),
             )
         )
@@ -738,9 +766,8 @@ def get_sections() -> list[dict[str, Any]]:
                 "Cache text-encoder outputs once instead of running the encoder every "
                 "step. Baking tag-dropout caption variants into the cache "
                 "(cached_caption_variants / cached_caption_shuffle) is configured per "
-                "dataset in the Dataset form. Krea 2 and Qwen-Image 2.1 always cache "
-                "(their encoders cannot run inside the training step), so the toggle is "
-                "hidden for them."
+                "dataset in the Dataset form. Models whose text encoder cannot run inside the "
+                "training step always cache, so the toggle is hidden for them."
             ),
             "fields": [
                 _field(

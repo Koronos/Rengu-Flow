@@ -2229,7 +2229,7 @@
         "image_in_out"
       ],
       "path": "adapter.layer_groups",
-      "placeholder": "empty = all layers",
+      "placeholder": "empty = every targeted linear",
       "recommended": false,
       "required": false,
       "section": "adapter",
@@ -2265,7 +2265,7 @@
     },
     {
       "default": null,
-      "description": "fnmatch globs over dotted module paths; only matching linears get the adapter. Empty = all. Layer groups above expand into these patterns.",
+      "description": "fnmatch globs over dotted module paths; only matching linears get the adapter. Empty = the model's default scope (see Layer groups). Layer groups above expand into these patterns.",
       "doc_path": "docs/user/training-sdxl-lora-lokr.md",
       "example": null,
       "help": "Patterns match the full dotted module path (e.g. unet.down_blocks.0...attn1.to_q on SDXL, blocks.0.self_attn... on Cosmos). *attn* trains attention only — smaller file with the capacity focused on composition/identity instead of textures.",
@@ -2374,7 +2374,7 @@
       "description": "Stream UNet/DiT blocks between CPU and GPU so only a few stay resident.",
       "doc_path": "docs/developer/vram-optimization.md",
       "example": null,
-      "help": "SDXL, Cosmos Predict2, Krea 2 and Qwen-Image 2.1; requires pipeline_stages = 1. Works for both adapter and full-model training: adapters keep their small trainable params resident, while full-model (no [adapter]) additionally requires optimizer.gradient_release so the per-parameter step runs while the block is on the GPU. On ~8 GB cards this is the lever that makes a full SDXL fine-tune fit (e.g. blocks_to_swap = 6 → ~4.3 GB). Combine with activation_checkpointing. With gradient_release set, the Block-swap prefetch toggle appears. Qwen-Image 2.1 on 8 GB: blocks_to_swap = 24 with the fp8 base (transformer_fp8_matmul). See the low-VRAM recipe in the doc.",
+      "help": "Offered by the models that stream their blocks (the field is hidden on the others); requires pipeline_stages = 1. Works for both adapter and full-model training: adapters keep their small trainable params resident, while full-model (no [adapter]) additionally requires optimizer.gradient_release so the per-parameter step runs while the block is on the GPU. On ~8 GB cards this is the lever that makes a full SDXL fine-tune fit (e.g. blocks_to_swap = 6 → ~4.3 GB). Combine with activation_checkpointing. With gradient_release set, the Block-swap prefetch toggle appears. The model's guide gives a starting value (with its fp8 base where it offers one). See the low-VRAM recipe in the doc.",
       "importance": "advanced",
       "label": "Blocks to swap",
       "min": 0,
@@ -2823,7 +2823,7 @@
     },
     {
       "default": true,
-      "description": "Move the text encoder to CPU during preview sampling to free VRAM (Cosmos, Krea 2, Qwen-Image 2.1).",
+      "description": "Move the text encoder to CPU during preview sampling to free VRAM (shown on the models that offer it).",
       "doc_path": "docs/user/previews.md",
       "example": null,
       "help": "Enable if preview sampling OOMs; the transfer adds latency but lets the DiT use more VRAM during generation.",
@@ -2846,10 +2846,10 @@
     },
     {
       "default": 0,
-      "description": "Number of DiT blocks to keep on CPU during preview sampling (Cosmos, Krea 2, Qwen-Image 2.1).",
+      "description": "Number of DiT blocks to keep on CPU during preview sampling (shown on the models that offer it).",
       "doc_path": "docs/user/previews.md",
       "example": null,
-      "help": "Reduces preview VRAM at the cost of slower sampling. Raise if preview sampling OOMs after enabling preview_offload_text_encoder. Qwen-Image 2.1 on 8 GB cards: 32 (all blocks).",
+      "help": "Reduces preview VRAM at the cost of slower sampling. Raise if preview sampling OOMs after enabling preview_offload_text_encoder. The model's guide gives a starting value.",
       "importance": "advanced",
       "label": "Preview blocks to swap",
       "min": 0,
@@ -3048,7 +3048,7 @@
           "text_projection",
           "image_in_out"
         ],
-        "placeholder": "empty = all layers",
+        "placeholder": "empty = every targeted linear",
         "recommended": false,
         "required": false,
         "type": "string_list"
@@ -3160,7 +3160,7 @@
       },
       "adapter:adapter.target_include": {
         "default": null,
-        "description": "fnmatch globs over dotted module paths; only matching linears get the adapter. Empty = all. Layer groups above expand into these patterns.",
+        "description": "fnmatch globs over dotted module paths; only matching linears get the adapter. Empty = the model's default scope (see Layer groups). Layer groups above expand into these patterns.",
         "doc_path": "docs/user/training-sdxl-lora-lokr.md",
         "example": null,
         "help": "Patterns match the full dotted module path (e.g. unet.down_blocks.0...attn1.to_q on SDXL, blocks.0.self_attn... on Cosmos). *attn* trains attention only — smaller file with the capacity focused on composition/identity instead of textures.",
@@ -3173,9 +3173,9 @@
         "required": false,
         "type": "string_list"
       },
-      "adapter:adapter.target_include~92278a": {
+      "adapter:adapter.target_include~875633": {
         "default": null,
-        "description": "Only attaches the adapter to modules whose path matches one of these glob patterns (empty = all modules).",
+        "description": "Only attaches the adapter to modules whose path matches one of these glob patterns (empty = the model's default scope: all its modules unless the model narrows it, see Layer groups).",
         "doc_path": "docs/user/training-sdxl-lora-lokr.md",
         "example": null,
         "help": "Patterns match the full dotted module path (e.g. unet.down_blocks.0...attn1.to_q on SDXL, blocks.0.self_attn... on Cosmos). *attn* trains attention only — smaller file with the capacity focused on composition/identity instead of textures.",
@@ -4131,7 +4131,7 @@
         "description": "Stream UNet/DiT blocks between CPU and GPU so only a few stay resident.",
         "doc_path": "docs/developer/vram-optimization.md",
         "example": null,
-        "help": "SDXL, Cosmos Predict2, Krea 2 and Qwen-Image 2.1; requires pipeline_stages = 1. Works for both adapter and full-model training: adapters keep their small trainable params resident, while full-model (no [adapter]) additionally requires optimizer.gradient_release so the per-parameter step runs while the block is on the GPU. On ~8 GB cards this is the lever that makes a full SDXL fine-tune fit (e.g. blocks_to_swap = 6 → ~4.3 GB). Combine with activation_checkpointing. With gradient_release set, the Block-swap prefetch toggle appears. Qwen-Image 2.1 on 8 GB: blocks_to_swap = 24 with the fp8 base (transformer_fp8_matmul). See the low-VRAM recipe in the doc.",
+        "help": "Offered by the models that stream their blocks (the field is hidden on the others); requires pipeline_stages = 1. Works for both adapter and full-model training: adapters keep their small trainable params resident, while full-model (no [adapter]) additionally requires optimizer.gradient_release so the per-parameter step runs while the block is on the GPU. On ~8 GB cards this is the lever that makes a full SDXL fine-tune fit (e.g. blocks_to_swap = 6 → ~4.3 GB). Combine with activation_checkpointing. With gradient_release set, the Block-swap prefetch toggle appears. The model's guide gives a starting value (with its fp8 base where it offers one). See the low-VRAM recipe in the doc.",
         "importance": "advanced",
         "label": "Blocks to swap",
         "min": 0,
@@ -4384,13 +4384,14 @@
         "description": "Registered pipeline type (e.g. sdxl, cosmos_predict2).",
         "doc_path": "docs/user/training-sdxl-lora-lokr.md",
         "example": null,
-        "help": "Selects which model code loads (e.g. sdxl, cosmos_predict2, krea2, qwen_image21).",
+        "help": "Selects which model code loads; the options are every registered model, and each model's own fields link its guide.",
         "importance": "required",
         "label": "Model type",
         "min": null,
         "options": [
           "cosmos_predict2",
           "krea2",
+          "moss_image",
           "nanosaur2",
           "qwen_image21",
           "sdxl"
@@ -4694,10 +4695,10 @@
       },
       "preview:preview.preview_blocks_to_swap": {
         "default": 0,
-        "description": "Number of DiT blocks to keep on CPU during preview sampling (Cosmos, Krea 2, Qwen-Image 2.1).",
+        "description": "Number of DiT blocks to keep on CPU during preview sampling (shown on the models that offer it).",
         "doc_path": "docs/user/previews.md",
         "example": null,
-        "help": "Reduces preview VRAM at the cost of slower sampling. Raise if preview sampling OOMs after enabling preview_offload_text_encoder. Qwen-Image 2.1 on 8 GB cards: 32 (all blocks).",
+        "help": "Reduces preview VRAM at the cost of slower sampling. Raise if preview sampling OOMs after enabling preview_offload_text_encoder. The model's guide gives a starting value.",
         "importance": "advanced",
         "label": "Preview blocks to swap",
         "min": 0,
@@ -4739,7 +4740,7 @@
       },
       "preview:preview.preview_offload_text_encoder": {
         "default": true,
-        "description": "Move the text encoder to CPU during preview sampling to free VRAM (Cosmos, Krea 2, Qwen-Image 2.1).",
+        "description": "Move the text encoder to CPU during preview sampling to free VRAM (shown on the models that offer it).",
         "doc_path": "docs/user/previews.md",
         "example": null,
         "help": "Enable if preview sampling OOMs; the transfer adds latency but lets the DiT use more VRAM during generation.",
@@ -4939,7 +4940,7 @@
         "description": "Batch size for the dataset latent/text cache pass.",
         "doc_path": "docs/user/dataset-config.md",
         "example": null,
-        "help": "Larger values can speed cache but use more VRAM during caching. For Qwen-Image 2.1 with a streamed text encoder, each encoding batch sends the whole encoder over PCIe once, so a larger batch encodes more captions per pass.",
+        "help": "Larger values can speed cache but use more VRAM during caching. For a model whose text encoder streams from host RAM, each encoding batch sends the whole encoder over PCIe once, so a larger batch encodes more captions per pass.",
         "importance": "advanced",
         "label": "Dataset cache batch size",
         "min": null,
@@ -5437,7 +5438,7 @@
         "adapter:adapter.dropout",
         "adapter:adapter.rank_dropout",
         "adapter:adapter.module_dropout",
-        "adapter:adapter.target_include~92278a",
+        "adapter:adapter.target_include~875633",
         "adapter:adapter.target_exclude~963a2a",
         "adapter:adapter.constraint",
         "adapter:adapter.rescaled",
@@ -5549,7 +5550,7 @@
         "adapter:adapter.dropout",
         "adapter:adapter.rank_dropout",
         "adapter:adapter.module_dropout",
-        "adapter:adapter.target_include~92278a",
+        "adapter:adapter.target_include~875633",
         "adapter:adapter.target_exclude~963a2a",
         "adapter:adapter.constraint",
         "adapter:adapter.rescaled",
@@ -5661,7 +5662,7 @@
         "adapter:adapter.dropout",
         "adapter:adapter.rank_dropout",
         "adapter:adapter.module_dropout",
-        "adapter:adapter.target_include~92278a",
+        "adapter:adapter.target_include~875633",
         "adapter:adapter.target_exclude~963a2a",
         "adapter:adapter.block_size",
         "adapter:adapter.layer_groups",
@@ -5772,7 +5773,7 @@
         "adapter:adapter.dropout",
         "adapter:adapter.rank_dropout",
         "adapter:adapter.module_dropout",
-        "adapter:adapter.target_include~92278a",
+        "adapter:adapter.target_include~875633",
         "adapter:adapter.target_exclude~963a2a",
         "adapter:adapter.layer_groups",
         "optimizer:optimizer.type",
@@ -5882,7 +5883,7 @@
         "adapter:adapter.dropout",
         "adapter:adapter.rank_dropout",
         "adapter:adapter.module_dropout",
-        "adapter:adapter.target_include~92278a",
+        "adapter:adapter.target_include~875633",
         "adapter:adapter.target_exclude~963a2a",
         "adapter:adapter.use_scalar",
         "adapter:adapter.wd_on_output",
@@ -5996,7 +5997,7 @@
         "adapter:adapter.dropout",
         "adapter:adapter.rank_dropout",
         "adapter:adapter.module_dropout",
-        "adapter:adapter.target_include~92278a",
+        "adapter:adapter.target_include~875633",
         "adapter:adapter.target_exclude~963a2a",
         "adapter:adapter.use_scalar",
         "adapter:adapter.wd_on_output",
@@ -6112,7 +6113,7 @@
         "adapter:adapter.full_matrix",
         "adapter:adapter.rank_dropout",
         "adapter:adapter.module_dropout",
-        "adapter:adapter.target_include~92278a",
+        "adapter:adapter.target_include~875633",
         "adapter:adapter.target_exclude~963a2a",
         "adapter:adapter.use_scalar",
         "adapter:adapter.wd_on_output",
@@ -6463,7 +6464,7 @@
         "error": "ConfigValidationError: config['model'] must contain at least one of: 'transformer_path', 'diffusers_path' (for qwen_image21)."
       },
       "type_uppercase": {
-        "error": "ConfigValidationError: Unknown model type 'QWEN_IMAGE21'. Use one of: ['cosmos_predict2', 'krea2', 'nanosaur2', 'qwen_image21', 'sdxl']."
+        "error": "ConfigValidationError: Unknown model type 'QWEN_IMAGE21'. Use one of: ['cosmos_predict2', 'krea2', 'moss_image', 'nanosaur2', 'qwen_image21', 'sdxl']."
       }
     }
   }

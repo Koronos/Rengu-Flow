@@ -147,6 +147,34 @@ def test_adapter_attaches_to_the_declared_scope_and_exports_golden_keys(kit, ada
         assert torch.equal(again[key], value), key
 
 
+def test_default_adapter_scope_follows_the_spec_default_groups(kit):
+    """With no ``layer_groups`` / ``target_include`` a LoRA trains exactly the modules of the spec's
+    ``adapter_default_layer_groups`` (every targeted linear when it declares none); an explicit
+    ``target_include`` replaces that default."""
+    from rengu_flow.networks import adapter_dit
+    from rengu_flow.networks.adapter_targets import filter_target_names
+
+    kit.require("adapters")
+    p = kit.pipeline()
+    if not hasattr(p, "adapter_target_modules"):
+        pytest.skip(f"{kit.type_id} is not a DiT pipeline (its adapters have their own scope)")
+    groups = p.adapter_layer_groups or {}
+    names = adapter_dit._collect_target_linears(p.transformer, tuple(p.adapter_target_modules))
+    defaults = kit.spec.adapter_default_layer_groups
+    expected = filter_target_names(names, [g for d in defaults for g in groups[d]], None) if defaults else names
+
+    def adapted(**extra):
+        q = kit.pipeline(adapter={**ADAPTER_CONFIGS["lora"], **extra})
+        return sorted(
+            _PEFT_WRAP.sub("", n).rsplit(".lora_A", 1)[0] for n, m in q.transformer.named_modules() if n.endswith("lora_A")
+        )
+
+    assert adapted() == sorted(expected)
+    if defaults:
+        explicit = adapted(target_include=[sorted(names)[0]])
+        assert explicit == [sorted(names)[0]]
+
+
 def _break_a_factor(state: dict) -> dict:
     """``state`` without one B-side factor (``lora_B`` / ``lora_up`` / ``lokr_w2``)."""
     victim = next(k for k in sorted(state) if re.search(r"\.(lora_B|lora_up|lokr_w2)\b", k))

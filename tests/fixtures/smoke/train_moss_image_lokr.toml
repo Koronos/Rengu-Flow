@@ -1,0 +1,43 @@
+# MOSS-Image LoKr smoke (10 steps), sized for an 8 GB Ada card (fp8 frozen base + block swap).
+# Model paths: see train_moss_image.toml.
+#   scripts/run_model_smoke.sh moss_image_lokr
+
+dataset = "tests/fixtures/smoke/dataset_cc0.toml"
+output_dir = "output"
+max_steps = 10
+epochs = 999
+micro_batch_size_per_gpu = 1
+gradient_accumulation_steps = 1
+pipeline_stages = 1
+activation_checkpointing = true
+logging_steps = 1
+caching_batch_size = 1
+save_every_n_epochs = 999
+bench = true
+blocks_to_swap = 24
+
+[model]
+type = "moss_image"
+dtype = "bfloat16"
+transformer_fp8_matmul = true
+
+[adapter]
+type = "lokr"
+rank = 6
+factor = -1
+
+[optimizer]
+type = "adamw"
+lr = 3.0e-5
+
+[preview]
+# 512 px with block-swapped preview: a 1024 px preview without preview_blocks_to_swap fills 8 GB, spills to
+# shared memory under WDDM and stalls (docs/user/training-moss-image.md).
+width = 512
+height = 512
+preview_blocks_to_swap = 24
+num_inference_steps = 20
+seed = 42
+preview_every_n_steps = 10
+preview_save_png = true
+prompts = ["newest, masterpiece, 1girl, solo, fennec ears, long blonde wavy hair, blue eyes, big fluffy tail, smile, forest, sunlight"]

@@ -38,8 +38,12 @@ def _exact_names_pattern(names):
     return "^(?:" + "|".join(re.escape(n) for n in sorted(names)) + ")$"
 
 
-def configure(transformer, adapter_config, targets=ADAPTER_TARGET_MODULES, layer_groups=None):
+def configure(transformer, adapter_config, targets=ADAPTER_TARGET_MODULES, layer_groups=None, default_layer_groups=()):
     adapter_type = adapter_config["type"]
+    # A model whose default scope is narrower than every Linear of ``targets``: train these named
+    # groups unless the config picks its own (layer_groups / target_include).
+    if default_layer_groups and not adapter_config.get("layer_groups") and not adapter_config.get("target_include"):
+        adapter_config["layer_groups"] = list(default_layer_groups)
     # Named layer groups expand into target_include globs first, so every family
     # (PEFT lora, vendored lokr, lycoris) sees one selection mechanism.
     apply_layer_groups(adapter_config, layer_groups)

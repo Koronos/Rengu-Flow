@@ -1,0 +1,15 @@
+# Minimal dataset for MOSS-Image text-to-image training (frame_buckets = [1]).
+# Bucket sides are rounded to multiples of 16 (VAE /8 x 2x2 patchify). The report's final stage
+# preserves aspect ratio at an area of at most 1024^2. Captions are plain text (tags, prose or a
+# JSON layout prompt); see docs/user/training-moss-image.md.
+
+resolutions = [1024]
+enable_ar_bucket = true
+min_ar = 0.5
+max_ar = 2.0
+num_ar_buckets = 4
+frame_buckets = [1]
+
+[[directory]]
+path = 'path/to/images'
+num_repeats = 1

@@ -1,0 +1,46 @@
+# Minimal MOSS-Image LoRA training (text-to-image) on MOSS-Image-Base. Community recipe
+# (KohakuMoss defaults, not official): attention + feed-forward scope (the default), rank 32
+# (alpha = rank), LR 1e-4, AdamW wd 0.01, cosine with 100 warmup steps, clip 1.0, ~4000 steps at 1024^2.
+# Sized for an 8 GB card: fp8 frozen base + block swap (starting point: VRAM pending measurement).
+# Captions are cached once with the Qwen3.5-9B encoder streamed layer by layer from host RAM.
+
+output_dir = 'output'
+dataset = 'examples/minimal_moss_image_dataset.toml'
+
+epochs = 1
+max_steps = 4000
+micro_batch_size_per_gpu = 1
+pipeline_stages = 1
+gradient_accumulation_steps = 1
+activation_checkpointing = true
+save_every_n_epochs = 1
+caching_batch_size = 1
+warmup_steps = 100
+lr_scheduler = 'cosine'
+# 8 GB: stream part of the 42 DiT blocks from CPU (lower it on bigger cards, 0 on 24 GB+).
+blocks_to_swap = 24
+
+[lr_scheduler_args]
+lr_min = 1e-5
+
+[model]
+type = 'moss_image'
+# bf16 only: fp16 overflows (a few joint-stream activations exceed 65504) and is refused.
+dtype = 'bfloat16'
+# Comfy-Org/MOSS-Image bf16 files (links in docs/user/training-moss-image.md).
+transformer_path = 'path/to/moss_image_base_bf16.safetensors'
+vae_path = 'path/to/flux2-vae_small.safetensors'
+text_encoder_path = 'path/to/qwen3.5_9b_bf16.safetensors'
+# Alternative: the whole OpenMOSS-Team/MOSS-Image-Base download instead of the three files.
+# diffusers_path = 'path/to/MOSS-Image-Base'
+# 10.2 GB bf16 -> ~5.2 GB: tensorwise fp8 frozen base (sm89+ GPU, e.g. RTX 40xx / Ada).
+transformer_fp8_matmul = true
+
+[adapter]
+type = 'lora'
+rank = 32   # rengu sets alpha = rank (32, the community recipe's value)
+
+[optimizer]
+type = 'adamw'
+lr = 1e-4
+weight_decay = 0.01

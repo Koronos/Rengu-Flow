@@ -554,7 +554,11 @@
     "model.text_encoder_2_lr",
     "model.text_encoder_offload",
     "model.text_encoder_path",
+    "model.timestep_cutoff",
+    "model.timestep_mu",
     "model.timestep_sample_method",
+    "model.timestep_std",
+    "model.timestep_uniform_mix",
     "model.tokenizer_path",
     "model.transformer_4bit",
     "model.transformer_dtype",
@@ -569,6 +573,7 @@
     "anima": "rengu_flow.model.cosmos_predict2",
     "cosmos_predict2": "rengu_flow.model.cosmos_predict2",
     "krea2": "rengu_flow.model.krea2",
+    "moss_image": "rengu_flow.model.moss_image",
     "nanosaur2": "rengu_flow.model.nanosaur2",
     "qwen_image21": "rengu_flow.model.qwen_image21",
     "sdxl": "rengu_flow.model.sdxl"
@@ -576,6 +581,7 @@
   "canonical_types": [
     "cosmos_predict2",
     "krea2",
+    "moss_image",
     "nanosaur2",
     "qwen_image21",
     "sdxl"
@@ -962,6 +968,7 @@
     "models": [
       "cosmos_predict2",
       "krea2",
+      "moss_image",
       "nanosaur2",
       "qwen_image21",
       "sdxl"
@@ -1680,13 +1687,14 @@
             "description": "Registered pipeline type (e.g. sdxl, cosmos_predict2).",
             "doc_path": "docs/user/training-sdxl-lora-lokr.md",
             "example": null,
-            "help": "Selects which model code loads (e.g. sdxl, cosmos_predict2, krea2, qwen_image21).",
+            "help": "Selects which model code loads; the options are every registered model, and each model's own fields link its guide.",
             "importance": "required",
             "label": "Model type",
             "min": null,
             "options": [
               "cosmos_predict2",
               "krea2",
+              "moss_image",
               "nanosaur2",
               "qwen_image21",
               "sdxl"
@@ -1720,7 +1728,56 @@
             "recommended": false,
             "required": true,
             "type": "select",
-            "when": null
+            "visibility": {
+              "not": {
+                "field": "model.type",
+                "in": [
+                  "moss_image"
+                ]
+              }
+            },
+            "when": {
+              "not": {
+                "field": "model.type",
+                "in": [
+                  "moss_image"
+                ]
+              }
+            }
+          },
+          {
+            "default": null,
+            "description": "Default precision for VAE, text stack, adapters, and most weights. float16 is refused (a few joint-stream activations exceed the fp16 range (65504) and overflow; use bfloat16).",
+            "doc_path": "docs/user/training-sdxl-lora-lokr.md",
+            "example": null,
+            "help": "Common: bfloat16, float16. Cosmos: VAE, text encoder (Qwen3/T5) and sensitive DiT parts (embedders, norms, 1D params). Bulk DiT weights use this too unless transformer_dtype is set. SDXL: UNet and encoders. Adapter weights do not follow it: they default to float32 (adapter.dtype).",
+            "importance": "required",
+            "label": "Model dtype",
+            "min": null,
+            "options": [
+              "float32",
+              "bfloat16",
+              "float8",
+              "float8_e4m3fn",
+              "float8_e5m2"
+            ],
+            "path": "model.dtype",
+            "placeholder": "",
+            "recommended": false,
+            "required": true,
+            "type": "select",
+            "visibility": {
+              "field": "model.type",
+              "in": [
+                "moss_image"
+              ]
+            },
+            "when": {
+              "field": "model.type",
+              "in": [
+                "moss_image"
+              ]
+            }
           },
           {
             "default": null,
@@ -3741,6 +3798,543 @@
                 "nanosaur2"
               ]
             }
+          },
+          {
+            "default": null,
+            "description": "The 10.2 GB DiT you train: Comfy-Org's moss_image_base_bf16.safetensors (or the diffusers transformer/ folder). Optional when the diffusers folder below is set.",
+            "doc_path": "docs/user/training-moss-image.md",
+            "example": null,
+            "help": "Comfy-Org's moss_image_base_bf16.safetensors (its fused q/k/v is split on load), a single file in the official layout or the OpenMOSS diffusers transformer/ folder. Pre-quantized int8_convrot files cannot be trained; use the bf16 file.",
+            "importance": "recommended",
+            "label": "Main model (.safetensors)",
+            "min": null,
+            "options": null,
+            "path": "model.transformer_path",
+            "path_expect": "any",
+            "placeholder": "path/to/moss_image_base_bf16.safetensors",
+            "recommended": true,
+            "required": false,
+            "type": "path",
+            "visibility": {
+              "field": "model.type",
+              "in": [
+                "moss_image"
+              ]
+            },
+            "when": {
+              "field": "model.type",
+              "in": [
+                "moss_image"
+              ]
+            }
+          },
+          {
+            "default": null,
+            "description": "The FLUX.2 VAE: Comfy-Org's flux2-vae_small.safetensors (the release's own decoder) or flux2-vae.safetensors, or the diffusers vae/ folder. Optional when the diffusers folder below is set.",
+            "doc_path": "docs/user/training-moss-image.md",
+            "example": null,
+            "help": "flux2-vae_small.safetensors (diffusers layout, what the OpenMOSS vae/ folder holds) or flux2-vae.safetensors (original layout, converted on load). Training reads your images through its encoder to build the latent cache. The release vae/ and flux2-vae_small are the bf16-rounded version of flux2-vae (batch-norm statistics included): latents differ by that rounding, so use flux2-vae_small to match the release.",
+            "importance": "recommended",
+            "label": "Image VAE (.safetensors)",
+            "min": null,
+            "options": null,
+            "path": "model.vae_path",
+            "path_expect": "any",
+            "placeholder": "path/to/flux2-vae_small.safetensors",
+            "recommended": true,
+            "required": false,
+            "type": "path",
+            "visibility": {
+              "field": "model.type",
+              "in": [
+                "moss_image"
+              ]
+            },
+            "when": {
+              "field": "model.type",
+              "in": [
+                "moss_image"
+              ]
+            }
+          },
+          {
+            "default": null,
+            "description": "Comfy-Org's qwen3.5_9b_bf16.safetensors (or the transformers text_encoder/ folder). Optional when the diffusers folder below is set.",
+            "doc_path": "docs/user/training-moss-image.md",
+            "example": null,
+            "help": "qwen3.5_9b_bf16.safetensors (19.3 GB) or the diffusers text_encoder/ folder. Captions are encoded once into the cache; the vision tower and LM head are never read. int8 / w4a8 files are refused.",
+            "importance": "recommended",
+            "label": "Text encoder: Qwen3.5-9B (.safetensors)",
+            "min": null,
+            "options": null,
+            "path": "model.text_encoder_path",
+            "path_expect": "any",
+            "placeholder": "path/to/qwen3.5_9b_bf16.safetensors",
+            "recommended": true,
+            "required": false,
+            "type": "path",
+            "visibility": {
+              "field": "model.type",
+              "in": [
+                "moss_image"
+              ]
+            },
+            "when": {
+              "field": "model.type",
+              "in": [
+                "moss_image"
+              ]
+            }
+          },
+          {
+            "default": null,
+            "description": "The whole OpenMOSS-Team/MOSS-Image-Base download (transformer/, vae/, text_encoder/, tokenizer/); fills any of the three file fields above left empty. Set either this or the three files.",
+            "doc_path": "docs/user/training-moss-image.md",
+            "example": null,
+            "help": "Optional. Point at the folder holding transformer/, vae/, text_encoder/ and tokenizer/ (e.g. the Hugging Face cache snapshot) and leave the file fields empty: each resolves to <folder>/<subfolder>; files you set explicitly always win. Never a repo id; nothing is downloaded.",
+            "importance": "recommended",
+            "label": "Diffusers folder (alternative)",
+            "min": null,
+            "options": null,
+            "path": "model.diffusers_path",
+            "path_expect": "dir",
+            "placeholder": "path/to/MOSS-Image-Base",
+            "recommended": true,
+            "required": false,
+            "type": "path",
+            "visibility": {
+              "field": "model.type",
+              "in": [
+                "moss_image"
+              ]
+            },
+            "when": {
+              "field": "model.type",
+              "in": [
+                "moss_image"
+              ]
+            }
+          },
+          {
+            "default": null,
+            "description": "Folder with the Qwen3.5 tokenizer files; defaults to <diffusers folder>/tokenizer, else the tokenizer and chat template bundled with rengu.",
+            "doc_path": "docs/user/training-moss-image.md",
+            "example": null,
+            "help": "Defaults to <diffusers_path>/tokenizer, else the Qwen3.5 tokenizer and chat template bundled with rengu (copied from the Base repo; identical tokenization).",
+            "importance": "advanced",
+            "label": "Tokenizer override",
+            "min": null,
+            "options": null,
+            "path": "model.tokenizer_path",
+            "path_expect": "dir",
+            "placeholder": "",
+            "recommended": false,
+            "required": false,
+            "show_if_set": true,
+            "type": "path",
+            "visibility": {
+              "all": [
+                {
+                  "field": "model.type",
+                  "in": [
+                    "moss_image"
+                  ]
+                },
+                {
+                  "form_nonempty": "model.tokenizer_path"
+                }
+              ]
+            },
+            "when": {
+              "field": "model.type",
+              "in": [
+                "moss_image"
+              ]
+            }
+          },
+          {
+            "default": "auto",
+            "description": "How the 17 GB Qwen3.5-9B encoder runs while captions are cached: auto (default) streams its 32 decoder layers from pinned host RAM when it does not fit in free VRAM, stream always does, none loads it whole onto the GPU.",
+            "doc_path": "docs/user/training-moss-image.md",
+            "example": null,
+            "help": "auto (default): stream the 32 decoder layers one at a time from pinned host RAM when the encoder does not fit in free VRAM (~2 GB VRAM, ~17 GB host RAM); stream: always; none: load it whole onto the GPU (needs ~20 GB free). The encoder loads only when captions still need encoding and is unloaded after caching.",
+            "importance": "advanced",
+            "label": "Text encoder placement",
+            "min": null,
+            "options": [
+              "auto",
+              "stream",
+              "none"
+            ],
+            "path": "model.text_encoder_offload",
+            "placeholder": "",
+            "recommended": false,
+            "required": false,
+            "type": "select",
+            "visibility": {
+              "field": "model.type",
+              "in": [
+                "moss_image"
+              ]
+            },
+            "when": {
+              "field": "model.type",
+              "in": [
+                "moss_image"
+              ]
+            }
+          },
+          {
+            "default": false,
+            "description": "Tensorwise-scaled e4m3 quantization of the frozen DiT's block linears (mutually exclusive with transformer_4bit): the base drops from ~10.2 to ~5.2 GB. Needs an sm89+ GPU (RTX 40xx / Ada); pair with blocks_to_swap to fit smaller cards.",
+            "doc_path": "docs/user/training-moss-image.md",
+            "example": null,
+            "help": "Adapter training only. The 5B DiT drops from ~10.2 GB to ~5.2 GB. Needs an sm89+ GPU (RTX 40xx / Ada); on older cards use transformer_4bit with LoKr instead. Mutually exclusive with model.transformer_4bit. Pair it with blocks_to_swap and activation checkpointing on smaller cards.",
+            "importance": "advanced",
+            "label": "Quantize base to fp8 (tensorwise scaled matmul)",
+            "min": null,
+            "options": null,
+            "path": "model.transformer_fp8_matmul",
+            "placeholder": "",
+            "recommended": false,
+            "required": false,
+            "type": "boolean",
+            "visibility": {
+              "all": [
+                {
+                  "when_model_has_adapter": true
+                },
+                {
+                  "field": "model.type",
+                  "in": [
+                    "moss_image"
+                  ]
+                }
+              ]
+            },
+            "when": {
+              "field": "model.type",
+              "in": [
+                "moss_image"
+              ]
+            },
+            "when_model_has_adapter": true
+          },
+          {
+            "default": false,
+            "description": "Stores the frozen DiT block linears as 4-bit NF4 (~3 GB instead of ~10 GB bf16); the adapter trains on top at full precision. Pair with adapter type LoKr (LyCORIS kinds refuse a quantized base).",
+            "doc_path": "docs/user/training-moss-image.md",
+            "example": null,
+            "help": "Adapter training only: the quantized base stays frozen while the adapter trains in full precision on top. The 5B DiT drops from ~10.2 GB bf16 to ~3 GB. Mutually exclusive with model.transformer_fp8_matmul. Use adapter type LoKr: the LyCORIS kinds reject a quantized base.",
+            "importance": "advanced",
+            "label": "Quantize base to 4-bit (NF4)",
+            "min": null,
+            "options": null,
+            "path": "model.transformer_4bit",
+            "placeholder": "",
+            "recommended": false,
+            "required": false,
+            "type": "boolean",
+            "visibility": {
+              "all": [
+                {
+                  "when_model_has_adapter": true
+                },
+                {
+                  "field": "model.type",
+                  "in": [
+                    "moss_image"
+                  ]
+                }
+              ]
+            },
+            "when": {
+              "field": "model.type",
+              "in": [
+                "moss_image"
+              ]
+            },
+            "when_model_has_adapter": true
+          },
+          {
+            "default": "bf16",
+            "description": "Input-gradient GEMM precision through the frozen fp8 base, only used when transformer_fp8_matmul is on: fp8 is faster, bf16 (default) keeps the clean gradient.",
+            "doc_path": "docs/user/training-moss-image.md",
+            "example": null,
+            "help": "'bf16' (default) keeps the backward's input-gradient GEMM unquantized; 'fp8' runs it through the same e4m3 tensorwise kernel as the forward (faster). Only takes effect when model.transformer_fp8_matmul is true.",
+            "importance": "advanced",
+            "label": "fp8 backward gradient precision",
+            "min": null,
+            "options": [
+              "bf16",
+              "fp8"
+            ],
+            "path": "model.fp8_grad_mode",
+            "placeholder": "",
+            "recommended": false,
+            "required": false,
+            "type": "select",
+            "visibility": {
+              "all": [
+                {
+                  "field": "model.type",
+                  "in": [
+                    "moss_image"
+                  ]
+                },
+                {
+                  "all": [
+                    {
+                      "when_model_has_adapter": true
+                    },
+                    {
+                      "equals": true,
+                      "field": "model.transformer_fp8_matmul"
+                    }
+                  ]
+                }
+              ]
+            },
+            "when": {
+              "field": "model.type",
+              "in": [
+                "moss_image"
+              ]
+            }
+          },
+          {
+            "default": null,
+            "description": "DiT checkpoint load only; defaults to Model dtype. VAE/text unchanged.",
+            "doc_path": "docs/user/training-moss-image.md",
+            "example": null,
+            "help": "The VAE (always fp32), the Qwen3.5 text encoder and the adapters keep their own precision. bf16 is the supported precision: fp16 overflows (a few joint-stream activations exceed 65504) and is refused. Leave empty unless you need a different DiT load precision.",
+            "importance": "advanced",
+            "label": "Main model load dtype",
+            "min": null,
+            "options": [
+              "float32",
+              "bfloat16",
+              "float8",
+              "float8_e4m3fn",
+              "float8_e5m2"
+            ],
+            "path": "model.transformer_dtype",
+            "placeholder": "",
+            "recommended": false,
+            "required": false,
+            "type": "select",
+            "visibility": {
+              "field": "model.type",
+              "in": [
+                "moss_image"
+              ]
+            },
+            "when": {
+              "field": "model.type",
+              "in": [
+                "moss_image"
+              ]
+            }
+          },
+          {
+            "default": "moss",
+            "description": "How training sigmas are sampled: moss (default) is the report's final-stage sampler (a truncated logit-normal on the 1000-step grid mixed with 1% uniform); logit_normal and uniform are the generic alternatives.",
+            "doc_path": "docs/user/training-moss-image.md",
+            "example": null,
+            "help": "moss (default): MOSS-Image technical report, Table 6 final stage / Eq. 4, parametrized by the four timestep_* fields below; no shift. logit_normal concentrates steps on mid-range noise levels (scaled by sigmoid_scale); uniform samples evenly in [0, 1]. model.shift is applied on top of any of them when set.",
+            "importance": "advanced",
+            "label": "Timestep sample method",
+            "min": null,
+            "options": [
+              "moss",
+              "logit_normal",
+              "uniform"
+            ],
+            "path": "model.timestep_sample_method",
+            "placeholder": "",
+            "recommended": false,
+            "required": false,
+            "type": "select",
+            "visibility": {
+              "field": "model.type",
+              "in": [
+                "moss_image"
+              ]
+            },
+            "when": {
+              "field": "model.type",
+              "in": [
+                "moss_image"
+              ]
+            }
+          },
+          {
+            "default": -1.09,
+            "description": "Mean of the logit-normal Z in S = 1 - sigmoid(Z), only used when timestep_sample_method is moss. Default -1.09: MOSS-Image technical report, Table 6 (final stage) / Eq. 4.",
+            "doc_path": "docs/user/training-moss-image.md",
+            "example": null,
+            "help": "Only used with timestep_sample_method = moss. Raising it moves the sampled sigmas toward less noise, lowering it toward more; the report's final stage uses -1.09 (median sigma ~0.78).",
+            "importance": "advanced",
+            "label": "Sigma sampler mean (mu)",
+            "min": null,
+            "options": null,
+            "path": "model.timestep_mu",
+            "placeholder": "",
+            "recommended": false,
+            "required": false,
+            "type": "number",
+            "visibility": {
+              "field": "model.type",
+              "in": [
+                "moss_image"
+              ]
+            },
+            "when": {
+              "field": "model.type",
+              "in": [
+                "moss_image"
+              ]
+            }
+          },
+          {
+            "default": 0.95,
+            "description": "Standard deviation of Z, only used when timestep_sample_method is moss. Default 0.95: MOSS-Image technical report, Table 6 (final stage) / Eq. 4.",
+            "doc_path": "docs/user/training-moss-image.md",
+            "example": null,
+            "help": "Only used with timestep_sample_method = moss. Larger values spread the sampled sigmas toward both extremes; the report's final stage uses 0.95.",
+            "importance": "advanced",
+            "label": "Sigma sampler std (s)",
+            "min": null,
+            "options": null,
+            "path": "model.timestep_std",
+            "placeholder": "",
+            "recommended": false,
+            "required": false,
+            "type": "number",
+            "visibility": {
+              "field": "model.type",
+              "in": [
+                "moss_image"
+              ]
+            },
+            "when": {
+              "field": "model.type",
+              "in": [
+                "moss_image"
+              ]
+            }
+          },
+          {
+            "default": 0.95,
+            "description": "Cutoff a in (0, 1): S is truncated at a and rescaled onto the whole sigma grid, only used when timestep_sample_method is moss. Default 0.95: MOSS-Image technical report, Table 6 / Eq. 4.",
+            "doc_path": "docs/user/training-moss-image.md",
+            "example": null,
+            "help": "Only used with timestep_sample_method = moss. S = 1 - sigmoid(Z) is truncated at this value and divided by it, so the grid's top is reached by the noisiest tail; the report's final stage uses 0.95.",
+            "importance": "advanced",
+            "label": "Sigma sampler cutoff (a)",
+            "min": null,
+            "options": null,
+            "path": "model.timestep_cutoff",
+            "placeholder": "",
+            "recommended": false,
+            "required": false,
+            "type": "number",
+            "visibility": {
+              "field": "model.type",
+              "in": [
+                "moss_image"
+              ]
+            },
+            "when": {
+              "field": "model.type",
+              "in": [
+                "moss_image"
+              ]
+            }
+          },
+          {
+            "default": 0.01,
+            "description": "Share of the sampler drawn uniformly over the 1000 grid points, only used when timestep_sample_method is moss. Default 0.01: MOSS-Image technical report, Table 6 / Eq. 4.",
+            "doc_path": "docs/user/training-moss-image.md",
+            "example": null,
+            "help": "Only used with timestep_sample_method = moss. The pmf is (1 - rho) times the truncated logit-normal plus rho uniform; the report's final stage uses 0.01 (1%).",
+            "importance": "advanced",
+            "label": "Sigma sampler uniform mix (rho)",
+            "min": 0,
+            "options": null,
+            "path": "model.timestep_uniform_mix",
+            "placeholder": "",
+            "recommended": false,
+            "required": false,
+            "type": "number",
+            "visibility": {
+              "field": "model.type",
+              "in": [
+                "moss_image"
+              ]
+            },
+            "when": {
+              "field": "model.type",
+              "in": [
+                "moss_image"
+              ]
+            }
+          },
+          {
+            "default": 1.0,
+            "description": "Scale applied to the logit-normal sample before sigmoid, only used when timestep_sample_method is logit_normal.",
+            "doc_path": "docs/user/training-moss-image.md",
+            "example": null,
+            "help": "Only used with timestep_sample_method = logit_normal. Raising it pushes sampled timesteps toward the extremes (near 0 or 1).",
+            "importance": "advanced",
+            "label": "Logit-normal sigmoid scale",
+            "min": null,
+            "options": null,
+            "path": "model.sigmoid_scale",
+            "placeholder": "",
+            "recommended": false,
+            "required": false,
+            "type": "number",
+            "visibility": {
+              "field": "model.type",
+              "in": [
+                "moss_image"
+              ]
+            },
+            "when": {
+              "field": "model.type",
+              "in": [
+                "moss_image"
+              ]
+            }
+          },
+          {
+            "default": null,
+            "description": "Fixed timestep shift (> 0) applied on top of the sampled sigmas. Empty (default) trains with no shift, as the report's final stage; the 5.0 of the sampler is for previews only.",
+            "doc_path": "docs/user/training-moss-image.md",
+            "example": null,
+            "help": "Advanced: leave empty. The report trains its final stage at shift 1 (none); the shift 5.0 the reference sampler uses applies to previews only and is fixed.",
+            "importance": "advanced",
+            "label": "Fixed timestep shift",
+            "min": null,
+            "options": null,
+            "path": "model.shift",
+            "placeholder": "empty = no shift (reference)",
+            "recommended": false,
+            "required": false,
+            "type": "number",
+            "visibility": {
+              "field": "model.type",
+              "in": [
+                "moss_image"
+              ]
+            },
+            "when": {
+              "field": "model.type",
+              "in": [
+                "moss_image"
+              ]
+            }
           }
         ],
         "id": "model",
@@ -4268,7 +4862,7 @@
           },
           {
             "default": null,
-            "description": "Only attaches the adapter to modules whose path matches one of these glob patterns (empty = all modules).",
+            "description": "Only attaches the adapter to modules whose path matches one of these glob patterns (empty = the model's default scope: all its modules unless the model narrows it, see Layer groups).",
             "doc_path": "docs/user/training-sdxl-lora-lokr.md",
             "example": null,
             "help": "Patterns match the full dotted module path (e.g. unet.down_blocks.0...attn1.to_q on SDXL, blocks.0.self_attn... on Cosmos). *attn* trains attention only — smaller file with the capacity focused on composition/identity instead of textures.",
@@ -4866,7 +5460,7 @@
               "mlp"
             ],
             "path": "adapter.layer_groups",
-            "placeholder": "empty = all layers",
+            "placeholder": "empty = every targeted linear",
             "recommended": false,
             "required": false,
             "type": "string_list",
@@ -4915,7 +5509,7 @@
               "image_in_out"
             ],
             "path": "adapter.layer_groups",
-            "placeholder": "empty = all layers",
+            "placeholder": "empty = every targeted linear",
             "recommended": false,
             "required": false,
             "type": "string_list",
@@ -4964,7 +5558,7 @@
               "image_in_out"
             ],
             "path": "adapter.layer_groups",
-            "placeholder": "empty = all layers",
+            "placeholder": "empty = every targeted linear",
             "recommended": false,
             "required": false,
             "type": "string_list",
@@ -5012,7 +5606,7 @@
               "text_refine"
             ],
             "path": "adapter.layer_groups",
-            "placeholder": "empty = all layers",
+            "placeholder": "empty = every targeted linear",
             "recommended": false,
             "required": false,
             "type": "string_list",
@@ -5047,7 +5641,57 @@
           },
           {
             "default": null,
-            "description": "fnmatch globs over dotted module paths; only matching linears get the adapter. Empty = all. Layer groups above expand into these patterns.",
+            "description": "Train the adapter only on these layer groups (pick one or several). Empty trains the default scope of this model (attention + feedforward). Combines with the include/exclude glob patterns below.",
+            "example": null,
+            "help": "Train the adapter only on these layer groups (pick one or several). Empty trains the default scope of this model (attention + feedforward). Combines with the include/exclude glob patterns below.",
+            "importance": "advanced",
+            "label": "Layer groups",
+            "min": null,
+            "options": [
+              "attention",
+              "feedforward",
+              "text_refiner",
+              "text_projection",
+              "modulation",
+              "image_in_out"
+            ],
+            "path": "adapter.layer_groups",
+            "placeholder": "empty = the default scope of this model (attention + feedforward)",
+            "recommended": false,
+            "required": false,
+            "type": "string_list",
+            "visibility": {
+              "all": [
+                {
+                  "equals": true,
+                  "field": "_has_adapter"
+                },
+                {
+                  "field": "model.type",
+                  "in": [
+                    "moss_image"
+                  ]
+                }
+              ]
+            },
+            "when": {
+              "all": [
+                {
+                  "equals": true,
+                  "field": "_has_adapter"
+                },
+                {
+                  "field": "model.type",
+                  "in": [
+                    "moss_image"
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "default": null,
+            "description": "fnmatch globs over dotted module paths; only matching linears get the adapter. Empty = the model's default scope (see Layer groups). Layer groups above expand into these patterns.",
             "doc_path": "docs/user/training-sdxl-lora-lokr.md",
             "example": null,
             "help": "Patterns match the full dotted module path (e.g. unet.down_blocks.0...attn1.to_q on SDXL, blocks.0.self_attn... on Cosmos). *attn* trains attention only — smaller file with the capacity focused on composition/identity instead of textures.",
@@ -5357,14 +6001,14 @@
         "title": "LR scheduler"
       },
       {
-        "description": "Cache text-encoder outputs once instead of running the encoder every step. Baking tag-dropout caption variants into the cache (cached_caption_variants / cached_caption_shuffle) is configured per dataset in the Dataset form. Krea 2 and Qwen-Image 2.1 always cache (their encoders cannot run inside the training step), so the toggle is hidden for them.",
+        "description": "Cache text-encoder outputs once instead of running the encoder every step. Baking tag-dropout caption variants into the cache (cached_caption_variants / cached_caption_shuffle) is configured per dataset in the Dataset form. Models whose text encoder cannot run inside the training step always cache, so the toggle is hidden for them.",
         "fields": [
           {
             "default": true,
             "description": "Encode captions once and cache them (faster steps, more disk; frees the text encoder from the GPU). For rotating dropout regularization with caching on, set the dataset's cached_caption_variants >= 2 (1 bakes a single fixed variant).",
             "doc_path": "docs/user/dataset-config.md",
             "example": null,
-            "help": "Krea 2 and Qwen-Image 2.1 always cache (the toggle is hidden; false is a config error). Strongly recommended for Cosmos/Anima: training skips the live Qwen3 forward (~22 ms/step) and frees ~1.2 GB VRAM (more activation_memory_budget headroom). For dropout regularization WITH the cache on, enable tag_dropout (and/or cached_caption_shuffle) on the dataset: K = cached_caption_variants dropout/shuffle variants per caption are baked into the cache. K = 1 bakes one fixed variant; K >= 2 rotates them across epochs without inflating them.",
+            "help": "Models whose text encoder cannot run inside the training step always cache (the toggle is hidden for them; false is a config error). Strongly recommended for Cosmos/Anima: training skips the live Qwen3 forward (~22 ms/step) and frees ~1.2 GB VRAM (more activation_memory_budget headroom). For dropout regularization WITH the cache on, enable tag_dropout (and/or cached_caption_shuffle) on the dataset: K = cached_caption_variants dropout/shuffle variants per caption are baked into the cache. K = 1 bakes one fixed variant; K >= 2 rotates them across epochs without inflating them.",
             "importance": "recommended",
             "label": "Cache text embeddings",
             "min": null,
@@ -5386,7 +6030,7 @@
             "description": "Batch size for the dataset latent/text cache pass.",
             "doc_path": "docs/user/dataset-config.md",
             "example": null,
-            "help": "Larger values can speed cache but use more VRAM during caching. For Qwen-Image 2.1 with a streamed text encoder, each encoding batch sends the whole encoder over PCIe once, so a larger batch encodes more captions per pass.",
+            "help": "Larger values can speed cache but use more VRAM during caching. For a model whose text encoder streams from host RAM, each encoding batch sends the whole encoder over PCIe once, so a larger batch encodes more captions per pass.",
             "importance": "advanced",
             "label": "Dataset cache batch size",
             "min": null,
@@ -6503,7 +7147,7 @@
             "description": "Stream UNet/DiT blocks between CPU and GPU so only a few stay resident.",
             "doc_path": "docs/developer/vram-optimization.md",
             "example": null,
-            "help": "SDXL, Cosmos Predict2, Krea 2 and Qwen-Image 2.1; requires pipeline_stages = 1. Works for both adapter and full-model training: adapters keep their small trainable params resident, while full-model (no [adapter]) additionally requires optimizer.gradient_release so the per-parameter step runs while the block is on the GPU. On ~8 GB cards this is the lever that makes a full SDXL fine-tune fit (e.g. blocks_to_swap = 6 → ~4.3 GB). Combine with activation_checkpointing. With gradient_release set, the Block-swap prefetch toggle appears. Qwen-Image 2.1 on 8 GB: blocks_to_swap = 24 with the fp8 base (transformer_fp8_matmul). See the low-VRAM recipe in the doc.",
+            "help": "Offered by the models that stream their blocks (the field is hidden on the others); requires pipeline_stages = 1. Works for both adapter and full-model training: adapters keep their small trainable params resident, while full-model (no [adapter]) additionally requires optimizer.gradient_release so the per-parameter step runs while the block is on the GPU. On ~8 GB cards this is the lever that makes a full SDXL fine-tune fit (e.g. blocks_to_swap = 6 → ~4.3 GB). Combine with activation_checkpointing. With gradient_release set, the Block-swap prefetch toggle appears. The model's guide gives a starting value (with its fp8 base where it offers one). See the low-VRAM recipe in the doc.",
             "importance": "advanced",
             "label": "Blocks to swap",
             "min": 0,
@@ -7233,7 +7877,7 @@
             "description": "Denoising steps per preview image.",
             "doc_path": "docs/user/previews.md",
             "example": null,
-            "help": "Fewer steps = faster preview but lower quality. Typical values: 20–30 for SDXL, 30–50 for Cosmos, 28 for Krea 2 and Qwen-Image 2.1.",
+            "help": "Fewer steps = faster preview but lower quality. The default is the model's own reference sampler value (shown in the field); SDXL previews typically use 20–30.",
             "importance": "advanced",
             "label": "Inference steps",
             "min": null,
@@ -7261,7 +7905,7 @@
             "description": "Classifier-free guidance scale for previews.",
             "doc_path": "docs/user/previews.md",
             "example": null,
-            "help": "Higher values follow the prompt more strictly but can saturate colours. Typical range: 5–9 for SDXL; Cosmos defaults to 4.0, Krea 2 to 4.5, Qwen-Image 2.1 to 1.0 (no CFG).",
+            "help": "Higher values follow the prompt more strictly but can saturate colours. The default is the model's own reference value (shown in the field; 1.0 means no CFG on a model that samples without it); SDXL typically uses 5–9.",
             "importance": "advanced",
             "label": "Guidance scale",
             "min": null,
@@ -7289,7 +7933,7 @@
             "description": "Denoising steps per preview image.",
             "doc_path": "docs/user/previews.md",
             "example": null,
-            "help": "Fewer steps = faster preview but lower quality. Typical values: 20–30 for SDXL, 30–50 for Cosmos, 28 for Krea 2 and Qwen-Image 2.1.",
+            "help": "Fewer steps = faster preview but lower quality. The default is the model's own reference sampler value (shown in the field); SDXL previews typically use 20–30.",
             "importance": "advanced",
             "label": "Inference steps",
             "min": null,
@@ -7317,7 +7961,7 @@
             "description": "Classifier-free guidance scale for previews.",
             "doc_path": "docs/user/previews.md",
             "example": null,
-            "help": "Higher values follow the prompt more strictly but can saturate colours. Typical range: 5–9 for SDXL; Cosmos defaults to 4.0, Krea 2 to 4.5, Qwen-Image 2.1 to 1.0 (no CFG).",
+            "help": "Higher values follow the prompt more strictly but can saturate colours. The default is the model's own reference value (shown in the field; 1.0 means no CFG on a model that samples without it); SDXL typically uses 5–9.",
             "importance": "advanced",
             "label": "Guidance scale",
             "min": null,
@@ -7345,7 +7989,7 @@
             "description": "Denoising steps per preview image.",
             "doc_path": "docs/user/previews.md",
             "example": null,
-            "help": "Fewer steps = faster preview but lower quality. Typical values: 20–30 for SDXL, 30–50 for Cosmos, 28 for Krea 2 and Qwen-Image 2.1.",
+            "help": "Fewer steps = faster preview but lower quality. The default is the model's own reference sampler value (shown in the field); SDXL previews typically use 20–30.",
             "importance": "advanced",
             "label": "Inference steps",
             "min": null,
@@ -7373,7 +8017,7 @@
             "description": "Classifier-free guidance scale for previews.",
             "doc_path": "docs/user/previews.md",
             "example": null,
-            "help": "Higher values follow the prompt more strictly but can saturate colours. Typical range: 5–9 for SDXL; Cosmos defaults to 4.0, Krea 2 to 4.5, Qwen-Image 2.1 to 1.0 (no CFG).",
+            "help": "Higher values follow the prompt more strictly but can saturate colours. The default is the model's own reference value (shown in the field; 1.0 means no CFG on a model that samples without it); SDXL typically uses 5–9.",
             "importance": "advanced",
             "label": "Guidance scale",
             "min": null,
@@ -7457,7 +8101,7 @@
             "description": "Denoising steps per preview image.",
             "doc_path": "docs/user/previews.md",
             "example": null,
-            "help": "Fewer steps = faster preview but lower quality. Typical values: 20–30 for SDXL, 30–50 for Cosmos, 28 for Krea 2 and Qwen-Image 2.1.",
+            "help": "Fewer steps = faster preview but lower quality. The default is the model's own reference sampler value (shown in the field); SDXL previews typically use 20–30.",
             "importance": "advanced",
             "label": "Inference steps",
             "min": null,
@@ -7485,7 +8129,7 @@
             "description": "Classifier-free guidance scale for previews.",
             "doc_path": "docs/user/previews.md",
             "example": null,
-            "help": "Higher values follow the prompt more strictly but can saturate colours. Typical range: 5–9 for SDXL; Cosmos defaults to 4.0, Krea 2 to 4.5, Qwen-Image 2.1 to 1.0 (no CFG).",
+            "help": "Higher values follow the prompt more strictly but can saturate colours. The default is the model's own reference value (shown in the field; 1.0 means no CFG on a model that samples without it); SDXL typically uses 5–9.",
             "importance": "advanced",
             "label": "Guidance scale",
             "min": null,
@@ -7505,6 +8149,62 @@
               "field": "model.type",
               "in": [
                 "nanosaur2"
+              ]
+            }
+          },
+          {
+            "default": 50,
+            "description": "Denoising steps per preview image (MOSS-Image default 50).",
+            "doc_path": "docs/user/training-moss-image.md",
+            "example": null,
+            "help": "Euler steps over the reference sigma schedule (fixed shift 5.0 snapped to the 1000-step training grid). 50 is the reference; each step runs two forwards when CFG is on.",
+            "importance": "advanced",
+            "label": "Inference steps",
+            "min": null,
+            "options": null,
+            "path": "preview.num_inference_steps",
+            "placeholder": "",
+            "recommended": false,
+            "required": false,
+            "type": "integer",
+            "visibility": {
+              "field": "model.type",
+              "in": [
+                "moss_image"
+              ]
+            },
+            "when": {
+              "field": "model.type",
+              "in": [
+                "moss_image"
+              ]
+            }
+          },
+          {
+            "default": 3.0,
+            "description": "True CFG scale for previews (MOSS-Image default 3.0; 1.0 = off).",
+            "doc_path": "docs/user/training-moss-image.md",
+            "example": null,
+            "help": "uncond + g * (cond - uncond) in fp32, as the reference (3.0 default, 3-6 recommended). The negative branch skips transformer block 22, as the reference does by default. 1.0 runs one forward per step.",
+            "importance": "advanced",
+            "label": "Guidance scale",
+            "min": null,
+            "options": null,
+            "path": "preview.guidance_scale",
+            "placeholder": "",
+            "recommended": false,
+            "required": false,
+            "type": "number",
+            "visibility": {
+              "field": "model.type",
+              "in": [
+                "moss_image"
+              ]
+            },
+            "when": {
+              "field": "model.type",
+              "in": [
+                "moss_image"
               ]
             }
           },
@@ -7580,7 +8280,7 @@
           },
           {
             "default": true,
-            "description": "Move the text encoder to CPU during preview sampling to free VRAM (Cosmos, Krea 2, Qwen-Image 2.1).",
+            "description": "Move the text encoder to CPU during preview sampling to free VRAM (shown on the models that offer it).",
             "doc_path": "docs/user/previews.md",
             "example": null,
             "help": "Enable if preview sampling OOMs; the transfer adds latency but lets the DiT use more VRAM during generation.",
@@ -7602,10 +8302,10 @@
           },
           {
             "default": 0,
-            "description": "Number of DiT blocks to keep on CPU during preview sampling (Cosmos, Krea 2, Qwen-Image 2.1).",
+            "description": "Number of DiT blocks to keep on CPU during preview sampling (shown on the models that offer it).",
             "doc_path": "docs/user/previews.md",
             "example": null,
-            "help": "Reduces preview VRAM at the cost of slower sampling. Raise if preview sampling OOMs after enabling preview_offload_text_encoder. Qwen-Image 2.1 on 8 GB cards: 32 (all blocks).",
+            "help": "Reduces preview VRAM at the cost of slower sampling. Raise if preview sampling OOMs after enabling preview_offload_text_encoder. The model's guide gives a starting value.",
             "importance": "advanced",
             "label": "Preview blocks to swap",
             "min": 0,
@@ -7669,7 +8369,8 @@
           "cosmos_predict2",
           "krea2",
           "qwen_image21",
-          "nanosaur2"
+          "nanosaur2",
+          "moss_image"
         ]
       },
       {

@@ -19,6 +19,7 @@ BUILTIN_MODEL_SPECS: tuple[str, ...] = (
     "rengu_flow.model.krea2.spec",
     "rengu_flow.model.qwen_image21.spec",
     "rengu_flow.model.nanosaur2.spec",
+    "rengu_flow.model.moss_image.spec",
 )
 
 

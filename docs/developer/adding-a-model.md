@@ -59,10 +59,25 @@ another port when the official code exists. Answer, citing `file:line` of the re
 | Sampler | Sigma schedule, solver, CFG formula and where the negative prompt goes, default steps and guidance. |
 | Ecosystem LoRA format | Key prefix and module names ComfyUI / diffusers expect, `.alpha` convention. |
 | License | License of code and weights, third-party code inside (e.g. GPL in a reference repo means *do not copy code*, only the parameter-name correspondence), gating. |
-| Downloads | Hugging Face direct links of the **bf16** (not pre-quantized, not distilled) files and their sizes. |
+| Downloads | Hugging Face direct links and sizes of the **bf16** (not pre-quantized, not distilled) files, **Comfy-Org / ComfyUI single files first** (see [Weights convention](#weights-convention)); the official diffusers repo is the alternative. |
 
 **Exit:** every number you will put in code, a default or a doc is cited with `file:line` of the
 pinned reference (keep the table in your report; the commit hash goes into `NOTICE.md`).
+
+### Weights convention
+
+For now we use the **Comfy-Org (ComfyUI) bf16 single files**. This is the rule for every model:
+
+- Local weights for tests, smokes and docs are the ComfyUI / Comfy-Org bf16 files, kept in the
+  git-ignored `tmp/models/<model>/` and pointed at from `.env` (`RENGU_<PREFIX>_<KEY>_PATH`). The user
+  guide's files table, the examples and the smoke fixtures present them as the primary weights; the
+  diffusers download is the documented alternative.
+- A diffusers download of the official repo is only **temporary**, when parity must load the reference
+  as-is (Phase 2). Delete its weights afterwards; keep what the tests still read (the reference code,
+  configs, tokenizer, index jsons), which must be enough for the checks that need no weights.
+- The loaders accept both layouts (Phase 3), and the layout of every Comfy-Org file is verified against
+  its real safetensors header (an HTTP range request), never assumed.
+- Documentation of all of this follows [documentation-conventions.md](documentation-conventions.md).
 
 ## Phase 2 - Numeric parity before integrating
 
@@ -78,6 +93,10 @@ the relative error `max|a-b| / max|b|` of:
 - an exported adapter loaded by the ecosystem's own loader (every key consumed).
 
 Document the tolerances in the script header (float32 relative error `< 1e-3` is the convention).
+
+The reference loads the official (diffusers) layout, so this is the one place a temporary diffusers
+download is used; the rengu side loads the Comfy-Org files of the [Weights convention](#weights-convention)
+where they exist. Checks that need no weights (schedules, adapter key maps) run from the small files alone.
 
 **Exit:** a printed table of errors, all within tolerance, pasted in the report. If a number is
 out of tolerance, fix the port; do not widen the tolerance.
@@ -250,7 +269,7 @@ memory figure is the second half of the check. Never chain the check with the ru
 (`nvidia-smi ...; scripts/run_model_smoke.sh ...`): chaining is how an unread check let a full
 finetune start on a busy GPU.
 
-Then, with the weights in `.env` as `RENGU_<PREFIX>_<KEY>_PATH` (documented in `.env.example`):
+Then, with the Comfy-Org bf16 weights (`tmp/models/<model>/`, see the [Weights convention](#weights-convention)) in `.env` as `RENGU_<PREFIX>_<KEY>_PATH` (documented in `.env.example`):
 
 ```bash
 scripts/run_model_smoke.sh <model>          # tests/fixtures/smoke/train_<model>.toml

@@ -162,6 +162,11 @@ class ModelCapability:
     # Named adapter layer groups (adapter.layer_groups options). Names must match the
     # pipeline's ADAPTER_LAYER_GROUPS keys (guarded by tests/test_adapter_layer_groups.py).
     adapter_layer_groups: list[str] = field(default_factory=list)
+    # The groups (a subset of ``adapter_layer_groups``) a default adapter trains when the config sets
+    # neither ``layer_groups`` nor ``target_include``: a model whose reference scope is narrower than every
+    # Linear of its target class. Empty = every targeted linear. The pipeline reads it from here; the UI
+    # states it in the ``adapter.layer_groups`` placeholder (guarded by tests/contract).
+    adapter_default_layer_groups: list[str] = field(default_factory=list)
     # Top-level module names of the adapter-targeted model, for torch-free preflight of
     # target_include/exclude typos (guarded against the real DiT by the same test file).
     adapter_module_roots: list[str] = field(default_factory=list)
@@ -214,6 +219,9 @@ class ModelCapability:
     # not listed exports ``adapter_model.safetensors`` with dotted keys under ``export_prefix``
     # (see adapter_export()).
     adapter_exports: dict[str, AdapterExport] = field(default_factory=dict)
+    # Load dtypes this model cannot train in, {dtype name: why} (e.g. "float16"). Config validation and the
+    # UI's dtype options derive from it; the pipeline refuses them too when built directly.
+    refused_dtypes: dict[str, str] = field(default_factory=dict)
     # Module with the model's tiny-model test kit (contract tests); None = none yet.
     testkit: str | None = None
     # Cached tensors stored as ragged rows on top of BASE_RAGGED_CACHE_KEYS.

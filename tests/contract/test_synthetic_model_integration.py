@@ -192,6 +192,8 @@ SPEC_CHECKS = (
     "test_ui_features_derive_from_the_spec",
     "test_model_fields_show_only_on_their_form_with_help_and_doc",
     "test_layer_groups_field_offers_the_spec_groups",
+    "test_default_layer_groups_follow_the_spec",
+    "test_refused_dtypes_follow_the_spec",
     "test_form_shows_one_field_per_path",
     "test_component_fields_follow_the_components",
     "test_adapter_form_fields_follow_the_spec",
@@ -244,6 +246,7 @@ def test_pipeline_contract_runs_on_the_toy(toy_kit, tmp_path, monkeypatch):
         toy_kit, "lora", tmp_path / "adapter", _no_golden
     )
     contract_b.test_layer_groups_and_module_roots_match_the_real_dit(toy_kit, monkeypatch)
+    contract_b.test_default_adapter_scope_follows_the_spec_default_groups(toy_kit)
     contract_b.test_vae_fn_is_deterministic(toy_kit)
     contract_b.test_text_encoder_fn_rows_are_batch_independent(toy_kit)
     contract_b.test_text_encoder_fn_caches_ragged_rows(toy_kit)

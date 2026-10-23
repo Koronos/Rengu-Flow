@@ -148,6 +148,11 @@ class DiTPipeline(BasePipeline):
                 )
             cached = True
         self.cache_text_embeddings = cached
+        if spec is not None and spec.refused_dtypes:
+            from rengu_flow.registry.model_config_rules import refused_dtype_problem
+
+            if (problem := refused_dtype_problem(spec, self.model_config)) is not None:
+                raise ConfigValidationError(problem)
         self.transformer = None
         self._preview_embed_cache: dict = {}
 
@@ -288,11 +293,16 @@ class DiTPipeline(BasePipeline):
     # ---- adapters ---------------------------------------------------------------------------
 
     def configure_adapter(self, adapter_config):
+        # The default scope (spec.adapter_default_layer_groups; empty = every targeted linear).
+        spec = self.spec
+        default_groups = tuple(spec.adapter_default_layer_groups) if spec is not None else ()
+        extra = {"default_layer_groups": default_groups} if default_groups else {}
         self.peft_config, self.adapter_type = adapter_dit.configure(
             self.transformer,
             adapter_config,
             targets=tuple(self.adapter_target_modules),
             layer_groups=self.adapter_layer_groups,
+            **extra,
         )
         self.adapter_config = adapter_config
         for name, p in self.transformer.named_parameters():

@@ -583,6 +583,46 @@ def test_layer_groups_field_offers_the_spec_groups(cap, deepspeed_host):
 
 
 @spec_params
+def test_default_layer_groups_follow_the_spec(cap, deepspeed_host):
+    """A model's default adapter scope (``adapter_default_layer_groups``) names real groups, and the form's
+    ``adapter.layer_groups`` placeholder and description state what empty means for that model."""
+    defaults = cap.adapter_default_layer_groups
+    assert set(defaults) <= set(cap.adapter_layer_groups), defaults
+    fields, caps = _schema_fields()
+    (field,) = [f for f in fields if f["path"] == "adapter.layer_groups" and _visible(f, cap.type_id, fields, caps)] or [None]
+    if field is None:
+        assert not cap.adapter_layer_groups
+        return
+    for text in (field["placeholder"], field["description"]):
+        assert all(group in text for group in defaults), (defaults, text)
+        assert defaults or "every targeted linear" in text, text
+
+
+@spec_params
+def test_refused_dtypes_follow_the_spec(cap, deepspeed_host):
+    """A dtype the spec refuses fails config validation (``model.dtype`` and ``model.transformer_dtype``,
+    naming the reason) and is missing from this model's dtype options on the form, while the
+    other models keep offering it; the dtype field stays one per path."""
+    model = minimal_model_section(cap)
+    fields, caps = _schema_fields()
+    for dtype, reason in cap.refused_dtypes.items():
+        for key in ("dtype", "transformer_dtype"):
+            errors = _validation_errors(training_config({**model, key: dtype}))
+            assert any(f"model.{key}" in e and reason in e for e in errors), (key, errors)
+        for other in registered_specs():
+            if other is not cap and not other.refused_dtypes:
+                assert not any("not supported" in e for e in _validation_errors(training_config({**minimal_model_section(other), "dtype": dtype})))
+    for path in ("model.dtype", "model.transformer_dtype"):
+        shown = [f for f in fields if f["path"] == path and _visible(f, cap.type_id, fields, caps)]
+        if shown:
+            assert len(shown) == 1 and not set(cap.refused_dtypes) & set(shown[0]["options"]), path
+    for other in registered_specs():
+        if not other.refused_dtypes:
+            (field,) = [f for f in fields if f["path"] == "model.dtype" and _visible(f, other.type_id, fields, caps)]
+            assert set(cap.refused_dtypes) <= set(field["options"])
+
+
+@spec_params
 def test_preview_memory_knobs_show_exactly_where_the_runner_honors_them(cap, deepspeed_host):
     """``preview.preview_<knob>`` is on the model's form iff its ``PreviewSpec.memory_knobs`` has
     it: no hidden knob the runner reads (Krea 2's preview OOM fix was hidden once), no dead one."""

@@ -1853,7 +1853,7 @@
         "text_refine"
       ],
       "path": "adapter.layer_groups",
-      "placeholder": "empty = all layers",
+      "placeholder": "empty = every targeted linear",
       "recommended": false,
       "required": false,
       "section": "adapter",
@@ -1889,7 +1889,7 @@
     },
     {
       "default": null,
-      "description": "fnmatch globs over dotted module paths; only matching linears get the adapter. Empty = all. Layer groups above expand into these patterns.",
+      "description": "fnmatch globs over dotted module paths; only matching linears get the adapter. Empty = the model's default scope (see Layer groups). Layer groups above expand into these patterns.",
       "doc_path": "docs/user/training-sdxl-lora-lokr.md",
       "example": null,
       "help": "Patterns match the full dotted module path (e.g. unet.down_blocks.0...attn1.to_q on SDXL, blocks.0.self_attn... on Cosmos). *attn* trains attention only — smaller file with the capacity focused on composition/identity instead of textures.",
@@ -2213,7 +2213,7 @@
       "description": "Denoising steps per preview image.",
       "doc_path": "docs/user/previews.md",
       "example": null,
-      "help": "Fewer steps = faster preview but lower quality. Typical values: 20–30 for SDXL, 30–50 for Cosmos, 28 for Krea 2 and Qwen-Image 2.1.",
+      "help": "Fewer steps = faster preview but lower quality. The default is the model's own reference sampler value (shown in the field); SDXL previews typically use 20–30.",
       "importance": "advanced",
       "label": "Inference steps",
       "min": null,
@@ -2242,7 +2242,7 @@
       "description": "Classifier-free guidance scale for previews.",
       "doc_path": "docs/user/previews.md",
       "example": null,
-      "help": "Higher values follow the prompt more strictly but can saturate colours. Typical range: 5–9 for SDXL; Cosmos defaults to 4.0, Krea 2 to 4.5, Qwen-Image 2.1 to 1.0 (no CFG).",
+      "help": "Higher values follow the prompt more strictly but can saturate colours. The default is the model's own reference value (shown in the field; 1.0 means no CFG on a model that samples without it); SDXL typically uses 5–9.",
       "importance": "advanced",
       "label": "Guidance scale",
       "min": null,
@@ -2341,7 +2341,7 @@
     },
     {
       "default": true,
-      "description": "Move the text encoder to CPU during preview sampling to free VRAM (Cosmos, Krea 2, Qwen-Image 2.1).",
+      "description": "Move the text encoder to CPU during preview sampling to free VRAM (shown on the models that offer it).",
       "doc_path": "docs/user/previews.md",
       "example": null,
       "help": "Enable if preview sampling OOMs; the transfer adds latency but lets the DiT use more VRAM during generation.",
@@ -2542,7 +2542,7 @@
           "feedforward",
           "text_refine"
         ],
-        "placeholder": "empty = all layers",
+        "placeholder": "empty = every targeted linear",
         "recommended": false,
         "required": false,
         "type": "string_list"
@@ -2654,7 +2654,7 @@
       },
       "adapter:adapter.target_include": {
         "default": null,
-        "description": "fnmatch globs over dotted module paths; only matching linears get the adapter. Empty = all. Layer groups above expand into these patterns.",
+        "description": "fnmatch globs over dotted module paths; only matching linears get the adapter. Empty = the model's default scope (see Layer groups). Layer groups above expand into these patterns.",
         "doc_path": "docs/user/training-sdxl-lora-lokr.md",
         "example": null,
         "help": "Patterns match the full dotted module path (e.g. unet.down_blocks.0...attn1.to_q on SDXL, blocks.0.self_attn... on Cosmos). *attn* trains attention only — smaller file with the capacity focused on composition/identity instead of textures.",
@@ -2667,9 +2667,9 @@
         "required": false,
         "type": "string_list"
       },
-      "adapter:adapter.target_include~92278a": {
+      "adapter:adapter.target_include~875633": {
         "default": null,
-        "description": "Only attaches the adapter to modules whose path matches one of these glob patterns (empty = all modules).",
+        "description": "Only attaches the adapter to modules whose path matches one of these glob patterns (empty = the model's default scope: all its modules unless the model narrows it, see Layer groups).",
         "doc_path": "docs/user/training-sdxl-lora-lokr.md",
         "example": null,
         "help": "Patterns match the full dotted module path (e.g. unet.down_blocks.0...attn1.to_q on SDXL, blocks.0.self_attn... on Cosmos). *attn* trains attention only — smaller file with the capacity focused on composition/identity instead of textures.",
@@ -3742,13 +3742,14 @@
         "description": "Registered pipeline type (e.g. sdxl, cosmos_predict2).",
         "doc_path": "docs/user/training-sdxl-lora-lokr.md",
         "example": null,
-        "help": "Selects which model code loads (e.g. sdxl, cosmos_predict2, krea2, qwen_image21).",
+        "help": "Selects which model code loads; the options are every registered model, and each model's own fields link its guide.",
         "importance": "required",
         "label": "Model type",
         "min": null,
         "options": [
           "cosmos_predict2",
           "krea2",
+          "moss_image",
           "nanosaur2",
           "qwen_image21",
           "sdxl"
@@ -3968,7 +3969,7 @@
         "description": "Classifier-free guidance scale for previews.",
         "doc_path": "docs/user/previews.md",
         "example": null,
-        "help": "Higher values follow the prompt more strictly but can saturate colours. Typical range: 5–9 for SDXL; Cosmos defaults to 4.0, Krea 2 to 4.5, Qwen-Image 2.1 to 1.0 (no CFG).",
+        "help": "Higher values follow the prompt more strictly but can saturate colours. The default is the model's own reference value (shown in the field; 1.0 means no CFG on a model that samples without it); SDXL typically uses 5–9.",
         "importance": "advanced",
         "label": "Guidance scale",
         "min": null,
@@ -4013,7 +4014,7 @@
         "description": "Denoising steps per preview image.",
         "doc_path": "docs/user/previews.md",
         "example": null,
-        "help": "Fewer steps = faster preview but lower quality. Typical values: 20–30 for SDXL, 30–50 for Cosmos, 28 for Krea 2 and Qwen-Image 2.1.",
+        "help": "Fewer steps = faster preview but lower quality. The default is the model's own reference sampler value (shown in the field); SDXL previews typically use 20–30.",
         "importance": "advanced",
         "label": "Inference steps",
         "min": null,
@@ -4070,7 +4071,7 @@
       },
       "preview:preview.preview_offload_text_encoder": {
         "default": true,
-        "description": "Move the text encoder to CPU during preview sampling to free VRAM (Cosmos, Krea 2, Qwen-Image 2.1).",
+        "description": "Move the text encoder to CPU during preview sampling to free VRAM (shown on the models that offer it).",
         "doc_path": "docs/user/previews.md",
         "example": null,
         "help": "Enable if preview sampling OOMs; the transfer adds latency but lets the DiT use more VRAM during generation.",
@@ -4270,7 +4271,7 @@
         "description": "Batch size for the dataset latent/text cache pass.",
         "doc_path": "docs/user/dataset-config.md",
         "example": null,
-        "help": "Larger values can speed cache but use more VRAM during caching. For Qwen-Image 2.1 with a streamed text encoder, each encoding batch sends the whole encoder over PCIe once, so a larger batch encodes more captions per pass.",
+        "help": "Larger values can speed cache but use more VRAM during caching. For a model whose text encoder streams from host RAM, each encoding batch sends the whole encoder over PCIe once, so a larger batch encodes more captions per pass.",
         "importance": "advanced",
         "label": "Dataset cache batch size",
         "min": null,
@@ -4746,7 +4747,7 @@
         "adapter:adapter.dropout",
         "adapter:adapter.rank_dropout",
         "adapter:adapter.module_dropout",
-        "adapter:adapter.target_include~92278a",
+        "adapter:adapter.target_include~875633",
         "adapter:adapter.target_exclude~963a2a",
         "adapter:adapter.constraint",
         "adapter:adapter.rescaled",
@@ -4852,7 +4853,7 @@
         "adapter:adapter.dropout",
         "adapter:adapter.rank_dropout",
         "adapter:adapter.module_dropout",
-        "adapter:adapter.target_include~92278a",
+        "adapter:adapter.target_include~875633",
         "adapter:adapter.target_exclude~963a2a",
         "adapter:adapter.constraint",
         "adapter:adapter.rescaled",
@@ -4958,7 +4959,7 @@
         "adapter:adapter.dropout",
         "adapter:adapter.rank_dropout",
         "adapter:adapter.module_dropout",
-        "adapter:adapter.target_include~92278a",
+        "adapter:adapter.target_include~875633",
         "adapter:adapter.target_exclude~963a2a",
         "adapter:adapter.block_size",
         "adapter:adapter.layer_groups",
@@ -5063,7 +5064,7 @@
         "adapter:adapter.dropout",
         "adapter:adapter.rank_dropout",
         "adapter:adapter.module_dropout",
-        "adapter:adapter.target_include~92278a",
+        "adapter:adapter.target_include~875633",
         "adapter:adapter.target_exclude~963a2a",
         "adapter:adapter.layer_groups",
         "optimizer:optimizer.type",
@@ -5167,7 +5168,7 @@
         "adapter:adapter.dropout",
         "adapter:adapter.rank_dropout",
         "adapter:adapter.module_dropout",
-        "adapter:adapter.target_include~92278a",
+        "adapter:adapter.target_include~875633",
         "adapter:adapter.target_exclude~963a2a",
         "adapter:adapter.use_scalar",
         "adapter:adapter.wd_on_output",
@@ -5275,7 +5276,7 @@
         "adapter:adapter.dropout",
         "adapter:adapter.rank_dropout",
         "adapter:adapter.module_dropout",
-        "adapter:adapter.target_include~92278a",
+        "adapter:adapter.target_include~875633",
         "adapter:adapter.target_exclude~963a2a",
         "adapter:adapter.use_scalar",
         "adapter:adapter.wd_on_output",
@@ -5385,7 +5386,7 @@
         "adapter:adapter.full_matrix",
         "adapter:adapter.rank_dropout",
         "adapter:adapter.module_dropout",
-        "adapter:adapter.target_include~92278a",
+        "adapter:adapter.target_include~875633",
         "adapter:adapter.target_exclude~963a2a",
         "adapter:adapter.use_scalar",
         "adapter:adapter.wd_on_output",
@@ -5694,7 +5695,7 @@
         "error": "ConfigValidationError: config['model'] must contain 'transformer_path' for nanosaur2."
       },
       "type_uppercase": {
-        "error": "ConfigValidationError: Unknown model type 'NANOSAUR2'. Use one of: ['cosmos_predict2', 'krea2', 'nanosaur2', 'qwen_image21', 'sdxl']."
+        "error": "ConfigValidationError: Unknown model type 'NANOSAUR2'. Use one of: ['cosmos_predict2', 'krea2', 'moss_image', 'nanosaur2', 'qwen_image21', 'sdxl']."
       }
     }
   }

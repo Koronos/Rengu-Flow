@@ -1,8 +1,8 @@
 # Model pipeline contract — implementation status
 
-`rengu_flow.model.base.ModelPipelineProtocol` defines methods the orchestrator and `DatasetManager` expect. Unless noted, every registered model (**`sdxl`**, **`cosmos_predict2`**, **`krea2`**, **`qwen_image21`**, **`nanosaur2`**) implements the cache and training hooks below. `qwen_image21` follows the Krea 2 column (it is a `DiTPipeline` too; its specifics are in its section below). The flow for adding a model is [adding-a-model.md](adding-a-model.md); the model's descriptor is its `spec.py` ([model-capabilities-and-validation.md](model-capabilities-and-validation.md)).
+`rengu_flow.model.base.ModelPipelineProtocol` defines methods the orchestrator and `DatasetManager` expect. Unless noted, every registered model (**`sdxl`**, **`cosmos_predict2`**, **`krea2`**, **`qwen_image21`**, **`nanosaur2`**, **`moss_image`**) implements the cache and training hooks below. `qwen_image21` follows the Krea 2 column (it is a `DiTPipeline` too; its specifics are in its section below). The flow for adding a model is [adding-a-model.md](adding-a-model.md); the model's descriptor is its `spec.py` ([model-capabilities-and-validation.md](model-capabilities-and-validation.md)).
 
-Reference: `rengu_flow/model/base.py`, implementations `rengu_flow/model/sdxl.py`, `rengu_flow/model/cosmos_predict2/pipeline.py`, `rengu_flow/model/krea2/pipeline.py`, `rengu_flow/model/nanosaur2/pipeline.py`.
+Reference: `rengu_flow/model/base.py`, implementations `rengu_flow/model/sdxl.py`, `rengu_flow/model/cosmos_predict2/pipeline.py`, `rengu_flow/model/krea2/pipeline.py`, `rengu_flow/model/nanosaur2/pipeline.py`, `rengu_flow/model/moss_image/pipeline.py`.
 
 | Method | SDXL | Cosmos Predict2 | Krea 2 | Nanosaur2 |
 |--------|------|-----------------|--------|-----------|
@@ -27,7 +27,7 @@ Reference: `rengu_flow/model/base.py`, implementations `rengu_flow/model/sdxl.py
 | `prepare_block_swap_inference` | Base | Base | Base | — |
 | `freeze_text_encoders` | Implemented | No-op (frozen in `__init__`) | No-op | No-op |
 
-A model is registered in two places, both explicit: the pipeline class with `@register_model("<type>")` (`rengu_flow.registry.models`; the class is imported lazily from the spec's `pipeline = "<module>:<Class>"`), and its `SPEC` module in `rengu_flow/registry/builtin_models.py`. Built-in: `sdxl`, `cosmos_predict2` (UI alias `anima`; the validator requires the canonical id), `krea2`, `qwen_image21`, `nanosaur2`. The pipeline class name must carry `name = "<type>"` (it also names the cache dir).
+A model is registered in two places, both explicit: the pipeline class with `@register_model("<type>")` (`rengu_flow.registry.models`; the class is imported lazily from the spec's `pipeline = "<module>:<Class>"`), and its `SPEC` module in `rengu_flow/registry/builtin_models.py`. Built-in: `sdxl`, `cosmos_predict2` (UI alias `anima`; the validator requires the canonical id), `krea2`, `qwen_image21`, `nanosaur2`, `moss_image`. The pipeline class name must carry `name = "<type>"` (it also names the cache dir).
 
 ## Shared DiT building blocks (`rengu_flow.model.dit_common`)
 
@@ -53,7 +53,7 @@ What a model still writes: `_load_transformer`, `_load_vae`, `_encode_text`, `pr
 - **`DiTPipeline`** — `configure_adapter` / `save_adapter` / `load_adapter_weights` via
   `networks.adapter_dit`, driven by class attributes `adapter_target_modules`,
   `adapter_layer_groups`, `adapter_export_prefix` (`None` = `diffusion_model.`),
-  `adapter_export_lora_alpha` (also write a `<module>.alpha` per LoRA module); `get_loss_fn`;
+  `adapter_default_layer_groups` (the groups a default adapter trains when the config sets no `layer_groups` / `target_include`: a model whose reference scope is narrower than every Linear of the target class; moss_image), `adapter_export_lora_alpha` (also write a `<module>.alpha` per LoRA module); `get_loss_fn`;
   the preview lifecycle `ensure_vae_for_preview`, `ensure_text_encoder_for_preview`,
   `offload_text_encoder_after_encode`, `restore_after_preview`; defaults shared by the DiTs:
   `_init_transformer_params()` (train mode, `original_name`, trainable for full finetune),
@@ -147,5 +147,38 @@ become cached control latents plus vision-tower prompt embeddings (see
 - `preview_sampling.py` — ComfyUI `simple` schedule of the shift-3 discrete flow, Euler,
   `cfg` / `path_drop` / `alternate` guidance.
 - Parity against the node with the real weights: `scripts/parity_nanosaur2.py`.
+
+### MOSS-Image (`rengu_flow/model/moss_image/`)
+
+- `dit.py` — port of the official `MOSSImageTransformer` (OpenMOSS `pipeline_moss_image.py`, Apache-2.0,
+  revision in `NOTICE.md`) with the official module names. `forward` is the reference's per-sample
+  loop (each sample at its true text length; `skip_layers` for the negative branch). The training
+  path is batched: `embed` / `Block` / `final` take a right-padded text batch, per-sample RoPE
+  positions (`RoPE.batched`: image `f = text_len_i`) and a key mask in the 2 text-refiner blocks and the
+  42 joint blocks; contract B proves it equals the per-sample forward on a batch of mixed caption lengths.
+  The activation dtype comes from a norm weight (an fp8 / NF4 `proj` has no usable `weight.dtype`).
+  `detect_config(state_dict)` reads every dimension from the weights.
+- `layers.py` — `InitialLayer` -> 42 `TransformerLayer` -> `FinalLayer`, inter-layer tuple
+  `(x, modulation, head_modulation, rope, key_valid | 0-size, layout (h, w, 0))`; the features carry
+  `sigma`, the model time input `1000 * sigma` is formed in `InitialLayer`.
+- `loading.py` — diffusers folders and the Comfy-Org single files, checked against their real safetensors
+  headers: DiT (`proj.qkv` rows `q; k; v` split into the official `q/k/v`), TE (`model.language_model.*`
+  / `language_model.*` -> `Qwen3_5TextModel`, visual / lm_head / mtp dropped), VAE (LDM layout of
+  `flux2-vae` converted; the *small decoder* of the release `vae/` is swapped into diffusers'
+  `AutoencoderKLFlux2`, which in diffusers 0.37 cannot express `decoder_block_out_channels`).
+  Pre-quantized int8 / w4a8 files are refused (`guard_not_prequantized`).
+- `text.py` — the reference `encode_prompt`: chat template (thinking on, no system prompt), truncation at 4096,
+  one unpadded forward per prompt, `last_hidden_state`; `LazyStreamedEncoder` over the 32 layers.
+- `timesteps.py` — the report's final-stage sigma sampler (Table 6 / Eq. 4) as a pmf on the 1000-step grid,
+  selected by `model.timestep_sample_method = "moss"` (default; `logit_normal` / `uniform` stay available
+  via `field_library.timestep_sample_method(options=..., default=...)`). No shift while training.
+- `pipeline.py` — VAE encode = posterior mode -> 2x2 patchify -> `(z - bn.mean) / sqrt(bn.var + eps)`
+  (diffusers `pipeline_flux2` convention), plain velocity MSE through the template's masked fp32 loss,
+  default adapter scope = the blocks' attention + feed-forward (`adapter_default_layer_groups`),
+  export prefix `diffusion_model.` with `.alpha` keys, `save_model` = official transformer folder
+  (`rope.bands` included), fp16 refused.
+- `preview_sampling.py` — the reference sampler: `reference_sigmas` (shift 5.0 snapped to the training grid),
+  Euler in fp32, true CFG with the negative branch skipping block 22, tiled fp32 VAE decode.
+- Parity against the official pipeline with the real weights: `scripts/parity_moss_image.py`.
 
 See also [Dataset and cache — model hooks](dataset-and-cache.md#model-hooks-for-cache).

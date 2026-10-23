@@ -11,6 +11,7 @@ import {
 import { applyOptimizerTypeChange } from "../lib/optimizerForm";
 import { applySchedulerTypeChange } from "../lib/schedulerForm";
 import { applyAdapterTypeChange } from "../lib/adapterForm";
+import { allSchemaFields, releaseStaleModelDefaults } from "../lib/modelDefaults";
 import { useTomlFormSync } from "../composables/useTomlFormSync";
 import { createValidationAlertScheduler } from "../composables/useValidationAlertDismiss";
 import type { FormValues, ModelCapabilities } from "../types/forms";
@@ -196,8 +197,11 @@ export const useConfigEditorStore = defineStore("configEditor", () => {
     if (!form.value || !path) return;
     let next: FormValues = { ...form.value, [path]: value };
     if (path === "model.type") {
+      const previous = form.value;
       next = pruneFormForModel(next, modelCapabilities.value);
       next = applyModelCapabilityDefaults(next);
+      // Values still at the previous model's default follow the new model's (e.g. preview steps / CFG).
+      next = releaseStaleModelDefaults(previous, next, allSchemaFields(schema.value), modelCapabilities.value);
     }
     if (path === "optimizer.type") {
       next = applyOptimizerTypeChange(next, value, optimizerRegistries.value);

@@ -1,0 +1,32 @@
+# Full MOSS-Image DiT finetune (no [adapter] section). The 5B DiT needs ~10 GB for its bf16 weights
+# alone plus gradients and optimizer state; blocks_to_swap and optimizer.gradient_release = true
+# (deepspeed engine) trade speed for memory (VRAM pending measurement, see the user guide).
+# Optimizer values are the technical report's pretraining ones (LR 5e-5, AdamW betas 0.9 / 0.95,
+# weight decay 0.01, clip 1.0); for a small dataset start lower (e.g. 1e-5).
+
+output_dir = 'output'
+dataset = 'examples/minimal_moss_image_dataset.toml'
+
+epochs = 1
+micro_batch_size_per_gpu = 1
+pipeline_stages = 1
+gradient_accumulation_steps = 1
+activation_checkpointing = true
+save_every_n_epochs = 1
+caching_batch_size = 1
+
+[model]
+type = 'moss_image'
+dtype = 'bfloat16'
+# Comfy-Org/MOSS-Image bf16 files (links in docs/user/training-moss-image.md).
+transformer_path = 'path/to/moss_image_base_bf16.safetensors'
+vae_path = 'path/to/flux2-vae_small.safetensors'
+text_encoder_path = 'path/to/qwen3.5_9b_bf16.safetensors'
+# Alternative: the whole OpenMOSS-Team/MOSS-Image-Base download instead of the three files.
+# diffusers_path = 'path/to/MOSS-Image-Base'
+
+[optimizer]
+type = 'adamw'
+lr = 5e-5
+betas = [0.9, 0.95]
+weight_decay = 0.01

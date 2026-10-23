@@ -19,3 +19,7 @@ rengu  text eol=lf
 *.jpeg        binary
 *.webp        binary
 *.gif         binary
+
+# Model assets (tokenizers, configs, templates) are byte-exact copies of release files: never
+# normalize their line endings (a CRLF checkout changes the bytes, and with them tokenization).
+rengu_flow/model/**/assets/** -text

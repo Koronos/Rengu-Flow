@@ -140,15 +140,24 @@ def sigmoid_scale(description: str, *, help: str | None = None, doc: str | None 
     )
 
 
-def timestep_sample_method(description: str, *, help: str | None = None, doc: str | None = None) -> dict[str, Any]:
-    """``model.timestep_sample_method``: ``logit_normal`` (default) or ``uniform``."""
+def timestep_sample_method(
+    description: str,
+    *,
+    options: tuple[str, ...] | None = None,
+    default: str | None = None,
+    help: str | None = None,
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """``model.timestep_sample_method``: ``logit_normal`` (default) or ``uniform``; a model with its
+    own reference sampler adds it to ``options`` (listed first or last as it wants) and may make it
+    the ``default`` (the model's pipeline implements it, and must also list it in ``model_defaults``)."""
     return _entry(
         {
             "path": "model.timestep_sample_method",
             "label": "Timestep sample method",
             "type": "select",
-            "options": ["logit_normal", "uniform"],
-            "default": "logit_normal",
+            "options": list(options) if options else ["logit_normal", "uniform"],
+            "default": default or "logit_normal",
         },
         description=description,
         help=help,

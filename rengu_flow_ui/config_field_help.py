@@ -49,8 +49,8 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "doc": "docs/user/web-ui.md",
     },
     "model.type": {
-        "summary": "Registered pipeline (sdxl, cosmos_predict2, krea2, qwen_image21, …).",
-        "detail": "Selects which model code loads (e.g. sdxl, cosmos_predict2, krea2, qwen_image21).",
+        "summary": "The model you train (a registered pipeline type).",
+        "detail": "Selects which model code loads; the options are every registered model, and each model's own fields link its guide.",
         "doc": "docs/user/training-sdxl-lora-lokr.md",
     },
     "model.dtype": {
@@ -76,7 +76,7 @@ FIELD_HELP: dict[str, dict[str, str]] = {
     "model.cache_text_embeddings": {
         "summary": "Cache captions as embeddings once (faster training, more disk).",
         "detail": (
-            "Krea 2 and Qwen-Image 2.1 always cache (the toggle is hidden; false is a config error). "
+            "Models whose text encoder cannot run inside the training step always cache (the toggle is hidden for them; false is a config error). "
             "Strongly recommended for Cosmos/Anima: training skips the live Qwen3 forward "
             "(~22 ms/step) and frees ~1.2 GB VRAM (more activation_memory_budget headroom). "
             "For dropout regularization WITH the cache on, enable tag_dropout (and/or "
@@ -240,7 +240,7 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "doc": "docs/user/training-sdxl-lora-lokr.md",
     },
     "adapter.target_include": {
-        "summary": "Only attaches the adapter to modules whose path matches one of these glob patterns (empty = all modules).",
+        "summary": "Only attaches the adapter to modules whose path matches one of these glob patterns (empty = the model's default scope: all its modules unless the model narrows it, see Layer groups).",
         "detail": (
             "Patterns match the full dotted module path (e.g. unet.down_blocks.0...attn1.to_q on SDXL, "
             "blocks.0.self_attn... on Cosmos). *attn* trains attention only — smaller file with the "
@@ -474,12 +474,12 @@ FIELD_HELP: dict[str, dict[str, str]] = {
     },
     "preview.num_inference_steps": {
         "summary": "Denoising steps per preview image.",
-        "detail": "Fewer steps = faster preview but lower quality. Typical values: 20–30 for SDXL, 30–50 for Cosmos, 28 for Krea 2 and Qwen-Image 2.1.",
+        "detail": "Fewer steps = faster preview but lower quality. The default is the model's own reference sampler value (shown in the field); SDXL previews typically use 20–30.",
         "doc": "docs/user/previews.md",
     },
     "preview.guidance_scale": {
         "summary": "Classifier-free guidance scale for previews.",
-        "detail": "Higher values follow the prompt more strictly but can saturate colours. Typical range: 5–9 for SDXL; Cosmos defaults to 4.0, Krea 2 to 4.5, Qwen-Image 2.1 to 1.0 (no CFG).",
+        "detail": "Higher values follow the prompt more strictly but can saturate colours. The default is the model's own reference value (shown in the field; 1.0 means no CFG on a model that samples without it); SDXL typically uses 5–9.",
         "doc": "docs/user/previews.md",
     },
     "preview.seed": {
@@ -508,7 +508,7 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "doc": "docs/user/previews.md",
     },
     "preview.preview_offload_text_encoder": {
-        "summary": "Move the text encoder to CPU during preview sampling to free VRAM (Cosmos, Krea 2, Qwen-Image 2.1).",
+        "summary": "Move the text encoder to CPU during preview sampling to free VRAM (shown on the models that offer it).",
         "detail": "Enable if preview sampling OOMs; the transfer adds latency but lets the DiT use more VRAM during generation.",
         "doc": "docs/user/previews.md",
     },
@@ -524,10 +524,10 @@ FIELD_HELP: dict[str, dict[str, str]] = {
         "doc": "docs/user/previews.md",
     },
     "preview.preview_blocks_to_swap": {
-        "summary": "Number of DiT blocks to keep on CPU during preview sampling (Cosmos, Krea 2, Qwen-Image 2.1).",
+        "summary": "Number of DiT blocks to keep on CPU during preview sampling (shown on the models that offer it).",
         "detail": (
             "Reduces preview VRAM at the cost of slower sampling. Raise if preview sampling OOMs after "
-            "enabling preview_offload_text_encoder. Qwen-Image 2.1 on 8 GB cards: 32 (all blocks)."
+            "enabling preview_offload_text_encoder. The model's guide gives a starting value."
         ),
         "doc": "docs/user/previews.md",
     },
@@ -672,8 +672,8 @@ FIELD_HELP: dict[str, dict[str, str]] = {
     "caching_batch_size": {
         "summary": "Batch size for the dataset latent/text cache pass.",
         "detail": (
-            "Larger values can speed cache but use more VRAM during caching. For Qwen-Image 2.1 with a "
-            "streamed text encoder, each encoding batch sends the whole encoder over PCIe once, so a "
+            "Larger values can speed cache but use more VRAM during caching. For a model whose "
+            "text encoder streams from host RAM, each encoding batch sends the whole encoder over PCIe once, so a "
             "larger batch encodes more captions per pass."
         ),
         "doc": "docs/user/dataset-config.md",
@@ -819,14 +819,14 @@ FIELD_HELP: dict[str, dict[str, str]] = {
     "blocks_to_swap": {
         "summary": "Stream UNet/DiT blocks between CPU and GPU so only a few stay resident.",
         "detail": (
-            "SDXL, Cosmos Predict2, Krea 2 and Qwen-Image 2.1; requires pipeline_stages = 1. Works for both adapter and "
+            "Offered by the models that stream their blocks (the field is hidden on the others); requires pipeline_stages = 1. Works for both adapter and "
             "full-model training: adapters keep their small trainable params resident, while "
             "full-model (no [adapter]) additionally requires optimizer.gradient_release so the "
             "per-parameter step runs while the block is on the GPU. On ~8 GB cards this is the "
             "lever that makes a full SDXL fine-tune fit (e.g. blocks_to_swap = 6 → ~4.3 GB). "
             "Combine with activation_checkpointing. With gradient_release set, the Block-swap "
-            "prefetch toggle appears. Qwen-Image 2.1 on 8 GB: blocks_to_swap = 24 with the fp8 base "
-            "(transformer_fp8_matmul). See the low-VRAM recipe in the doc."
+            "prefetch toggle appears. The model's guide gives a starting value (with its fp8 base where it "
+            "offers one). See the low-VRAM recipe in the doc."
         ),
         "doc": "docs/developer/vram-optimization.md",
     },

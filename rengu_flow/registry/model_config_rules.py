@@ -86,6 +86,22 @@ def one_of_groups(cap: ModelCapability) -> list[list[str]]:
     return []
 
 
+DTYPE_KEYS = ("dtype", "transformer_dtype", "diffusion_model_dtype")
+
+
+def refused_dtype_problem(cap: ModelCapability, model: dict[str, Any]) -> str | None:
+    """The error for the first ``[model]`` dtype key set to a dtype the model refuses
+    (``ModelCapability.refused_dtypes``), else ``None``. Accepts TOML names and torch dtypes."""
+    for key in DTYPE_KEYS:
+        value = model.get(key)
+        if value is None:
+            continue
+        name = str(value).replace("torch.", "").lower()
+        if name in cap.refused_dtypes:
+            return f"model.{key} = {name} is not supported for {cap.type_id}: {cap.refused_dtypes[name]}."
+    return None
+
+
 def validate_model_section(model: dict[str, Any], *, raw_type: str) -> None:
     """Validate ``config['model']`` for a registered pipeline type.
 
@@ -102,6 +118,9 @@ def validate_model_section(model: dict[str, Any], *, raw_type: str) -> None:
         return
 
     ConfigValidationError = _validation_error()
+
+    if (problem := refused_dtype_problem(cap, model)) is not None:
+        raise ConfigValidationError(problem)
 
     for key in required_model_keys(cap):
         if key not in model:

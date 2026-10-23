@@ -34,6 +34,13 @@ Rengu Flow combines original code with material adapted from other projects. **T
 - **License:** MIT — well9472 (`nanosaur2_support/` of the `well9472/Nanosaur2-670M` repository)  
 - **Notice:** [rengu_flow/model/nanosaur2/NOTICE.md](rengu_flow/model/nanosaur2/NOTICE.md)
 
+## MOSS-Image modeling (OpenMOSS-Team/MOSS-Image-Base)
+
+- **Files:** `rengu_flow/model/moss_image/dit.py`, `preview_sampling.py`, `text.py` (ported); `assets/` (tokenizer, configs)  
+- **License:** Apache License 2.0 — OpenMOSS-Team (`pipeline_moss_image.py` of the Hugging Face repository)  
+- **Origin:** HF revision `85975793d8b3d432f1b6e27f352abaa4c2a4c0d3`  
+- **Notice:** [rengu_flow/model/moss_image/NOTICE.md](rengu_flow/model/moss_image/NOTICE.md)
+
 ## Alibaba Wan VAE
 
 - **File:** `rengu_flow/model/cosmos_predict2/wan_vae.py`  

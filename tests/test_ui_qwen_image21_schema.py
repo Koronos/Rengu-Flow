@@ -120,8 +120,15 @@ def test_qwen_image21_path_fields_declare_file_or_dir(schema, path, expect) -> N
     assert visible[path]["path_expect"] == expect
 
 
-def test_block_swap_and_preview_help_mention_qwen(schema) -> None:
+def test_block_swap_and_preview_help_is_model_neutral(schema) -> None:
+    """The generic block-swap / preview-memory hints are shown on qwen_image21's form but name no model
+    list (a list drifts as models are added; per-model numbers live in each spec's own help)."""
     visible = _visible(schema, _form())
-    assert "Qwen-Image 2.1" in visible["blocks_to_swap"]["help"]
-    assert "Qwen-Image 2.1" in visible["preview.preview_blocks_to_swap"]["description"]
-    assert "Qwen-Image 2.1" in visible["preview.preview_offload_text_encoder"]["description"]
+    texts = [
+        visible["blocks_to_swap"]["help"],
+        visible["preview.preview_blocks_to_swap"]["description"],
+        visible["preview.preview_offload_text_encoder"]["description"],
+    ]
+    for text in texts:
+        assert text
+        assert not any(name in text for name in ("Qwen-Image 2.1", "Krea 2", "Cosmos Predict2", "Nanosaur2", "MOSS-Image")), text

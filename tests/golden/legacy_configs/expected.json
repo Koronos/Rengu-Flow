@@ -11,7 +11,7 @@
     },
     "collect_validation_errors": {
       "result": [
-        "Unknown model type 'anima'. Use one of: ['cosmos_predict2', 'krea2', 'nanosaur2', 'qwen_image21', 'sdxl']."
+        "Unknown model type 'anima'. Use one of: ['cosmos_predict2', 'krea2', 'moss_image', 'nanosaur2', 'qwen_image21', 'sdxl']."
       ]
     },
     "collect_validation_warnings_after_defaults": {
@@ -115,7 +115,7 @@
       }
     },
     "validate_config_model_rules": {
-      "error": "ConfigValidationError: Unknown model type 'anima'. Use one of: ['cosmos_predict2', 'krea2', 'nanosaur2', 'qwen_image21', 'sdxl']."
+      "error": "ConfigValidationError: Unknown model type 'anima'. Use one of: ['cosmos_predict2', 'krea2', 'moss_image', 'nanosaur2', 'qwen_image21', 'sdxl']."
     }
   },
   "cosmos_diffusion_model_dtype_float8.toml": {
@@ -3520,7 +3520,7 @@
     },
     "collect_validation_errors": {
       "result": [
-        "Unknown model type 'flux'. Use one of: ['cosmos_predict2', 'krea2', 'nanosaur2', 'qwen_image21', 'sdxl']."
+        "Unknown model type 'flux'. Use one of: ['cosmos_predict2', 'krea2', 'moss_image', 'nanosaur2', 'qwen_image21', 'sdxl']."
       ]
     },
     "collect_validation_warnings_after_defaults": {
@@ -3614,7 +3614,7 @@
       }
     },
     "validate_config_model_rules": {
-      "error": "ConfigValidationError: Unknown model type 'flux'. Use one of: ['cosmos_predict2', 'krea2', 'nanosaur2', 'qwen_image21', 'sdxl']."
+      "error": "ConfigValidationError: Unknown model type 'flux'. Use one of: ['cosmos_predict2', 'krea2', 'moss_image', 'nanosaur2', 'qwen_image21', 'sdxl']."
     }
   }
 }
