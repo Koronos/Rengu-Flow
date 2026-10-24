@@ -214,7 +214,8 @@ everything else must pass).
 2. **Suites B and C run for free** once the spec names the kit (`tests/contract/`):
    - **A** `test_spec_contract.py`: the spec against everything derived from it (no torch).
    - **B** `test_pipeline_contract.py`: the real pipeline over the tiny kit: layers equal the model's
-     own forward, gradients reach every trainable parameter, adapter scope and golden export keys,
+     own forward, gradients reach every trainable parameter, every floating inter-layer tensor
+     requires grad under `pipeline_stages > 1`, adapter scope and golden export keys,
      layer groups, quantization scope, VAE/TE cache fns, flow-matching target, previews, `save_model` round trip.
    - **C** `test_data_model_seam.py`: real images through the real `Dataset`/`DatasetManager` cache,
      the loader's micro-batch split, `prepare_inputs`, every layer, loss and backward, for every

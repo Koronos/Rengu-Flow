@@ -72,6 +72,19 @@ def test_gradients_reach_every_trainable_parameter(kit_case, golden):
     golden(kit.type_id, f"loss_step/{case.name}", float(loss))
 
 
+def test_pipe_parallel_layers_hand_on_only_grad_carrying_floats(kit_case):
+    """``pipeline_stages > 1``: DeepSpeed pipe backprops every floating tensor that crosses a stage
+    boundary, so every floating item the layers hand on requires grad (a constant RoPE table or a
+    float ``layout`` left out trips the pipe's backward in stage 0)."""
+    kit, case = kit_case
+    p = kit.pipeline(pipeline_stages=2)
+    _batch, features, _label = _features(p, case)
+    _out, between = inter_layer_values(p.to_layers(), features)
+    for i, value in enumerate(between):
+        loose = [j for j, v in enumerate(value) if torch.is_floating_point(v) and not v.requires_grad]
+        assert not loose, f"after layer {i}: floating items {loose} do not require grad"
+
+
 # ---- adapters -----------------------------------------------------------------------------------
 
 ADAPTER_SUFFIX = re.compile(r"\.(lokr_\w+|lora_\w+|hada_\w+|alpha|scalar|dora_scale)(\.weight)?$")

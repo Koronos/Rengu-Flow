@@ -390,7 +390,7 @@ class QwenImage21Pipeline(dit_common.DiTPipeline):
     def to_layers(self):
         if self.config.get("tread"):
             raise ConfigValidationError("[tread] token routing is not supported for qwen_image21.")
-        layers = [InitialLayer(self.transformer)]
+        layers = [InitialLayer(self.transformer, pipe_parallel=int(self.config.get("pipeline_stages", 1)) > 1)]
         for i, block in enumerate(self.transformer.transformer_blocks):
             layers.append(TransformerLayer(block, i, self.offloader))
         layers.append(FinalLayer(self.transformer))

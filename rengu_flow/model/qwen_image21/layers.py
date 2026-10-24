@@ -65,7 +65,7 @@ class InitialLayer(nn.Module):
     ``(img_mask, control_latents, control_layout)`` for an edit batch (see
     ``pipeline._edit_inputs``)."""
 
-    def __init__(self, model):
+    def __init__(self, model, pipe_parallel: bool = False):
         super().__init__()
         self.img_in = model.img_in
         self.txt_in = model.txt_in
@@ -73,6 +73,9 @@ class InitialLayer(nn.Module):
         self.modulation = model.modulation
         self.pos_embed = model.pos_embed
         self.model = [model]
+        # DeepSpeed pipe (> 1 stage) backprops every floating inter-stage tensor, so they must all
+        # require grad there; single-stage marks only what carries gradient.
+        self.pipe_parallel = pipe_parallel
 
     def forward(self, inputs):
         with cuda_autocast():
@@ -105,9 +108,9 @@ class InitialLayer(nn.Module):
             outputs = make_contiguous(
                 prepared.hidden_states, prepared.temb, prepared.modulation, rope, key_valid, layout
             )
-            # The RoPE table is a constant (no parameter behind it): leave it out, or every layer
-            # would backprop into a leaf nobody reads.
-            mark_inter_layer_grads(outputs, False, outputs[:3])
+            # Single stage: the RoPE table is a constant (no parameter behind it): leave it out, or
+            # every layer would backprop into a leaf nobody reads.
+            mark_inter_layer_grads(outputs, self.pipe_parallel, outputs[:3])
             return outputs
 
 
