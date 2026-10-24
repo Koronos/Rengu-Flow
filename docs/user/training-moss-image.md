@@ -264,10 +264,18 @@ one forward per step. Pixels round to multiples of 16. Fifty steps at 1024x1024 
 ## Export formats
 
 - **Adapters** are written as `adapter_model.safetensors` with `diffusion_model.<module path>` keys
-  (dotted official module paths, plus a `.alpha` scalar per LoRA module). ComfyUI's stock LoRA
-  loader accepts this form (and `lora_unet_<path_with_underscores>` and bare paths): separate
-  `q` / `k` / `v` keys load on both the unfused (diffusers) and the fused Comfy-Org checkpoint. The key mapping was verified against ComfyUI's naming rules for both layouts (0 unmapped keys on a real
-  LoRA export); loading an export in a live ComfyUI has not been tested yet.
+  (dotted official module paths, plus a `.alpha` scalar per module; LoKr writes `lokr_w1` /
+  `lokr_w2_a` / `lokr_w2_b` beside it). Load them in ComfyUI with the stock **Load LoRA (Model and
+  CLIP)** (`LoraLoader`) node. You need a ComfyUI with native MOSS-Image support (mid-October 2026 or
+  later).
+  The same loader also accepts `lora_unet_<path_with_underscores>` and bare paths. Separate `q` / `k`
+  / `v` keys load on both the unfused (diffusers) checkpoint and the fused Comfy-Org one, where each
+  key lands on its third of `proj.qkv`.
+  - **Tested live:** ComfyUI master `fb3befd` (October 2026) on the Comfy-Org bf16 checkpoint. A LoRA
+    export and a LoKr export with the default scope each loaded with every key consumed: no
+    `lora key not loaded` lines, and 168 weights patched (42 blocks × `qkv` / `o` / `ffn_up_gate` /
+    `ffn_down`). Each changed the image at a fixed seed.
+  - **Unfused layout:** checked only against ComfyUI's key-naming rules, not in a live load.
 - **Full finetune** writes the official diffusers transformer layout (`config.json` +
   `diffusion_pytorch_model.safetensors` with the official key names and `rope.bands`): it reloads in
   the official pipeline (`MOSSImageTransformer.from_pretrained`) and as `model.transformer_path`.
